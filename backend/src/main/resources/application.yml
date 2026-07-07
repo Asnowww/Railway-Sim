@@ -4,13 +4,12 @@ server:
 spring:
   application:
     name: railway-sim-backend
+  config:
+    import:
+      - optional:file:./application-local.yml
+      - optional:file:./config/application-local.yml
   jackson:
     time-zone: Asia/Shanghai
-  datasource:
-    url: jdbc:mysql://${DB_HOST:localhost}:${DB_PORT:3306}/${DB_NAME:railway_sim}?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
-    username: ${DB_USER:railway_user}
-    password: ${DB_PASSWORD:}
-    driver-class-name: com.mysql.cj.jdbc.Driver
 
 railway:
   simulation:

@@ -22,6 +22,8 @@ frontend/.vite/
 .env
 .env.*
 !.env.example
+backend/application-local.yml
+backend/config/application-local.yml
 
 # Runtime data
 data/
