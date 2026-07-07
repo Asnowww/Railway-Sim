@@ -1,0 +1,68 @@
+line:
+  id: demo-line-1
+  name: 上京地铁示范线
+  lengthMeters: 5000
+  defaultSpeedLimitMetersPerSecond: 22.2
+
+stations:
+  - id: S01
+    name: 上京南站
+    positionMeters: 0
+  - id: S02
+    name: 科创园站
+    positionMeters: 1250
+  - id: S03
+    name: 中央公园站
+    positionMeters: 2500
+  - id: S04
+    name: 北城站
+    positionMeters: 3750
+  - id: S05
+    name: 上京北站
+    positionMeters: 5000
+
+segments:
+  - id: T01
+    from: S01
+    to: S02
+    startMeters: 0
+    endMeters: 1250
+    speedLimitMetersPerSecond: 20
+  - id: T02
+    from: S02
+    to: S03
+    startMeters: 1250
+    endMeters: 2500
+    speedLimitMetersPerSecond: 22.2
+  - id: T03
+    from: S03
+    to: S04
+    startMeters: 2500
+    endMeters: 3750
+    speedLimitMetersPerSecond: 22.2
+  - id: T04
+    from: S04
+    to: S05
+    startMeters: 3750
+    endMeters: 5000
+    speedLimitMetersPerSecond: 20
+
+switches:
+  - id: SW01
+    node: S03
+    normalTarget: T03
+    reverseTarget: DEPOT01
+    defaultPosition: NORMAL
+
+powerSections:
+  - id: P01
+    name: 南段供电分区
+    startMeters: 0
+    endMeters: 2500
+    nominalVoltage: 1500
+  - id: P02
+    name: 北段供电分区
+    startMeters: 2500
+    endMeters: 5000
+    nominalVoltage: 1500
+

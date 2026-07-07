@@ -1,0 +1,17 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: railway-sim-backend
+  jackson:
+    time-zone: Asia/Shanghai
+
+railway:
+  simulation:
+    tick-millis: 200
+    push-interval-millis: 1000
+    default-line-length-meters: 5000
+    default-speed-limit-meters-per-second: 22.2
+    safety-gap-meters: 120
+
