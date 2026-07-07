@@ -22,6 +22,10 @@ class VehiclePhysicsInput:
     previous_energy_consumed_kwh: float
     previous_energy_regenerated_kwh: float
     delta_seconds: float
+    dynamics_state: str = "COASTING"
+    dynamics_constraint_reason: str = "NONE"
+    station_distance_meters: float = 0.0
+    stopping_distance_meters: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -59,6 +63,12 @@ def _value(data: dict[str, Any], camel_name: str, snake_name: str) -> Any:
     return data[snake_name]
 
 
+def _optional_value(data: dict[str, Any], camel_name: str, snake_name: str, default: Any) -> Any:
+    if camel_name in data:
+        return data[camel_name]
+    return data.get(snake_name, default)
+
+
 def vehicle_physics_input_from_dict(data: dict[str, Any]) -> VehiclePhysicsInput:
     return VehiclePhysicsInput(
         train_id=_value(data, "trainId", "train_id"),
@@ -79,6 +89,15 @@ def vehicle_physics_input_from_dict(data: dict[str, Any]) -> VehiclePhysicsInput
         previous_energy_consumed_kwh=_value(data, "previousEnergyConsumedKwh", "previous_energy_consumed_kwh"),
         previous_energy_regenerated_kwh=_value(data, "previousEnergyRegeneratedKwh", "previous_energy_regenerated_kwh"),
         delta_seconds=_value(data, "deltaSeconds", "delta_seconds"),
+        dynamics_state=_optional_value(data, "dynamicsState", "dynamics_state", "COASTING"),
+        dynamics_constraint_reason=_optional_value(
+            data,
+            "dynamicsConstraintReason",
+            "dynamics_constraint_reason",
+            "NONE",
+        ),
+        station_distance_meters=_optional_value(data, "stationDistanceMeters", "station_distance_meters", 0.0),
+        stopping_distance_meters=_optional_value(data, "stoppingDistanceMeters", "stopping_distance_meters", 0.0),
     )
 
 

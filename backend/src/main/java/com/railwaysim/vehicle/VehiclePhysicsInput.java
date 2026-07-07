@@ -18,6 +18,10 @@ public record VehiclePhysicsInput(
     double adhesionCoefficient,
     double previousEnergyConsumedKwh,
     double previousEnergyRegeneratedKwh,
-    double deltaSeconds
+    double deltaSeconds,
+    String dynamicsState,
+    String dynamicsConstraintReason,
+    double stationDistanceMeters,
+    double stoppingDistanceMeters
 ) {
 }

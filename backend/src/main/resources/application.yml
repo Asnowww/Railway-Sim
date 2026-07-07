@@ -19,7 +19,7 @@ railway:
     default-speed-limit-meters-per-second: 22.2
     default-curve-radius-meters: 1000
     safety-gap-meters: 120
-    line-data-path: ../config/line-demo.yaml
+    line-data-path: ../database/线路数据(1).xls
     power-config-path: ../config/power_third_rail.yaml
     fmu-step-millis: 100
     track-step-millis: 100

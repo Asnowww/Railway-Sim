@@ -195,6 +195,12 @@ CREATE TABLE IF NOT EXISTS train_physics_snapshot (
   regen_power_w DOUBLE NOT NULL,
   fault_code VARCHAR(64) NOT NULL,
   data_quality VARCHAR(32) NOT NULL DEFAULT 'GOOD',
+  dynamics_state VARCHAR(32) NOT NULL DEFAULT 'COASTING',
+  dynamics_constraint_reason VARCHAR(128) NOT NULL DEFAULT 'NONE',
+  speed_limit_mps DOUBLE NOT NULL DEFAULT 0,
+  ma_distance_meters DOUBLE NOT NULL DEFAULT 0,
+  station_distance_meters DOUBLE NOT NULL DEFAULT 0,
+  stopping_distance_meters DOUBLE NOT NULL DEFAULT 0,
   recorded_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   INDEX idx_train_physics_snapshot_train_tick (train_id, tick)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

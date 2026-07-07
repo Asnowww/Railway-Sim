@@ -68,8 +68,11 @@ public class SimulationPersistenceService {
                 INSERT INTO train_physics_snapshot (
                   train_id, tick, position_meters, speed_mps, acceleration_mps2,
                   traction_force_n, brake_force_n, regen_brake_force_n, rail_current_a,
-                  traction_power_w, regen_power_w, fault_code, data_quality, recorded_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                  traction_power_w, regen_power_w, fault_code, data_quality,
+                  dynamics_state, dynamics_constraint_reason, speed_limit_mps,
+                  ma_distance_meters, station_distance_meters, stopping_distance_meters,
+                  recorded_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
             train.id(),
             context.tick(),
@@ -84,6 +87,12 @@ public class SimulationPersistenceService {
             train.regenPowerWatts(),
             train.faultCode(),
             train.dataQuality(),
+            train.dynamicsState(),
+            train.dynamicsConstraintReason(),
+            train.speedLimitMetersPerSecond(),
+            train.movementAuthorityDistanceMeters(),
+            train.stationDistanceMeters(),
+            train.stoppingDistanceMeters(),
             timestamp(context)
         );
     }

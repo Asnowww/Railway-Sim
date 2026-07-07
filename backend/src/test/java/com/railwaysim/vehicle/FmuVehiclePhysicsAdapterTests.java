@@ -118,7 +118,11 @@ class FmuVehiclePhysicsAdapterTests {
             0.9,
             0.0,
             0.0,
-            0.1
+            0.1,
+            "ACCELERATING",
+            "SPEED_MARGIN_AVAILABLE",
+            1_000.0,
+            0.0
         );
     }
 

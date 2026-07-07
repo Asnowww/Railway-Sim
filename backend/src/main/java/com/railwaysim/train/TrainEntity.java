@@ -23,6 +23,12 @@ public class TrainEntity {
     private int faultLevel;
     private String availableOperationMode = "NORMAL";
     private String dataQuality = "GOOD";
+    private String dynamicsState = "COASTING";
+    private String dynamicsConstraintReason = "INITIAL";
+    private double speedLimitMetersPerSecond;
+    private double movementAuthorityDistanceMeters;
+    private double stationDistanceMeters;
+    private double stoppingDistanceMeters;
     private double accelerationMetersPerSecondSquared;
     private double tractionForceNewtons;
     private double brakeForceNewtons;
@@ -70,6 +76,12 @@ public class TrainEntity {
         faultLevel = report.faultLevel();
         availableOperationMode = report.availableOperationMode();
         dataQuality = report.dataQuality();
+        dynamicsState = report.dynamicsState();
+        dynamicsConstraintReason = report.dynamicsConstraintReason();
+        speedLimitMetersPerSecond = report.speedLimitMetersPerSecond();
+        movementAuthorityDistanceMeters = report.movementAuthorityDistanceMeters();
+        stationDistanceMeters = report.stationDistanceMeters();
+        stoppingDistanceMeters = report.stoppingDistanceMeters();
         status = resolveStatus(report, output);
     }
 
@@ -97,6 +109,12 @@ public class TrainEntity {
             faultLevel,
             availableOperationMode,
             dataQuality,
+            dynamicsState,
+            dynamicsConstraintReason,
+            speedLimitMetersPerSecond,
+            movementAuthorityDistanceMeters,
+            stationDistanceMeters,
+            stoppingDistanceMeters,
             accelerationMetersPerSecondSquared,
             tractionForceNewtons,
             brakeForceNewtons,

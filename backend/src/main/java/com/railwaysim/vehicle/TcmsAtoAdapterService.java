@@ -16,6 +16,10 @@ public class TcmsAtoAdapterService {
     private static final double EMPTY_MASS_KG = 198_000;
     private static final double MAX_LOAD_MASS_KG = 72_000;
     private static final double DEFAULT_ADHESION = 0.9;
+    private static final double GRAVITY = 9.81;
+    private static final double SERVICE_BRAKE_DECELERATION = 0.9;
+    private static final double STATION_STOP_WINDOW_METERS = 8.0;
+    private static final double NO_STATION_DISTANCE_METERS = 1_000_000;
 
     private final SimulationProperties simulationProperties;
     private final StaticInfrastructureCatalog infrastructureCatalog;
@@ -38,25 +42,28 @@ public class TcmsAtoAdapterService {
     ) {
         double speedLimit = applyDispatchConstraint(resolveSpeedLimit(authority, track), dispatch);
         double maDistance = resolveMovementAuthorityDistance(train, authority);
-        boolean emergencyBrake = authority != null && maDistance <= 0;
         boolean doorClosed = "CLOSED_LOCKED".equals(train.doorState());
-
-        double tractionCommand = calculateTractionCommand(train, speedLimit, doorClosed, power, dispatch);
-        double brakeCommand = calculateBrakeCommand(train, speedLimit, maDistance, emergencyBrake, dispatch);
-
-        if (emergencyBrake) {
-            tractionCommand = 0;
-            brakeCommand = 1;
-        }
+        double stationDistance = resolveStationDistance(train, track);
+        DynamicsDecision decision = decideDynamicsState(
+            train,
+            speedLimit,
+            maDistance,
+            stationDistance,
+            doorClosed,
+            track,
+            power,
+            dispatch,
+            authority
+        );
 
         return new VehiclePhysicsInput(
             train.id(),
             train.positionMeters(),
             train.speedMetersPerSecond(),
             EMPTY_MASS_KG + MAX_LOAD_MASS_KG * clamp(train.loadRate(), 0, 1),
-            tractionCommand,
-            brakeCommand,
-            emergencyBrake,
+            decision.tractionCommand(),
+            decision.brakeCommand(),
+            decision.emergencyBrake(),
             speedLimit,
             maDistance,
             track == null ? 0 : track.gradient(),
@@ -67,7 +74,11 @@ public class TcmsAtoAdapterService {
             DEFAULT_ADHESION,
             train.energyConsumedKwh(),
             train.energyRegeneratedKwh(),
-            context.deltaSeconds()
+            context.deltaSeconds(),
+            decision.state().name(),
+            decision.reason(),
+            stationDistance,
+            decision.stoppingDistanceMeters()
         );
     }
 
@@ -94,6 +105,12 @@ public class TcmsAtoAdapterService {
             resolveFaultLevel(input, output),
             resolveAvailableOperationMode(input, output),
             resolveDataQuality(output),
+            input.dynamicsState(),
+            input.dynamicsConstraintReason(),
+            input.speedLimitMetersPerSecond(),
+            input.movementAuthorityDistanceMeters(),
+            input.stationDistanceMeters(),
+            input.stoppingDistanceMeters(),
             input.tractionCommand(),
             input.brakeCommand(),
             input.emergencyBrakeCommand(),
@@ -103,55 +120,155 @@ public class TcmsAtoAdapterService {
         );
     }
 
-    private double calculateTractionCommand(
-        TrainState train,
-        double speedLimit,
-        boolean doorClosed,
-        PowerConstraint power,
-        DispatchConstraint dispatch
-    ) {
-        if (
-            !doorClosed ||
-                !train.tractionAvailable() ||
-                !train.brakeAvailable() ||
-                "FAIL".equals(train.selfCheckStatus()) ||
-                dispatch != null && dispatch.holdTrain() ||
-                power != null && (!power.currentCollectionAvailable() || power.powerAvailableWatts() <= 0)
-        ) {
-            return 0;
-        }
-        double speedMargin = speedLimit - train.speedMetersPerSecond();
-        if (speedMargin <= 0.5) {
-            return 0;
-        }
-        return clamp(speedMargin / Math.max(3.0, speedLimit * 0.25), 0, 1);
-    }
-
-    private double calculateBrakeCommand(
+    private DynamicsDecision decideDynamicsState(
         TrainState train,
         double speedLimit,
         double maDistance,
-        boolean emergencyBrake,
-        DispatchConstraint dispatch
+        double stationDistance,
+        boolean doorClosed,
+        TrackConstraint track,
+        PowerConstraint power,
+        DispatchConstraint dispatch,
+        MovementAuthority authority
     ) {
-        if (emergencyBrake) {
-            return 1;
+        double speed = train.speedMetersPerSecond();
+        double stoppingDistance = stoppingDistanceMeters(speed, track == null ? 0 : track.gradient());
+
+        if (!doorClosed || !train.brakeAvailable() || "FAIL".equals(train.selfCheckStatus())) {
+            return brakeDecision(
+                TrainDynamicsState.SELF_CHECK_BLOCKED,
+                !doorClosed ? "DOOR_NOT_LOCKED" : "SELF_CHECK_FAILED",
+                speed,
+                stoppingDistance,
+                false
+            );
+        }
+        if (authority != null && maDistance <= 0) {
+            return brakeDecision(
+                TrainDynamicsState.SAFETY_BRAKE,
+                "MOVEMENT_AUTHORITY_EXHAUSTED",
+                speed,
+                stoppingDistance,
+                true
+            );
         }
         if (dispatch != null && dispatch.holdTrain()) {
-            return train.speedMetersPerSecond() > 0.1 ? 1 : 0.6;
+            return new DynamicsDecision(
+                TrainDynamicsState.DISPATCH_HOLD,
+                "DISPATCH_HOLD",
+                0,
+                speed > 0.1 ? 1 : 0.6,
+                false,
+                stoppingDistance
+            );
+        }
+        if (power != null && (!power.currentCollectionAvailable() || power.powerAvailableWatts() <= 0)) {
+            return brakeDecision(
+                TrainDynamicsState.POWER_LOSS,
+                power.constraintReason(),
+                speed,
+                stoppingDistance,
+                false
+            );
+        }
+        if (!train.tractionAvailable()) {
+            return new DynamicsDecision(
+                TrainDynamicsState.SELF_CHECK_BLOCKED,
+                "TRACTION_UNAVAILABLE",
+                0,
+                speed > 0.1 ? 0.4 : 0,
+                false,
+                stoppingDistance
+            );
         }
 
-        double overspeed = train.speedMetersPerSecond() - speedLimit;
+        double maBrakeTrigger = stoppingDistance + simulationProperties.getSafetyGapMeters() * 0.5;
+        if (maDistance <= maBrakeTrigger) {
+            return new DynamicsDecision(
+                TrainDynamicsState.MA_BRAKE,
+                "MA_DISTANCE_LIMIT",
+                0,
+                brakeForDistance(maDistance, stoppingDistance, simulationProperties.getSafetyGapMeters() * 0.5),
+                false,
+                stoppingDistance
+            );
+        }
+
+        if (stationDistance <= STATION_STOP_WINDOW_METERS && speed <= 0.2) {
+            return new DynamicsDecision(
+                TrainDynamicsState.STATION_STOPPED,
+                "STATION_STOP_WINDOW",
+                0,
+                0.6,
+                false,
+                stoppingDistance
+            );
+        }
+
+        double stationBrakeBuffer = stationApproachBufferMeters(speed);
+        if (stationDistance <= stoppingDistance + stationBrakeBuffer) {
+            return new DynamicsDecision(
+                TrainDynamicsState.STATION_BRAKE,
+                "STATION_APPROACH",
+                0,
+                brakeForDistance(stationDistance, stoppingDistance, stationBrakeBuffer),
+                false,
+                stoppingDistance
+            );
+        }
+
+        double overspeed = speed - speedLimit;
         if (overspeed > 0) {
-            return clamp(overspeed / 3.0, 0.2, 1);
+            return new DynamicsDecision(
+                TrainDynamicsState.OVERSPEED_BRAKE,
+                "SPEED_LIMIT_EXCEEDED",
+                0,
+                clamp(overspeed / 3.0, 0.2, 1),
+                false,
+                stoppingDistance
+            );
         }
 
-        double stoppingDistance = train.speedMetersPerSecond() * train.speedMetersPerSecond() / (2 * 0.9);
-        double brakingBuffer = simulationProperties.getSafetyGapMeters() * 0.5;
-        if (maDistance < stoppingDistance + brakingBuffer) {
-            return clamp((stoppingDistance + brakingBuffer - maDistance) / Math.max(brakingBuffer, 1), 0.2, 1);
+        double speedMargin = speedLimit - speed;
+        double tractionCommand = tractionForSpeedMargin(speedMargin, speedLimit);
+        if (power != null && power.powerDeratingFactor() < 0.95 && tractionCommand > 0) {
+            return new DynamicsDecision(
+                TrainDynamicsState.POWER_DERATED,
+                power.constraintReason(),
+                tractionCommand * clamp(power.powerDeratingFactor(), 0, 1),
+                0,
+                false,
+                stoppingDistance
+            );
         }
-        return 0;
+        if (speedMargin > Math.max(1.5, speedLimit * 0.08)) {
+            return new DynamicsDecision(
+                TrainDynamicsState.ACCELERATING,
+                "SPEED_MARGIN_AVAILABLE",
+                tractionCommand,
+                0,
+                false,
+                stoppingDistance
+            );
+        }
+        if (speedMargin > 0.4) {
+            return new DynamicsDecision(
+                TrainDynamicsState.CRUISING,
+                "NEAR_TARGET_SPEED",
+                Math.min(tractionCommand, 0.25),
+                0,
+                false,
+                stoppingDistance
+            );
+        }
+        return new DynamicsDecision(
+            TrainDynamicsState.COASTING,
+            "TARGET_SPEED_REACHED",
+            0,
+            0,
+            false,
+            stoppingDistance
+        );
     }
 
     private double resolveSpeedLimit(MovementAuthority authority, TrackConstraint track) {
@@ -174,6 +291,16 @@ public class TcmsAtoAdapterService {
         return Math.max(0, authority.authorityEndMeters() - train.positionMeters());
     }
 
+    private double resolveStationDistance(TrainState train, TrackConstraint track) {
+        double distance = track == null
+            ? infrastructureCatalog.lineData().nextStationDistanceMeters(train.positionMeters())
+            : track.stationDistanceMeters();
+        if (!Double.isFinite(distance)) {
+            return NO_STATION_DISTANCE_METERS;
+        }
+        return Math.max(0, distance);
+    }
+
     private double applyDispatchConstraint(double speedLimit, DispatchConstraint dispatch) {
         if (dispatch == null) {
             return speedLimit;
@@ -185,8 +312,14 @@ public class TcmsAtoAdapterService {
         if (input.emergencyBrakeCommand()) {
             return "ATP_BRAKE";
         }
+        if ("STATION_BRAKE".equals(input.dynamicsState()) || "STATION_STOPPED".equals(input.dynamicsState())) {
+            return "STATION_CONTROL";
+        }
         if (dispatch != null && dispatch.holdTrain()) {
             return "DISPATCH_HOLD";
+        }
+        if ("POWER_DERATED".equals(input.dynamicsState())) {
+            return "DEGRADED";
         }
         if (dispatch != null && !"NORMAL".equals(dispatch.reason())) {
             return "DISPATCH_ADJUST";
@@ -198,7 +331,7 @@ public class TcmsAtoAdapterService {
         if (input.tractionCommand() <= 0 || output.tractionForceNewtons() <= 0) {
             return "IDLE";
         }
-        if (input.powerAvailableWatts() < 3_200_000) {
+        if ("POWER_DERATED".equals(input.dynamicsState()) || input.powerAvailableWatts() < 3_200_000) {
             return "DERATED";
         }
         return "APPLYING";
@@ -266,5 +399,59 @@ public class TcmsAtoAdapterService {
 
     private double clamp(double value, double min, double max) {
         return Math.max(min, Math.min(max, value));
+    }
+
+    private DynamicsDecision brakeDecision(
+        TrainDynamicsState state,
+        String reason,
+        double speed,
+        double stoppingDistance,
+        boolean emergencyBrake
+    ) {
+        return new DynamicsDecision(
+            state,
+            reason,
+            0,
+            emergencyBrake ? 1 : speed > 0.1 ? 0.8 : 0.6,
+            emergencyBrake,
+            stoppingDistance
+        );
+    }
+
+    private double tractionForSpeedMargin(double speedMargin, double speedLimit) {
+        if (speedMargin <= 0.4) {
+            return 0;
+        }
+        return clamp(speedMargin / Math.max(3.0, speedLimit * 0.25), 0, 1);
+    }
+
+    private double brakeForDistance(double remainingDistance, double stoppingDistance, double bufferMeters) {
+        double shortfall = stoppingDistance + bufferMeters - remainingDistance;
+        return clamp(shortfall / Math.max(bufferMeters, 1), 0.2, 1);
+    }
+
+    private double stoppingDistanceMeters(double speedMetersPerSecond, double gradient) {
+        // The XLS can contain steep local grade records; clamp only the planning contribution.
+        double planningGradient = clamp(gradient, -0.04, 0.04);
+        double effectiveDeceleration = clamp(
+            SERVICE_BRAKE_DECELERATION + planningGradient * GRAVITY,
+            0.35,
+            1.25
+        );
+        return speedMetersPerSecond * speedMetersPerSecond / (2 * effectiveDeceleration);
+    }
+
+    private double stationApproachBufferMeters(double speedMetersPerSecond) {
+        return clamp(Math.max(30, speedMetersPerSecond * 6), 30, 140);
+    }
+
+    private record DynamicsDecision(
+        TrainDynamicsState state,
+        String reason,
+        double tractionCommand,
+        double brakeCommand,
+        boolean emergencyBrake,
+        double stoppingDistanceMeters
+    ) {
     }
 }

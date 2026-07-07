@@ -23,6 +23,12 @@ export interface TrainState {
   faultLevel: number
   availableOperationMode: string
   dataQuality: string
+  dynamicsState: string
+  dynamicsConstraintReason: string
+  speedLimitMetersPerSecond: number
+  movementAuthorityDistanceMeters: number
+  stationDistanceMeters: number
+  stoppingDistanceMeters: number
   accelerationMetersPerSecondSquared: number
   tractionForceNewtons: number
   brakeForceNewtons: number
