@@ -64,6 +64,7 @@ public class SimulationController {
     @PostMapping("/fault/inject")
     public SimulationSnapshot injectFault(@RequestParam String segmentId) {
         trackService.injectFault(segmentId);
+        trackService.updateOccupancy(trainManager.states());
         signalService.calculateAuthorities(
             trainManager.states(),
             trackService.constraintsForTrains(trainManager.states())
@@ -74,6 +75,7 @@ public class SimulationController {
     @PostMapping("/fault/clear")
     public SimulationSnapshot clearFault(@RequestParam String segmentId) {
         trackService.clearFault(segmentId);
+        trackService.updateOccupancy(trainManager.states());
         signalService.calculateAuthorities(
             trainManager.states(),
             trackService.constraintsForTrains(trainManager.states())
