@@ -56,7 +56,7 @@ public class FmuVehiclePhysicsAdapter implements VehiclePhysicsClient {
                 "FMU service failed; switched to SimpleVehicleDynamicsModel",
                 now
             ));
-            return fallback(inputs);
+            return fallback(inputs, "FMU_STEP_FAILED");
         }
     }
 
@@ -78,6 +78,26 @@ public class FmuVehiclePhysicsAdapter implements VehiclePhysicsClient {
 
     private List<VehiclePhysicsOutput> fallback(List<VehiclePhysicsInput> inputs) {
         return inputs.stream().map(fallbackModel::step).toList();
+    }
+
+    private List<VehiclePhysicsOutput> fallback(List<VehiclePhysicsInput> inputs, String faultCode) {
+        return fallback(inputs).stream()
+            .map(output -> new VehiclePhysicsOutput(
+                output.trainId(),
+                output.newPositionMeters(),
+                output.newSpeedMetersPerSecond(),
+                output.accelerationMetersPerSecondSquared(),
+                output.tractionForceNewtons(),
+                output.brakeForceNewtons(),
+                output.regenBrakeForceNewtons(),
+                output.tractionPowerWatts(),
+                output.railCurrentAmps(),
+                output.regenPowerWatts(),
+                output.energyConsumedKwh(),
+                output.energyRegeneratedKwh(),
+                faultCode
+            ))
+            .toList();
     }
 
     private String summarize(RuntimeException exception) {

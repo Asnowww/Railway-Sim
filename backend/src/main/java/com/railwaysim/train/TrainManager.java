@@ -102,6 +102,7 @@ public class TrainManager {
             if (output != null && input != null) {
                 TrainStateReport report = tcmsAtoAdapterService.buildTrainStateReport(input, output, dispatch);
                 train.applyPhysicsOutput(output, report);
+                realtimeStateCache.updateTrainTcmsState(report);
                 publishVehicleEvents(output);
             }
         }

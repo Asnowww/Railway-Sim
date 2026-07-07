@@ -8,7 +8,10 @@ public record OperationalPowerData(
     double minimumVoltage,
     double cutoffVoltage,
     double maxTractionCurrentAmps,
+    double overCurrentThresholdAmps,
     double currentToVoltageDrop,
+    boolean sameSectionAbsorbFirst,
+    String unabsorbedRegenMode,
     List<PowerSectionDefinition> sections
 ) {
     public OperationalPowerData {
@@ -20,10 +23,18 @@ public record OperationalPowerData(
     public record PowerSectionDefinition(
         String id,
         String name,
+        String substationId,
+        String feederId,
         double startMeters,
         double endMeters,
         double substationVoltage,
-        boolean energized
+        boolean energized,
+        String breakerStatus,
+        String isolatorStatus,
+        String supplyMode,
+        String maintenanceState,
+        String lockoutState,
+        double resistanceOhmPerMeter
     ) {
     }
 }

@@ -3,15 +3,30 @@ export type SimulationStatus = 'STOPPED' | 'RUNNING' | 'PAUSED'
 export interface TrainState {
   id: string
   routeId: string
+  serviceNo: string
   positionMeters: number
   speedMetersPerSecond: number
   lengthMeters: number
+  headMileage: number
+  tailMileage: number
   loadRate: number
   status: string
   operationMode: string
+  zeroSpeed: boolean
+  doorState: string
+  tractionState: string
+  brakeState: string
+  currentCollectionStatus: string
+  tractionAvailable: boolean
+  brakeAvailable: boolean
+  selfCheckStatus: string
+  faultLevel: number
+  availableOperationMode: string
+  dataQuality: string
   accelerationMetersPerSecondSquared: number
   tractionForceNewtons: number
   brakeForceNewtons: number
+  regenBrakeForceNewtons: number
   railCurrentAmps: number
   tractionPowerWatts: number
   regenPowerWatts: number
@@ -43,6 +58,18 @@ export interface PowerSectionState {
   voltage: number
   current: number
   status: string
+  loadWatts: number
+  regenPowerWatts: number
+  absorbedRegenPowerWatts: number
+  unabsorbedRegenPowerWatts: number
+  availablePowerWatts: number
+  breakerStatus: string
+  protectionState: string
+  maintenanceState: string
+  lockoutState: string
+  affectedTrainIds: string[]
+  dataQuality: string
+  updatedAt: string
 }
 
 export interface Alarm {

@@ -50,9 +50,16 @@ CREATE TABLE IF NOT EXISTS power_section_config (
   section_id VARCHAR(64) NOT NULL UNIQUE,
   line_id VARCHAR(64) NOT NULL,
   section_name VARCHAR(128) NOT NULL,
+  substation_id VARCHAR(64),
+  feeder_id VARCHAR(64),
   start_meters DOUBLE NOT NULL,
   end_meters DOUBLE NOT NULL,
   nominal_voltage DOUBLE NOT NULL DEFAULT 1500,
+  breaker_status VARCHAR(32) NOT NULL DEFAULT 'CLOSED',
+  isolator_status VARCHAR(32) NOT NULL DEFAULT 'CLOSED',
+  supply_mode VARCHAR(32) NOT NULL DEFAULT 'DOUBLE_END',
+  maintenance_state VARCHAR(32) NOT NULL DEFAULT 'NONE',
+  lockout_state VARCHAR(32) NOT NULL DEFAULT 'UNLOCKED',
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   INDEX idx_power_section_line_range (line_id, start_meters, end_meters)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
@@ -182,10 +189,12 @@ CREATE TABLE IF NOT EXISTS train_physics_snapshot (
   acceleration_mps2 DOUBLE NOT NULL,
   traction_force_n DOUBLE NOT NULL,
   brake_force_n DOUBLE NOT NULL,
+  regen_brake_force_n DOUBLE NOT NULL DEFAULT 0,
   rail_current_a DOUBLE NOT NULL,
   traction_power_w DOUBLE NOT NULL,
   regen_power_w DOUBLE NOT NULL,
   fault_code VARCHAR(64) NOT NULL,
+  data_quality VARCHAR(32) NOT NULL DEFAULT 'GOOD',
   recorded_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   INDEX idx_train_physics_snapshot_train_tick (train_id, tick)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
@@ -214,11 +223,13 @@ CREATE TABLE IF NOT EXISTS fmu_call_log (
 
 CREATE TABLE IF NOT EXISTS fmu_fault_log (
   id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  tick BIGINT NOT NULL DEFAULT 0,
   train_id VARCHAR(64),
   fault_code VARCHAR(64) NOT NULL,
   detail_text VARCHAR(512) NOT NULL,
   fallback_activated BOOLEAN NOT NULL DEFAULT FALSE,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_fmu_fault_tick_train (tick, train_id),
   INDEX idx_fmu_fault_log_train_time (train_id, created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
@@ -229,9 +240,69 @@ CREATE TABLE IF NOT EXISTS power_section_record (
   voltage DOUBLE NOT NULL,
   current_value DOUBLE NOT NULL,
   status VARCHAR(32) NOT NULL,
+  load_w DOUBLE NOT NULL DEFAULT 0,
+  available_power_w DOUBLE NOT NULL DEFAULT 0,
   regen_power_w DOUBLE NOT NULL DEFAULT 0,
+  absorbed_regen_power_w DOUBLE NOT NULL DEFAULT 0,
+  unabsorbed_regen_power_w DOUBLE NOT NULL DEFAULT 0,
+  breaker_status VARCHAR(32) NOT NULL DEFAULT 'CLOSED',
+  protection_state VARCHAR(32) NOT NULL DEFAULT 'NORMAL',
+  maintenance_state VARCHAR(32) NOT NULL DEFAULT 'NONE',
+  lockout_state VARCHAR(32) NOT NULL DEFAULT 'UNLOCKED',
+  affected_train_ids_json JSON,
+  data_quality VARCHAR(32) NOT NULL DEFAULT 'GOOD',
   recorded_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   INDEX idx_power_section_record_section_tick (section_id, tick)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS power_fault_record (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  fault_id VARCHAR(64) NOT NULL,
+  section_id VARCHAR(64) NOT NULL,
+  fault_type VARCHAR(64) NOT NULL,
+  fault_state VARCHAR(32) NOT NULL,
+  level TINYINT NOT NULL DEFAULT 2,
+  affected_train_ids_json JSON,
+  detail_text VARCHAR(512),
+  started_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  cleared_at TIMESTAMP NULL,
+  INDEX idx_power_fault_section_time (section_id, started_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS power_operation_log (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  section_id VARCHAR(64) NOT NULL,
+  operation_type VARCHAR(64) NOT NULL,
+  before_state VARCHAR(64),
+  after_state VARCHAR(64),
+  operator_name VARCHAR(64) NOT NULL DEFAULT 'simulation',
+  detail_json JSON,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_power_operation_section_time (section_id, created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS power_maintenance_lock_record (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  section_id VARCHAR(64) NOT NULL,
+  lockout_state VARCHAR(32) NOT NULL,
+  grounding_state VARCHAR(32) NOT NULL DEFAULT 'UNGROUNDED',
+  approval_state VARCHAR(32) NOT NULL DEFAULT 'SIMULATED',
+  operator_name VARCHAR(64) NOT NULL DEFAULT 'simulation',
+  recorded_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_power_lock_section_time (section_id, recorded_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS train_fault_record (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  train_id VARCHAR(64) NOT NULL,
+  fault_code VARCHAR(64) NOT NULL,
+  fault_level TINYINT NOT NULL,
+  self_check_status VARCHAR(32) NOT NULL,
+  available_operation_mode VARCHAR(32) NOT NULL,
+  detail_text VARCHAR(512),
+  raised_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  closed_at TIMESTAMP NULL,
+  INDEX idx_train_fault_train_time (train_id, raised_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 INSERT INTO line_config (line_id, line_name, length_meters, default_speed_limit_mps)
@@ -264,15 +335,36 @@ ON DUPLICATE KEY UPDATE
   end_meters = VALUES(end_meters),
   speed_limit_mps = VALUES(speed_limit_mps);
 
-INSERT INTO power_section_config (section_id, line_id, section_name, start_meters, end_meters, nominal_voltage)
+INSERT INTO power_section_config (
+  section_id,
+  line_id,
+  section_name,
+  substation_id,
+  feeder_id,
+  start_meters,
+  end_meters,
+  nominal_voltage,
+  breaker_status,
+  isolator_status,
+  supply_mode,
+  maintenance_state,
+  lockout_state
+)
 VALUES
-  ('P01', 'demo-line-1', '南段供电分区', 0, 2500, 1500),
-  ('P02', 'demo-line-1', '北段供电分区', 2500, 5000, 1500)
+  ('P01', 'demo-line-1', '南段供电分区', 'SS01', 'F01', 0, 2500, 1500, 'CLOSED', 'CLOSED', 'DOUBLE_END', 'NONE', 'UNLOCKED'),
+  ('P02', 'demo-line-1', '北段供电分区', 'SS02', 'F02', 2500, 5000, 1500, 'CLOSED', 'CLOSED', 'DOUBLE_END', 'NONE', 'UNLOCKED')
 ON DUPLICATE KEY UPDATE
   section_name = VALUES(section_name),
+  substation_id = VALUES(substation_id),
+  feeder_id = VALUES(feeder_id),
   start_meters = VALUES(start_meters),
   end_meters = VALUES(end_meters),
-  nominal_voltage = VALUES(nominal_voltage);
+  nominal_voltage = VALUES(nominal_voltage),
+  breaker_status = VALUES(breaker_status),
+  isolator_status = VALUES(isolator_status),
+  supply_mode = VALUES(supply_mode),
+  maintenance_state = VALUES(maintenance_state),
+  lockout_state = VALUES(lockout_state);
 
 INSERT INTO system_config (config_key, config_value, description)
 VALUES

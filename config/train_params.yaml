@@ -12,6 +12,7 @@ brake:
   maxServiceBrakeForceNewtons: 220000
   maxEmergencyBrakeForceNewtons: 300000
   regenBrakeRatio: 0.45
+  regenEfficiency: 0.35
 
 resistance:
   davisA: 1800

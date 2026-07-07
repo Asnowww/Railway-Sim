@@ -39,7 +39,7 @@ public class TcmsAtoAdapterService {
         double speedLimit = applyDispatchConstraint(resolveSpeedLimit(authority, track), dispatch);
         double maDistance = resolveMovementAuthorityDistance(train, authority);
         boolean emergencyBrake = authority != null && maDistance <= 0;
-        boolean doorClosed = true;
+        boolean doorClosed = "CLOSED_LOCKED".equals(train.doorState());
 
         double tractionCommand = calculateTractionCommand(train, speedLimit, doorClosed, power, dispatch);
         double brakeCommand = calculateBrakeCommand(train, speedLimit, maDistance, emergencyBrake, dispatch);
@@ -84,6 +84,16 @@ public class TcmsAtoAdapterService {
             input.trainId(),
             resolveOperationMode(input, dispatch),
             input.doorClosed(),
+            input.doorClosed() ? "CLOSED_LOCKED" : "OPEN",
+            resolveTractionState(input, output),
+            resolveBrakeState(input, output),
+            resolveCurrentCollectionStatus(input, output),
+            input.doorClosed() && input.powerAvailableWatts() > 0 && input.railVoltage() > 0,
+            !"BRAKE_UNAVAILABLE".equals(output.faultCode()),
+            resolveSelfCheckStatus(input, output),
+            resolveFaultLevel(input, output),
+            resolveAvailableOperationMode(input, output),
+            resolveDataQuality(output),
             input.tractionCommand(),
             input.brakeCommand(),
             input.emergencyBrakeCommand(),
@@ -102,8 +112,11 @@ public class TcmsAtoAdapterService {
     ) {
         if (
             !doorClosed ||
+                !train.tractionAvailable() ||
+                !train.brakeAvailable() ||
+                "FAIL".equals(train.selfCheckStatus()) ||
                 dispatch != null && dispatch.holdTrain() ||
-                power != null && (!power.energized() || power.powerAvailableWatts() <= 0)
+                power != null && (!power.currentCollectionAvailable() || power.powerAvailableWatts() <= 0)
         ) {
             return 0;
         }
@@ -179,6 +192,76 @@ public class TcmsAtoAdapterService {
             return "DISPATCH_ADJUST";
         }
         return "ATO";
+    }
+
+    private String resolveTractionState(VehiclePhysicsInput input, VehiclePhysicsOutput output) {
+        if (input.tractionCommand() <= 0 || output.tractionForceNewtons() <= 0) {
+            return "IDLE";
+        }
+        if (input.powerAvailableWatts() < 3_200_000) {
+            return "DERATED";
+        }
+        return "APPLYING";
+    }
+
+    private String resolveBrakeState(VehiclePhysicsInput input, VehiclePhysicsOutput output) {
+        if (input.emergencyBrakeCommand()) {
+            return "EMERGENCY";
+        }
+        if (output.regenBrakeForceNewtons() > 0) {
+            return "REGENERATIVE";
+        }
+        if (output.brakeForceNewtons() > 0) {
+            return "SERVICE";
+        }
+        return "RELEASED";
+    }
+
+    private String resolveCurrentCollectionStatus(VehiclePhysicsInput input, VehiclePhysicsOutput output) {
+        if ("CURRENT_COLLECTION_LOST".equals(output.faultCode()) || input.railVoltage() <= 0 || input.powerAvailableWatts() <= 0) {
+            return "LOST";
+        }
+        if ("LOW_VOLTAGE".equals(output.faultCode()) || input.railVoltage() < 1000) {
+            return "LOW_VOLTAGE";
+        }
+        return "NORMAL";
+    }
+
+    private String resolveSelfCheckStatus(VehiclePhysicsInput input, VehiclePhysicsOutput output) {
+        if (!input.doorClosed() || "CURRENT_COLLECTION_LOST".equals(output.faultCode())) {
+            return "FAIL";
+        }
+        if (!"OK".equals(output.faultCode())) {
+            return "WARN";
+        }
+        return "PASS";
+    }
+
+    private int resolveFaultLevel(VehiclePhysicsInput input, VehiclePhysicsOutput output) {
+        return switch (output.faultCode()) {
+            case "OK" -> input.emergencyBrakeCommand() ? 3 : 0;
+            case "LOW_VOLTAGE", "TRACTION_UNAVAILABLE", "FMU_STEP_FAILED" -> 2;
+            case "CURRENT_COLLECTION_LOST", "BRAKE_UNAVAILABLE", "DOOR_NOT_LOCKED", "ATP_BRAKE" -> 3;
+            default -> 2;
+        };
+    }
+
+    private String resolveAvailableOperationMode(VehiclePhysicsInput input, VehiclePhysicsOutput output) {
+        int faultLevel = resolveFaultLevel(input, output);
+        if (faultLevel >= 3) {
+            return "NO_DEPARTURE";
+        }
+        if (faultLevel > 0) {
+            return "DEGRADED";
+        }
+        return "NORMAL";
+    }
+
+    private String resolveDataQuality(VehiclePhysicsOutput output) {
+        if ("FMU_STEP_FAILED".equals(output.faultCode())) {
+            return "FALLBACK";
+        }
+        return "OK".equals(output.faultCode()) ? "GOOD" : "INVALID";
     }
 
     private double clamp(double value, double min, double max) {
