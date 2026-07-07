@@ -77,7 +77,7 @@ class FmuVehiclePhysicsAdapterTests {
 
             assertThat(outputs).hasSize(1);
             assertThat(outputs.get(0).trainId()).isEqualTo("TR-001");
-            assertThat(outputs.get(0).faultCode()).isEqualTo("OK");
+            assertThat(outputs.get(0).faultCode()).isEqualTo("FMU_STEP_FAILED");
             assertThat(eventBus.drain())
                 .anySatisfy(event -> assertThat(event).isInstanceOf(FmuStepFailedEvent.class))
                 .anySatisfy(event -> assertThat(event).isInstanceOf(FmuFallbackActivatedEvent.class));
@@ -118,7 +118,11 @@ class FmuVehiclePhysicsAdapterTests {
             0.9,
             0.0,
             0.0,
-            0.1
+            0.1,
+            "ACCELERATING",
+            "SPEED_MARGIN_AVAILABLE",
+            1_000.0,
+            0.0
         );
     }
 

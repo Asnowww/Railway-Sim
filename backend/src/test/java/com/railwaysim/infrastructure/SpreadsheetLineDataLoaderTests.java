@@ -11,6 +11,7 @@ import org.apache.poi.hssf.usermodel.HSSFWorkbook;
 import org.apache.poi.ss.usermodel.Row;
 import org.apache.poi.ss.usermodel.Sheet;
 import org.apache.poi.ss.usermodel.Workbook;
+import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;
 
 class SpreadsheetLineDataLoaderTests {
@@ -70,6 +71,22 @@ class SpreadsheetLineDataLoaderTests {
         } finally {
             Files.deleteIfExists(workbookPath);
         }
+    }
+
+    @Test
+    void loadRealWorkbookExposesDynamicsConstraints() throws IOException {
+        Path workbookPath = Path.of("../database/线路数据(1).xls");
+        Assumptions.assumeTrue(Files.exists(workbookPath));
+
+        OperationalLineData lineData = loader.load(workbookPath, 22.2);
+
+        assertThat(lineData.trackSegments()).hasSizeGreaterThan(300);
+        assertThat(lineData.speedLimitZones()).hasSizeGreaterThan(200);
+        assertThat(lineData.gradientZones()).hasSizeGreaterThan(100);
+        assertThat(lineData.stations()).hasSize(13);
+        assertThat(lineData.lineLengthMeters()).isGreaterThan(47_000);
+        assertThat(lineData.speedLimitZones())
+            .allSatisfy(zone -> assertThat(zone.speedLimitMetersPerSecond()).isGreaterThan(0));
     }
 
     private void writeSampleWorkbook(Path outputPath) throws IOException {

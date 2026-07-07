@@ -1,6 +1,7 @@
 package com.railwaysim.simulation;
 
 import com.railwaysim.power.PowerSectionState;
+import com.railwaysim.vehicle.TrainStateReport;
 import com.railwaysim.vehicle.VehiclePhysicsOutput;
 import java.util.List;
 import java.util.Map;
@@ -11,6 +12,7 @@ import org.springframework.stereotype.Component;
 public class RealtimeStateCache {
 
     private final Map<String, VehiclePhysicsOutput> trainPhysicsState = new ConcurrentHashMap<>();
+    private final Map<String, TrainStateReport> trainTcmsState = new ConcurrentHashMap<>();
     private final Map<String, TrainEnergyState> trainEnergyState = new ConcurrentHashMap<>();
     private final Map<String, PowerSectionState> powerRealtimeState = new ConcurrentHashMap<>();
     private final Map<String, VehiclePhysicsOutput> lastFmuOutput = new ConcurrentHashMap<>();
@@ -22,6 +24,10 @@ public class RealtimeStateCache {
             output.trainId(),
             new TrainEnergyState(output.trainId(), output.energyConsumedKwh(), output.energyRegeneratedKwh())
         );
+    }
+
+    public void updateTrainTcmsState(TrainStateReport report) {
+        trainTcmsState.put(report.trainId(), report);
     }
 
     public void updatePowerSections(List<PowerSectionState> sections) {
@@ -36,6 +42,10 @@ public class RealtimeStateCache {
         return Map.copyOf(trainEnergyState);
     }
 
+    public Map<String, TrainStateReport> trainTcmsState() {
+        return Map.copyOf(trainTcmsState);
+    }
+
     public Map<String, PowerSectionState> powerRealtimeState() {
         return Map.copyOf(powerRealtimeState);
     }
@@ -46,6 +56,7 @@ public class RealtimeStateCache {
 
     public void clear() {
         trainPhysicsState.clear();
+        trainTcmsState.clear();
         trainEnergyState.clear();
         powerRealtimeState.clear();
         lastFmuOutput.clear();

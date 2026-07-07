@@ -2,21 +2,38 @@ nominalVoltage: 1500
 minimumVoltage: 1000
 cutoffVoltage: 900
 maxTractionCurrentAmps: 2000
+overCurrentThresholdAmps: 2200
 currentToVoltageDrop: 0.03
 
 sections:
   - id: P01
     name: 南段供电分区
+    substationId: SS01
+    feederId: F01
     startMeters: 0
     endMeters: 2500
     substationVoltage: 1500
     energized: true
+    breakerStatus: CLOSED
+    isolatorStatus: CLOSED
+    supplyMode: DOUBLE_END
+    maintenanceState: NONE
+    lockoutState: UNLOCKED
+    resistanceOhmPerMeter: 0.00002
   - id: P02
     name: 北段供电分区
+    substationId: SS02
+    feederId: F02
     startMeters: 2500
     endMeters: 5000
     substationVoltage: 1500
     energized: true
+    breakerStatus: CLOSED
+    isolatorStatus: CLOSED
+    supplyMode: DOUBLE_END
+    maintenanceState: NONE
+    lockoutState: UNLOCKED
+    resistanceOhmPerMeter: 0.00002
 
 regeneration:
   sameSectionAbsorbFirst: true

@@ -23,10 +23,18 @@ public class PowerConfigLoader {
                 sections.add(new OperationalPowerData.PowerSectionDefinition(
                     section.id,
                     section.name,
+                    defaultIfBlank(section.substationId, "SS-" + section.id),
+                    defaultIfBlank(section.feederId, "FD-" + section.id),
                     section.startMeters,
                     section.endMeters,
                     section.substationVoltage,
-                    section.energized
+                    section.energized,
+                    defaultIfBlank(section.breakerStatus, section.energized ? "CLOSED" : "OPEN"),
+                    defaultIfBlank(section.isolatorStatus, "CLOSED"),
+                    defaultIfBlank(section.supplyMode, section.energized ? "DOUBLE_END" : "OUTAGE"),
+                    defaultIfBlank(section.maintenanceState, "NONE"),
+                    defaultIfBlank(section.lockoutState, "UNLOCKED"),
+                    Math.max(0, section.resistanceOhmPerMeter)
                 ));
             }
         }
@@ -35,10 +43,18 @@ public class PowerConfigLoader {
             sections = List.of(new OperationalPowerData.PowerSectionDefinition(
                 "P01",
                 "全线供电分区",
+                "SS-P01",
+                "FD-P01",
                 0,
                 lineLengthMeters,
                 powerConfig.nominalVoltage,
-                true
+                true,
+                "CLOSED",
+                "CLOSED",
+                "DOUBLE_END",
+                "NONE",
+                "UNLOCKED",
+                0
             ));
         } else {
             sections = normalizeCoverage(sections, lineLengthMeters);
@@ -49,7 +65,14 @@ public class PowerConfigLoader {
             powerConfig.minimumVoltage,
             powerConfig.cutoffVoltage,
             powerConfig.maxTractionCurrentAmps,
+            powerConfig.overCurrentThresholdAmps <= 0
+                ? powerConfig.maxTractionCurrentAmps * 1.1
+                : powerConfig.overCurrentThresholdAmps,
             powerConfig.currentToVoltageDrop,
+            powerConfig.regeneration == null || powerConfig.regeneration.sameSectionAbsorbFirst,
+            powerConfig.regeneration == null
+                ? "BRAKE_RESISTOR"
+                : defaultIfBlank(powerConfig.regeneration.unabsorbedMode, "BRAKE_RESISTOR"),
             sections
         );
     }
@@ -64,10 +87,18 @@ public class PowerConfigLoader {
             normalized.set(0, new OperationalPowerData.PowerSectionDefinition(
                 first.id(),
                 first.name(),
+                first.substationId(),
+                first.feederId(),
                 0,
                 first.endMeters(),
                 first.substationVoltage(),
-                first.energized()
+                first.energized(),
+                first.breakerStatus(),
+                first.isolatorStatus(),
+                first.supplyMode(),
+                first.maintenanceState(),
+                first.lockoutState(),
+                first.resistanceOhmPerMeter()
             ));
         }
 
@@ -76,13 +107,25 @@ public class PowerConfigLoader {
             normalized.set(normalized.size() - 1, new OperationalPowerData.PowerSectionDefinition(
                 last.id(),
                 last.name(),
+                last.substationId(),
+                last.feederId(),
                 last.startMeters(),
                 lineLengthMeters,
                 last.substationVoltage(),
-                last.energized()
+                last.energized(),
+                last.breakerStatus(),
+                last.isolatorStatus(),
+                last.supplyMode(),
+                last.maintenanceState(),
+                last.lockoutState(),
+                last.resistanceOhmPerMeter()
             ));
         }
         return normalized;
+    }
+
+    private String defaultIfBlank(String value, String fallback) {
+        return value == null || value.isBlank() ? fallback : value;
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
@@ -91,7 +134,9 @@ public class PowerConfigLoader {
         public double minimumVoltage = 1000;
         public double cutoffVoltage = 900;
         public double maxTractionCurrentAmps = 2000;
+        public double overCurrentThresholdAmps;
         public double currentToVoltageDrop = 0.03;
+        public Regeneration regeneration;
         public List<PowerSection> sections;
     }
 
@@ -103,5 +148,19 @@ public class PowerConfigLoader {
         public double endMeters;
         public double substationVoltage = 1500;
         public boolean energized = true;
+        public String substationId;
+        public String feederId;
+        public String breakerStatus;
+        public String isolatorStatus;
+        public String supplyMode;
+        public String maintenanceState;
+        public String lockoutState;
+        public double resistanceOhmPerMeter;
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    static final class Regeneration {
+        public boolean sameSectionAbsorbFirst = true;
+        public String unabsorbedMode = "BRAKE_RESISTOR";
     }
 }

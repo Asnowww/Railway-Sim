@@ -32,6 +32,7 @@ public class SimulationRuntime {
     private final SimulationProperties simulationProperties;
     private final SimpleEventBus eventBus;
     private final RealtimeStateCache realtimeStateCache;
+    private final SimulationPersistenceService persistenceService;
     private List<DomainEvent> lastEvents = List.of();
     private long tick;
     private SimulationStatus status = SimulationStatus.STOPPED;
@@ -46,7 +47,8 @@ public class SimulationRuntime {
         SimulationWebSocketHandler webSocketHandler,
         SimulationProperties simulationProperties,
         SimpleEventBus eventBus,
-        RealtimeStateCache realtimeStateCache
+        RealtimeStateCache realtimeStateCache,
+        SimulationPersistenceService persistenceService
     ) {
         this.trainManager = trainManager;
         this.trackService = trackService;
@@ -58,6 +60,7 @@ public class SimulationRuntime {
         this.simulationProperties = simulationProperties;
         this.eventBus = eventBus;
         this.realtimeStateCache = realtimeStateCache;
+        this.persistenceService = persistenceService;
     }
 
     public synchronized SimulationSnapshot snapshot() {
@@ -121,10 +124,28 @@ public class SimulationRuntime {
         powerService.updateFromVehicleOutputs(outputs);
         trackService.updateOccupancy(trainManager.states());
         lastEvents = eventBus.drain();
+        persistIfDue(context);
 
         SimulationSnapshot snapshot = buildSnapshot();
         webSocketHandler.broadcast(snapshot);
         return snapshot;
+    }
+
+    private void persistIfDue(TickContext context) {
+        long persistenceStepMillis = simulationProperties.getPersistenceStepMillis();
+        long tickMillis = simulationProperties.getTickMillis();
+        if (persistenceStepMillis <= 0 || tickMillis <= 0) {
+            return;
+        }
+        long elapsedMillis = context.tick() * tickMillis;
+        if (elapsedMillis % persistenceStepMillis == 0) {
+            persistenceService.persist(
+                context,
+                trainManager.states(),
+                powerService.states(),
+                lastEvents
+            );
+        }
     }
 
     private SimulationSnapshot buildSnapshot() {

@@ -8,7 +8,10 @@ import com.railwaysim.simulation.SimulationStatus;
 import com.railwaysim.simulation.event.DomainEvent;
 import com.railwaysim.simulation.event.FmuFallbackActivatedEvent;
 import com.railwaysim.simulation.event.FmuStepFailedEvent;
+import com.railwaysim.simulation.event.PowerFaultStateChangedEvent;
 import com.railwaysim.simulation.event.PowerLimitTriggeredEvent;
+import com.railwaysim.simulation.event.PowerMaintenanceLockChangedEvent;
+import com.railwaysim.simulation.event.RegenerativeEnergyAbsorbedEvent;
 import com.railwaysim.track.TrackSegmentState;
 import com.railwaysim.train.TrainState;
 import java.time.Instant;
@@ -53,14 +56,14 @@ public class MonitorService {
     ) {
         List<Alarm> alarms = new ArrayList<>();
         trains.stream()
-            .filter(train -> !"OK".equals(train.faultCode()))
+            .filter(train -> !"OK".equals(train.faultCode()) || train.faultLevel() > 0)
             .map(train -> new Alarm(
                 "TRAIN-" + tick + "-" + train.id(),
                 "train",
                 train.id(),
-                2,
+                train.faultLevel() <= 0 ? 2 : train.faultLevel(),
                 "车辆物理状态异常",
-                "车辆物理模型返回故障码：" + train.faultCode(),
+                "车辆故障码：" + train.faultCode() + "，自检：" + train.selfCheckStatus() + "，可用模式：" + train.availableOperationMode(),
                 simulatedTime,
                 false
             ))
@@ -86,7 +89,7 @@ public class MonitorService {
                 section.id(),
                 "DEENERGIZED".equals(section.status()) ? 3 : 2,
                 "接触轨供电异常",
-                "供电分区电压 " + section.voltage() + " V，状态 " + section.status(),
+                "供电分区电压 " + section.voltage() + " V，状态 " + section.status() + "，影响列车 " + section.affectedTrainIds(),
                 simulatedTime,
                 false
             ))
@@ -131,6 +134,42 @@ public class MonitorService {
                 powerLimit.voltage() < 900 ? 3 : 2,
                 "接触轨牵引受限",
                 powerLimit.reason(),
+                simulatedTime,
+                false
+            );
+        }
+        if (event instanceof PowerFaultStateChangedEvent powerFault) {
+            return new Alarm(
+                "POWER-FAULT-" + tick + "-" + powerFault.sectionId(),
+                "power",
+                powerFault.sectionId(),
+                3,
+                "供电故障状态变化",
+                "故障类型 " + powerFault.faultType() + "，状态 " + powerFault.state(),
+                simulatedTime,
+                false
+            );
+        }
+        if (event instanceof PowerMaintenanceLockChangedEvent maintenanceLock) {
+            return new Alarm(
+                "POWER-LOCK-" + tick + "-" + maintenanceLock.sectionId(),
+                "power",
+                maintenanceLock.sectionId(),
+                2,
+                "供电检修闭锁状态变化",
+                "闭锁状态 " + maintenanceLock.lockoutState() + "，检修状态 " + maintenanceLock.maintenanceState(),
+                simulatedTime,
+                false
+            );
+        }
+        if (event instanceof RegenerativeEnergyAbsorbedEvent regenerativeEnergy && regenerativeEnergy.unabsorbedPowerWatts() > 0) {
+            return new Alarm(
+                "REGEN-UNABSORBED-" + tick + "-" + regenerativeEnergy.sectionId(),
+                "power",
+                regenerativeEnergy.sectionId(),
+                1,
+                "再生制动能量未完全吸收",
+                "回馈 " + regenerativeEnergy.regenPowerWatts() + " W，未吸收 " + regenerativeEnergy.unabsorbedPowerWatts() + " W，处理方式 " + regenerativeEnergy.unabsorbedMode(),
                 simulatedTime,
                 false
             );

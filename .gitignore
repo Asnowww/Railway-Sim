@@ -22,9 +22,8 @@ frontend/.vite/
 .env
 .env.*
 !.env.example
-
-# Sensitive config (contains DB credentials)
-backend/src/main/resources/application.yml
+backend/application-local.yml
+backend/config/application-local.yml
 
 # Runtime data
 data/
