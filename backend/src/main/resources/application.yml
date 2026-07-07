@@ -14,4 +14,20 @@ railway:
     default-line-length-meters: 5000
     default-speed-limit-meters-per-second: 22.2
     safety-gap-meters: 120
+  dispatch:
+    plan-location: classpath:config/dispatch-plan.yaml
+    average-speed-ratio: 0.8
+    dwell-tolerance-sec: 15
+    departure-delay-sec: 30
+    headway-shrink-ratio: 0.7
+    headway-expand-ratio: 1.5
+    crowding-load-rate: 0.8
+    confirm-ticks: 3
+    cooldown-sec: 60
+    evaluate-interval-ms: 1000
+    arrival-threshold-meters: 5
+    stop-speed-threshold-mps: 0.5
+    base-cruise-speed-mps: 15
+    min-dwell-sec: 15
+    max-dwell-sec: 60
 
