@@ -17,7 +17,10 @@ public class SimulationProperties {
     private double defaultSpeedLimitMetersPerSecond = 22.2;
     private double defaultCurveRadiusMeters = 1000;
     private double safetyGapMeters = 120;
+    private String lineDataSource = "database";
+    private String lineId = "1";
     private String lineDataPath = "../config/line-demo.yaml";
+    private boolean lineDataAutoImport = true;
     private String powerConfigPath = "../config/power_third_rail.yaml";
     private boolean fmuServiceEnabled;
     private String fmuServiceUrl = "http://localhost:9000";
@@ -125,6 +128,30 @@ public class SimulationProperties {
 
     public void setLineDataPath(String lineDataPath) {
         this.lineDataPath = lineDataPath;
+    }
+
+    public String getLineDataSource() {
+        return lineDataSource;
+    }
+
+    public void setLineDataSource(String lineDataSource) {
+        this.lineDataSource = lineDataSource;
+    }
+
+    public String getLineId() {
+        return lineId;
+    }
+
+    public void setLineId(String lineId) {
+        this.lineId = lineId;
+    }
+
+    public boolean isLineDataAutoImport() {
+        return lineDataAutoImport;
+    }
+
+    public void setLineDataAutoImport(boolean lineDataAutoImport) {
+        this.lineDataAutoImport = lineDataAutoImport;
     }
 
     public String getPowerConfigPath() {
