@@ -45,6 +45,146 @@ CREATE TABLE IF NOT EXISTS switch_config (
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+CREATE TABLE IF NOT EXISTS point_config (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  point_id VARCHAR(64) NOT NULL UNIQUE,
+  line_id VARCHAR(64) NOT NULL,
+  point_name VARCHAR(128),
+  track_name VARCHAR(128),
+  kilometer_mark_meters DOUBLE NOT NULL,
+  direction_code VARCHAR(32),
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_point_config_line_position (line_id, kilometer_mark_meters)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS track_segment_topology_config (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  segment_id VARCHAR(64) NOT NULL UNIQUE,
+  line_id VARCHAR(64) NOT NULL,
+  raw_segment_id INT NOT NULL DEFAULT 0,
+  length_meters DOUBLE NOT NULL,
+  start_endpoint_type INT NOT NULL DEFAULT 0,
+  start_endpoint_id INT NOT NULL DEFAULT 0,
+  end_endpoint_type INT NOT NULL DEFAULT 0,
+  end_endpoint_id INT NOT NULL DEFAULT 0,
+  forward_neighbor_ids_json JSON,
+  side_neighbor_ids_json JSON,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_track_segment_topology_line_raw (line_id, raw_segment_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS speed_limit_zone_config (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  zone_id VARCHAR(64) NOT NULL UNIQUE,
+  line_id VARCHAR(64) NOT NULL,
+  segment_id VARCHAR(64) NOT NULL,
+  start_meters DOUBLE NOT NULL,
+  end_meters DOUBLE NOT NULL,
+  speed_limit_mps DOUBLE NOT NULL,
+  switch_id VARCHAR(64),
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_speed_limit_line_range (line_id, start_meters, end_meters)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS gradient_zone_config (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  zone_id VARCHAR(64) NOT NULL UNIQUE,
+  line_id VARCHAR(64) NOT NULL,
+  start_meters DOUBLE NOT NULL,
+  end_meters DOUBLE NOT NULL,
+  gradient DOUBLE NOT NULL,
+  raw_permille_value INT NOT NULL DEFAULT 0,
+  direction_code VARCHAR(32),
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_gradient_line_range (line_id, start_meters, end_meters)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS platform_config (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  platform_id VARCHAR(64) NOT NULL UNIQUE,
+  line_id VARCHAR(64) NOT NULL,
+  center_meters DOUBLE NOT NULL,
+  anchor_segment_id VARCHAR(64),
+  direction_code VARCHAR(32),
+  raw_center_mark VARCHAR(64),
+  interoperability_id VARCHAR(128),
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_platform_line_position (line_id, center_meters)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS station_platform_config (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  station_id VARCHAR(64) NOT NULL,
+  platform_id VARCHAR(64) NOT NULL,
+  line_id VARCHAR(64) NOT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY uk_station_platform (station_id, platform_id),
+  INDEX idx_station_platform_line_station (line_id, station_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS switch_detail_config (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  switch_id VARCHAR(64) NOT NULL UNIQUE,
+  line_id VARCHAR(64) NOT NULL,
+  switch_name VARCHAR(128),
+  linked_switch_id VARCHAR(64),
+  direction_code VARCHAR(32),
+  merge_segment_id VARCHAR(64),
+  diverging_speed_limit_mps DOUBLE NOT NULL DEFAULT 0,
+  interoperability_id VARCHAR(128),
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS signal_config (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  signal_id VARCHAR(64) NOT NULL UNIQUE,
+  line_id VARCHAR(64) NOT NULL,
+  signal_name VARCHAR(128),
+  type_code VARCHAR(32),
+  attribute_code VARCHAR(32),
+  segment_id VARCHAR(64),
+  position_meters DOUBLE NOT NULL,
+  protection_direction_code VARCHAR(32),
+  lamp_info_code VARCHAR(64),
+  interoperability_id VARCHAR(128),
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_signal_line_position (line_id, position_meters)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS balise_config (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  balise_id VARCHAR(64) NOT NULL UNIQUE,
+  line_id VARCHAR(64) NOT NULL,
+  hex_id VARCHAR(64),
+  balise_name VARCHAR(128),
+  segment_id VARCHAR(64),
+  position_meters DOUBLE NOT NULL,
+  interoperability_id VARCHAR(128),
+  attribute_code VARCHAR(32),
+  linked_signal_id VARCHAR(64),
+  direction_code VARCHAR(32),
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_balise_line_position (line_id, position_meters)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS route_config (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  route_id VARCHAR(64) NOT NULL UNIQUE,
+  line_id VARCHAR(64) NOT NULL,
+  route_name VARCHAR(128),
+  type_code VARCHAR(32),
+  start_signal_id VARCHAR(64),
+  end_signal_id VARCHAR(64),
+  axle_section_ids_json JSON,
+  protection_section_ids_json JSON,
+  point_approach_section_ids_json JSON,
+  cbtc_approach_section_ids_json JSON,
+  point_trigger_section_ids_json JSON,
+  cbtc_trigger_section_ids_json JSON,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_route_line_signals (line_id, start_signal_id, end_signal_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 CREATE TABLE IF NOT EXISTS power_section_config (
   id BIGINT PRIMARY KEY AUTO_INCREMENT,
   section_id VARCHAR(64) NOT NULL UNIQUE,

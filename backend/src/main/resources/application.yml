@@ -8,6 +8,11 @@ spring:
     import:
       - optional:file:./application-local.yml
       - optional:file:./config/application-local.yml
+  sql:
+    init:
+      mode: always
+      continue-on-error: true
+      schema-locations: file:../database/schema.sql
   jackson:
     time-zone: Asia/Shanghai
 
@@ -19,6 +24,9 @@ railway:
     default-speed-limit-meters-per-second: 22.2
     default-curve-radius-meters: 1000
     safety-gap-meters: 120
+    line-data-source: database
+    line-id: "1"
+    line-data-auto-import: true
     line-data-path: ../database/线路数据(1).xls
     power-config-path: ../config/power_third_rail.yaml
     fmu-step-millis: 100
