@@ -135,6 +135,7 @@ public class SimulationRuntime {
             trainManager.states(),
             trackService.states(),
             signalService.authorities(),
+            signalService.signalStates(),
             powerService.states(),
             lastEvents
         );

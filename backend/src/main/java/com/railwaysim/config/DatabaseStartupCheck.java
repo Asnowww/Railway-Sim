@@ -20,7 +20,11 @@ public class DatabaseStartupCheck implements ApplicationRunner {
 
     @Override
     public void run(ApplicationArguments args) {
-        Integer result = jdbcTemplate.queryForObject("SELECT 1", Integer.class);
-        log.info("MySQL connection ready, validation query returned: {}", result);
+        try {
+            Integer result = jdbcTemplate.queryForObject("SELECT 1", Integer.class);
+            log.info("MySQL connection ready, validation query returned: {}", result);
+        } catch (Exception e) {
+            log.warn("MySQL not available — simulation core (in-memory) will still work, but persistence disabled. Error: {}", e.getMessage());
+        }
     }
 }

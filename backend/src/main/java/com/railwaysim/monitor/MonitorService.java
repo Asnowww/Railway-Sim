@@ -2,6 +2,7 @@ package com.railwaysim.monitor;
 
 import com.railwaysim.power.PowerSectionState;
 import com.railwaysim.signal.MovementAuthority;
+import com.railwaysim.signal.SignalState;
 import com.railwaysim.simulation.SimulationSnapshot;
 import com.railwaysim.simulation.SimulationStatus;
 import com.railwaysim.simulation.event.DomainEvent;
@@ -25,6 +26,7 @@ public class MonitorService {
         List<TrainState> trains,
         List<TrackSegmentState> trackSegments,
         List<MovementAuthority> authorities,
+        List<SignalState> signalStates,
         List<PowerSectionState> powerSections,
         List<DomainEvent> events
     ) {
@@ -35,6 +37,7 @@ public class MonitorService {
             trains,
             trackSegments,
             authorities,
+            signalStates,
             powerSections,
             buildAlarms(tick, simulatedTime, trains, authorities, powerSections, events)
         );
