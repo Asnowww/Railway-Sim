@@ -159,6 +159,56 @@ CREATE TABLE IF NOT EXISTS operation_log (
   INDEX idx_operation_log_type_time (operation_type, created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+CREATE TABLE IF NOT EXISTS running_plan_config (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  plan_id VARCHAR(64) NOT NULL,
+  line_id VARCHAR(64) NOT NULL,
+  period_type VARCHAR(32) NOT NULL,
+  start_time TIME NOT NULL,
+  end_time TIME NOT NULL,
+  departure_interval_sec INT NOT NULL,
+  default_dwell_time_sec INT NOT NULL,
+  enabled BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY uk_plan_line_window (plan_id, line_id, start_time, end_time),
+  INDEX idx_running_plan_line_enabled (line_id, enabled)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS train_station_record (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  simulation_run_id VARCHAR(64) NOT NULL,
+  train_id VARCHAR(64) NOT NULL,
+  line_id VARCHAR(64) NOT NULL,
+  station_id VARCHAR(64) NOT NULL,
+  planned_arrival TIMESTAMP NULL,
+  actual_arrival TIMESTAMP NULL,
+  planned_departure TIMESTAMP NULL,
+  actual_departure TIMESTAMP NULL,
+  arrival_delay_sec INT DEFAULT 0,
+  departure_delay_sec INT DEFAULT 0,
+  simulated_at TIMESTAMP NOT NULL,
+  recorded_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_train_station_run (simulation_run_id, train_id, station_id),
+  INDEX idx_train_station_time (train_id, simulated_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS disturbance_record (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  simulation_run_id VARCHAR(64) NOT NULL,
+  train_id VARCHAR(64) NOT NULL,
+  station_id VARCHAR(64),
+  disturbance_type VARCHAR(64) NOT NULL,
+  deviation_value DOUBLE NOT NULL,
+  deviation_unit VARCHAR(16) NOT NULL DEFAULT 'SECONDS',
+  status VARCHAR(32) NOT NULL DEFAULT 'OPEN',
+  command_id VARCHAR(64),
+  recorded_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  resolved_at TIMESTAMP NULL,
+  INDEX idx_disturbance_train_time (train_id, recorded_at),
+  INDEX idx_disturbance_status (status, recorded_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 INSERT INTO line_config (line_id, line_name, length_meters, default_speed_limit_mps)
 VALUES ('demo-line-1', '上京地铁示范线', 5000, 22.2)
 ON DUPLICATE KEY UPDATE
@@ -203,7 +253,27 @@ INSERT INTO system_config (config_key, config_value, description)
 VALUES
   ('simulation.tickMillis', '200', '仿真固定步长，单位毫秒'),
   ('simulation.pushIntervalMillis', '1000', 'WebSocket 快照推送间隔，单位毫秒'),
-  ('simulation.safetyGapMeters', '120', '移动授权安全间隔，单位米')
+  ('simulation.safetyGapMeters', '120', '移动授权安全间隔，单位米'),
+  ('dispatch.averageSpeedRatio', '0.8', '计划均速相对区间限速的比例'),
+  ('dispatch.dwellToleranceSec', '15', '停站超时容忍秒数'),
+  ('dispatch.departureDelaySec', '30', '发车延误容忍秒数'),
+  ('dispatch.headwayShrinkRatio', '0.7', '行车间隔过小比例'),
+  ('dispatch.headwayExpandRatio', '1.5', '行车间隔过大比例'),
+  ('dispatch.crowdingLoadRate', '0.80', '拥挤满载率阈值'),
+  ('dispatch.confirmTicks', '3', '扰动确认周期数'),
+  ('dispatch.cooldownSec', '60', '扰动冷却秒数'),
+  ('dispatch.evaluateIntervalMs', '1000', '调度评估间隔毫秒')
 ON DUPLICATE KEY UPDATE
   config_value = VALUES(config_value),
   description = VALUES(description);
+
+INSERT INTO running_plan_config
+  (plan_id, line_id, period_type, start_time, end_time, departure_interval_sec, default_dwell_time_sec)
+VALUES
+  ('RP-demo-001', 'demo-line-1', 'PEAK', '07:00:00', '09:00:00', 180, 30),
+  ('RP-demo-001', 'demo-line-1', 'PEAK', '17:00:00', '19:00:00', 180, 30),
+  ('RP-demo-001', 'demo-line-1', 'FLAT', '09:00:00', '17:00:00', 300, 25),
+  ('RP-demo-001', 'demo-line-1', 'OFF_PEAK', '19:00:00', '07:00:00', 420, 20)
+ON DUPLICATE KEY UPDATE
+  departure_interval_sec = VALUES(departure_interval_sec),
+  default_dwell_time_sec = VALUES(default_dwell_time_sec);

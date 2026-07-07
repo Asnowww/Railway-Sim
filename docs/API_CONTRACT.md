@@ -25,6 +25,17 @@ POST /api/simulation/tick
 GET /api/trains
 ```
 
+### 调度模块
+
+```http
+GET /api/dispatch/plan
+GET /api/dispatch/plan/current
+GET /api/dispatch/status
+GET /api/dispatch/disturbances
+GET /api/dispatch/commands
+GET /api/dispatch/station-records
+```
+
 ## WebSocket
 
 地址：
@@ -45,7 +56,17 @@ ws://localhost:8080/ws/simulation
     "trackSegments": [],
     "authorities": [],
     "powerSections": [],
-    "alarms": []
+    "alarms": [],
+    "dispatch": {
+      "runMode": "PEAK",
+      "planId": "RP-demo-001",
+      "targetHeadwaySeconds": 180,
+      "defaultDwellSeconds": 30,
+      "interventionActive": false,
+      "trainProfiles": [],
+      "openDisturbances": [],
+      "activeCommands": []
+    }
   }
 }
 ```
@@ -56,13 +77,38 @@ ws://localhost:8080/ws/simulation
 
 ```json
 {
-  "id": "T001",
+  "id": "TR-001",
   "routeId": "demo-line-1",
   "positionMeters": 120.0,
   "speedMetersPerSecond": 12.5,
   "lengthMeters": 120.0,
   "loadRate": 0.62,
-  "status": "RUNNING"
+  "status": "RUNNING",
+  "currentStationId": "S02",
+  "dwellElapsedSeconds": 8,
+  "lastDepartureAt": "2026-07-07T10:05:30Z"
+}
+```
+
+### DispatchSnapshot
+
+```json
+{
+  "runMode": "PEAK",
+  "planId": "RP-demo-001",
+  "targetHeadwaySeconds": 180,
+  "defaultDwellSeconds": 30,
+  "interventionActive": false,
+  "trainProfiles": [
+    {
+      "trainId": "TR-001",
+      "headwayActualSeconds": 195,
+      "headwayDeviationSeconds": 15,
+      "dwellDeviationSeconds": 0
+    }
+  ],
+  "openDisturbances": [],
+  "activeCommands": []
 }
 ```
 
