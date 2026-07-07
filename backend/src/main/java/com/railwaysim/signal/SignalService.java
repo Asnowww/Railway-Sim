@@ -231,16 +231,31 @@ public class SignalService {
     // ==================== 内部工具方法 ====================
 
     /**
-     * 收集 [fromMeters, toMeters) 范围内所有区段的 ID。
+     * 收集 [fromMeters, toMeters) 范围内前 MAX_LOOKAHEAD 个区段的 ID。
+     *
+     * <p>一个列车不需要把 MA 全范围都标 RESERVED——只需预留紧邻前方的区段，
+     * 防止后车同时抢同一段轨道。类比 MESI 缓存协议：只 lock 即将写入的 cache line，
+     * 不锁整个地址空间。
+     *
+     * <p>具体策略：从列车当前所在区段开始，沿里程递增方向取前 N 个 FREE 区段，
+     * 最多不超过 MA 终点。
      */
+    private static final int MAX_RESERVE_SEGMENTS = 2;
+
     private Set<String> collectSegmentsInRange(double fromMeters, double toMeters) {
         Set<String> ids = new HashSet<>();
-        for (TrackSegmentState seg : trackService.states()) {
-            if (seg.endMeters() > fromMeters && seg.startMeters() < toMeters
-                && seg.occupancy() != TrackOccupancy.OCCUPIED
-                && seg.occupancy() != TrackOccupancy.FAULT) {
-                ids.add(seg.id());
-            }
+        List<TrackSegmentState> ordered = trackService.states().stream()
+            .sorted(Comparator.comparingDouble(TrackSegmentState::startMeters))
+            .toList();
+
+        int count = 0;
+        for (TrackSegmentState seg : ordered) {
+            if (count >= MAX_RESERVE_SEGMENTS) break;
+            if (seg.startMeters() >= toMeters) break;
+            if (seg.endMeters() <= fromMeters) continue;
+            if (seg.occupancy() == TrackOccupancy.OCCUPIED || seg.occupancy() == TrackOccupancy.FAULT) continue;
+            ids.add(seg.id());
+            count++;
         }
         return ids;
     }
