@@ -46,7 +46,7 @@ export interface TrackSegmentState {
   startMeters: number
   endMeters: number
   speedLimitMetersPerSecond: number
-  occupancy: 'FREE' | 'OCCUPIED' | 'FAULT'
+  occupancy: 'FREE' | 'RESERVED' | 'OCCUPIED' | 'FAULT'
 }
 
 export interface MovementAuthority {
@@ -54,6 +54,16 @@ export interface MovementAuthority {
   authorityEndMeters: number
   speedLimitMetersPerSecond: number
   reason: string
+}
+
+export type SignalAspect = 'RED' | 'YELLOW' | 'GREEN'
+
+export interface SignalState {
+  signalId: string
+  segmentId: string
+  positionMeters: number
+  aspect: SignalAspect
+  reasonTrainId: string | null
 }
 
 export interface PowerSectionState {
@@ -104,6 +114,7 @@ export interface SimulationSnapshot {
   trains: TrainState[]
   trackSegments: TrackSegmentState[]
   authorities: MovementAuthority[]
+  signalStates: SignalState[]
   powerSections: PowerSectionState[]
   alarms: Alarm[]
 }
