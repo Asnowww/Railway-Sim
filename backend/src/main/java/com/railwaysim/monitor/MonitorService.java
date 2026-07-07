@@ -1,5 +1,6 @@
 package com.railwaysim.monitor;
 
+import com.railwaysim.dispatch.DispatchSnapshot;
 import com.railwaysim.power.PowerSectionState;
 import com.railwaysim.signal.MovementAuthority;
 import com.railwaysim.simulation.SimulationSnapshot;
@@ -20,7 +21,8 @@ public class MonitorService {
         List<TrainState> trains,
         List<TrackSegmentState> trackSegments,
         List<MovementAuthority> authorities,
-        List<PowerSectionState> powerSections
+        List<PowerSectionState> powerSections,
+        DispatchSnapshot dispatch
     ) {
         return new SimulationSnapshot(
             tick,
@@ -30,8 +32,8 @@ public class MonitorService {
             trackSegments,
             authorities,
             powerSections,
-            List.of()
+            List.of(),
+            dispatch
         );
     }
 }
-

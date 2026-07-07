@@ -7,7 +7,9 @@ public record TrainState(
     double speedMetersPerSecond,
     double lengthMeters,
     double loadRate,
-    String status
+    String status,
+    String currentStationId,
+    int dwellElapsedSeconds,
+    String lastDepartureAt
 ) {
 }
-

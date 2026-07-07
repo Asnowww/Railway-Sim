@@ -38,5 +38,10 @@ public class SimulationController {
     public SimulationSnapshot reset() {
         return simulationRuntime.reset();
     }
+
+    @PostMapping("/tick")
+    public SimulationSnapshot tick() {
+        return simulationRuntime.tick();
+    }
 }
 
