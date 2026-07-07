@@ -7,7 +7,16 @@ public record TrainState(
     double speedMetersPerSecond,
     double lengthMeters,
     double loadRate,
-    String status
+    String status,
+    String operationMode,
+    double accelerationMetersPerSecondSquared,
+    double tractionForceNewtons,
+    double brakeForceNewtons,
+    double railCurrentAmps,
+    double tractionPowerWatts,
+    double regenPowerWatts,
+    double energyConsumedKwh,
+    double energyRegeneratedKwh,
+    String faultCode
 ) {
 }
-

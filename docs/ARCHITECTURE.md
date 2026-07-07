@@ -22,9 +22,11 @@
 
 ```text
 backend/src/main/java/com/railwaysim
+├─ infrastructure 线路工作簿/YAML 适配、标准静态对象、线性投影
 ├─ simulation      仿真总控、统一时钟、快照
 ├─ simulation/event 内部事件总线
 ├─ train           多车实体、车辆状态、车辆管理器
+├─ vehicle         TCMS/ATO 适配、车辆物理输入输出、FMU 调用端口
 ├─ track           轨道区段、占用状态、拓扑服务
 ├─ signal          移动授权 MA、限速计算
 ├─ power           供电分区状态
@@ -40,21 +42,31 @@ backend/src/main/java/com/railwaysim
 
 ```text
 SimulationRuntime.tick()
+→ TrackService.updateOccupancy()
+→ TrackService.constraintsForTrains()
 → SignalService.calculateAuthorities()
-→ TrainManager.tickAll()
+→ PowerService.constraintsForTrains()
+→ DispatchService.constraintsForTrains()
+→ TcmsAtoAdapterService.buildVehiclePhysicsInput()
+→ VehiclePhysicsClient.stepFleet()
+→ TrainManager.apply vehicle physics output
 → TrackService.updateOccupancy()
 → PowerService.update()
+→ SimpleEventBus.drain()
 → MonitorService.buildSnapshot()
 → WebSocket push snapshot
 ```
 
 后续如果加入客流、调度、故障注入，可以插入到主循环中，但要保持一个原则：模块之间优先使用内存对象和内部事件，不要在每个 tick 中走 REST、MySQL 或 WebSocket。
 
+车辆物理链路先通过 `FmuVehiclePhysicsAdapter` 暴露端口，当前使用 `SimpleVehicleDynamicsModel` 作为可运行降级模型。后续接入 Python FMU 服务时，只需要替换 `VehiclePhysicsClient.stepFleet()` 的实现，不让信号、轨道、供电和调度模块直接操作 FMU。
+
 ## 数据分层
 
 实时状态放内存：
 
 - 列车位置、速度、满载率
+- 车辆物理输出、能耗状态、最后一次 FMU 输出
 - 区段占用
 - 信号机状态、MA、限速
 - 供电分区电压、电流、带电状态
@@ -66,6 +78,9 @@ MySQL 存历史和配置：
 - 调度指令记录
 - 告警记录
 - 历史运行轨迹
+- 车辆物理快照、牵引能耗、再生制动记录
+- FMU 调用日志和故障日志
+- 接触轨分区电压电流记录
 - 用户权限
 - 系统配置变更
 
@@ -76,6 +91,28 @@ YAML 存仿真静态配置：
 - 区段长度、限速、坡度
 - 道岔配置
 - 供电分区
+- 车辆牵引/制动参数、FMU 映射、接触轨参数、模块步长
+
+如果外部线路数据来自电子地图工作簿，则先进入 `infrastructure` 适配层，完成：
+
+- sheet 级结构解析
+- 单位转换与哨兵值清洗
+- 标准对象归一化
+- 面向当前 `TrainState.positionMeters` 1D 运行环路的线性投影
+
+也就是说，工作簿不是直接喂给 `TrackService`、`SignalService` 和 `PowerService`，而是先转成系统内部统一静态对象，再由各模块消费。
+
+## 事件与降级
+
+车辆和供电链路通过内部事件总线发布运行状态变化，包括 `VehiclePhysicsUpdated`、`TractionPowerChanged`、`BrakeForceChanged`、`RegenerativePowerGenerated`、`ThirdRailVoltageChanged`、`PowerLimitTriggered`、`FmuStepFailed` 和 `FmuFallbackActivated`。监控层只消费事件和状态快照生成告警，不直接参与车辆物理计算。
+
+外部 Python FMU 服务默认关闭，`FmuVehiclePhysicsAdapter` 当前使用 `SimpleVehicleDynamicsModel` 作为可运行降级模型。后续启用外部 FMU 时，如果远程步进失败，系统会发布 FMU 失败和降级事件，并继续用简化模型推进列车，避免仿真主控被模型服务拖垮。
+
+## FMU 服务
+
+`fmu-service` 采用 HTTP JSON 批量调用作为第一版接入方式，接口为 `POST /step-fleet`。服务内部按 `FmuManager → FleetStepper → TrainFMUInstance` 分层，当前 `TrainFMUInstance` 使用 Python fallback 模型执行，后续导出 `TrainTractionBrake.fmu` 后在这一层替换为 FMPy/PyFMI 加载 FMU。
+
+Modelica 草案位于 `fmu-service/modelica/TrainTractionBrake.mo`，只覆盖车辆牵引、制动、阻力、纵向动力学、牵引功率、取流电流和再生制动功率，不把信号、轨道、调度和接触轨供电整体放进 Modelica。
 
 ## 前端模块
 

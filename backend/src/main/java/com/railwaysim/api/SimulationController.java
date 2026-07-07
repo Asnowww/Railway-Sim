@@ -29,6 +29,11 @@ public class SimulationController {
         return simulationRuntime.start();
     }
 
+    @PostMapping("/tick")
+    public SimulationSnapshot tick() {
+        return simulationRuntime.tick();
+    }
+
     @PostMapping("/pause")
     public SimulationSnapshot pause() {
         return simulationRuntime.pause();
@@ -39,4 +44,3 @@ public class SimulationController {
         return simulationRuntime.reset();
     }
 }
-

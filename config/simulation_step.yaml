@@ -1,0 +1,24 @@
+simulation:
+  baseTickMillis: 200
+  pushIntervalMillis: 1000
+  persistenceStepMillis: 5000
+
+modules:
+  fmuVehiclePhysics:
+    stepMillis: 100
+    fallbackModel: SimpleVehicleDynamicsModel
+  trackOccupancy:
+    stepMillis: 100
+  signalAuthority:
+    stepMillis: 100
+  thirdRailPower:
+    stepMillis: 100
+  dispatchStrategy:
+    stepMillis: 1000
+
+fmuService:
+  enabled: false
+  protocol: HTTP_JSON
+  endpoint: http://localhost:9000
+  stepFleetPath: /step-fleet
+  timeoutMillis: 500

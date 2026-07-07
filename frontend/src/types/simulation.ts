@@ -8,6 +8,16 @@ export interface TrainState {
   lengthMeters: number
   loadRate: number
   status: string
+  operationMode: string
+  accelerationMetersPerSecondSquared: number
+  tractionForceNewtons: number
+  brakeForceNewtons: number
+  railCurrentAmps: number
+  tractionPowerWatts: number
+  regenPowerWatts: number
+  energyConsumedKwh: number
+  energyRegeneratedKwh: number
+  faultCode: string
 }
 
 export interface TrackSegmentState {
@@ -46,6 +56,14 @@ export interface Alarm {
   confirmed: boolean
 }
 
+export interface DispatchCommand {
+  id: string
+  trainId: string
+  commandType: string
+  detail: string | null
+  createdAt: string
+}
+
 export interface SimulationSnapshot {
   tick: number
   simulatedTime: string
@@ -61,4 +79,3 @@ export interface SocketMessage {
   type: 'snapshot'
   payload: SimulationSnapshot
 }
-

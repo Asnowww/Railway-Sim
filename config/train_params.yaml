@@ -1,0 +1,24 @@
+trainType: B_TYPE_6_CAR
+lengthMeters: 120
+emptyMassKg: 198000
+maxLoadMassKg: 72000
+
+traction:
+  maxPowerWatts: 3200000
+  maxTractionForceNewtons: 240000
+  efficiency: 0.88
+
+brake:
+  maxServiceBrakeForceNewtons: 220000
+  maxEmergencyBrakeForceNewtons: 300000
+  regenBrakeRatio: 0.45
+
+resistance:
+  davisA: 1800
+  davisB: 45
+  davisC: 3.2
+
+power:
+  nominalVoltage: 1500
+  minVoltage: 1000
+  cutoffVoltage: 900

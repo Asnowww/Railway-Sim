@@ -1,12 +1,22 @@
 package com.railwaysim.simulation;
 
 import com.railwaysim.api.SimulationWebSocketHandler;
+import com.railwaysim.config.SimulationProperties;
+import com.railwaysim.dispatch.DispatchConstraint;
+import com.railwaysim.dispatch.DispatchService;
 import com.railwaysim.monitor.MonitorService;
+import com.railwaysim.power.PowerConstraint;
 import com.railwaysim.power.PowerService;
 import com.railwaysim.signal.SignalService;
+import com.railwaysim.simulation.event.DomainEvent;
+import com.railwaysim.simulation.event.SimpleEventBus;
+import com.railwaysim.track.TrackConstraint;
 import com.railwaysim.track.TrackService;
 import com.railwaysim.train.TrainManager;
+import com.railwaysim.train.TrainState;
+import com.railwaysim.vehicle.VehiclePhysicsOutput;
 import java.time.Instant;
+import java.util.List;
 import org.springframework.stereotype.Service;
 
 @Service
@@ -16,8 +26,13 @@ public class SimulationRuntime {
     private final TrackService trackService;
     private final SignalService signalService;
     private final PowerService powerService;
+    private final DispatchService dispatchService;
     private final MonitorService monitorService;
     private final SimulationWebSocketHandler webSocketHandler;
+    private final SimulationProperties simulationProperties;
+    private final SimpleEventBus eventBus;
+    private final RealtimeStateCache realtimeStateCache;
+    private List<DomainEvent> lastEvents = List.of();
     private long tick;
     private SimulationStatus status = SimulationStatus.STOPPED;
 
@@ -26,15 +41,23 @@ public class SimulationRuntime {
         TrackService trackService,
         SignalService signalService,
         PowerService powerService,
+        DispatchService dispatchService,
         MonitorService monitorService,
-        SimulationWebSocketHandler webSocketHandler
+        SimulationWebSocketHandler webSocketHandler,
+        SimulationProperties simulationProperties,
+        SimpleEventBus eventBus,
+        RealtimeStateCache realtimeStateCache
     ) {
         this.trainManager = trainManager;
         this.trackService = trackService;
         this.signalService = signalService;
         this.powerService = powerService;
+        this.dispatchService = dispatchService;
         this.monitorService = monitorService;
         this.webSocketHandler = webSocketHandler;
+        this.simulationProperties = simulationProperties;
+        this.eventBus = eventBus;
+        this.realtimeStateCache = realtimeStateCache;
     }
 
     public synchronized SimulationSnapshot snapshot() {
@@ -43,10 +66,14 @@ public class SimulationRuntime {
 
     public synchronized SimulationSnapshot start() {
         status = SimulationStatus.RUNNING;
-        tick++;
-        SimulationSnapshot snapshot = buildSnapshot();
-        webSocketHandler.broadcast(snapshot);
-        return snapshot;
+        return advanceOneTick();
+    }
+
+    public synchronized SimulationSnapshot tick() {
+        if (status == SimulationStatus.STOPPED) {
+            status = SimulationStatus.RUNNING;
+        }
+        return advanceOneTick();
     }
 
     public synchronized SimulationSnapshot pause() {
@@ -58,7 +85,46 @@ public class SimulationRuntime {
         tick = 0;
         status = SimulationStatus.STOPPED;
         trainManager.reset();
+        trackService.reset();
+        signalService.reset();
+        powerService.reset();
+        dispatchService.reset();
+        realtimeStateCache.clear();
+        eventBus.drain();
+        lastEvents = List.of();
         return buildSnapshot();
+    }
+
+    private SimulationSnapshot advanceOneTick() {
+        tick++;
+        TickContext context = new TickContext(
+            tick,
+            simulationProperties.getTickMillis(),
+            simulationProperties.getTickMillis() / 1000.0,
+            Instant.now()
+        );
+
+        List<TrainState> beforeTrainStates = trainManager.states();
+        trackService.updateOccupancy(beforeTrainStates);
+        List<TrackConstraint> trackConstraints = trackService.constraintsForTrains(beforeTrainStates);
+        signalService.calculateAuthorities(beforeTrainStates, trackConstraints);
+        List<PowerConstraint> powerConstraints = powerService.constraintsForTrains(beforeTrainStates);
+        List<DispatchConstraint> dispatchConstraints = dispatchService.constraintsForTrains(beforeTrainStates);
+
+        List<VehiclePhysicsOutput> outputs = trainManager.tickAll(
+            context,
+            signalService.authorities(),
+            trackConstraints,
+            powerConstraints,
+            dispatchConstraints
+        );
+        powerService.updateFromVehicleOutputs(outputs);
+        trackService.updateOccupancy(trainManager.states());
+        lastEvents = eventBus.drain();
+
+        SimulationSnapshot snapshot = buildSnapshot();
+        webSocketHandler.broadcast(snapshot);
+        return snapshot;
     }
 
     private SimulationSnapshot buildSnapshot() {
@@ -69,8 +135,8 @@ public class SimulationRuntime {
             trainManager.states(),
             trackService.states(),
             signalService.authorities(),
-            powerService.states()
+            powerService.states(),
+            lastEvents
         );
     }
 }
-

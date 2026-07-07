@@ -159,6 +159,81 @@ CREATE TABLE IF NOT EXISTS operation_log (
   INDEX idx_operation_log_type_time (operation_type, created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+CREATE TABLE IF NOT EXISTS train_physics_config (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  train_type VARCHAR(64) NOT NULL UNIQUE,
+  empty_mass_kg DOUBLE NOT NULL,
+  max_load_mass_kg DOUBLE NOT NULL,
+  max_traction_power_w DOUBLE NOT NULL,
+  max_traction_force_n DOUBLE NOT NULL,
+  max_service_brake_force_n DOUBLE NOT NULL,
+  max_emergency_brake_force_n DOUBLE NOT NULL,
+  resistance_json JSON,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS train_physics_snapshot (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  train_id VARCHAR(64) NOT NULL,
+  tick BIGINT NOT NULL,
+  position_meters DOUBLE NOT NULL,
+  speed_mps DOUBLE NOT NULL,
+  acceleration_mps2 DOUBLE NOT NULL,
+  traction_force_n DOUBLE NOT NULL,
+  brake_force_n DOUBLE NOT NULL,
+  rail_current_a DOUBLE NOT NULL,
+  traction_power_w DOUBLE NOT NULL,
+  regen_power_w DOUBLE NOT NULL,
+  fault_code VARCHAR(64) NOT NULL,
+  recorded_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_train_physics_snapshot_train_tick (train_id, tick)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS train_energy_record (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  train_id VARCHAR(64) NOT NULL,
+  tick BIGINT NOT NULL,
+  energy_consumed_kwh DOUBLE NOT NULL,
+  energy_regenerated_kwh DOUBLE NOT NULL,
+  recorded_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_train_energy_record_train_tick (train_id, tick)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS fmu_call_log (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  tick BIGINT NOT NULL,
+  service_url VARCHAR(255) NOT NULL,
+  request_count INT NOT NULL,
+  status VARCHAR(32) NOT NULL,
+  elapsed_millis BIGINT NOT NULL DEFAULT 0,
+  detail_text VARCHAR(512),
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_fmu_call_log_tick_status (tick, status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS fmu_fault_log (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  train_id VARCHAR(64),
+  fault_code VARCHAR(64) NOT NULL,
+  detail_text VARCHAR(512) NOT NULL,
+  fallback_activated BOOLEAN NOT NULL DEFAULT FALSE,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_fmu_fault_log_train_time (train_id, created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS power_section_record (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  section_id VARCHAR(64) NOT NULL,
+  tick BIGINT NOT NULL,
+  voltage DOUBLE NOT NULL,
+  current_value DOUBLE NOT NULL,
+  status VARCHAR(32) NOT NULL,
+  regen_power_w DOUBLE NOT NULL DEFAULT 0,
+  recorded_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_power_section_record_section_tick (section_id, tick)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 INSERT INTO line_config (line_id, line_name, length_meters, default_speed_limit_mps)
 VALUES ('demo-line-1', '上京地铁示范线', 5000, 22.2)
 ON DUPLICATE KEY UPDATE
@@ -203,7 +278,14 @@ INSERT INTO system_config (config_key, config_value, description)
 VALUES
   ('simulation.tickMillis', '200', '仿真固定步长，单位毫秒'),
   ('simulation.pushIntervalMillis', '1000', 'WebSocket 快照推送间隔，单位毫秒'),
-  ('simulation.safetyGapMeters', '120', '移动授权安全间隔，单位米')
+  ('simulation.safetyGapMeters', '120', '移动授权安全间隔，单位米'),
+  ('simulation.fmuStepMillis', '100', 'FMU 车辆物理模型步长，单位毫秒'),
+  ('simulation.trackStepMillis', '100', '轨道占用更新步长，单位毫秒'),
+  ('simulation.signalStepMillis', '100', '信号 MA/限速计算步长，单位毫秒'),
+  ('simulation.powerStepMillis', '100', '接触轨供电计算步长，单位毫秒'),
+  ('simulation.dispatchStepMillis', '1000', '调度策略判断步长，单位毫秒'),
+  ('simulation.persistenceStepMillis', '5000', 'MySQL 快照持久化步长，单位毫秒'),
+  ('simulation.fmuServiceEnabled', 'false', '是否启用外部 Python FMU 服务')
 ON DUPLICATE KEY UPDATE
   config_value = VALUES(config_value),
   description = VALUES(description);

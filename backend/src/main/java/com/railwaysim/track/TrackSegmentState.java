@@ -7,5 +7,7 @@ public record TrackSegmentState(
     double speedLimitMetersPerSecond,
     TrackOccupancy occupancy
 ) {
+    public TrackSegmentState withOccupancy(TrackOccupancy nextOccupancy) {
+        return new TrackSegmentState(id, startMeters, endMeters, speedLimitMetersPerSecond, nextOccupancy);
+    }
 }
-

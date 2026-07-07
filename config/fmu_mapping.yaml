@@ -1,0 +1,34 @@
+model: RailwaySimVehicle.TrainTractionBrake
+fmiVersion: "2.0"
+fmuType: CoSimulation
+service:
+  protocol: HTTP_JSON
+  baseUrl: http://localhost:9000
+  stepFleetPath: /step-fleet
+
+inputs:
+  tractionCmd: tractionCommand
+  brakeCmd: brakeCommand
+  emergencyBrakeCmd: emergencyBrakeCommand
+  speedLimit: speedLimitMetersPerSecond
+  maDistance: movementAuthorityDistanceMeters
+  gradient: gradient
+  curveRadius: curveRadiusMeters
+  railVoltage: railVoltage
+  powerAvailable: powerAvailableWatts
+  doorClosed: doorClosed
+  adhesionCoeff: adhesionCoefficient
+
+outputs:
+  newPosition: newPositionMeters
+  newSpeed: newSpeedMetersPerSecond
+  acceleration: accelerationMetersPerSecondSquared
+  tractionForce: tractionForceNewtons
+  brakeForce: brakeForceNewtons
+  regenBrakeForce: regenBrakeForceNewtons
+  tractionPower: tractionPowerWatts
+  railCurrent: railCurrentAmps
+  regenPower: regenPowerWatts
+  energyConsumed: energyConsumedKwh
+  energyRegenerated: energyRegeneratedKwh
+  faultCode: faultCode

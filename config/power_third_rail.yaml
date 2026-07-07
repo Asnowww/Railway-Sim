@@ -1,0 +1,23 @@
+nominalVoltage: 1500
+minimumVoltage: 1000
+cutoffVoltage: 900
+maxTractionCurrentAmps: 2000
+currentToVoltageDrop: 0.03
+
+sections:
+  - id: P01
+    name: 南段供电分区
+    startMeters: 0
+    endMeters: 2500
+    substationVoltage: 1500
+    energized: true
+  - id: P02
+    name: 北段供电分区
+    startMeters: 2500
+    endMeters: 5000
+    substationVoltage: 1500
+    energized: true
+
+regeneration:
+  sameSectionAbsorbFirst: true
+  unabsorbedMode: BRAKE_RESISTOR
