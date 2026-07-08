@@ -104,7 +104,6 @@ public class SignalService {
         for (int i = 0; i < ordered.size(); i++) {
             TrainState train = ordered.get(i);
             double trainHead = train.positionMeters();
-            TrackSegmentState currentSeg = trackService.segmentAt(trainHead);
 
             // ② 前车尾部限制
             double nextTrainTailLimit = Double.POSITIVE_INFINITY;
@@ -130,6 +129,7 @@ public class SignalService {
             authorityEnd = Math.max(trainHead, Math.min(authorityEnd, lineLengthMeters));
 
             // ⑦ 沿拓扑邻居方向收集 RESERVED 区段（而非线性扫描）
+            TrackSegmentState currentSeg = trackService.segmentAt(trainHead);
             Set<String> reserved = collectTopologyReserved(currentSeg.id(), authorityEnd);
             allReserved.addAll(reserved);
 

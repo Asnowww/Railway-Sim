@@ -2,6 +2,7 @@ package com.railwaysim.simulation;
 
 import com.railwaysim.api.SimulationWebSocketHandler;
 import com.railwaysim.config.SimulationProperties;
+import com.railwaysim.dispatch.DispatchCommand;
 import com.railwaysim.dispatch.DispatchConstraint;
 import com.railwaysim.dispatch.DispatchService;
 import com.railwaysim.monitor.MonitorService;
@@ -115,6 +116,13 @@ public class SimulationRuntime {
         List<TrainState> beforeTrainStates = trainManager.states();
         trackService.updateOccupancy(beforeTrainStates);
         List<TrackConstraint> trackConstraints = trackService.constraintsForTrains(beforeTrainStates);
+
+        // 拦截 REROUTE 调度指令 → 交联锁处理（在约束计算前）
+        List<DispatchCommand> rerouteCmds = dispatchService.drainCommandsOfType("REROUTE");
+        for (DispatchCommand cmd : rerouteCmds) {
+            interlockingService.applyDispatchCommand(cmd.commandType(), cmd.detail(), cmd.trainId());
+        }
+
         List<DispatchConstraint> dispatchConstraints = dispatchService.constraintsForTrains(beforeTrainStates);
         signalService.calculateAuthorities(beforeTrainStates, trackConstraints, dispatchConstraints);
         List<PowerConstraint> powerConstraints = powerService.constraintsForTrains(beforeTrainStates);

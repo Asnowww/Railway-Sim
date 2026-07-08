@@ -126,7 +126,7 @@ public class JdbcLineDataLoader {
                     rs.getInt("end_endpoint_id"),
                     parseList(rs.getString("forward_neighbor_ids_json")),
                     parseList(rs.getString("side_neighbor_ids_json")),
-                "", ""
+                "", "", "main"
                 );
             },
             lineId

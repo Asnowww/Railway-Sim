@@ -32,6 +32,18 @@ public class DispatchService {
         pendingCommands.add(command);
     }
 
+    /**
+     * 取出并清除指定类型的所有待处理调度指令。
+     * 用于联锁等子系统在约束计算前拦截特定指令。
+     */
+    public List<DispatchCommand> drainCommandsOfType(String commandType) {
+        List<DispatchCommand> matched = pendingCommands.stream()
+            .filter(cmd -> commandType.equals(cmd.commandType()))
+            .toList();
+        pendingCommands.removeAll(matched);
+        return matched;
+    }
+
     public List<DispatchConstraint> constraintsForTrains(List<TrainState> trains) {
         Map<String, List<DispatchCommand>> commandsByTrain = pendingCommands.stream()
             .filter(command -> command.trainId() != null && !command.trainId().isBlank())

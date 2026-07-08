@@ -154,6 +154,14 @@ public class RouteInterlockingService {
         }
         routeStates.put(routeId, route.withReleased());
         log.info("[联锁] 进路 {} 已释放，解锁道岔: {}", routeId, route.lockedSwitchIds());
+
+        // 释放后，把被该进路阻塞的 CONFLICTED 进路恢复为 AVAILABLE
+        for (Map.Entry<String, RouteState> entry : routeStates.entrySet()) {
+            if (entry.getValue().status() == RouteStatus.CONFLICTED) {
+                routeStates.put(entry.getKey(), entry.getValue().withReleased());
+                log.info("[联锁] 进路 {} 冲突解除，恢复可用", entry.getKey());
+            }
+        }
     }
 
     /**

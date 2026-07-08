@@ -70,6 +70,8 @@ public class TrackService {
     public synchronized void reset() {
         OperationalLineData lineData = infrastructureCatalog.lineData();
         segments.clear();
+        // 从 YamlLineDataLoader 存的数据需要 YAML rawSeg 的 track 字段
+        // 当前通过 segment.fromNode/fromNodeId 推断：同from的第二个区段为分支
         segments.addAll(lineData.trackSegments().stream()
             .map(segment -> new TrackSegmentState(
                 segment.id(),
@@ -79,7 +81,7 @@ public class TrackService {
                 TrackOccupancy.FREE,
                 segment.fromNodeId(),
                 segment.toNodeId(),
-                ""
+                segment.track()
             ))
             .toList());
         switches.clear();

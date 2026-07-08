@@ -94,7 +94,8 @@ public class YamlLineDataLoader {
                 forwardMap.getOrDefault(raw.id, List.of()),
                 sideMap.getOrDefault(raw.id, List.of()),
                 raw.from,
-                raw.to
+                raw.to,
+                raw.track
             ));
             speedZones.add(new OperationalLineData.SpeedLimitZone(
                 "LIMIT-" + raw.id, raw.id,
