@@ -87,15 +87,18 @@ public class TrackService {
         switches.clear();
         if (lineData.switches() != null) {
             for (OperationalLineData.SwitchDefinition sw : lineData.switches()) {
-                SwitchPosition defaultPos = "NORMAL".equalsIgnoreCase(sw.normalSegmentId()) || "NORMAL".equals(sw.directionCode())
-                    ? SwitchPosition.NORMAL
-                    : SwitchPosition.REVERSE;
+                SwitchPosition defaultPos = "REVERSE".equalsIgnoreCase(sw.defaultPosition())
+                    ? SwitchPosition.REVERSE
+                    : SwitchPosition.NORMAL;
+                String activeSegment = defaultPos == SwitchPosition.NORMAL
+                    ? sw.normalSegmentId()
+                    : sw.reverseSegmentId();
                 switches.put(sw.id(), new SwitchState(
                     sw.id(),
-                    sw.mergeSegmentId(), // mergeSegmentId 在 YamlLineDataLoader 中被赋值为 node
+                    sw.mergeSegmentId(),
                     defaultPos,
                     false,
-                    sw.normalSegmentId()
+                    activeSegment
                 ));
             }
         }
