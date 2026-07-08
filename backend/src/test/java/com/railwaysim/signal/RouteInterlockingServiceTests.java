@@ -1,12 +1,11 @@
 package com.railwaysim.signal;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.when;
 
 import com.railwaysim.config.SimulationProperties;
 import com.railwaysim.dispatch.DispatchConstraint;
 import com.railwaysim.infrastructure.OperationalLineData;
+import com.railwaysim.infrastructure.OperationalPowerData;
 import com.railwaysim.infrastructure.StaticInfrastructureCatalog;
 import com.railwaysim.track.SwitchPosition;
 import com.railwaysim.track.SwitchState;
@@ -77,8 +76,7 @@ class RouteInterlockingServiceTests {
     }
 
     private static Fixture fixture(OperationalLineData lineData) {
-        StaticInfrastructureCatalog catalog = mock(StaticInfrastructureCatalog.class);
-        when(catalog.lineData()).thenReturn(lineData);
+        StaticInfrastructureCatalog catalog = new StaticInfrastructureCatalog(lineData, emptyPowerData());
         SimulationProperties properties = new SimulationProperties();
         properties.setSafetyGapMeters(0);
         TrackService trackService = new TrackService(catalog, properties);
@@ -86,6 +84,20 @@ class RouteInterlockingServiceTests {
         RouteInterlockingService interlocking = new RouteInterlockingService(catalog, trackService);
         SignalService signalService = new SignalService(properties, catalog, trackService, interlocking);
         return new Fixture(trackService, interlocking, signalService);
+    }
+
+    private static OperationalPowerData emptyPowerData() {
+        return new OperationalPowerData(
+            1500,
+            1000,
+            900,
+            3000,
+            3500,
+            0.02,
+            true,
+            "BRAKE_RESISTOR",
+            List.of()
+        );
     }
 
     private static OperationalLineData lineDataWithDirectRoute() {

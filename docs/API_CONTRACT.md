@@ -23,7 +23,58 @@ POST /api/simulation/tick
 
 ```http
 GET /api/trains
+GET /api/trains/{trainId}
+GET /api/trains/{trainId}/energy
+GET /api/trains/{trainId}/faults
 ```
+
+### 获取供电状态
+
+```http
+GET /api/power/sections
+GET /api/power/sections/{sectionId}
+GET /api/power/sections/{sectionId}/events
+GET /api/power/energy
+GET /api/power/maintenance-locks
+```
+
+### 能耗和维修预留
+
+```http
+GET /api/energy/trains
+GET /api/energy/power-sections
+GET /api/vehicle/maintenance-states
+```
+
+### 仿真故障注入
+
+仿真写接口只用于演示和联调，必须带二次确认字段。
+
+```http
+POST /api/power/sections/{sectionId}/faults
+POST /api/power/sections/{sectionId}/faults/clear
+POST /api/trains/{trainId}/faults
+POST /api/trains/{trainId}/faults/clear
+```
+
+请求：
+
+```json
+{
+  "faultType": "UNDERVOLTAGE",
+  "reason": "demo",
+  "operator": "simulation",
+  "confirmToken": "SIMULATION_CONFIRM",
+  "traceId": "trace-001"
+}
+```
+
+实现约束：
+
+- 写接口会记录 `operation_log`；供电写接口同时记录 `power_operation_log`。
+- 车辆故障注入会立即影响 `TrainState` 中的门、牵引、制动、受流、自检和故障等级字段。
+- 供电故障注入会立即刷新 `PowerSectionState`，清除故障不会绕过 `maintenanceState` 或 `lockoutState`。
+- 调度策略只消费状态和影响范围，不由供电/车辆故障接口直接下发扣车或折返。
 
 ### 调度命令
 
@@ -116,6 +167,40 @@ POST http://localhost:9000/step-fleet
   ]
 }
 ```
+
+## 外部车辆仿真协议适配
+
+该协议不是面向前端或调度系统的 REST 接口，而是后端 `VehiclePhysicsClient.stepFleet()` 背后的车辆物理端口实现。主系统仍通过 `TcmsAtoAdapterService` 汇总调度、信号、轨道、供电约束后生成车辆控制输入。
+
+配置：
+
+```yaml
+railway.simulation.external-simulator.mode: LOCAL
+```
+
+可选值：
+
+| mode | 行为 |
+|---|---|
+| `LOCAL` | 使用本地 `SimpleVehicleDynamicsModel`；兼容旧 HTTP FMU 开关。 |
+| `EXTERNAL_UDP` | 按协议 UDP 小端报文发送 1-20 车 `command + percent`，接收加速度、速度、累计里程。 |
+| `EXTERNAL_RTLAB_API` | 通过 RT-LAB API 变量路径写入列车编号、指令、`segNo`、偏移、方向、激活端；当前用 stub 保持可运行。 |
+| `DUAL_SHADOW` | 本地模型输出作为权威，外部适配器结果仅做误差比对。 |
+
+外部车辆控制映射：
+
+| 内部字段 | 外部字段 |
+|---|---|
+| `tractionCommand > 0` | `command=1`，`percent=round(tractionCommand*100)` |
+| `brakeCommand > 0` | `command=2`，`percent=round(brakeCommand*100)` |
+| `emergencyBrakeCommand=true` | `command=2`，`percent=100` |
+| 无牵引/制动 | `command=0`，`percent=0` |
+
+失败处理：
+
+- UDP 超时、API 写入失败或外部返回缺车时，后端降级到本地车辆模型。
+- 降级输出 `faultCode=EXTERNAL_SIM_FALLBACK`，车辆状态 `dataQuality=FALLBACK`。
+- 供电状态仍以 `PowerService` 为准；当前协议不作为 PSCADA 供电遥测接口使用。
 
 ## WebSocket
 
@@ -224,6 +309,65 @@ ws://localhost:8080/ws/simulation
   "detail": "满载率超过 80%",
   "raisedAt": "2026-07-07T10:00:00Z",
   "confirmed": false
+}
+```
+
+### PowerSectionState
+
+```json
+{
+  "id": "P01",
+  "name": "南段供电分区",
+  "substationId": "SS01",
+  "feederId": "F01",
+  "startMeters": 0.0,
+  "endMeters": 2500.0,
+  "voltage": 1500.0,
+  "current": 420.0,
+  "status": "ENERGIZED",
+  "loadWatts": 630000.0,
+  "regenPowerWatts": 0.0,
+  "absorbedRegenPowerWatts": 0.0,
+  "unabsorbedRegenPowerWatts": 0.0,
+  "availablePowerWatts": 3000000.0,
+  "breakerStatus": "CLOSED",
+  "protectionState": "NORMAL",
+  "maintenanceState": "NONE",
+  "lockoutState": "UNLOCKED",
+  "affectedTrainIds": ["TR-001"],
+  "dataQuality": "GOOD",
+  "updatedAt": "2026-07-07T10:00:00Z"
+}
+```
+
+### EnergyResponse
+
+列车能耗：
+
+```json
+{
+  "trainId": "TR-001",
+  "energyConsumedKwh": 0.12,
+  "energyRegeneratedKwh": 0.02,
+  "netEnergyKwh": 0.10,
+  "statisticsWindow": "CURRENT_SIMULATION",
+  "dataQuality": "GOOD",
+  "updatedAt": "2026-07-07T10:00:00Z"
+}
+```
+
+供电能耗：
+
+```json
+{
+  "totalLoadWatts": 630000.0,
+  "totalRegenPowerWatts": 100000.0,
+  "totalAbsorbedRegenPowerWatts": 80000.0,
+  "totalUnabsorbedRegenPowerWatts": 20000.0,
+  "statisticsWindow": "CURRENT_SIMULATION",
+  "dataQuality": "GOOD",
+  "updatedAt": "2026-07-07T10:00:00Z",
+  "sections": []
 }
 ```
 

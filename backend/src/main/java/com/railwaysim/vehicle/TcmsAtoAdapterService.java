@@ -361,7 +361,12 @@ public class TcmsAtoAdapterService {
     }
 
     private String resolveSelfCheckStatus(VehiclePhysicsInput input, VehiclePhysicsOutput output) {
-        if (!input.doorClosed() || "CURRENT_COLLECTION_LOST".equals(output.faultCode())) {
+        if (
+            !input.doorClosed()
+                || "CURRENT_COLLECTION_LOST".equals(output.faultCode())
+                || input.railVoltage() <= 0
+                || input.powerAvailableWatts() <= 0
+        ) {
             return "FAIL";
         }
         if (!"OK".equals(output.faultCode())) {
@@ -371,9 +376,12 @@ public class TcmsAtoAdapterService {
     }
 
     private int resolveFaultLevel(VehiclePhysicsInput input, VehiclePhysicsOutput output) {
+        if (input.railVoltage() <= 0 || input.powerAvailableWatts() <= 0) {
+            return 3;
+        }
         return switch (output.faultCode()) {
             case "OK" -> input.emergencyBrakeCommand() ? 3 : 0;
-            case "LOW_VOLTAGE", "TRACTION_UNAVAILABLE", "FMU_STEP_FAILED" -> 2;
+            case "LOW_VOLTAGE", "TRACTION_UNAVAILABLE", "FMU_STEP_FAILED", "EXTERNAL_SIM_FALLBACK" -> 2;
             case "CURRENT_COLLECTION_LOST", "BRAKE_UNAVAILABLE", "DOOR_NOT_LOCKED", "ATP_BRAKE" -> 3;
             default -> 2;
         };
@@ -391,7 +399,7 @@ public class TcmsAtoAdapterService {
     }
 
     private String resolveDataQuality(VehiclePhysicsOutput output) {
-        if ("FMU_STEP_FAILED".equals(output.faultCode())) {
+        if ("FMU_STEP_FAILED".equals(output.faultCode()) || "EXTERNAL_SIM_FALLBACK".equals(output.faultCode())) {
             return "FALLBACK";
         }
         return "OK".equals(output.faultCode()) ? "GOOD" : "INVALID";

@@ -39,6 +39,7 @@ public class TrainEntity {
     private double energyConsumedKwh;
     private double energyRegeneratedKwh;
     private String faultCode = "OK";
+    private String injectedFaultCode;
 
     public TrainEntity(String id, String routeId, double positionMeters, double lengthMeters) {
         this(id, routeId, positionMeters, lengthMeters, 0.35);
@@ -86,6 +87,18 @@ public class TrainEntity {
     }
 
     public TrainState state() {
+        String effectiveDoorState = effectiveDoorState();
+        String effectiveTractionState = effectiveTractionState();
+        String effectiveBrakeState = effectiveBrakeState();
+        String effectiveCurrentCollectionStatus = effectiveCurrentCollectionStatus();
+        boolean effectiveTractionAvailable = effectiveTractionAvailable();
+        boolean effectiveBrakeAvailable = effectiveBrakeAvailable();
+        String effectiveSelfCheckStatus = injectedFaultCode == null ? selfCheckStatus : "FAIL";
+        int effectiveFaultLevel = injectedFaultCode == null ? faultLevel : 3;
+        String effectiveAvailableOperationMode = injectedFaultCode == null ? availableOperationMode : "NO_DEPARTURE";
+        String effectiveDataQuality = injectedFaultCode == null ? dataQuality : "INVALID";
+        String effectiveFaultCode = injectedFaultCode == null ? faultCode : injectedFaultCode;
+        String effectiveStatus = injectedFaultCode == null ? status : "FAULT";
         return new TrainState(
             id,
             routeId,
@@ -96,19 +109,19 @@ public class TrainEntity {
             positionMeters,
             Math.max(0, positionMeters - lengthMeters),
             loadRate,
-            status,
+            effectiveStatus,
             operationMode,
             speedMetersPerSecond <= 0.05,
-            doorState,
-            tractionState,
-            brakeState,
-            currentCollectionStatus,
-            tractionAvailable,
-            brakeAvailable,
-            selfCheckStatus,
-            faultLevel,
-            availableOperationMode,
-            dataQuality,
+            effectiveDoorState,
+            effectiveTractionState,
+            effectiveBrakeState,
+            effectiveCurrentCollectionStatus,
+            effectiveTractionAvailable,
+            effectiveBrakeAvailable,
+            effectiveSelfCheckStatus,
+            effectiveFaultLevel,
+            effectiveAvailableOperationMode,
+            effectiveDataQuality,
             dynamicsState,
             dynamicsConstraintReason,
             speedLimitMetersPerSecond,
@@ -124,8 +137,20 @@ public class TrainEntity {
             regenPowerWatts,
             energyConsumedKwh,
             energyRegeneratedKwh,
-            faultCode
+            effectiveFaultCode
         );
+    }
+
+    public void injectFault(String faultCode) {
+        injectedFaultCode = faultCode == null || faultCode.isBlank() ? "TRAIN_FAULT" : faultCode;
+    }
+
+    public void clearFault() {
+        injectedFaultCode = null;
+    }
+
+    public String injectedFaultCode() {
+        return injectedFaultCode;
     }
 
     private String resolveStatus(TrainStateReport report, VehiclePhysicsOutput output) {
@@ -139,5 +164,29 @@ public class TrainEntity {
             return "DEGRADED";
         }
         return "RUNNING";
+    }
+
+    private String effectiveDoorState() {
+        return "DOOR_NOT_LOCKED".equals(injectedFaultCode) ? "OPEN" : doorState;
+    }
+
+    private String effectiveTractionState() {
+        return "TRACTION_UNAVAILABLE".equals(injectedFaultCode) ? "UNAVAILABLE" : tractionState;
+    }
+
+    private String effectiveBrakeState() {
+        return "BRAKE_UNAVAILABLE".equals(injectedFaultCode) ? "UNAVAILABLE" : brakeState;
+    }
+
+    private String effectiveCurrentCollectionStatus() {
+        return "CURRENT_COLLECTION_LOST".equals(injectedFaultCode) ? "LOST" : currentCollectionStatus;
+    }
+
+    private boolean effectiveTractionAvailable() {
+        return injectedFaultCode == null || !"TRACTION_UNAVAILABLE".equals(injectedFaultCode);
+    }
+
+    private boolean effectiveBrakeAvailable() {
+        return injectedFaultCode == null || !"BRAKE_UNAVAILABLE".equals(injectedFaultCode);
     }
 }

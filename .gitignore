@@ -28,3 +28,6 @@ backend/config/application-local.yml
 # Runtime data
 data/
 uploads/
+
+# doc
+上京地铁系统立项说明书.pdf

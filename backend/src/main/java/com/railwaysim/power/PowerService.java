@@ -31,6 +31,7 @@ public class PowerService {
     private final Map<String, String> injectedFaultBySection = new HashMap<>();
     private final Map<String, String> maintenanceLockBySection = new HashMap<>();
     private final Map<String, String> supplyModeBySection = new HashMap<>();
+    private final List<PowerSectionEvent> sectionEvents = new ArrayList<>();
 
     public PowerService(
         StaticInfrastructureCatalog infrastructureCatalog,
@@ -52,12 +53,15 @@ public class PowerService {
         injectedFaultBySection.clear();
         maintenanceLockBySection.clear();
         supplyModeBySection.clear();
+        sectionEvents.clear();
         Instant now = Instant.now();
         sections.clear();
         sections.addAll(powerData.sections().stream()
             .map(section -> new PowerSectionState(
                 section.id(),
                 section.name(),
+                section.substationId(),
+                section.feederId(),
                 section.startMeters(),
                 section.endMeters(),
                 section.substationVoltage(),
@@ -138,6 +142,8 @@ public class PowerService {
                 return new PowerSectionState(
                     section.id(),
                     section.name(),
+                    section.substationId(),
+                    section.feederId(),
                     section.startMeters(),
                     section.endMeters(),
                     voltage,
@@ -170,26 +176,73 @@ public class PowerService {
 
     public synchronized void injectPowerFault(String sectionId, String faultType) {
         injectedFaultBySection.put(sectionId, faultType);
-        eventBus.publish(new PowerFaultStateChangedEvent(sectionId, faultType, "INJECTED", Instant.now()));
+        Instant now = Instant.now();
+        eventBus.publish(new PowerFaultStateChangedEvent(sectionId, faultType, "INJECTED", now));
+        sectionEvents.add(new PowerSectionEvent(
+            sectionId,
+            "POWER_FAULT",
+            "INJECTED",
+            faultType,
+            levelForFault(faultType),
+            affectedTrains(sectionId),
+            now
+        ));
+        refreshSectionState(sectionId);
     }
 
     public synchronized void clearPowerFault(String sectionId) {
         String clearedFault = injectedFaultBySection.remove(sectionId);
+        Instant now = Instant.now();
         eventBus.publish(new PowerFaultStateChangedEvent(
             sectionId,
             clearedFault == null ? "NONE" : clearedFault,
             "CLEARED",
-            Instant.now()
+            now
         ));
+        sectionEvents.add(new PowerSectionEvent(
+            sectionId,
+            "POWER_FAULT",
+            "CLEARED",
+            clearedFault == null ? "NONE" : clearedFault,
+            1,
+            affectedTrains(sectionId),
+            now
+        ));
+        refreshSectionState(sectionId);
     }
 
     public synchronized void setMaintenanceLock(String sectionId, String lockoutState) {
         maintenanceLockBySection.put(sectionId, lockoutState);
-        eventBus.publish(new PowerMaintenanceLockChangedEvent(sectionId, lockoutState, maintenanceStateForLock(lockoutState), Instant.now()));
+        Instant now = Instant.now();
+        eventBus.publish(new PowerMaintenanceLockChangedEvent(sectionId, lockoutState, maintenanceStateForLock(lockoutState), now));
+        sectionEvents.add(new PowerSectionEvent(
+            sectionId,
+            "MAINTENANCE_LOCK",
+            lockoutState,
+            maintenanceStateForLock(lockoutState),
+            "LOCKED_OUT".equals(lockoutState) || "GROUNDED".equals(lockoutState) ? 2 : 1,
+            affectedTrains(sectionId),
+            now
+        ));
+        refreshSectionState(sectionId);
     }
 
     public synchronized void setSupplyMode(String sectionId, String supplyMode) {
         supplyModeBySection.put(sectionId, supplyMode);
+        refreshSectionState(sectionId);
+    }
+
+    public synchronized PowerSectionState section(String sectionId) {
+        return sections.stream()
+            .filter(section -> section.id().equals(sectionId))
+            .findFirst()
+            .orElseThrow(() -> new IllegalArgumentException("Power section not found: " + sectionId));
+    }
+
+    public synchronized List<PowerSectionEvent> eventsForSection(String sectionId) {
+        return sectionEvents.stream()
+            .filter(event -> event.sectionId().equals(sectionId))
+            .toList();
     }
 
     private PowerSectionState sectionAt(double positionMeters) {
@@ -197,6 +250,58 @@ public class PowerService {
             .filter(section -> positionMeters >= section.startMeters() && positionMeters < section.endMeters())
             .findFirst()
             .orElse(sections.get(sections.size() - 1));
+    }
+
+    private void refreshSectionState(String sectionId) {
+        Map<String, OperationalPowerData.PowerSectionDefinition> sectionDefinitionById = infrastructureCatalog.powerData().sections().stream()
+            .collect(Collectors.toMap(
+                OperationalPowerData.PowerSectionDefinition::id,
+                Function.identity(),
+                (left, right) -> left
+            ));
+        List<PowerSectionState> updated = sections.stream()
+            .map(section -> section.id().equals(sectionId)
+                ? refreshSectionState(section, sectionDefinitionById.get(section.id()), Instant.now())
+                : section)
+            .toList();
+        sections.clear();
+        sections.addAll(updated);
+        realtimeStateCache.updatePowerSections(updated);
+    }
+
+    private PowerSectionState refreshSectionState(
+        PowerSectionState section,
+        OperationalPowerData.PowerSectionDefinition sectionDefinition,
+        Instant now
+    ) {
+        String supplyMode = supplyModeFor(sectionDefinition, section);
+        String breakerStatus = breakerStatusFor(sectionDefinition, section);
+        String maintenanceState = maintenanceStateFor(sectionDefinition, section);
+        String lockoutState = lockoutStateFor(sectionDefinition, section);
+        String status = resolveStatus(section.id(), section.voltage(), section.current(), breakerStatus, maintenanceState, lockoutState);
+        return new PowerSectionState(
+            section.id(),
+            section.name(),
+            section.substationId(),
+            section.feederId(),
+            section.startMeters(),
+            section.endMeters(),
+            section.voltage(),
+            section.current(),
+            status,
+            section.loadWatts(),
+            section.regenPowerWatts(),
+            section.absorbedRegenPowerWatts(),
+            section.unabsorbedRegenPowerWatts(),
+            availablePowerWatts(section.voltage(), status, supplyMode),
+            breakerStatus,
+            protectionState(status),
+            maintenanceState,
+            lockoutState,
+            section.affectedTrainIds(),
+            section.dataQuality(),
+            now
+        );
     }
 
     private String resolveStatus(
@@ -376,6 +481,22 @@ public class PowerService {
             case "OVERCURRENT" -> "馈线过流，供电能力受限";
             case "MAINTENANCE_LOCKED" -> "供电分区处于检修闭锁状态";
             default -> "接触轨电压低于最低牵引阈值";
+        };
+    }
+
+    private List<String> affectedTrains(String sectionId) {
+        return sections.stream()
+            .filter(section -> section.id().equals(sectionId))
+            .findFirst()
+            .map(PowerSectionState::affectedTrainIds)
+            .orElse(List.of());
+    }
+
+    private int levelForFault(String faultType) {
+        return switch (faultType) {
+            case "DEENERGIZED", "BREAKER_TRIP", "MAINTENANCE_LOCK" -> 3;
+            case "UNDERVOLTAGE", "OVERCURRENT" -> 2;
+            default -> 2;
         };
     }
 
