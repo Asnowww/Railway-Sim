@@ -68,6 +68,46 @@ POST /api/trains/lifecycle
 
 中央处理顺序：`TrainController` 转换请求 -> `TrainManager.applyLifecycleCommand()` -> `TrainManager.addTrain()` -> `OnboardTrainSubsystemManager.register()` -> 后续 tick 按信号和供电约束推进会话状态。
 
+### 车辆-信号接口
+
+该接口族只服务车辆系统与信号系统：车辆侧上报安全状态和运行遥测，信号侧输出 MA/限速/制动命令投影。车辆-调度不是本接口族；调度命令必须先由信号/ATS 折算。
+
+```http
+GET /api/signal/vehicles/statuses
+GET /api/signal/vehicles/commands
+POST /api/signal/vehicles/telemetry
+POST /api/signal/vehicles/telemetry/content-packet?trainCount=1
+```
+
+`POST /api/signal/vehicles/telemetry` 使用 JSON：
+
+```json
+[
+  {
+    "trainNo": 1,
+    "speedMetersPerSecond": 12.34,
+    "cumulativeDistanceMeters": 987.65,
+    "direction": "DOWN",
+    "loadMassKg": 86400,
+    "faultSpeedLimitMetersPerSecond": 2.0,
+    "emergencyBrakeApplied": true,
+    "availableTractionCount": 4,
+    "availableBrakeCount": 5
+  }
+]
+```
+
+`content-packet` 使用 `application/octet-stream` 和 `SignalTrainContentCodec` 小端包：每车 18 字节，包含列车号、速度、累计里程、方向、载重、车辆故障限速、紧急制动、可用牵引单元数和可用制动单元数。
+
+`GET /api/signal/vehicles/commands` 将当前 `MovementAuthority` 和车辆状态投影为 `SignalVehicleCommand`：
+
+| 场景 | 输出 |
+|---|---|
+| 正常 MA | 输出 MA 终点和授权速度。 |
+| 无 MA 或 MA 耗尽 | 牵引切除、常用制动、紧急制动。 |
+| 未并入车辆控制会话 | 牵引切除、常用制动，不进入紧急制动。 |
+| 车辆故障限速 | 授权速度取 `min(MA限速, vehicleFaultSpeedLimitMetersPerSecond)`。 |
+
 ### 获取供电状态
 
 ```http

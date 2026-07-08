@@ -33,6 +33,7 @@ public class TrainEntity {
     private String dynamicsState = "COASTING";
     private String dynamicsConstraintReason = "INITIAL";
     private double speedLimitMetersPerSecond;
+    private double vehicleFaultSpeedLimitMetersPerSecond;
     private double movementAuthorityDistanceMeters;
     private double stationDistanceMeters;
     private double stoppingDistanceMeters;
@@ -165,6 +166,7 @@ public class TrainEntity {
             dynamicsState,
             dynamicsConstraintReason,
             speedLimitMetersPerSecond,
+            vehicleFaultSpeedLimitMetersPerSecond,
             movementAuthorityDistanceMeters,
             stationDistanceMeters,
             stoppingDistanceMeters,
@@ -182,6 +184,8 @@ public class TrainEntity {
     }
 
     public void applyOperationalTelemetry(TrainOperationalTelemetry telemetry) {
+        positionMeters = Math.max(0, telemetry.cumulativeDistanceMeters());
+        speedMetersPerSecond = Math.max(0, telemetry.speedMetersPerSecond());
         loadMassKg = VehicleLoadPolicy.loadMassKg(telemetry.loadMassKg(), loadRate);
         loadRate = VehicleLoadPolicy.loadRateFromMass(loadMassKg);
         overloadStatus = VehicleLoadPolicy.overloadStatus(loadMassKg);
@@ -196,7 +200,13 @@ public class TrainEntity {
         vehicleProtectionReason = VehicleLoadPolicy.vehicleProtectionReason(overloadStatus);
         if (telemetry.emergencyBrakeApplied()) {
             brakeState = "EMERGENCY";
+            status = "EMERGENCY_BRAKE";
+            operationMode = "ATP_BRAKE";
+            faultCode = "ATP_BRAKE";
+            faultLevel = Math.max(faultLevel, 3);
+            availableOperationMode = "NO_DEPARTURE";
         }
+        vehicleFaultSpeedLimitMetersPerSecond = telemetry.faultSpeedLimitMetersPerSecond();
     }
 
     public void injectFault(String faultCode) {
