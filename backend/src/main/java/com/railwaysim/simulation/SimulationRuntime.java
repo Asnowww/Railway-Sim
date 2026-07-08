@@ -131,8 +131,7 @@ public class SimulationRuntime {
             context,
             signalService.authorities(),
             trackConstraints,
-            powerConstraints,
-            dispatchConstraints
+            powerConstraints
         );
         powerService.updateFromVehicleOutputs(outputs);
         trackService.updateOccupancy(trainManager.states());

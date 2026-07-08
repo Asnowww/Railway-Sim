@@ -1,6 +1,5 @@
 package com.railwaysim.train;
 
-import com.railwaysim.dispatch.DispatchConstraint;
 import com.railwaysim.infrastructure.StaticInfrastructureCatalog;
 import com.railwaysim.power.PowerConstraint;
 import com.railwaysim.signal.MovementAuthority;
@@ -18,6 +17,7 @@ import com.railwaysim.vehicle.TrainStateReport;
 import com.railwaysim.vehicle.VehiclePhysicsClient;
 import com.railwaysim.vehicle.VehiclePhysicsInput;
 import com.railwaysim.vehicle.VehiclePhysicsOutput;
+import com.railwaysim.vehicle.protocol.TrainOperationalTelemetry;
 import jakarta.annotation.PostConstruct;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -70,8 +70,7 @@ public class TrainManager {
         TickContext context,
         List<MovementAuthority> authorities,
         List<TrackConstraint> trackConstraints,
-        List<PowerConstraint> powerConstraints,
-        List<DispatchConstraint> dispatchConstraints
+        List<PowerConstraint> powerConstraints
     ) {
         Map<String, MovementAuthority> authorityByTrain = authorities.stream()
             .collect(Collectors.toMap(MovementAuthority::trainId, Function.identity(), (left, right) -> right));
@@ -79,9 +78,6 @@ public class TrainManager {
             .collect(Collectors.toMap(TrackConstraint::trainId, Function.identity(), (left, right) -> right));
         Map<String, PowerConstraint> powerByTrain = powerConstraints.stream()
             .collect(Collectors.toMap(PowerConstraint::trainId, Function.identity(), (left, right) -> right));
-        Map<String, DispatchConstraint> dispatchByTrain = dispatchConstraints.stream()
-            .collect(Collectors.toMap(DispatchConstraint::trainId, Function.identity(), (left, right) -> right));
-
         List<TrainState> currentStates = states();
         List<VehiclePhysicsInput> inputs = currentStates.stream()
             .map(train -> tcmsAtoAdapterService.buildVehiclePhysicsInput(
@@ -89,8 +85,7 @@ public class TrainManager {
                 context,
                 authorityByTrain.get(train.id()),
                 trackByTrain.get(train.id()),
-                powerByTrain.get(train.id()),
-                dispatchByTrain.get(train.id())
+                powerByTrain.get(train.id())
             ))
             .toList();
         List<VehiclePhysicsOutput> outputs = vehiclePhysicsClient.stepFleet(inputs);
@@ -100,17 +95,28 @@ public class TrainManager {
         Map<String, VehiclePhysicsOutput> outputByTrain = outputs.stream()
             .collect(Collectors.toMap(VehiclePhysicsOutput::trainId, Function.identity(), (left, right) -> right));
         for (TrainEntity train : trains) {
-            VehiclePhysicsOutput output = outputByTrain.get(train.state().id());
-            VehiclePhysicsInput input = inputByTrain.get(train.state().id());
-            DispatchConstraint dispatch = dispatchByTrain.get(train.state().id());
+            TrainState currentState = train.state();
+            VehiclePhysicsOutput output = outputByTrain.get(currentState.id());
+            VehiclePhysicsInput input = inputByTrain.get(currentState.id());
             if (output != null && input != null) {
-                TrainStateReport report = tcmsAtoAdapterService.buildTrainStateReport(input, output, dispatch);
+                TrainStateReport report = tcmsAtoAdapterService.buildTrainStateReport(currentState, input, output);
                 train.applyPhysicsOutput(output, report);
                 realtimeStateCache.updateTrainTcmsState(report);
                 publishVehicleEvents(output);
             }
         }
         return outputs;
+    }
+
+    public synchronized void applyOperationalTelemetry(List<TrainOperationalTelemetry> telemetries) {
+        Map<String, TrainOperationalTelemetry> telemetryByTrain = telemetries.stream()
+            .collect(Collectors.toMap(TrainOperationalTelemetry::trainId, Function.identity(), (left, right) -> right));
+        for (TrainEntity train : trains) {
+            TrainOperationalTelemetry telemetry = telemetryByTrain.get(train.state().id());
+            if (telemetry != null) {
+                train.applyOperationalTelemetry(telemetry);
+            }
+        }
     }
 
     public synchronized List<TrainState> states() {

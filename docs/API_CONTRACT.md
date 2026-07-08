@@ -97,9 +97,9 @@ POST /api/dispatch/commands
 
 | commandType | detail | 作用 |
 |---|---|---|
-| `HOLD` / `HOLD_TRAIN` | 任意说明文本 | TCMS/ATO 适配层切断牵引并施加制动，车辆运行模式显示为 `DISPATCH_HOLD` |
-| `SPEED_LIMIT` / `TEMP_SPEED_LIMIT` | 速度上限，单位 m/s | 调度限速与信号、轨道限速取最小值 |
-| `SPEED_FACTOR` / `LIMIT_FACTOR` | 0-1 比例 | 按比例降低当前速度上限 |
+| `HOLD` / `HOLD_TRAIN` | 任意说明文本 | 调度服务记录扣车意图，由信号模块折算为 MA/限速或后续 `SignalVehicleCommand` |
+| `SPEED_LIMIT` / `TEMP_SPEED_LIMIT` | 速度上限，单位 m/s | 由信号模块与轨道限速、安全距离共同计算后下发给车辆 |
+| `SPEED_FACTOR` / `LIMIT_FACTOR` | 0-1 比例 | 由信号模块折算速度授权，不由车辆直接消费 |
 
 ## 内部 FMU 服务接口
 
@@ -170,7 +170,7 @@ POST http://localhost:9000/step-fleet
 
 ## 外部车辆仿真协议适配
 
-该协议不是面向前端或调度系统的 REST 接口，而是后端 `VehiclePhysicsClient.stepFleet()` 背后的车辆物理端口实现。主系统仍通过 `TcmsAtoAdapterService` 汇总调度、信号、轨道、供电约束后生成车辆控制输入。
+该协议不是面向前端或调度系统的 REST 接口，而是后端 `VehiclePhysicsClient.stepFleet()` 背后的车辆物理端口实现。主系统仍通过 `TcmsAtoAdapterService` 汇总信号、轨道、供电约束后生成车辆控制输入；调度约束先由信号模块折算为 MA/限速或后续 `SignalVehicleCommand`。
 
 配置：
 
@@ -242,6 +242,11 @@ ws://localhost:8080/ws/simulation
   "headMileage": 120.0,
   "tailMileage": 0.0,
   "loadRate": 0.62,
+  "loadMassKg": 44640.0,
+  "overloadStatus": "NORMAL",
+  "availableTractionCount": 6,
+  "availableBrakeCount": 6,
+  "vehicleProtectionReason": "NONE",
   "status": "RUNNING",
   "operationMode": "ATO",
   "zeroSpeed": false,
