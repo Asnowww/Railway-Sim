@@ -1,7 +1,6 @@
 package com.railwaysim.dispatch.command;
 
 import com.railwaysim.dispatch.DispatchCommand;
-import com.railwaysim.dispatch.config.DispatchProperties;
 import com.railwaysim.signal.MovementAuthority;
 import java.util.ArrayList;
 import java.util.List;
@@ -10,12 +9,6 @@ import org.springframework.stereotype.Component;
 
 @Component
 public class CommandValidator {
-
-    private final DispatchProperties properties;
-
-    public CommandValidator(DispatchProperties properties) {
-        this.properties = properties;
-    }
 
     public List<DispatchCommand> validate(List<DispatchCommand> commands, List<MovementAuthority> authorities) {
         List<DispatchCommand> validated = new ArrayList<>();

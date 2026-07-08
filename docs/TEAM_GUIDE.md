@@ -92,6 +92,7 @@ frontend/src/components/dispatch/
 ```text
 backend/src/main/java/com/railwaysim/signal
 backend/src/main/java/com/railwaysim/track
+backend/src/main/java/com/railwaysim/infrastructure
 frontend/src/views/signal-track/
 frontend/src/components/signal-track/
 config/line-demo.yaml
@@ -99,7 +100,7 @@ config/line-demo.yaml
 
 先做任务：
 
-1. 完善 YAML 线路区段、站点、道岔配置。
+1. 维护 `infrastructure` 里的静态线路适配对象，确认 YAML 和线路工作簿导入后的标准字段一致。
 2. 在 `TrackService` 中根据列车位置计算区段占用。
 3. 在 `SignalService` 中根据前车位置计算 MA 和限速。
 4. 后续在信号轨道视图中展示区段占用、MA、限速。
@@ -108,7 +109,8 @@ config/line-demo.yaml
 
 - 不要让信号模块直接调用前端接口。
 - 不要在信号计算里读写 MySQL。
-- 如果需要新增轨道字段，先改 `TrackSegment` 和 `docs/API_CONTRACT.md`。
+- 线路工作簿先经 `infrastructure` 适配层，再进入 `track` / `signal`，不要把 sheet 解析逻辑散落到业务服务里。
+- 如果需要新增轨道字段，先改适配层标准对象和 `docs/API_CONTRACT.md`，再改业务服务。
 
 ## 供电与车辆负责人
 
@@ -116,23 +118,31 @@ config/line-demo.yaml
 
 ```text
 backend/src/main/java/com/railwaysim/train
+backend/src/main/java/com/railwaysim/vehicle
 backend/src/main/java/com/railwaysim/power
+fmu-service/
 frontend/src/views/power-train/
 frontend/src/components/power-train/
 ```
 
 先做任务：
 
-1. 完善 `TrainEntity.tick()` 中的牵引、制动、限速逻辑。
-2. 增加车辆状态：运行、停站、故障、紧急制动。
-3. 在 `PowerService` 中根据列车所在区段估算负荷、电压、电流。
-4. 后续在供电车辆视图中展示车辆列表和供电分区状态。
+1. 维护 `TcmsAtoAdapterService`，把信号、轨道、供电和调度约束转换为车辆物理输入。
+2. 维护 `VehiclePhysicsClient` 接口，后续把 `FmuVehiclePhysicsAdapter` 从简化模型替换为 Python FMU 服务调用。
+3. 维护 `fmu-service` 的 `FmuManager`、`FleetStepper`、`TrainFMUInstance` 和 Modelica 模型草案。
+4. 完善车辆状态：牵引、制动、取流、电功率、再生制动、故障码。
+5. 在 `PowerService` 中根据列车取流估算负荷、电压、电流。
+6. 维护车辆/供电事件：牵引功率变化、制动力变化、再生功率、接触轨电压变化、FMU 失败和降级。
+7. 后续在供电车辆视图中展示车辆列表和供电分区状态。
 
 开发建议：
 
 - 车辆是对象，不是服务，不要给每辆车开线程。
 - 多车更新统一由 `TrainManager` 负责。
 - 供电模块输出状态即可，不要直接操控列车，必要时通过事件或调度指令联动。
+- 调度、信号、供电、轨道不要直接调用 FMU，统一通过 TCMS/ATO 适配层进入车辆物理端口。
+- 实时状态优先放 `RealtimeStateCache`，MySQL 表只用于后续快照、日志和回放。
+- 调度命令只写入 `DispatchService`，车辆侧通过 `DispatchConstraint` 消费扣车、临时限速和限速比例，不直接读取调度模块内部状态。
 
 ## 第一周推荐目标
 

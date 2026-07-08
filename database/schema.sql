@@ -45,14 +45,161 @@ CREATE TABLE IF NOT EXISTS switch_config (
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+CREATE TABLE IF NOT EXISTS point_config (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  point_id VARCHAR(64) NOT NULL UNIQUE,
+  line_id VARCHAR(64) NOT NULL,
+  point_name VARCHAR(128),
+  track_name VARCHAR(128),
+  kilometer_mark_meters DOUBLE NOT NULL,
+  direction_code VARCHAR(32),
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_point_config_line_position (line_id, kilometer_mark_meters)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS track_segment_topology_config (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  segment_id VARCHAR(64) NOT NULL UNIQUE,
+  line_id VARCHAR(64) NOT NULL,
+  raw_segment_id INT NOT NULL DEFAULT 0,
+  length_meters DOUBLE NOT NULL,
+  start_endpoint_type INT NOT NULL DEFAULT 0,
+  start_endpoint_id INT NOT NULL DEFAULT 0,
+  end_endpoint_type INT NOT NULL DEFAULT 0,
+  end_endpoint_id INT NOT NULL DEFAULT 0,
+  forward_neighbor_ids_json JSON,
+  side_neighbor_ids_json JSON,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_track_segment_topology_line_raw (line_id, raw_segment_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS speed_limit_zone_config (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  zone_id VARCHAR(64) NOT NULL UNIQUE,
+  line_id VARCHAR(64) NOT NULL,
+  segment_id VARCHAR(64) NOT NULL,
+  start_meters DOUBLE NOT NULL,
+  end_meters DOUBLE NOT NULL,
+  speed_limit_mps DOUBLE NOT NULL,
+  switch_id VARCHAR(64),
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_speed_limit_line_range (line_id, start_meters, end_meters)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS gradient_zone_config (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  zone_id VARCHAR(64) NOT NULL UNIQUE,
+  line_id VARCHAR(64) NOT NULL,
+  start_meters DOUBLE NOT NULL,
+  end_meters DOUBLE NOT NULL,
+  gradient DOUBLE NOT NULL,
+  raw_permille_value INT NOT NULL DEFAULT 0,
+  direction_code VARCHAR(32),
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_gradient_line_range (line_id, start_meters, end_meters)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS platform_config (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  platform_id VARCHAR(64) NOT NULL UNIQUE,
+  line_id VARCHAR(64) NOT NULL,
+  center_meters DOUBLE NOT NULL,
+  anchor_segment_id VARCHAR(64),
+  direction_code VARCHAR(32),
+  raw_center_mark VARCHAR(64),
+  interoperability_id VARCHAR(128),
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_platform_line_position (line_id, center_meters)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS station_platform_config (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  station_id VARCHAR(64) NOT NULL,
+  platform_id VARCHAR(64) NOT NULL,
+  line_id VARCHAR(64) NOT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY uk_station_platform (station_id, platform_id),
+  INDEX idx_station_platform_line_station (line_id, station_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS switch_detail_config (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  switch_id VARCHAR(64) NOT NULL UNIQUE,
+  line_id VARCHAR(64) NOT NULL,
+  switch_name VARCHAR(128),
+  linked_switch_id VARCHAR(64),
+  direction_code VARCHAR(32),
+  merge_segment_id VARCHAR(64),
+  diverging_speed_limit_mps DOUBLE NOT NULL DEFAULT 0,
+  interoperability_id VARCHAR(128),
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS signal_config (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  signal_id VARCHAR(64) NOT NULL UNIQUE,
+  line_id VARCHAR(64) NOT NULL,
+  signal_name VARCHAR(128),
+  type_code VARCHAR(32),
+  attribute_code VARCHAR(32),
+  segment_id VARCHAR(64),
+  position_meters DOUBLE NOT NULL,
+  protection_direction_code VARCHAR(32),
+  lamp_info_code VARCHAR(64),
+  interoperability_id VARCHAR(128),
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_signal_line_position (line_id, position_meters)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS balise_config (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  balise_id VARCHAR(64) NOT NULL UNIQUE,
+  line_id VARCHAR(64) NOT NULL,
+  hex_id VARCHAR(64),
+  balise_name VARCHAR(128),
+  segment_id VARCHAR(64),
+  position_meters DOUBLE NOT NULL,
+  interoperability_id VARCHAR(128),
+  attribute_code VARCHAR(32),
+  linked_signal_id VARCHAR(64),
+  direction_code VARCHAR(32),
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_balise_line_position (line_id, position_meters)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS route_config (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  route_id VARCHAR(64) NOT NULL UNIQUE,
+  line_id VARCHAR(64) NOT NULL,
+  route_name VARCHAR(128),
+  type_code VARCHAR(32),
+  start_signal_id VARCHAR(64),
+  end_signal_id VARCHAR(64),
+  axle_section_ids_json JSON,
+  protection_section_ids_json JSON,
+  point_approach_section_ids_json JSON,
+  cbtc_approach_section_ids_json JSON,
+  point_trigger_section_ids_json JSON,
+  cbtc_trigger_section_ids_json JSON,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_route_line_signals (line_id, start_signal_id, end_signal_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 CREATE TABLE IF NOT EXISTS power_section_config (
   id BIGINT PRIMARY KEY AUTO_INCREMENT,
   section_id VARCHAR(64) NOT NULL UNIQUE,
   line_id VARCHAR(64) NOT NULL,
   section_name VARCHAR(128) NOT NULL,
+  substation_id VARCHAR(64),
+  feeder_id VARCHAR(64),
   start_meters DOUBLE NOT NULL,
   end_meters DOUBLE NOT NULL,
   nominal_voltage DOUBLE NOT NULL DEFAULT 1500,
+  breaker_status VARCHAR(32) NOT NULL DEFAULT 'CLOSED',
+  isolator_status VARCHAR(32) NOT NULL DEFAULT 'CLOSED',
+  supply_mode VARCHAR(32) NOT NULL DEFAULT 'DOUBLE_END',
+  maintenance_state VARCHAR(32) NOT NULL DEFAULT 'NONE',
+  lockout_state VARCHAR(32) NOT NULL DEFAULT 'UNLOCKED',
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   INDEX idx_power_section_line_range (line_id, start_meters, end_meters)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
@@ -159,6 +306,151 @@ CREATE TABLE IF NOT EXISTS operation_log (
   INDEX idx_operation_log_type_time (operation_type, created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+CREATE TABLE IF NOT EXISTS train_physics_config (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  train_type VARCHAR(64) NOT NULL UNIQUE,
+  empty_mass_kg DOUBLE NOT NULL,
+  max_load_mass_kg DOUBLE NOT NULL,
+  max_traction_power_w DOUBLE NOT NULL,
+  max_traction_force_n DOUBLE NOT NULL,
+  max_service_brake_force_n DOUBLE NOT NULL,
+  max_emergency_brake_force_n DOUBLE NOT NULL,
+  resistance_json JSON,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS train_physics_snapshot (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  train_id VARCHAR(64) NOT NULL,
+  tick BIGINT NOT NULL,
+  position_meters DOUBLE NOT NULL,
+  speed_mps DOUBLE NOT NULL,
+  acceleration_mps2 DOUBLE NOT NULL,
+  traction_force_n DOUBLE NOT NULL,
+  brake_force_n DOUBLE NOT NULL,
+  regen_brake_force_n DOUBLE NOT NULL DEFAULT 0,
+  rail_current_a DOUBLE NOT NULL,
+  traction_power_w DOUBLE NOT NULL,
+  regen_power_w DOUBLE NOT NULL,
+  fault_code VARCHAR(64) NOT NULL,
+  data_quality VARCHAR(32) NOT NULL DEFAULT 'GOOD',
+  dynamics_state VARCHAR(32) NOT NULL DEFAULT 'COASTING',
+  dynamics_constraint_reason VARCHAR(128) NOT NULL DEFAULT 'NONE',
+  speed_limit_mps DOUBLE NOT NULL DEFAULT 0,
+  ma_distance_meters DOUBLE NOT NULL DEFAULT 0,
+  station_distance_meters DOUBLE NOT NULL DEFAULT 0,
+  stopping_distance_meters DOUBLE NOT NULL DEFAULT 0,
+  recorded_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_train_physics_snapshot_train_tick (train_id, tick)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS train_energy_record (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  train_id VARCHAR(64) NOT NULL,
+  tick BIGINT NOT NULL,
+  energy_consumed_kwh DOUBLE NOT NULL,
+  energy_regenerated_kwh DOUBLE NOT NULL,
+  recorded_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_train_energy_record_train_tick (train_id, tick)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS fmu_call_log (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  tick BIGINT NOT NULL,
+  service_url VARCHAR(255) NOT NULL,
+  request_count INT NOT NULL,
+  status VARCHAR(32) NOT NULL,
+  elapsed_millis BIGINT NOT NULL DEFAULT 0,
+  detail_text VARCHAR(512),
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_fmu_call_log_tick_status (tick, status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS fmu_fault_log (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  tick BIGINT NOT NULL DEFAULT 0,
+  train_id VARCHAR(64),
+  fault_code VARCHAR(64) NOT NULL,
+  detail_text VARCHAR(512) NOT NULL,
+  fallback_activated BOOLEAN NOT NULL DEFAULT FALSE,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_fmu_fault_tick_train (tick, train_id),
+  INDEX idx_fmu_fault_log_train_time (train_id, created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS power_section_record (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  section_id VARCHAR(64) NOT NULL,
+  tick BIGINT NOT NULL,
+  voltage DOUBLE NOT NULL,
+  current_value DOUBLE NOT NULL,
+  status VARCHAR(32) NOT NULL,
+  load_w DOUBLE NOT NULL DEFAULT 0,
+  available_power_w DOUBLE NOT NULL DEFAULT 0,
+  regen_power_w DOUBLE NOT NULL DEFAULT 0,
+  absorbed_regen_power_w DOUBLE NOT NULL DEFAULT 0,
+  unabsorbed_regen_power_w DOUBLE NOT NULL DEFAULT 0,
+  breaker_status VARCHAR(32) NOT NULL DEFAULT 'CLOSED',
+  protection_state VARCHAR(32) NOT NULL DEFAULT 'NORMAL',
+  maintenance_state VARCHAR(32) NOT NULL DEFAULT 'NONE',
+  lockout_state VARCHAR(32) NOT NULL DEFAULT 'UNLOCKED',
+  affected_train_ids_json JSON,
+  data_quality VARCHAR(32) NOT NULL DEFAULT 'GOOD',
+  recorded_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_power_section_record_section_tick (section_id, tick)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS power_fault_record (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  fault_id VARCHAR(64) NOT NULL,
+  section_id VARCHAR(64) NOT NULL,
+  fault_type VARCHAR(64) NOT NULL,
+  fault_state VARCHAR(32) NOT NULL,
+  level TINYINT NOT NULL DEFAULT 2,
+  affected_train_ids_json JSON,
+  detail_text VARCHAR(512),
+  started_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  cleared_at TIMESTAMP NULL,
+  INDEX idx_power_fault_section_time (section_id, started_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS power_operation_log (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  section_id VARCHAR(64) NOT NULL,
+  operation_type VARCHAR(64) NOT NULL,
+  before_state VARCHAR(64),
+  after_state VARCHAR(64),
+  operator_name VARCHAR(64) NOT NULL DEFAULT 'simulation',
+  detail_json JSON,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_power_operation_section_time (section_id, created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS power_maintenance_lock_record (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  section_id VARCHAR(64) NOT NULL,
+  lockout_state VARCHAR(32) NOT NULL,
+  grounding_state VARCHAR(32) NOT NULL DEFAULT 'UNGROUNDED',
+  approval_state VARCHAR(32) NOT NULL DEFAULT 'SIMULATED',
+  operator_name VARCHAR(64) NOT NULL DEFAULT 'simulation',
+  recorded_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_power_lock_section_time (section_id, recorded_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS train_fault_record (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  train_id VARCHAR(64) NOT NULL,
+  fault_code VARCHAR(64) NOT NULL,
+  fault_level TINYINT NOT NULL,
+  self_check_status VARCHAR(32) NOT NULL,
+  available_operation_mode VARCHAR(32) NOT NULL,
+  detail_text VARCHAR(512),
+  raised_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  closed_at TIMESTAMP NULL,
+  INDEX idx_train_fault_train_time (train_id, raised_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 CREATE TABLE IF NOT EXISTS running_plan_config (
   id BIGINT PRIMARY KEY AUTO_INCREMENT,
   plan_id VARCHAR(64) NOT NULL,
@@ -239,30 +531,49 @@ ON DUPLICATE KEY UPDATE
   end_meters = VALUES(end_meters),
   speed_limit_mps = VALUES(speed_limit_mps);
 
-INSERT INTO power_section_config (section_id, line_id, section_name, start_meters, end_meters, nominal_voltage)
+INSERT INTO power_section_config (
+  section_id,
+  line_id,
+  section_name,
+  substation_id,
+  feeder_id,
+  start_meters,
+  end_meters,
+  nominal_voltage,
+  breaker_status,
+  isolator_status,
+  supply_mode,
+  maintenance_state,
+  lockout_state
+)
 VALUES
-  ('P01', 'demo-line-1', '南段供电分区', 0, 2500, 1500),
-  ('P02', 'demo-line-1', '北段供电分区', 2500, 5000, 1500)
+  ('P01', 'demo-line-1', '南段供电分区', 'SS01', 'F01', 0, 2500, 1500, 'CLOSED', 'CLOSED', 'DOUBLE_END', 'NONE', 'UNLOCKED'),
+  ('P02', 'demo-line-1', '北段供电分区', 'SS02', 'F02', 2500, 5000, 1500, 'CLOSED', 'CLOSED', 'DOUBLE_END', 'NONE', 'UNLOCKED')
 ON DUPLICATE KEY UPDATE
   section_name = VALUES(section_name),
+  substation_id = VALUES(substation_id),
+  feeder_id = VALUES(feeder_id),
   start_meters = VALUES(start_meters),
   end_meters = VALUES(end_meters),
-  nominal_voltage = VALUES(nominal_voltage);
+  nominal_voltage = VALUES(nominal_voltage),
+  breaker_status = VALUES(breaker_status),
+  isolator_status = VALUES(isolator_status),
+  supply_mode = VALUES(supply_mode),
+  maintenance_state = VALUES(maintenance_state),
+  lockout_state = VALUES(lockout_state);
 
 INSERT INTO system_config (config_key, config_value, description)
 VALUES
   ('simulation.tickMillis', '200', '仿真固定步长，单位毫秒'),
   ('simulation.pushIntervalMillis', '1000', 'WebSocket 快照推送间隔，单位毫秒'),
   ('simulation.safetyGapMeters', '120', '移动授权安全间隔，单位米'),
-  ('dispatch.averageSpeedRatio', '0.8', '计划均速相对区间限速的比例'),
-  ('dispatch.dwellToleranceSec', '15', '停站超时容忍秒数'),
-  ('dispatch.departureDelaySec', '30', '发车延误容忍秒数'),
-  ('dispatch.headwayShrinkRatio', '0.7', '行车间隔过小比例'),
-  ('dispatch.headwayExpandRatio', '1.5', '行车间隔过大比例'),
-  ('dispatch.crowdingLoadRate', '0.80', '拥挤满载率阈值'),
-  ('dispatch.confirmTicks', '3', '扰动确认周期数'),
-  ('dispatch.cooldownSec', '60', '扰动冷却秒数'),
-  ('dispatch.evaluateIntervalMs', '1000', '调度评估间隔毫秒')
+  ('simulation.fmuStepMillis', '100', 'FMU 车辆物理模型步长，单位毫秒'),
+  ('simulation.trackStepMillis', '100', '轨道占用更新步长，单位毫秒'),
+  ('simulation.signalStepMillis', '100', '信号 MA/限速计算步长，单位毫秒'),
+  ('simulation.powerStepMillis', '100', '接触轨供电计算步长，单位毫秒'),
+  ('simulation.dispatchStepMillis', '1000', '调度策略判断步长，单位毫秒'),
+  ('simulation.persistenceStepMillis', '5000', 'MySQL 快照持久化步长，单位毫秒'),
+  ('simulation.fmuServiceEnabled', 'false', '是否启用外部 Python FMU 服务')
 ON DUPLICATE KEY UPDATE
   config_value = VALUES(config_value),
   description = VALUES(description);

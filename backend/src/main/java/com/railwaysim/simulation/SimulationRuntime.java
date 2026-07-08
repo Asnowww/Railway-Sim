@@ -3,13 +3,20 @@ package com.railwaysim.simulation;
 import com.railwaysim.api.SimulationWebSocketHandler;
 import com.railwaysim.config.SimulationProperties;
 import com.railwaysim.dispatch.DispatchCommand;
+import com.railwaysim.dispatch.DispatchConstraint;
 import com.railwaysim.dispatch.DispatchService;
-import com.railwaysim.dispatch.plan.CurrentRunPlan;
+import com.railwaysim.dispatch.integration.DispatchCommandPublisher;
 import com.railwaysim.monitor.MonitorService;
+import com.railwaysim.power.PowerConstraint;
 import com.railwaysim.power.PowerService;
 import com.railwaysim.signal.SignalService;
+import com.railwaysim.simulation.event.DomainEvent;
+import com.railwaysim.simulation.event.SimpleEventBus;
+import com.railwaysim.track.TrackConstraint;
 import com.railwaysim.track.TrackService;
 import com.railwaysim.train.TrainManager;
+import com.railwaysim.train.TrainState;
+import com.railwaysim.vehicle.VehiclePhysicsOutput;
 import java.time.Instant;
 import java.util.List;
 import org.springframework.stereotype.Service;
@@ -21,11 +28,15 @@ public class SimulationRuntime {
     private final TrackService trackService;
     private final SignalService signalService;
     private final PowerService powerService;
-    private final MonitorService monitorService;
     private final DispatchService dispatchService;
+    private final DispatchCommandPublisher dispatchCommandPublisher;
+    private final MonitorService monitorService;
     private final SimulationWebSocketHandler webSocketHandler;
     private final SimulationProperties simulationProperties;
-
+    private final SimpleEventBus eventBus;
+    private final RealtimeStateCache realtimeStateCache;
+    private final SimulationPersistenceService persistenceService;
+    private List<DomainEvent> lastEvents = List.of();
     private long tick;
     private SimulationStatus status = SimulationStatus.STOPPED;
     private Instant simulatedTime = Instant.now();
@@ -36,19 +47,27 @@ public class SimulationRuntime {
         TrackService trackService,
         SignalService signalService,
         PowerService powerService,
-        MonitorService monitorService,
         DispatchService dispatchService,
+        DispatchCommandPublisher dispatchCommandPublisher,
+        MonitorService monitorService,
         SimulationWebSocketHandler webSocketHandler,
-        SimulationProperties simulationProperties
+        SimulationProperties simulationProperties,
+        SimpleEventBus eventBus,
+        RealtimeStateCache realtimeStateCache,
+        SimulationPersistenceService persistenceService
     ) {
         this.trainManager = trainManager;
         this.trackService = trackService;
         this.signalService = signalService;
         this.powerService = powerService;
-        this.monitorService = monitorService;
         this.dispatchService = dispatchService;
+        this.dispatchCommandPublisher = dispatchCommandPublisher;
+        this.monitorService = monitorService;
         this.webSocketHandler = webSocketHandler;
         this.simulationProperties = simulationProperties;
+        this.eventBus = eventBus;
+        this.realtimeStateCache = realtimeStateCache;
+        this.persistenceService = persistenceService;
     }
 
     public synchronized SimulationSnapshot snapshot() {
@@ -57,11 +76,14 @@ public class SimulationRuntime {
 
     public synchronized SimulationSnapshot start() {
         status = SimulationStatus.RUNNING;
-        simulatedTime = Instant.now();
-        tick++;
-        SimulationSnapshot snapshot = buildSnapshot();
-        broadcastIfDue(snapshot, true);
-        return snapshot;
+        return advanceOneTick();
+    }
+
+    public synchronized SimulationSnapshot tick() {
+        if (status == SimulationStatus.STOPPED) {
+            status = SimulationStatus.RUNNING;
+        }
+        return advanceOneTick();
     }
 
     public synchronized SimulationSnapshot pause() {
@@ -76,32 +98,75 @@ public class SimulationRuntime {
         lastPushAtMillis = 0;
         dispatchService.reset();
         trainManager.reset();
+        trackService.reset();
+        signalService.reset();
+        powerService.reset();
+        realtimeStateCache.clear();
+        eventBus.drain();
+        lastEvents = List.of();
         return buildSnapshot();
     }
 
-    public synchronized SimulationSnapshot tick() {
-        if (status != SimulationStatus.RUNNING) {
-            return snapshot();
+    private SimulationSnapshot advanceOneTick() {
+        tick++;
+        simulatedTime = simulatedTime.plusMillis(simulationProperties.getTickMillis());
+        TickContext context = new TickContext(
+            tick,
+            simulationProperties.getTickMillis(),
+            simulationProperties.getTickMillis() / 1000.0,
+            simulatedTime
+        );
+
+        List<TrainState> beforeTrainStates = trainManager.states();
+        trackService.updateOccupancy(beforeTrainStates);
+        List<TrackConstraint> trackConstraints = trackService.constraintsForTrains(beforeTrainStates);
+        signalService.calculateAuthorities(beforeTrainStates, trackConstraints);
+
+        dispatchService.evaluate(context, beforeTrainStates, signalService.authorities());
+        List<DispatchCommand> generatedCommands = dispatchService.drainCommands();
+        if (!generatedCommands.isEmpty()) {
+            dispatchCommandPublisher.publish(generatedCommands);
         }
 
-        tick++;
-        long tickMillis = simulationProperties.getTickMillis();
-        simulatedTime = simulatedTime.plusMillis(tickMillis);
-        TickContext context = new TickContext(tick, tickMillis, tickMillis / 1000.0, simulatedTime);
+        List<PowerConstraint> powerConstraints = powerService.constraintsForTrains(beforeTrainStates);
+        List<DispatchConstraint> dispatchConstraints = dispatchService.constraintsForTrains(beforeTrainStates);
 
-        List<DispatchCommand> commands = dispatchService.drainCommands();
-        CurrentRunPlan plan = dispatchService.currentPlan();
-        trainManager.updatePlan(plan);
-        trainManager.tickAll(context, commands);
-        dispatchService.markCommandsApplied(commands);
-
+        List<VehiclePhysicsOutput> outputs = trainManager.tickAll(
+            context,
+            signalService.authorities(),
+            trackConstraints,
+            powerConstraints,
+            dispatchConstraints
+        );
+        powerService.updateFromVehicleOutputs(outputs);
         trackService.updateOccupancy(trainManager.states());
-        powerService.update();
-        dispatchService.evaluate(context, trainManager.states(), signalService.authorities());
+        lastEvents = eventBus.drain();
+        persistIfDue(context);
 
         SimulationSnapshot snapshot = buildSnapshot();
-        broadcastIfDue(snapshot, false);
+        long nowMillis = System.currentTimeMillis();
+        if (nowMillis - lastPushAtMillis >= simulationProperties.getPushIntervalMillis()) {
+            webSocketHandler.broadcast(snapshot);
+            lastPushAtMillis = nowMillis;
+        }
         return snapshot;
+    }
+
+    private void persistIfDue(TickContext context) {
+        long persistenceStepMillis = simulationProperties.getPersistenceStepMillis();
+        long tickMillis = simulationProperties.getTickMillis();
+        if (persistenceStepMillis <= 0 || tickMillis <= 0) {
+            return;
+        }
+        long elapsedMillis = context.tick() * tickMillis;
+        if (elapsedMillis % persistenceStepMillis == 0) {
+            persistenceService.persist(
+                context,
+                trainManager.states(),
+                powerService.states(),
+                lastEvents
+            );
+        }
     }
 
     private SimulationSnapshot buildSnapshot() {
@@ -112,16 +177,10 @@ public class SimulationRuntime {
             trainManager.states(),
             trackService.states(),
             signalService.authorities(),
+            signalService.signalStates(),
             powerService.states(),
+            lastEvents,
             dispatchService.snapshot()
         );
-    }
-
-    private void broadcastIfDue(SimulationSnapshot snapshot, boolean force) {
-        long now = System.currentTimeMillis();
-        if (force || now - lastPushAtMillis >= simulationProperties.getPushIntervalMillis()) {
-            webSocketHandler.broadcast(snapshot);
-            lastPushAtMillis = now;
-        }
     }
 }

@@ -5,11 +5,42 @@ export type SimulationStatus = 'STOPPED' | 'RUNNING' | 'PAUSED'
 export interface TrainState {
   id: string
   routeId: string
+  serviceNo: string
   positionMeters: number
   speedMetersPerSecond: number
   lengthMeters: number
+  headMileage: number
+  tailMileage: number
   loadRate: number
   status: string
+  operationMode: string
+  zeroSpeed: boolean
+  doorState: string
+  tractionState: string
+  brakeState: string
+  currentCollectionStatus: string
+  tractionAvailable: boolean
+  brakeAvailable: boolean
+  selfCheckStatus: string
+  faultLevel: number
+  availableOperationMode: string
+  dataQuality: string
+  dynamicsState: string
+  dynamicsConstraintReason: string
+  speedLimitMetersPerSecond: number
+  movementAuthorityDistanceMeters: number
+  stationDistanceMeters: number
+  stoppingDistanceMeters: number
+  accelerationMetersPerSecondSquared: number
+  tractionForceNewtons: number
+  brakeForceNewtons: number
+  regenBrakeForceNewtons: number
+  railCurrentAmps: number
+  tractionPowerWatts: number
+  regenPowerWatts: number
+  energyConsumedKwh: number
+  energyRegeneratedKwh: number
+  faultCode: string
   currentStationId?: string
   dwellElapsedSeconds?: number
   lastDepartureAt?: string
@@ -20,7 +51,7 @@ export interface TrackSegmentState {
   startMeters: number
   endMeters: number
   speedLimitMetersPerSecond: number
-  occupancy: 'FREE' | 'OCCUPIED' | 'FAULT'
+  occupancy: 'FREE' | 'RESERVED' | 'OCCUPIED' | 'FAULT'
 }
 
 export interface MovementAuthority {
@@ -28,6 +59,16 @@ export interface MovementAuthority {
   authorityEndMeters: number
   speedLimitMetersPerSecond: number
   reason: string
+}
+
+export type SignalAspect = 'RED' | 'YELLOW' | 'GREEN'
+
+export interface SignalState {
+  signalId: string
+  segmentId: string
+  positionMeters: number
+  aspect: SignalAspect
+  reasonTrainId: string | null
 }
 
 export interface PowerSectionState {
@@ -38,6 +79,18 @@ export interface PowerSectionState {
   voltage: number
   current: number
   status: string
+  loadWatts: number
+  regenPowerWatts: number
+  absorbedRegenPowerWatts: number
+  unabsorbedRegenPowerWatts: number
+  availablePowerWatts: number
+  breakerStatus: string
+  protectionState: string
+  maintenanceState: string
+  lockoutState: string
+  affectedTrainIds: string[]
+  dataQuality: string
+  updatedAt: string
 }
 
 export interface Alarm {
@@ -51,6 +104,14 @@ export interface Alarm {
   confirmed: boolean
 }
 
+export interface DispatchCommand {
+  id: string
+  trainId: string
+  commandType: string
+  detail: string | null
+  createdAt: string
+}
+
 export interface SimulationSnapshot {
   tick: number
   simulatedTime: string
@@ -58,6 +119,7 @@ export interface SimulationSnapshot {
   trains: TrainState[]
   trackSegments: TrackSegmentState[]
   authorities: MovementAuthority[]
+  signalStates: SignalState[]
   powerSections: PowerSectionState[]
   alarms: Alarm[]
   dispatch: DispatchSnapshot
@@ -67,4 +129,3 @@ export interface SocketMessage {
   type: 'snapshot'
   payload: SimulationSnapshot
 }
-

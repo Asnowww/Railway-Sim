@@ -1,6 +1,5 @@
 package com.railwaysim.dispatch.monitor;
 
-import com.railwaysim.dispatch.config.DispatchProperties;
 import com.railwaysim.dispatch.plan.CurrentRunPlan;
 import com.railwaysim.dispatch.plan.OperationPlanLoader;
 import com.railwaysim.dispatch.plan.PlannedScheduleCalculator;
@@ -19,7 +18,6 @@ public class TrainRunMonitor {
 
     private final OperationPlanLoader planLoader;
     private final PlannedScheduleCalculator scheduleCalculator;
-    private final DispatchProperties properties;
     private final StationRecordStore stationRecordStore;
     private final Map<String, String> dwellingStationByTrain = new HashMap<>();
     private Instant simulationStart = Instant.now();
@@ -27,12 +25,10 @@ public class TrainRunMonitor {
     public TrainRunMonitor(
         OperationPlanLoader planLoader,
         PlannedScheduleCalculator scheduleCalculator,
-        DispatchProperties properties,
         StationRecordStore stationRecordStore
     ) {
         this.planLoader = planLoader;
         this.scheduleCalculator = scheduleCalculator;
-        this.properties = properties;
         this.stationRecordStore = stationRecordStore;
     }
 

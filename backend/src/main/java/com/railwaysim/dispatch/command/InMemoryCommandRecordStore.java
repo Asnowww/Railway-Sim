@@ -31,7 +31,7 @@ public class InMemoryCommandRecordStore implements CommandRecordStore {
     public List<DispatchCommand> list(String simulationRunId) {
         List<DispatchCommand> filtered = new ArrayList<>();
         for (DispatchCommand command : records) {
-            Object runId = command.payload().get("simulationRunId");
+            Object runId = command.payload() == null ? null : command.payload().get("simulationRunId");
             if (simulationRunId.equals(runId)) {
                 filtered.add(command);
             }

@@ -4,6 +4,23 @@ server:
 spring:
   application:
     name: railway-sim-backend
+  config:
+    import:
+      - optional:file:./application-local.yml
+      - optional:file:./config/application-local.yml
+  datasource:
+    url: jdbc:h2:mem:railway-sim;MODE=MySQL;DB_CLOSE_DELAY=-1;DATABASE_TO_LOWER=TRUE;CASE_INSENSITIVE_IDENTIFIERS=TRUE
+    driver-class-name: org.h2.Driver
+    username: sa
+    password:
+  sql:
+    init:
+      mode: always
+      continue-on-error: true
+      schema-locations:
+        - optional:file:../database/schema.sql
+        - optional:file:./database/schema.sql
+        - optional:file:Railway-Sim/database/schema.sql
   jackson:
     time-zone: Asia/Shanghai
 
@@ -13,7 +30,22 @@ railway:
     push-interval-millis: 1000
     default-line-length-meters: 5000
     default-speed-limit-meters-per-second: 22.2
+    default-curve-radius-meters: 1000
     safety-gap-meters: 120
+    line-data-source: database
+    line-id: "1"
+    line-data-auto-import: true
+    line-data-path: ./database/线路数据(1).xls
+    power-config-path: ./config/power_third_rail.yaml
+    fmu-step-millis: 100
+    track-step-millis: 100
+    signal-step-millis: 100
+    power-step-millis: 100
+    dispatch-step-millis: 1000
+    persistence-step-millis: 5000
+    fmu-service-enabled: false
+    fmu-service-url: http://localhost:9000
+    fmu-service-timeout-millis: 500
   dispatch:
     plan-location: classpath:config/dispatch-plan.yaml
     average-speed-ratio: 0.8
@@ -30,4 +62,3 @@ railway:
     base-cruise-speed-mps: 15
     min-dwell-sec: 15
     max-dwell-sec: 60
-

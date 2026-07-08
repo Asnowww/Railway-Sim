@@ -1,3 +1,6 @@
+# Tools / SDK
+.tools/
+
 # OS / editor
 .DS_Store
 Thumbs.db
@@ -22,6 +25,8 @@ frontend/.vite/
 .env
 .env.*
 !.env.example
+backend/application-local.yml
+backend/config/application-local.yml
 
 # Runtime data
 data/

@@ -1,29 +1,53 @@
 package com.railwaysim.train;
 
-import com.railwaysim.dispatch.DispatchCommand;
-import com.railwaysim.dispatch.config.DispatchProperties;
-import com.railwaysim.dispatch.monitor.StationInfo;
-import com.railwaysim.dispatch.plan.CurrentRunPlan;
-import com.railwaysim.dispatch.plan.OperationPlanLoader;
+import com.railwaysim.dispatch.DispatchConstraint;
+import com.railwaysim.infrastructure.StaticInfrastructureCatalog;
+import com.railwaysim.power.PowerConstraint;
+import com.railwaysim.signal.MovementAuthority;
+import com.railwaysim.simulation.RealtimeStateCache;
 import com.railwaysim.simulation.TickContext;
+import com.railwaysim.simulation.event.BrakeForceChangedEvent;
+import com.railwaysim.simulation.event.RegenerativePowerGeneratedEvent;
+import com.railwaysim.simulation.event.SimpleEventBus;
+import com.railwaysim.simulation.event.TractionPowerChangedEvent;
+import com.railwaysim.simulation.event.VehiclePhysicsUpdatedEvent;
+import com.railwaysim.track.TrackConstraint;
+import com.railwaysim.vehicle.TcmsAtoAdapterService;
+import com.railwaysim.vehicle.TrainStateReport;
+import com.railwaysim.vehicle.VehiclePhysicsClient;
+import com.railwaysim.vehicle.VehiclePhysicsInput;
+import com.railwaysim.vehicle.VehiclePhysicsOutput;
 import jakarta.annotation.PostConstruct;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 import org.springframework.stereotype.Service;
 
 @Service
 public class TrainManager {
 
-    private final OperationPlanLoader planLoader;
-    private final DispatchProperties properties;
     private final List<TrainEntity> trains = new ArrayList<>();
-    private final List<DispatchCommand> stagedCommands = new ArrayList<>();
-    private CurrentRunPlan currentPlan;
+    private final TcmsAtoAdapterService tcmsAtoAdapterService;
+    private final VehiclePhysicsClient vehiclePhysicsClient;
+    private final StaticInfrastructureCatalog infrastructureCatalog;
+    private final RealtimeStateCache realtimeStateCache;
+    private final SimpleEventBus eventBus;
 
-    public TrainManager(OperationPlanLoader planLoader, DispatchProperties properties) {
-        this.planLoader = planLoader;
-        this.properties = properties;
+    public TrainManager(
+        TcmsAtoAdapterService tcmsAtoAdapterService,
+        VehiclePhysicsClient vehiclePhysicsClient,
+        StaticInfrastructureCatalog infrastructureCatalog,
+        RealtimeStateCache realtimeStateCache,
+        SimpleEventBus eventBus
+    ) {
+        this.tcmsAtoAdapterService = tcmsAtoAdapterService;
+        this.vehiclePhysicsClient = vehiclePhysicsClient;
+        this.infrastructureCatalog = infrastructureCatalog;
+        this.realtimeStateCache = realtimeStateCache;
+        this.eventBus = eventBus;
     }
 
     @PostConstruct
@@ -32,35 +56,91 @@ public class TrainManager {
     }
 
     public synchronized void reset() {
+        String routeId = infrastructureCatalog.lineData().lineId();
         trains.clear();
-        stagedCommands.clear();
-        currentPlan = planLoader.resolve(Instant.now());
-        List<StationInfo> stations = planLoader.stations();
-        double lineLength = stations.isEmpty() ? 5000 : stations.getLast().positionMeters();
-        trains.add(new TrainEntity("TR-001", planLoader.lineId(), 100, 120, properties, stations, lineLength));
-        trains.add(new TrainEntity("TR-002", planLoader.lineId(), 900, 120, properties, stations, lineLength));
+        trains.add(new TrainEntity("TR-001", routeId, 100, 120, 0.42));
+        trains.add(new TrainEntity("TR-002", routeId, 900, 120, 0.55));
     }
 
-    public synchronized void stageCommands(List<DispatchCommand> commands) {
-        stagedCommands.addAll(commands);
-    }
+    public synchronized List<VehiclePhysicsOutput> tickAll(
+        TickContext context,
+        List<MovementAuthority> authorities,
+        List<TrackConstraint> trackConstraints,
+        List<PowerConstraint> powerConstraints,
+        List<DispatchConstraint> dispatchConstraints
+    ) {
+        Map<String, MovementAuthority> authorityByTrain = authorities.stream()
+            .collect(Collectors.toMap(MovementAuthority::trainId, Function.identity(), (left, right) -> right));
+        Map<String, TrackConstraint> trackByTrain = trackConstraints.stream()
+            .collect(Collectors.toMap(TrackConstraint::trainId, Function.identity(), (left, right) -> right));
+        Map<String, PowerConstraint> powerByTrain = powerConstraints.stream()
+            .collect(Collectors.toMap(PowerConstraint::trainId, Function.identity(), (left, right) -> right));
+        Map<String, DispatchConstraint> dispatchByTrain = dispatchConstraints.stream()
+            .collect(Collectors.toMap(DispatchConstraint::trainId, Function.identity(), (left, right) -> right));
 
-    public synchronized void tickAll(TickContext context, List<DispatchCommand> drainedCommands) {
-        List<DispatchCommand> commands = new ArrayList<>(drainedCommands);
-        commands.addAll(stagedCommands);
-        stagedCommands.clear();
-        int defaultDwell = currentPlan == null ? 25 : currentPlan.defaultDwellTimeSec();
+        List<TrainState> currentStates = states();
+        List<VehiclePhysicsInput> inputs = currentStates.stream()
+            .map(train -> tcmsAtoAdapterService.buildVehiclePhysicsInput(
+                train,
+                context,
+                authorityByTrain.get(train.id()),
+                trackByTrain.get(train.id()),
+                powerByTrain.get(train.id()),
+                dispatchByTrain.get(train.id())
+            ))
+            .toList();
+        List<VehiclePhysicsOutput> outputs = vehiclePhysicsClient.stepFleet(inputs);
+
+        Map<String, VehiclePhysicsInput> inputByTrain = inputs.stream()
+            .collect(Collectors.toMap(VehiclePhysicsInput::trainId, Function.identity(), (left, right) -> right));
+        Map<String, VehiclePhysicsOutput> outputByTrain = outputs.stream()
+            .collect(Collectors.toMap(VehiclePhysicsOutput::trainId, Function.identity(), (left, right) -> right));
         for (TrainEntity train : trains) {
-            train.applyCommands(commands);
-            train.tick(context, defaultDwell);
+            VehiclePhysicsOutput output = outputByTrain.get(train.state().id());
+            VehiclePhysicsInput input = inputByTrain.get(train.state().id());
+            DispatchConstraint dispatch = dispatchByTrain.get(train.state().id());
+            if (output != null && input != null) {
+                TrainStateReport report = tcmsAtoAdapterService.buildTrainStateReport(input, output, dispatch);
+                train.applyPhysicsOutput(output, report);
+                realtimeStateCache.updateTrainTcmsState(report);
+                publishVehicleEvents(output);
+            }
         }
+        return outputs;
     }
 
     public synchronized List<TrainState> states() {
         return trains.stream().map(TrainEntity::state).toList();
     }
 
-    public synchronized void updatePlan(CurrentRunPlan plan) {
-        this.currentPlan = plan;
+    private void publishVehicleEvents(VehiclePhysicsOutput output) {
+        Instant now = Instant.now();
+        realtimeStateCache.updateTrainPhysics(output);
+        eventBus.publish(new VehiclePhysicsUpdatedEvent(
+            output.trainId(),
+            output.newPositionMeters(),
+            output.newSpeedMetersPerSecond(),
+            output.accelerationMetersPerSecondSquared(),
+            now
+        ));
+        if (output.tractionPowerWatts() > 0) {
+            eventBus.publish(new TractionPowerChangedEvent(
+                output.trainId(),
+                output.tractionPowerWatts(),
+                output.railCurrentAmps(),
+                now
+            ));
+        }
+        if (output.brakeForceNewtons() > 0) {
+            eventBus.publish(new BrakeForceChangedEvent(output.trainId(), output.brakeForceNewtons(), now));
+        }
+        if (output.regenPowerWatts() > 0) {
+            eventBus.publish(new RegenerativePowerGeneratedEvent(
+                output.trainId(),
+                output.regenPowerWatts(),
+                output.energyRegeneratedKwh(),
+                now
+            ));
+        }
     }
 }

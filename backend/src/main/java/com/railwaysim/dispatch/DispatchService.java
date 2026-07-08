@@ -19,8 +19,11 @@ import com.railwaysim.simulation.TickContext;
 import com.railwaysim.train.TrainState;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.CopyOnWriteArrayList;
 import org.springframework.stereotype.Service;
 
 @Service
@@ -36,6 +39,7 @@ public class DispatchService {
     private final DisturbanceRecordStore disturbanceRecordStore;
     private final CommandRecordStore commandRecordStore;
     private final InMemoryStationRecordStore stationRecordStore;
+    private final List<DispatchCommand> manualCommands = new CopyOnWriteArrayList<>();
 
     private String simulationRunId = UUID.randomUUID().toString();
     private Instant simulationStart = Instant.now();
@@ -78,6 +82,7 @@ public class DispatchService {
         currentPlan = planLoader.resolve(simulationStart);
         latestProfiles = List.of();
         activeCommands = List.of();
+        manualCommands.clear();
         commandQueue.clear();
         disturbanceDetector.reset();
         trainRunMonitor.reset(simulationStart);
@@ -89,6 +94,26 @@ public class DispatchService {
             store.clear();
         }
         latestSnapshot = buildSnapshot(currentPlan, latestProfiles, List.of(), List.of());
+    }
+
+    public synchronized void submit(DispatchCommand command) {
+        Map<String, Object> payload = command.payload() == null
+            ? new HashMap<>()
+            : new HashMap<>(command.payload());
+        payload.put("simulationRunId", simulationRunId);
+        DispatchCommand stored = new DispatchCommand(
+            command.id(),
+            command.trainId(),
+            command.commandType(),
+            payload,
+            command.reason(),
+            command.status(),
+            command.createdAt(),
+            command.appliedAt()
+        );
+        manualCommands.add(stored);
+        commandRecordStore.save(stored);
+        refreshSnapshot();
     }
 
     public synchronized List<DispatchCommand> drainCommands() {
@@ -116,7 +141,7 @@ public class DispatchService {
             );
             commandRecordStore.update(applied);
             updated.add(applied);
-            Object disturbanceId = command.payload().get("disturbanceId");
+            Object disturbanceId = command.payload() == null ? null : command.payload().get("disturbanceId");
             if (disturbanceId != null) {
                 disturbanceDetector.attachCommand(disturbanceId.toString(), command.id());
             }
@@ -166,6 +191,28 @@ public class DispatchService {
         refreshSnapshot();
     }
 
+    public synchronized List<DispatchConstraint> constraintsForTrains(List<TrainState> trains) {
+        Map<String, List<DispatchCommand>> commandsByTrain = new HashMap<>();
+        for (DispatchCommand command : manualCommands) {
+            if (command.trainId() == null || command.trainId().isBlank()) {
+                continue;
+            }
+            commandsByTrain.computeIfAbsent(command.trainId(), ignored -> new ArrayList<>()).add(command);
+        }
+        for (DispatchCommand command : activeCommands) {
+            if (command.trainId() == null || command.trainId().isBlank()) {
+                continue;
+            }
+            if (!CommandStatus.PENDING.equals(command.status()) && !CommandStatus.APPLIED.equals(command.status())) {
+                continue;
+            }
+            commandsByTrain.computeIfAbsent(command.trainId(), ignored -> new ArrayList<>()).add(command);
+        }
+        return trains.stream()
+            .map(train -> constraintForTrain(train.id(), commandsByTrain.getOrDefault(train.id(), List.of())))
+            .toList();
+    }
+
     public synchronized DispatchSnapshot snapshot() {
         return latestSnapshot;
     }
@@ -184,6 +231,83 @@ public class DispatchService {
 
     public synchronized List<DispatchCommand> commands() {
         return commandRecordStore.list(simulationRunId);
+    }
+
+    private DispatchConstraint constraintForTrain(String trainId, List<DispatchCommand> commands) {
+        if (commands.isEmpty()) {
+            return DispatchConstraint.none(trainId);
+        }
+
+        boolean holdTrain = false;
+        double speedFactor = 1.0;
+        Double targetSpeed = null;
+        List<String> reasons = new ArrayList<>();
+
+        for (DispatchCommand command : commands) {
+            switch (command.commandType()) {
+                case "HOLD", "HOLD_TRAIN" -> {
+                    holdTrain = true;
+                    reasons.add(reason(command));
+                }
+                case "SPEED_FACTOR", "LIMIT_FACTOR" -> {
+                    speedFactor = Math.min(speedFactor, payloadDouble(command, "detail", 1.0));
+                    reasons.add(reason(command));
+                }
+                case "SPEED_LIMIT", "TEMP_SPEED_LIMIT" -> {
+                    double parsedLimit = payloadDouble(command, "detail", Double.NaN);
+                    if (!Double.isNaN(parsedLimit)) {
+                        targetSpeed = targetSpeed == null ? parsedLimit : Math.min(targetSpeed, parsedLimit);
+                    }
+                    reasons.add(reason(command));
+                }
+                case "SPEED_BIAS" -> {
+                    speedFactor = Math.min(speedFactor, payloadDouble(command, "speedBiasRatio", 1.0));
+                    reasons.add(reason(command));
+                }
+                default -> reasons.add(reason(command));
+            }
+        }
+        return new DispatchConstraint(
+            trainId,
+            holdTrain,
+            Math.max(0, Math.min(1, speedFactor)),
+            targetSpeed,
+            String.join("; ", reasons)
+        );
+    }
+
+    private String reason(DispatchCommand command) {
+        String detail = payloadString(command, "detail");
+        if (detail == null || detail.isBlank()) {
+            return command.commandType();
+        }
+        return command.commandType() + ":" + detail;
+    }
+
+    private double payloadDouble(DispatchCommand command, String key, double fallback) {
+        if (command.payload() == null) {
+            return fallback;
+        }
+        Object value = command.payload().get(key);
+        if (value instanceof Number number) {
+            return number.doubleValue();
+        }
+        if (value instanceof String text) {
+            try {
+                return Double.parseDouble(text.trim());
+            } catch (NumberFormatException ignored) {
+                return fallback;
+            }
+        }
+        return fallback;
+    }
+
+    private String payloadString(DispatchCommand command, String key) {
+        if (command.payload() == null) {
+            return null;
+        }
+        Object value = command.payload().get(key);
+        return value == null ? null : value.toString();
     }
 
     private boolean shouldEvaluate(Instant simulatedTime) {
