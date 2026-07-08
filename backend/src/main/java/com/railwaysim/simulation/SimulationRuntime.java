@@ -5,6 +5,7 @@ import com.railwaysim.config.SimulationProperties;
 import com.railwaysim.dispatch.DispatchCommand;
 import com.railwaysim.dispatch.DispatchConstraint;
 import com.railwaysim.dispatch.DispatchService;
+import com.railwaysim.dispatch.integration.DispatchCommandPublisher;
 import com.railwaysim.monitor.MonitorService;
 import com.railwaysim.power.PowerConstraint;
 import com.railwaysim.power.PowerService;
@@ -33,6 +34,7 @@ public class SimulationRuntime {
     private final SignalService signalService;
     private final PowerService powerService;
     private final DispatchService dispatchService;
+    private final DispatchCommandPublisher dispatchCommandPublisher;
     private final MonitorService monitorService;
     private final SimulationWebSocketHandler webSocketHandler;
     private final SimulationProperties simulationProperties;
@@ -43,6 +45,8 @@ public class SimulationRuntime {
     private List<DomainEvent> lastEvents = List.of();
     private long tick;
     private SimulationStatus status = SimulationStatus.STOPPED;
+    private Instant simulatedTime = Instant.now();
+    private long lastPushAtMillis;
 
     public SimulationRuntime(
         TrainManager trainManager,
@@ -50,6 +54,7 @@ public class SimulationRuntime {
         SignalService signalService,
         PowerService powerService,
         DispatchService dispatchService,
+        DispatchCommandPublisher dispatchCommandPublisher,
         MonitorService monitorService,
         SimulationWebSocketHandler webSocketHandler,
         SimulationProperties simulationProperties,
@@ -63,6 +68,7 @@ public class SimulationRuntime {
         this.signalService = signalService;
         this.powerService = powerService;
         this.dispatchService = dispatchService;
+        this.dispatchCommandPublisher = dispatchCommandPublisher;
         this.monitorService = monitorService;
         this.webSocketHandler = webSocketHandler;
         this.simulationProperties = simulationProperties;
@@ -96,12 +102,14 @@ public class SimulationRuntime {
     public synchronized SimulationSnapshot reset() {
         tick = 0;
         status = SimulationStatus.STOPPED;
+        simulatedTime = Instant.now();
+        lastPushAtMillis = 0;
+        dispatchService.reset();
         trainManager.reset();
         trackService.reset();
         signalService.reset();
         interlockingService.reset();
         powerService.reset();
-        dispatchService.reset();
         realtimeStateCache.clear();
         eventBus.drain();
         lastEvents = List.of();
@@ -110,24 +118,32 @@ public class SimulationRuntime {
 
     private SimulationSnapshot advanceOneTick() {
         tick++;
+        simulatedTime = simulatedTime.plusMillis(simulationProperties.getTickMillis());
         TickContext context = new TickContext(
             tick,
             simulationProperties.getTickMillis(),
             simulationProperties.getTickMillis() / 1000.0,
-            Instant.now()
+            simulatedTime
         );
 
         List<TrainState> beforeTrainStates = trainManager.states();
         trackService.updateOccupancy(beforeTrainStates);
         List<TrackConstraint> trackConstraints = trackService.constraintsForTrains(beforeTrainStates);
+        signalService.calculateAuthorities(beforeTrainStates, trackConstraints, List.of());
+        dispatchService.evaluate(context, beforeTrainStates, signalService.authorities());
 
         // 拦截 REROUTE 调度指令 → 交联锁处理（在约束计算前）
         List<DispatchCommand> rerouteCmds = dispatchService.drainCommandsOfType("REROUTE");
         for (DispatchCommand cmd : rerouteCmds) {
-            var result = interlockingService.applyDispatchCommand(cmd.commandType(), cmd.detail(), cmd.trainId());
+            var result = interlockingService.applyDispatchCommand(cmd.commandType(), commandDetail(cmd), cmd.trainId());
             if (!result.accepted()) {
                 log.warn("[Runtime] 联锁拒绝调度指令 {}: {}", cmd.id(), result.rejectReason());
             }
+        }
+
+        List<DispatchCommand> generatedCommands = dispatchService.drainCommands();
+        if (!generatedCommands.isEmpty()) {
+            dispatchCommandPublisher.publish(generatedCommands);
         }
 
         List<DispatchConstraint> dispatchConstraints = dispatchService.constraintsForTrains(beforeTrainStates);
@@ -147,8 +163,22 @@ public class SimulationRuntime {
         persistIfDue(context);
 
         SimulationSnapshot snapshot = buildSnapshot();
-        webSocketHandler.broadcast(snapshot);
+        long nowMillis = System.currentTimeMillis();
+        if (nowMillis - lastPushAtMillis >= simulationProperties.getPushIntervalMillis()) {
+            webSocketHandler.broadcast(snapshot);
+            lastPushAtMillis = nowMillis;
+        }
         return snapshot;
+    }
+
+    private String commandDetail(DispatchCommand command) {
+        if (command.payload() != null) {
+            Object detail = command.payload().get("detail");
+            if (detail != null) {
+                return detail.toString();
+            }
+        }
+        return command.reason();
     }
 
     private void persistIfDue(TickContext context) {
@@ -171,7 +201,7 @@ public class SimulationRuntime {
     private SimulationSnapshot buildSnapshot() {
         return monitorService.buildSnapshot(
             tick,
-            Instant.now(),
+            simulatedTime,
             status,
             trainManager.states(),
             trackService.states(),
@@ -180,7 +210,8 @@ public class SimulationRuntime {
             trackService.switchStates(),
             interlockingService.states(),
             powerService.states(),
-            lastEvents
+            lastEvents,
+            dispatchService.snapshot()
         );
     }
 }

@@ -214,7 +214,10 @@ class SimulationPersistenceServiceTests {
             100_000,
             0.08,
             0.02,
-            "OK"
+            "OK",
+            null,
+            0,
+            null
         );
     }
 

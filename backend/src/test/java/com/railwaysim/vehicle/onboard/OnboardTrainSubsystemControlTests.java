@@ -246,7 +246,10 @@ class OnboardTrainSubsystemControlTests {
             0,
             0,
             0,
-            "OK"
+            "OK",
+            null,
+            0,
+            null
         );
     }
 }

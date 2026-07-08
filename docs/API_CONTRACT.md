@@ -122,9 +122,12 @@ POST /api/trains/{trainId}/faults/clear
 ### 调度命令
 
 ```http
+GET /api/dispatch/plan
+GET /api/dispatch/plan/current
+GET /api/dispatch/status
+GET /api/dispatch/disturbances
 GET /api/dispatch/commands
-POST /api/dispatch/commands
-```
+GET /api/dispatch/station-records
 
 提交调度命令：
 
@@ -211,6 +214,17 @@ POST http://localhost:9000/step-fleet
 }
 ```
 
+### 调度模块
+
+```http
+GET /api/dispatch/plan
+GET /api/dispatch/plan/current
+GET /api/dispatch/status
+GET /api/dispatch/disturbances
+GET /api/dispatch/commands
+GET /api/dispatch/station-records
+```
+
 ## 外部车辆仿真协议适配
 
 该协议不是面向前端或调度系统的 REST 接口，而是后端 `VehiclePhysicsClient.stepFleet()` 背后的车辆物理端口实现。主系统通过 `OnboardTrainSubsystemManager` 汇总信号、轨道、供电约束后生成车辆控制输入；调度约束先由信号模块折算为 MA/限速或后续 `SignalVehicleCommand`。
@@ -273,7 +287,17 @@ ws://localhost:8080/ws/simulation
     "trackSegments": [],
     "authorities": [],
     "powerSections": [],
-    "alarms": []
+    "alarms": [],
+    "dispatch": {
+      "runMode": "PEAK",
+      "planId": "RP-demo-001",
+      "targetHeadwaySeconds": 180,
+      "defaultDwellSeconds": 30,
+      "interventionActive": false,
+      "trainProfiles": [],
+      "openDisturbances": [],
+      "activeCommands": []
+    }
   }
 }
 ```
@@ -284,7 +308,7 @@ ws://localhost:8080/ws/simulation
 
 ```json
 {
-  "id": "T001",
+  "id": "TR-001",
   "routeId": "demo-line-1",
   "serviceNo": "T001",
   "controlSessionState": "IN_SERVICE",
@@ -332,7 +356,10 @@ ws://localhost:8080/ws/simulation
   "regenPowerWatts": 0.0,
   "energyConsumedKwh": 0.12,
   "energyRegeneratedKwh": 0.0,
-  "faultCode": "OK"
+  "faultCode": "OK",
+  "currentStationId": "S02",
+  "dwellElapsedSeconds": 12,
+  "lastDepartureAt": "2026-07-07T10:00:00Z"
 }
 ```
 

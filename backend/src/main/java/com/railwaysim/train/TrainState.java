@@ -52,7 +52,10 @@ public record TrainState(
     double regenPowerWatts,
     double energyConsumedKwh,
     double energyRegeneratedKwh,
-    String faultCode
+    String faultCode,
+    String currentStationId,
+    int dwellElapsedSeconds,
+    String lastDepartureAt
 ) {
     public TrainState(
         String id,
@@ -145,7 +148,10 @@ public record TrainState(
             regenPowerWatts,
             energyConsumedKwh,
             energyRegeneratedKwh,
-            faultCode
+            faultCode,
+            null,
+            0,
+            null
         );
     }
 
@@ -243,7 +249,10 @@ public record TrainState(
             regenPowerWatts,
             energyConsumedKwh,
             energyRegeneratedKwh,
-            faultCode
+            faultCode,
+            null,
+            0,
+            null
         );
     }
 }

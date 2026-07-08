@@ -4,6 +4,7 @@ import com.railwaysim.vehicle.TrainStateReport;
 import com.railwaysim.vehicle.VehicleLoadPolicy;
 import com.railwaysim.vehicle.VehiclePhysicsOutput;
 import com.railwaysim.vehicle.protocol.TrainOperationalTelemetry;
+import java.time.Instant;
 
 public class TrainEntity {
 
@@ -47,6 +48,9 @@ public class TrainEntity {
     private double energyRegeneratedKwh;
     private String faultCode = "OK";
     private String injectedFaultCode;
+    private String currentStationId;
+    private int dwellElapsedSeconds;
+    private String lastDepartureAt;
 
     public TrainEntity(String id, String routeId, double positionMeters, double lengthMeters) {
         this(id, routeId, positionMeters, lengthMeters, 0.35);
@@ -97,6 +101,7 @@ public class TrainEntity {
         movementAuthorityDistanceMeters = report.movementAuthorityDistanceMeters();
         stationDistanceMeters = report.stationDistanceMeters();
         stoppingDistanceMeters = report.stoppingDistanceMeters();
+        updateStationTracking(report);
         status = resolveStatus(report, output);
     }
 
@@ -177,7 +182,10 @@ public class TrainEntity {
             regenPowerWatts,
             energyConsumedKwh,
             energyRegeneratedKwh,
-            effectiveFaultCode
+            effectiveFaultCode,
+            currentStationId,
+            dwellElapsedSeconds,
+            lastDepartureAt
         );
     }
 
@@ -211,6 +219,38 @@ public class TrainEntity {
         return injectedFaultCode;
     }
 
+    private void updateStationTracking(TrainStateReport report) {
+        boolean dwelling = "STATION_STOPPED".equals(report.dynamicsState()) && speedMetersPerSecond <= 0.2;
+        if (dwelling) {
+            if (currentStationId == null) {
+                currentStationId = inferStationId();
+            }
+            dwellElapsedSeconds++;
+            return;
+        }
+
+        if (currentStationId != null) {
+            lastDepartureAt = Instant.now().toString();
+            currentStationId = null;
+            dwellElapsedSeconds = 0;
+        }
+    }
+
+    private String inferStationId() {
+        double[] stationPositions = {0, 1250, 2500, 3750, 5000};
+        String[] stationIds = {"S01", "S02", "S03", "S04", "S05"};
+        String nearest = null;
+        double nearestDistance = Double.MAX_VALUE;
+        for (int i = 0; i < stationPositions.length; i++) {
+            double distance = Math.abs(positionMeters - stationPositions[i]);
+            if (distance < nearestDistance) {
+                nearestDistance = distance;
+                nearest = stationIds[i];
+            }
+        }
+        return nearestDistance <= 30 ? nearest : null;
+    }
+
     public String id() {
         return id;
     }
@@ -218,6 +258,9 @@ public class TrainEntity {
     private String resolveStatus(TrainStateReport report, VehiclePhysicsOutput output) {
         if (report.emergencyBrakeCommand()) {
             return "EMERGENCY_BRAKE";
+        }
+        if ("STATION_STOPPED".equals(report.dynamicsState()) && speedMetersPerSecond <= 0.2) {
+            return "DWELLING";
         }
         if (report.faultLevel() >= 3) {
             return "FAULT";
