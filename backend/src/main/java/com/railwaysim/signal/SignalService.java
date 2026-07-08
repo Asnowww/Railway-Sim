@@ -10,6 +10,7 @@ import com.railwaysim.track.TrackService;
 import com.railwaysim.train.TrainState;
 import java.util.ArrayList;
 import java.util.Comparator;
+import com.railwaysim.dispatch.DispatchConstraint;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -53,17 +54,20 @@ public class SignalService {
     private final SimulationProperties simulationProperties;
     private final StaticInfrastructureCatalog infrastructureCatalog;
     private final TrackService trackService;
+    private final RouteInterlockingService interlockingService;
     private List<MovementAuthority> authorities = List.of();
     private List<SignalState> signalStates = List.of();
 
     public SignalService(
         SimulationProperties simulationProperties,
         StaticInfrastructureCatalog infrastructureCatalog,
-        TrackService trackService
+        TrackService trackService,
+        RouteInterlockingService interlockingService
     ) {
         this.simulationProperties = simulationProperties;
         this.infrastructureCatalog = infrastructureCatalog;
         this.trackService = trackService;
+        this.interlockingService = interlockingService;
     }
 
     // ==================== 生命周期 ====================
@@ -89,7 +93,8 @@ public class SignalService {
      * @param trains           当前所有列车状态
      * @param trackConstraints 轨道约束(限速/坡度等) per train
      */
-    public synchronized void calculateAuthorities(List<TrainState> trains, List<TrackConstraint> trackConstraints) {
+    public synchronized void calculateAuthorities(List<TrainState> trains, List<TrackConstraint> trackConstraints,
+                                                   List<DispatchConstraint> dispatchConstraints) {
         if (trains.isEmpty()) {
             authorities = List.of();
             signalStates = computeSignalAspects(List.of(), List.of());
@@ -99,6 +104,8 @@ public class SignalService {
 
         Map<String, TrackConstraint> trackByTrain = trackConstraints.stream()
             .collect(Collectors.toMap(TrackConstraint::trainId, Function.identity(), (a, b) -> b));
+        Map<String, DispatchConstraint> dispatchByTrain = (dispatchConstraints != null ? dispatchConstraints : List.<DispatchConstraint>of()).stream()
+            .collect(Collectors.toMap(DispatchConstraint::trainId, Function.identity(), (a, b) -> b));
         List<TrainState> ordered = new ArrayList<>(trains);
         ordered.sort(Comparator.comparingDouble(TrainState::positionMeters));
 
@@ -129,10 +136,13 @@ public class SignalService {
             // ③ 故障区段限制（故障—安全）
             double faultLimit = trackService.nextFaultPosition(trainHead) - safetyGap;
 
-            // ④ MA 终点取最小值
+            // ④ 进路联锁冲突限制
+            double interlockingLimit = interlockingService.maLimitFromRouteConflict(train.id());
+
+            // ⑤ MA 终点取最小值
             double authorityEnd = Math.min(
                 Math.min(nextTrainTailLimit, lineEndLimit),
-                faultLimit
+                Math.min(faultLimit, interlockingLimit)
             );
             authorityEnd = Math.max(trainHead, Math.min(authorityEnd, lineLengthMeters));
 
@@ -149,10 +159,18 @@ public class SignalService {
             // 从 MA 距离反推安全速度: v_max = sqrt(2 * a * (MA_end - position))
             double maDistance = Math.max(0, authorityEnd - trainHead);
             double safeBrakingSpeed = Math.sqrt(2 * DEFAULT_BRAKING_DECELERATION * maDistance);
-            double speedLimit = Math.min(segmentSpeedLimit, safeBrakingSpeed);
+
+            // 调度限速约束
+            DispatchConstraint dispatch = dispatchByTrain.get(train.id());
+            double dispatchLimitedSpeed = dispatch != null
+                ? dispatch.applyToSpeedLimit(safeBrakingSpeed)
+                : safeBrakingSpeed;
+
+            double speedLimit = Math.min(segmentSpeedLimit, dispatchLimitedSpeed);
 
             // ---- reason 字段 ----
-            String reason = buildReason(authorityEnd, nextTrainTailLimit, lineEndLimit, faultLimit, lineLengthMeters);
+            String reason = buildReason(authorityEnd, nextTrainTailLimit, lineEndLimit,
+                faultLimit, interlockingLimit, lineLengthMeters);
 
             nextAuthorities.add(new MovementAuthority(train.id(), authorityEnd, speedLimit, reason));
         }
@@ -264,16 +282,19 @@ public class SignalService {
      * 生成 MA 的 reason 字符串，说明 MA 被哪个因素截断。
      */
     private String buildReason(double authorityEnd, double nextTrainLimit, double lineEnd,
-                               double faultLimit, double lineLength) {
+                               double faultLimit, double interlockingLimit, double lineLength) {
         if (authorityEnd >= lineEnd || authorityEnd >= lineLength) {
             return "前方区段空闲";
         }
         double closestLimit = Math.min(
-            Math.min(nextTrainLimit, lineEnd),
-            faultLimit
+            Math.min(Math.min(nextTrainLimit, lineEnd), faultLimit),
+            interlockingLimit
         );
         if (closestLimit == faultLimit) {
             return "故障降级";
+        }
+        if (closestLimit == interlockingLimit) {
+            return "进路冲突";
         }
         if (closestLimit == nextTrainLimit) {
             return "前车限速";
