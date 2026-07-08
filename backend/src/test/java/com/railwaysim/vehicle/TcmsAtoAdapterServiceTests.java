@@ -13,6 +13,9 @@ import com.railwaysim.simulation.TickContext;
 import com.railwaysim.track.TrackConstraint;
 import com.railwaysim.train.TrainEntity;
 import com.railwaysim.train.TrainState;
+import com.railwaysim.vehicle.external.ExternalSegmentMapper;
+import com.railwaysim.vehicle.external.ExternalTrainCommand;
+import com.railwaysim.vehicle.external.ExternalVehicleCommandMapper;
 import java.time.Instant;
 import org.junit.jupiter.api.Test;
 
@@ -34,12 +37,53 @@ class TcmsAtoAdapterServiceTests {
         TrainStateReport report = adapter.buildTrainStateReport(input, output, DispatchConstraint.none("TR-001"));
 
         assertThat(input.tractionCommand()).isZero();
+        ExternalTrainCommand externalCommand = new ExternalVehicleCommandMapper(
+            new ExternalSegmentMapper(null, null),
+            20
+        ).toCommand(input);
+        assertThat(externalCommand.command()).isEqualTo(2);
+        assertThat(externalCommand.percent()).isGreaterThan(0);
         assertThat(output.faultCode()).isEqualTo("CURRENT_COLLECTION_LOST");
         assertThat(report.currentCollectionStatus()).isEqualTo("LOST");
         assertThat(report.selfCheckStatus()).isEqualTo("FAIL");
         assertThat(report.faultLevel()).isEqualTo(3);
         assertThat(report.availableOperationMode()).isEqualTo("NO_DEPARTURE");
         assertThat(report.dynamicsState()).isEqualTo("POWER_LOSS");
+    }
+
+    @Test
+    void externalSimulatorFallbackFaultMarksVehicleDataQualityAsFallback() {
+        TcmsAtoAdapterService adapter = adapter();
+        VehiclePhysicsInput input = adapter.buildVehiclePhysicsInput(
+            new TrainEntity("TR-001", "demo-line-1", 500, 120).state(),
+            new TickContext(1, 200, 0.2, Instant.now()),
+            null,
+            null,
+            new PowerConstraint("TR-001", "P01", 1500, 3_200_000, true),
+            DispatchConstraint.none("TR-001")
+        );
+        VehiclePhysicsOutput localOutput = new SimpleVehicleDynamicsModel().step(input);
+        VehiclePhysicsOutput fallbackOutput = new VehiclePhysicsOutput(
+            localOutput.trainId(),
+            localOutput.newPositionMeters(),
+            localOutput.newSpeedMetersPerSecond(),
+            localOutput.accelerationMetersPerSecondSquared(),
+            localOutput.tractionForceNewtons(),
+            localOutput.brakeForceNewtons(),
+            localOutput.regenBrakeForceNewtons(),
+            localOutput.tractionPowerWatts(),
+            localOutput.railCurrentAmps(),
+            localOutput.regenPowerWatts(),
+            localOutput.energyConsumedKwh(),
+            localOutput.energyRegeneratedKwh(),
+            "EXTERNAL_SIM_FALLBACK"
+        );
+
+        TrainStateReport report = adapter.buildTrainStateReport(input, fallbackOutput, DispatchConstraint.none("TR-001"));
+
+        assertThat(report.dataQuality()).isEqualTo("FALLBACK");
+        assertThat(report.faultLevel()).isEqualTo(2);
+        assertThat(report.availableOperationMode()).isEqualTo("DEGRADED");
     }
 
     @Test

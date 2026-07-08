@@ -2,10 +2,12 @@ package com.railwaysim.vehicle;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.railwaysim.config.ExternalSimulatorProperties;
 import com.railwaysim.config.SimulationProperties;
 import com.railwaysim.simulation.event.FmuFallbackActivatedEvent;
 import com.railwaysim.simulation.event.FmuStepFailedEvent;
 import com.railwaysim.simulation.event.SimpleEventBus;
+import com.railwaysim.vehicle.external.ExternalSimulatorMode;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import java.io.IOException;
@@ -84,6 +86,58 @@ class FmuVehiclePhysicsAdapterTests {
         } finally {
             server.stop(0);
         }
+    }
+
+    @Test
+    void externalUdpModeFallsBackToLocalModelWhenPacketExchangeFails() {
+        SimulationProperties properties = new SimulationProperties();
+        ExternalSimulatorProperties externalProperties = new ExternalSimulatorProperties();
+        externalProperties.setMode(ExternalSimulatorMode.EXTERNAL_UDP);
+        externalProperties.getUdp().setModelHost("127.0.0.1");
+        externalProperties.getUdp().setModelPort(9);
+        externalProperties.getUdp().setPlatformHost("127.0.0.1");
+        externalProperties.getUdp().setPlatformPort(0);
+        externalProperties.getUdp().setTimeoutMillis(5);
+        SimpleEventBus eventBus = new SimpleEventBus();
+        FmuVehiclePhysicsAdapter adapter = new FmuVehiclePhysicsAdapter(
+            new SimpleVehicleDynamicsModel(),
+            properties,
+            externalProperties,
+            null,
+            eventBus,
+            RestClient.builder()
+        );
+
+        List<VehiclePhysicsOutput> outputs = adapter.stepFleet(List.of(sampleInput()));
+
+        assertThat(outputs).hasSize(1);
+        assertThat(outputs.get(0).faultCode()).isEqualTo("EXTERNAL_SIM_FALLBACK");
+        assertThat(outputs.get(0).newPositionMeters()).isGreaterThan(100);
+        assertThat(eventBus.drain())
+            .anySatisfy(event -> assertThat(event).isInstanceOf(FmuStepFailedEvent.class))
+            .anySatisfy(event -> assertThat(event).isInstanceOf(FmuFallbackActivatedEvent.class));
+    }
+
+    @Test
+    void dualShadowModeKeepsLocalOutputAsAuthoritativeWithRtLabStub() {
+        SimulationProperties properties = new SimulationProperties();
+        ExternalSimulatorProperties externalProperties = new ExternalSimulatorProperties();
+        externalProperties.setMode(ExternalSimulatorMode.DUAL_SHADOW);
+        FmuVehiclePhysicsAdapter adapter = new FmuVehiclePhysicsAdapter(
+            new SimpleVehicleDynamicsModel(),
+            properties,
+            externalProperties,
+            null,
+            new SimpleEventBus(),
+            RestClient.builder()
+        );
+
+        VehiclePhysicsOutput local = new SimpleVehicleDynamicsModel().step(sampleInput());
+        VehiclePhysicsOutput shadowed = adapter.stepFleet(List.of(sampleInput())).get(0);
+
+        assertThat(shadowed.newPositionMeters()).isEqualTo(local.newPositionMeters());
+        assertThat(shadowed.newSpeedMetersPerSecond()).isEqualTo(local.newSpeedMetersPerSecond());
+        assertThat(shadowed.faultCode()).isEqualTo("OK");
     }
 
     private FmuVehiclePhysicsAdapter adapterFor(HttpServer server, boolean enabled, SimpleEventBus eventBus) {

@@ -21,10 +21,34 @@ TrainState.positionMeters
   -> PowerConstraint(sectionId, railVoltage, powerAvailableWatts, powerDeratingFactor, regenAvailable)
   -> TcmsAtoAdapterService
   -> VehiclePhysicsInput
-  -> VehiclePhysicsClient / fallback
+  -> VehiclePhysicsClient / LOCAL / EXTERNAL_UDP / EXTERNAL_RTLAB_API / DUAL_SHADOW
   -> VehiclePhysicsOutput
   -> PowerService.updateFromVehicleOutputs()
 ```
+
+## 外部车辆仿真适配
+
+外部仿真系统只接在车辆物理端口，不越级读取或控制供电分区。供电状态仍由 `PowerService` 维护，车辆指令仍由 `TcmsAtoAdapterService` 根据供电、信号、轨道和调度约束生成。
+
+| 适配对象 | 本期实现 | 说明 |
+|---|---|---|
+| 本地回退 | `LocalFallbackVehicleAdapter` | 默认模式，保持自研仿真可跑。 |
+| UDP 高频车辆控制 | `ExternalUdpVehicleAdapter` | 按 20ms、小端、1-20 车 `command/percent` 和 `acc/speed/distance` 对齐协议。 |
+| RT-LAB API | `RtLabApiVehicleAdapter` | 封装 `OpalOpenProject`、`OpalLoad`、`OpalExecute`、`OpalReset`、`OpalCloseProject` 和变量写入；当前用 stub 保持接口可测。 |
+| 影子比对 | `ShadowCompareAdapter` | 本地输出作为权威，外部输出只用于误差对比。 |
+
+指令映射固定为：
+
+| 内部输入 | 外部协议 |
+|---|---|
+| `tractionCommand > 0` | `command=1`，百分比为牵引比例四舍五入到 0-100。 |
+| `brakeCommand > 0` | `command=2`，百分比为制动比例四舍五入到 0-100。 |
+| `emergencyBrakeCommand=true` | `command=2`，`percent=100`。 |
+| 无牵引且无制动 | `command=0`，`percent=0`。 |
+
+`segNo + offset` 由 `ExternalSegmentMapper` 依据线路区段生成；外部段号通过 `railway.simulation.external-simulator.segment-mapping` 覆盖。该映射属于车辆-轨道耦合接口，最终段号需与信号/轨道共同确认。
+
+当前协议未给出独立 PSCADA 供电遥测点表，`PowerSystemAndTrainsV1/...` 先按 RT-LAB 车辆/综合动力学模型命名空间处理。后续若拿到供电点表，应新增供电遥测适配器，而不是让外部车辆模型接管 `PowerService`。
 
 ## 已实现字段
 

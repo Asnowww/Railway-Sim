@@ -168,6 +168,40 @@ POST http://localhost:9000/step-fleet
 }
 ```
 
+## 外部车辆仿真协议适配
+
+该协议不是面向前端或调度系统的 REST 接口，而是后端 `VehiclePhysicsClient.stepFleet()` 背后的车辆物理端口实现。主系统仍通过 `TcmsAtoAdapterService` 汇总调度、信号、轨道、供电约束后生成车辆控制输入。
+
+配置：
+
+```yaml
+railway.simulation.external-simulator.mode: LOCAL
+```
+
+可选值：
+
+| mode | 行为 |
+|---|---|
+| `LOCAL` | 使用本地 `SimpleVehicleDynamicsModel`；兼容旧 HTTP FMU 开关。 |
+| `EXTERNAL_UDP` | 按协议 UDP 小端报文发送 1-20 车 `command + percent`，接收加速度、速度、累计里程。 |
+| `EXTERNAL_RTLAB_API` | 通过 RT-LAB API 变量路径写入列车编号、指令、`segNo`、偏移、方向、激活端；当前用 stub 保持可运行。 |
+| `DUAL_SHADOW` | 本地模型输出作为权威，外部适配器结果仅做误差比对。 |
+
+外部车辆控制映射：
+
+| 内部字段 | 外部字段 |
+|---|---|
+| `tractionCommand > 0` | `command=1`，`percent=round(tractionCommand*100)` |
+| `brakeCommand > 0` | `command=2`，`percent=round(brakeCommand*100)` |
+| `emergencyBrakeCommand=true` | `command=2`，`percent=100` |
+| 无牵引/制动 | `command=0`，`percent=0` |
+
+失败处理：
+
+- UDP 超时、API 写入失败或外部返回缺车时，后端降级到本地车辆模型。
+- 降级输出 `faultCode=EXTERNAL_SIM_FALLBACK`，车辆状态 `dataQuality=FALLBACK`。
+- 供电状态仍以 `PowerService` 为准；当前协议不作为 PSCADA 供电遥测接口使用。
+
 ## WebSocket
 
 地址：
