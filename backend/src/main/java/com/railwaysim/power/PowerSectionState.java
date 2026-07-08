@@ -6,6 +6,8 @@ import java.util.List;
 public record PowerSectionState(
     String id,
     String name,
+    String substationId,
+    String feederId,
     double startMeters,
     double endMeters,
     double voltage,

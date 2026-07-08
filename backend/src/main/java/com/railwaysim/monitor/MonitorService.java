@@ -12,6 +12,7 @@ import com.railwaysim.simulation.event.PowerFaultStateChangedEvent;
 import com.railwaysim.simulation.event.PowerLimitTriggeredEvent;
 import com.railwaysim.simulation.event.PowerMaintenanceLockChangedEvent;
 import com.railwaysim.simulation.event.RegenerativeEnergyAbsorbedEvent;
+import com.railwaysim.simulation.event.TrainFaultStateChangedEvent;
 import com.railwaysim.track.TrackSegmentState;
 import com.railwaysim.train.TrainState;
 import java.time.Instant;
@@ -170,6 +171,18 @@ public class MonitorService {
                 1,
                 "再生制动能量未完全吸收",
                 "回馈 " + regenerativeEnergy.regenPowerWatts() + " W，未吸收 " + regenerativeEnergy.unabsorbedPowerWatts() + " W，处理方式 " + regenerativeEnergy.unabsorbedMode(),
+                simulatedTime,
+                false
+            );
+        }
+        if (event instanceof TrainFaultStateChangedEvent trainFault) {
+            return new Alarm(
+                "TRAIN-FAULT-" + tick + "-" + trainFault.trainId(),
+                "vehicle",
+                trainFault.trainId(),
+                "CLEARED".equals(trainFault.state()) ? 1 : 3,
+                "车辆故障状态变化",
+                "故障码 " + trainFault.faultCode() + "，状态 " + trainFault.state() + "，说明 " + trainFault.detail(),
                 simulatedTime,
                 false
             );

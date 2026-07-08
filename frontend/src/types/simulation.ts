@@ -69,6 +69,8 @@ export interface SignalState {
 export interface PowerSectionState {
   id: string
   name: string
+  substationId: string
+  feederId: string
   startMeters: number
   endMeters: number
   voltage: number

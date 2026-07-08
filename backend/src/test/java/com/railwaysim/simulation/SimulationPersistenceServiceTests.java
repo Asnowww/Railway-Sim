@@ -191,6 +191,8 @@ class SimulationPersistenceServiceTests {
         return new PowerSectionState(
             "P01",
             "Power 01",
+            "SS01",
+            "F01",
             0,
             1000,
             735,
