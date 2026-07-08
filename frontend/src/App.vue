@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import DispatchStatusBar from './components/dispatch/DispatchStatusBar.vue'
+import VehicleSelfControlDemo from './components/power-train/VehicleSelfControlDemo.vue'
 import { useSimulation } from './composables/useSimulation'
 import DispatchView from './views/dispatch/DispatchView.vue'
 
-const activeTab = ref<'dispatch' | 'home'>('dispatch')
+const activeTab = ref<'dispatch' | 'vehicle' | 'home'>('dispatch')
 
 const {
   plan,
@@ -30,6 +31,9 @@ const {
       <nav class="tabs">
         <button type="button" :class="{ active: activeTab === 'dispatch' }" @click="activeTab = 'dispatch'">
           运营调度
+        </button>
+        <button type="button" :class="{ active: activeTab === 'vehicle' }" @click="activeTab = 'vehicle'">
+          车辆供电
         </button>
         <button type="button" :class="{ active: activeTab === 'home' }" @click="activeTab = 'home'">
           首页
@@ -75,6 +79,8 @@ const {
       :snapshot="snapshot"
       :dispatch="dispatch"
     />
+
+    <VehicleSelfControlDemo v-else-if="activeTab === 'vehicle'" />
 
     <main v-else class="app-shell">
       <h1>Railway-Sim</h1>

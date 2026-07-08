@@ -111,11 +111,17 @@ public record OperationalLineData(
         int endEndpointType,
         int endEndpointId,
         List<String> forwardNeighborSegmentIds,
-        List<String> sideNeighborSegmentIds
+        List<String> sideNeighborSegmentIds,
+        String fromNodeId,
+        String toNodeId,
+        String track
     ) {
         public TrackSegmentDefinition {
             forwardNeighborSegmentIds = List.copyOf(forwardNeighborSegmentIds);
             sideNeighborSegmentIds = List.copyOf(sideNeighborSegmentIds);
+            fromNodeId = fromNodeId == null ? "" : fromNodeId;
+            toNodeId = toNodeId == null ? "" : toNodeId;
+            track = track == null ? "main" : track;
         }
     }
 
@@ -148,8 +154,12 @@ public record OperationalLineData(
         String reverseSegmentId,
         String mergeSegmentId,
         double divergingSpeedLimitMetersPerSecond,
-        String interoperabilityId
+        String interoperabilityId,
+        String defaultPosition
     ) {
+        public SwitchDefinition {
+            defaultPosition = (defaultPosition == null || defaultPosition.isBlank()) ? "NORMAL" : defaultPosition;
+        }
     }
 
     public record StationDefinition(

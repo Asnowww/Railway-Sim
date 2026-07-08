@@ -1,7 +1,6 @@
 package com.railwaysim.vehicle;
 
 import com.railwaysim.config.SimulationProperties;
-import com.railwaysim.dispatch.DispatchConstraint;
 import com.railwaysim.infrastructure.StaticInfrastructureCatalog;
 import com.railwaysim.power.PowerConstraint;
 import com.railwaysim.signal.MovementAuthority;
@@ -13,8 +12,6 @@ import org.springframework.stereotype.Service;
 @Service
 public class TcmsAtoAdapterService {
 
-    private static final double EMPTY_MASS_KG = 198_000;
-    private static final double MAX_LOAD_MASS_KG = 72_000;
     private static final double DEFAULT_ADHESION = 0.9;
     private static final double GRAVITY = 9.81;
     private static final double SERVICE_BRAKE_DECELERATION = 0.9;
@@ -37,13 +34,13 @@ public class TcmsAtoAdapterService {
         TickContext context,
         MovementAuthority authority,
         TrackConstraint track,
-        PowerConstraint power,
-        DispatchConstraint dispatch
+        PowerConstraint power
     ) {
-        double speedLimit = applyDispatchConstraint(resolveSpeedLimit(authority, track), dispatch);
+        double speedLimit = resolveSpeedLimit(authority, track);
         double maDistance = resolveMovementAuthorityDistance(train, authority);
         boolean doorClosed = "CLOSED_LOCKED".equals(train.doorState());
         double stationDistance = resolveStationDistance(train, track);
+        double loadMassKg = VehicleLoadPolicy.loadMassKg(train.loadMassKg(), train.loadRate());
         DynamicsDecision decision = decideDynamicsState(
             train,
             speedLimit,
@@ -52,7 +49,6 @@ public class TcmsAtoAdapterService {
             doorClosed,
             track,
             power,
-            dispatch,
             authority
         );
 
@@ -60,7 +56,7 @@ public class TcmsAtoAdapterService {
             train.id(),
             train.positionMeters(),
             train.speedMetersPerSecond(),
-            EMPTY_MASS_KG + MAX_LOAD_MASS_KG * clamp(train.loadRate(), 0, 1),
+            VehicleLoadPolicy.totalMassKg(loadMassKg),
             decision.tractionCommand(),
             decision.brakeCommand(),
             decision.emergencyBrake(),
@@ -83,17 +79,26 @@ public class TcmsAtoAdapterService {
     }
 
     public TrainStateReport buildTrainStateReport(VehiclePhysicsInput input, VehiclePhysicsOutput output) {
-        return buildTrainStateReport(input, output, null);
+        return buildTrainStateReport(null, input, output);
     }
 
     public TrainStateReport buildTrainStateReport(
+        TrainState train,
         VehiclePhysicsInput input,
-        VehiclePhysicsOutput output,
-        DispatchConstraint dispatch
+        VehiclePhysicsOutput output
     ) {
+        double loadMassKg = resolveLoadMassKg(train, input);
+        String overloadStatus = VehicleLoadPolicy.overloadStatus(loadMassKg);
+        int availableTractionCount = train == null
+            ? VehicleLoadPolicy.NOMINAL_TRACTION_UNITS
+            : VehicleLoadPolicy.normalizeUnitCount(train.availableTractionCount(), VehicleLoadPolicy.NOMINAL_TRACTION_UNITS);
+        int availableBrakeCount = train == null
+            ? VehicleLoadPolicy.NOMINAL_BRAKE_UNITS
+            : VehicleLoadPolicy.normalizeUnitCount(train.availableBrakeCount(), VehicleLoadPolicy.NOMINAL_BRAKE_UNITS);
+        String vehicleProtectionReason = resolveVehicleProtectionReason(train, overloadStatus);
         return new TrainStateReport(
             input.trainId(),
-            resolveOperationMode(input, dispatch),
+            resolveOperationMode(input),
             input.doorClosed(),
             input.doorClosed() ? "CLOSED_LOCKED" : "OPEN",
             resolveTractionState(input, output),
@@ -105,6 +110,11 @@ public class TcmsAtoAdapterService {
             resolveFaultLevel(input, output),
             resolveAvailableOperationMode(input, output),
             resolveDataQuality(output),
+            loadMassKg,
+            overloadStatus,
+            availableTractionCount,
+            availableBrakeCount,
+            vehicleProtectionReason,
             input.dynamicsState(),
             input.dynamicsConstraintReason(),
             input.speedLimitMetersPerSecond(),
@@ -128,16 +138,18 @@ public class TcmsAtoAdapterService {
         boolean doorClosed,
         TrackConstraint track,
         PowerConstraint power,
-        DispatchConstraint dispatch,
         MovementAuthority authority
     ) {
         double speed = train.speedMetersPerSecond();
-        double stoppingDistance = stoppingDistanceMeters(speed, track == null ? 0 : track.gradient());
+        double loadMassKg = VehicleLoadPolicy.loadMassKg(train.loadMassKg(), train.loadRate());
+        double brakingFactor = VehicleLoadPolicy.brakingDecelerationFactor(loadMassKg, train.availableBrakeCount());
+        double stoppingDistance = stoppingDistanceMeters(speed, track == null ? 0 : track.gradient(), brakingFactor);
+        double tractionCapacityFactor = VehicleLoadPolicy.tractionCommandFactor(loadMassKg, train.availableTractionCount());
 
-        if (!doorClosed || !train.brakeAvailable() || "FAIL".equals(train.selfCheckStatus())) {
+        if (!doorClosed || !train.brakeAvailable() || train.availableBrakeCount() <= 0 || "FAIL".equals(train.selfCheckStatus())) {
             return brakeDecision(
                 TrainDynamicsState.SELF_CHECK_BLOCKED,
-                !doorClosed ? "DOOR_NOT_LOCKED" : "SELF_CHECK_FAILED",
+                resolveSelfCheckBlockReason(doorClosed, train),
                 speed,
                 stoppingDistance,
                 false
@@ -152,16 +164,6 @@ public class TcmsAtoAdapterService {
                 true
             );
         }
-        if (dispatch != null && dispatch.holdTrain()) {
-            return new DynamicsDecision(
-                TrainDynamicsState.DISPATCH_HOLD,
-                "DISPATCH_HOLD",
-                0,
-                speed > 0.1 ? 1 : 0.6,
-                false,
-                stoppingDistance
-            );
-        }
         if (power != null && (!power.currentCollectionAvailable() || power.powerAvailableWatts() <= 0)) {
             return brakeDecision(
                 TrainDynamicsState.POWER_LOSS,
@@ -171,7 +173,7 @@ public class TcmsAtoAdapterService {
                 false
             );
         }
-        if (!train.tractionAvailable()) {
+        if (!train.tractionAvailable() || train.availableTractionCount() <= 0) {
             return new DynamicsDecision(
                 TrainDynamicsState.SELF_CHECK_BLOCKED,
                 "TRACTION_UNAVAILABLE",
@@ -235,7 +237,19 @@ public class TcmsAtoAdapterService {
             return new DynamicsDecision(
                 TrainDynamicsState.POWER_DERATED,
                 power.constraintReason(),
-                tractionCommand * clamp(power.powerDeratingFactor(), 0, 1),
+                tractionCommand * clamp(power.powerDeratingFactor(), 0, 1) * tractionCapacityFactor,
+                0,
+                false,
+                stoppingDistance
+            );
+        }
+        if (tractionCapacityFactor < 0.95 && tractionCommand > 0) {
+            return new DynamicsDecision(
+                TrainDynamicsState.OVERLOAD_DERATED,
+                VehicleLoadPolicy.overloaded(VehicleLoadPolicy.overloadStatus(loadMassKg))
+                    ? "OVERLOAD_TRACTION_LIMIT"
+                    : "TRACTION_UNIT_DERATED",
+                tractionCommand * tractionCapacityFactor,
                 0,
                 false,
                 stoppingDistance
@@ -245,7 +259,7 @@ public class TcmsAtoAdapterService {
             return new DynamicsDecision(
                 TrainDynamicsState.ACCELERATING,
                 "SPEED_MARGIN_AVAILABLE",
-                tractionCommand,
+                tractionCommand * tractionCapacityFactor,
                 0,
                 false,
                 stoppingDistance
@@ -255,7 +269,7 @@ public class TcmsAtoAdapterService {
             return new DynamicsDecision(
                 TrainDynamicsState.CRUISING,
                 "NEAR_TARGET_SPEED",
-                Math.min(tractionCommand, 0.25),
+                Math.min(tractionCommand * tractionCapacityFactor, 0.25),
                 0,
                 false,
                 stoppingDistance
@@ -301,28 +315,15 @@ public class TcmsAtoAdapterService {
         return Math.max(0, distance);
     }
 
-    private double applyDispatchConstraint(double speedLimit, DispatchConstraint dispatch) {
-        if (dispatch == null) {
-            return speedLimit;
-        }
-        return dispatch.applyToSpeedLimit(speedLimit);
-    }
-
-    private String resolveOperationMode(VehiclePhysicsInput input, DispatchConstraint dispatch) {
+    private String resolveOperationMode(VehiclePhysicsInput input) {
         if (input.emergencyBrakeCommand()) {
             return "ATP_BRAKE";
         }
         if ("STATION_BRAKE".equals(input.dynamicsState()) || "STATION_STOPPED".equals(input.dynamicsState())) {
             return "STATION_CONTROL";
         }
-        if (dispatch != null && dispatch.holdTrain()) {
-            return "DISPATCH_HOLD";
-        }
-        if ("POWER_DERATED".equals(input.dynamicsState())) {
+        if ("POWER_DERATED".equals(input.dynamicsState()) || "OVERLOAD_DERATED".equals(input.dynamicsState())) {
             return "DEGRADED";
-        }
-        if (dispatch != null && !"NORMAL".equals(dispatch.reason())) {
-            return "DISPATCH_ADJUST";
         }
         return "ATO";
     }
@@ -331,7 +332,11 @@ public class TcmsAtoAdapterService {
         if (input.tractionCommand() <= 0 || output.tractionForceNewtons() <= 0) {
             return "IDLE";
         }
-        if ("POWER_DERATED".equals(input.dynamicsState()) || input.powerAvailableWatts() < 3_200_000) {
+        if (
+            "POWER_DERATED".equals(input.dynamicsState())
+                || "OVERLOAD_DERATED".equals(input.dynamicsState())
+                || input.powerAvailableWatts() < 3_200_000
+        ) {
             return "DERATED";
         }
         return "APPLYING";
@@ -361,7 +366,12 @@ public class TcmsAtoAdapterService {
     }
 
     private String resolveSelfCheckStatus(VehiclePhysicsInput input, VehiclePhysicsOutput output) {
-        if (!input.doorClosed() || "CURRENT_COLLECTION_LOST".equals(output.faultCode())) {
+        if (
+            !input.doorClosed()
+                || "CURRENT_COLLECTION_LOST".equals(output.faultCode())
+                || input.railVoltage() <= 0
+                || input.powerAvailableWatts() <= 0
+        ) {
             return "FAIL";
         }
         if (!"OK".equals(output.faultCode())) {
@@ -371,9 +381,15 @@ public class TcmsAtoAdapterService {
     }
 
     private int resolveFaultLevel(VehiclePhysicsInput input, VehiclePhysicsOutput output) {
+        if (input.railVoltage() <= 0 || input.powerAvailableWatts() <= 0) {
+            return 3;
+        }
+        if ("OVERLOAD_DERATED".equals(input.dynamicsState())) {
+            return 1;
+        }
         return switch (output.faultCode()) {
             case "OK" -> input.emergencyBrakeCommand() ? 3 : 0;
-            case "LOW_VOLTAGE", "TRACTION_UNAVAILABLE", "FMU_STEP_FAILED" -> 2;
+            case "LOW_VOLTAGE", "TRACTION_UNAVAILABLE", "FMU_STEP_FAILED", "EXTERNAL_SIM_FALLBACK" -> 2;
             case "CURRENT_COLLECTION_LOST", "BRAKE_UNAVAILABLE", "DOOR_NOT_LOCKED", "ATP_BRAKE" -> 3;
             default -> 2;
         };
@@ -391,10 +407,38 @@ public class TcmsAtoAdapterService {
     }
 
     private String resolveDataQuality(VehiclePhysicsOutput output) {
-        if ("FMU_STEP_FAILED".equals(output.faultCode())) {
+        if ("FMU_STEP_FAILED".equals(output.faultCode()) || "EXTERNAL_SIM_FALLBACK".equals(output.faultCode())) {
             return "FALLBACK";
         }
         return "OK".equals(output.faultCode()) ? "GOOD" : "INVALID";
+    }
+
+    private double resolveLoadMassKg(TrainState train, VehiclePhysicsInput input) {
+        if (train != null) {
+            return VehicleLoadPolicy.loadMassKg(train.loadMassKg(), train.loadRate());
+        }
+        return Math.max(0, input.trainMassKg() - VehicleLoadPolicy.EMPTY_MASS_KG);
+    }
+
+    private String resolveVehicleProtectionReason(TrainState train, String overloadStatus) {
+        String overloadReason = VehicleLoadPolicy.vehicleProtectionReason(overloadStatus);
+        if (!"NONE".equals(overloadReason)) {
+            return overloadReason;
+        }
+        if (train == null || train.vehicleProtectionReason() == null || train.vehicleProtectionReason().isBlank()) {
+            return "NONE";
+        }
+        return train.vehicleProtectionReason();
+    }
+
+    private String resolveSelfCheckBlockReason(boolean doorClosed, TrainState train) {
+        if (!doorClosed) {
+            return "DOOR_NOT_LOCKED";
+        }
+        if (!train.brakeAvailable() || train.availableBrakeCount() <= 0) {
+            return "BRAKE_UNAVAILABLE";
+        }
+        return "SELF_CHECK_FAILED";
     }
 
     private double clamp(double value, double min, double max) {
@@ -430,11 +474,11 @@ public class TcmsAtoAdapterService {
         return clamp(shortfall / Math.max(bufferMeters, 1), 0.2, 1);
     }
 
-    private double stoppingDistanceMeters(double speedMetersPerSecond, double gradient) {
+    private double stoppingDistanceMeters(double speedMetersPerSecond, double gradient, double brakingFactor) {
         // The XLS can contain steep local grade records; clamp only the planning contribution.
         double planningGradient = clamp(gradient, -0.04, 0.04);
         double effectiveDeceleration = clamp(
-            SERVICE_BRAKE_DECELERATION + planningGradient * GRAVITY,
+            SERVICE_BRAKE_DECELERATION * clamp(brakingFactor, 0.2, 1.2) + planningGradient * GRAVITY,
             0.35,
             1.25
         );

@@ -8,19 +8,15 @@ spring:
     import:
       - optional:file:./application-local.yml
       - optional:file:./config/application-local.yml
+      - optional:file:../config/application-local.yml
   datasource:
-    url: jdbc:h2:mem:railway-sim;MODE=MySQL;DB_CLOSE_DELAY=-1;DATABASE_TO_LOWER=TRUE;CASE_INSENSITIVE_IDENTIFIERS=TRUE
-    driver-class-name: org.h2.Driver
-    username: sa
-    password:
+    url: jdbc:mysql://${DB_HOST:localhost}:${DB_PORT:3306}/${DB_NAME:railway_sim}?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
+    username: ${DB_USER:railway_user}
+    password: ${DB_PASSWORD:}
+    driver-class-name: com.mysql.cj.jdbc.Driver
   sql:
     init:
-      mode: always
-      continue-on-error: true
-      schema-locations:
-        - optional:file:../database/schema.sql
-        - optional:file:./database/schema.sql
-        - optional:file:Railway-Sim/database/schema.sql
+      mode: never
   jackson:
     time-zone: Asia/Shanghai
 
@@ -32,11 +28,11 @@ railway:
     default-speed-limit-meters-per-second: 22.2
     default-curve-radius-meters: 1000
     safety-gap-meters: 120
-    line-data-source: database
+    line-data-source: file
     line-id: "1"
-    line-data-auto-import: true
-    line-data-path: ./database/线路数据(1).xls
-    power-config-path: ./config/power_third_rail.yaml
+    line-data-auto-import: false
+    line-data-path: ../config/line-branch-demo.yaml
+    power-config-path: ../config/power_third_rail.yaml
     fmu-step-millis: 100
     track-step-millis: 100
     signal-step-millis: 100
@@ -46,6 +42,25 @@ railway:
     fmu-service-enabled: false
     fmu-service-url: http://localhost:9000
     fmu-service-timeout-millis: 500
+    external-simulator:
+      mode: LOCAL
+      max-trains: 20
+      # 外部 segNo 由信号/轨道共同确认后在此覆盖；未配置时使用线路数据 rawSegmentId/区段序号。
+      segment-mapping: {}
+      udp:
+        model-host: 192.168.200.110
+        model-port: 23001
+        platform-host: 192.168.200.102
+        platform-port: 23002
+        timeout-millis: 60
+      rt-lab:
+        project-path: ""
+        timeout-millis: 500
+        stub-enabled: true
+      shadow:
+        speed-tolerance-meters-per-second: 0.5
+        acceleration-tolerance-meters-per-second-squared: 0.3
+        distance-tolerance-meters: 2.0
   dispatch:
     plan-location: classpath:config/dispatch-plan.yaml
     average-speed-ratio: 0.8

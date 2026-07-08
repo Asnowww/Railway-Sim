@@ -54,7 +54,10 @@ public class SpreadsheetLineDataLoader {
                     segment.endEndpointType(),
                     segment.endEndpointId(),
                     segment.forwardNeighborIds(),
-                    segment.sideNeighborIds()
+                    segment.sideNeighborIds(),
+                pointRef(segment.startEndpointId()),
+                pointRef(segment.endEndpointId()),
+                "main"
                 ))
                 .toList();
 
@@ -228,16 +231,18 @@ public class SpreadsheetLineDataLoader {
             if (rawSwitchId == null) {
                 continue;
             }
+            String dirCode = stringValue(row, 3);
             switches.add(new OperationalLineData.SwitchDefinition(
                 switchRef(rawSwitchId),
                 stringValue(row, 1),
                 switchRef(stringValue(row, 2)),
-                stringValue(row, 3),
+                dirCode,
                 segmentRef(stringValue(row, 4)),
                 segmentRef(stringValue(row, 5)),
                 segmentRef(stringValue(row, 6)),
                 centimetersPerSecondToMetersPerSecond(row, 7, 0),
-                stringValue(row, 8)
+                stringValue(row, 8),
+                "NORMAL" // 地铁道岔默认定位，后续可从数据中读取
             ));
         }
         return switches;

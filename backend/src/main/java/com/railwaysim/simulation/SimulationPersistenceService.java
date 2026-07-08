@@ -69,10 +69,12 @@ public class SimulationPersistenceService {
                   train_id, tick, position_meters, speed_mps, acceleration_mps2,
                   traction_force_n, brake_force_n, regen_brake_force_n, rail_current_a,
                   traction_power_w, regen_power_w, fault_code, data_quality,
+                  load_mass_kg, overload_status, available_traction_count,
+                  available_brake_count, vehicle_protection_reason,
                   dynamics_state, dynamics_constraint_reason, speed_limit_mps,
                   ma_distance_meters, station_distance_meters, stopping_distance_meters,
                   recorded_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
             train.id(),
             context.tick(),
@@ -87,6 +89,11 @@ public class SimulationPersistenceService {
             train.regenPowerWatts(),
             train.faultCode(),
             train.dataQuality(),
+            train.loadMassKg(),
+            train.overloadStatus(),
+            train.availableTractionCount(),
+            train.availableBrakeCount(),
+            train.vehicleProtectionReason(),
             train.dynamicsState(),
             train.dynamicsConstraintReason(),
             train.speedLimitMetersPerSecond(),

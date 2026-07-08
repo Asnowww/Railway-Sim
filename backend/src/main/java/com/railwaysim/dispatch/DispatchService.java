@@ -116,8 +116,31 @@ public class DispatchService {
         refreshSnapshot();
     }
 
+    public synchronized List<DispatchCommand> pendingCommands() {
+        return commandQueue.peekPending();
+    }
+
     public synchronized List<DispatchCommand> drainCommands() {
         return commandQueue.drain();
+    }
+
+    public synchronized List<DispatchCommand> drainCommandsOfType(String commandType) {
+        List<DispatchCommand> queued = commandQueue.drain();
+        if (queued.isEmpty()) {
+            return List.of();
+        }
+
+        List<DispatchCommand> matched = new ArrayList<>();
+        List<DispatchCommand> remaining = new ArrayList<>();
+        for (DispatchCommand command : queued) {
+            if (commandType.equals(command.commandType())) {
+                matched.add(command);
+            } else {
+                remaining.add(command);
+            }
+        }
+        commandQueue.enqueue(remaining);
+        return List.copyOf(matched);
     }
 
     public synchronized void markCommandsApplied(List<DispatchCommand> appliedCommands) {
@@ -192,6 +215,14 @@ public class DispatchService {
     }
 
     public synchronized List<DispatchConstraint> constraintsForTrains(List<TrainState> trains) {
+        return constraintsForTrains(trains, true);
+    }
+
+    public synchronized List<DispatchConstraint> previewConstraintsForTrains(List<TrainState> trains) {
+        return constraintsForTrains(trains, false);
+    }
+
+    private List<DispatchConstraint> constraintsForTrains(List<TrainState> trains, boolean consumeQueuedCommands) {
         Map<String, List<DispatchCommand>> commandsByTrain = new HashMap<>();
         for (DispatchCommand command : manualCommands) {
             if (command.trainId() == null || command.trainId().isBlank()) {
@@ -208,9 +239,20 @@ public class DispatchService {
             }
             commandsByTrain.computeIfAbsent(command.trainId(), ignored -> new ArrayList<>()).add(command);
         }
-        return trains.stream()
+
+        List<DispatchConstraint> constraints = trains.stream()
             .map(train -> constraintForTrain(train.id(), commandsByTrain.getOrDefault(train.id(), List.of())))
             .toList();
+
+        if (consumeQueuedCommands) {
+            List<DispatchCommand> consumed = commandQueue.peekPending().stream()
+                .filter(command -> !"REROUTE".equals(command.commandType()))
+                .toList();
+            if (!consumed.isEmpty()) {
+                drainQueuedCommands(consumed);
+            }
+        }
+        return constraints;
     }
 
     public synchronized DispatchSnapshot snapshot() {
@@ -231,6 +273,14 @@ public class DispatchService {
 
     public synchronized List<DispatchCommand> commands() {
         return commandRecordStore.list(simulationRunId);
+    }
+
+    private void drainQueuedCommands(List<DispatchCommand> consumed) {
+        List<DispatchCommand> queued = commandQueue.drain();
+        List<DispatchCommand> remaining = queued.stream()
+            .filter(command -> consumed.stream().noneMatch(done -> done.id().equals(command.id())))
+            .toList();
+        commandQueue.enqueue(remaining);
     }
 
     private DispatchConstraint constraintForTrain(String trainId, List<DispatchCommand> commands) {

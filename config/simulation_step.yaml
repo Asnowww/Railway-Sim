@@ -22,3 +22,28 @@ fmuService:
   endpoint: http://localhost:9000
   stepFleetPath: /step-fleet
   timeoutMillis: 500
+
+externalSimulator:
+  defaultMode: LOCAL
+  modes:
+    - LOCAL
+    - EXTERNAL_UDP
+    - EXTERNAL_RTLAB_API
+    - DUAL_SHADOW
+  vehicleUdp:
+    modelEndpoint: 192.168.200.110:23001
+    platformEndpoint: 192.168.200.102:23002
+    cycleMillis: 20
+    byteOrder: LITTLE_ENDIAN
+    trainCount: 20
+  rtLabApi:
+    cycleMillis: 500
+    projectLifecycle:
+      - OpalOpenProject
+      - OpalLoad
+      - OpalExecute
+      - OpalReset
+      - OpalCloseProject
+  segmentMapping:
+    sourceOfTruth: signal-track-confirmed
+    defaultRule: use-line-raw-segment-id-or-segment-order

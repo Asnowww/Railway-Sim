@@ -12,6 +12,11 @@ export interface TrainState {
   headMileage: number
   tailMileage: number
   loadRate: number
+  loadMassKg: number
+  overloadStatus: string
+  availableTractionCount: number
+  availableBrakeCount: number
+  vehicleProtectionReason: string
   status: string
   operationMode: string
   zeroSpeed: boolean
@@ -52,6 +57,9 @@ export interface TrackSegmentState {
   endMeters: number
   speedLimitMetersPerSecond: number
   occupancy: 'FREE' | 'RESERVED' | 'OCCUPIED' | 'FAULT'
+  fromNode: string
+  toNode: string
+  track: string
 }
 
 export interface MovementAuthority {
@@ -71,9 +79,31 @@ export interface SignalState {
   reasonTrainId: string | null
 }
 
+export type SwitchPosition = 'NORMAL' | 'REVERSE'
+
+export interface SwitchState {
+  id: string
+  nodeId: string
+  position: SwitchPosition
+  locked: boolean
+  activeSegmentId: string
+}
+
+export type RouteStatus = 'AVAILABLE' | 'ESTABLISHED' | 'CONFLICTED'
+
+export interface RouteState {
+  routeId: string
+  status: RouteStatus
+  lockedSwitchIds: string[]
+  establishedByTrainId: string | null
+  axleSegmentIds: string[]
+}
+
 export interface PowerSectionState {
   id: string
   name: string
+  substationId: string
+  feederId: string
   startMeters: number
   endMeters: number
   voltage: number
@@ -120,6 +150,8 @@ export interface SimulationSnapshot {
   trackSegments: TrackSegmentState[]
   authorities: MovementAuthority[]
   signalStates: SignalState[]
+  switchStates: SwitchState[]
+  routeStates: RouteState[]
   powerSections: PowerSectionState[]
   alarms: Alarm[]
   dispatch: DispatchSnapshot

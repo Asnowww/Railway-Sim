@@ -70,27 +70,35 @@ public class TrackService {
     public synchronized void reset() {
         OperationalLineData lineData = infrastructureCatalog.lineData();
         segments.clear();
+        // 从 YamlLineDataLoader 存的数据需要 YAML rawSeg 的 track 字段
+        // 当前通过 segment.fromNode/fromNodeId 推断：同from的第二个区段为分支
         segments.addAll(lineData.trackSegments().stream()
             .map(segment -> new TrackSegmentState(
                 segment.id(),
                 segment.startMeters(),
                 segment.endMeters(),
                 segment.defaultSpeedLimitMetersPerSecond(),
-                TrackOccupancy.FREE
+                TrackOccupancy.FREE,
+                segment.fromNodeId(),
+                segment.toNodeId(),
+                segment.track()
             ))
             .toList());
         switches.clear();
         if (lineData.switches() != null) {
             for (OperationalLineData.SwitchDefinition sw : lineData.switches()) {
-                SwitchPosition defaultPos = "NORMAL".equalsIgnoreCase(sw.normalSegmentId()) || "NORMAL".equals(sw.directionCode())
-                    ? SwitchPosition.NORMAL
-                    : SwitchPosition.REVERSE;
+                SwitchPosition defaultPos = "REVERSE".equalsIgnoreCase(sw.defaultPosition())
+                    ? SwitchPosition.REVERSE
+                    : SwitchPosition.NORMAL;
+                String activeSegment = defaultPos == SwitchPosition.NORMAL
+                    ? sw.normalSegmentId()
+                    : sw.reverseSegmentId();
                 switches.put(sw.id(), new SwitchState(
                     sw.id(),
-                    sw.mergeSegmentId(), // mergeSegmentId 在 YamlLineDataLoader 中被赋值为 node
+                    sw.mergeSegmentId(),
                     defaultPos,
                     false,
-                    sw.normalSegmentId()
+                    activeSegment
                 ));
             }
         }
@@ -217,6 +225,19 @@ public class TrackService {
         return Collections.unmodifiableSet(new HashSet<>(faultSegmentIds));
     }
 
+    /**
+     * 区段前向邻居映射（fromNode→toNode 方向）。
+     * 从 OperationalLineData.TrackSegmentDefinition.forwardNeighborSegmentIds 构建。
+     */
+    public synchronized Map<String, List<String>> forwardNeighborMap() {
+        OperationalLineData lineData = infrastructureCatalog.lineData();
+        Map<String, List<String>> map = new HashMap<>();
+        for (OperationalLineData.TrackSegmentDefinition def : lineData.trackSegments()) {
+            map.put(def.id(), def.forwardNeighborSegmentIds());
+        }
+        return map;
+    }
+
     // ==================== 道岔管理 ====================
 
     /**
@@ -248,6 +269,26 @@ public class TrackService {
         switches.put(switchId, sw.withPosition(position).withActiveSegment(activeSegment));
         log.info("[Track] Switch {} thrown to {} (active segment: {})", switchId, position, activeSegment);
         return true;
+    }
+
+    /** 预检查道岔是否可以扳动（不实际扳动），用于联锁原子性验证。 */
+    public synchronized boolean canThrowSwitch(String switchId, SwitchPosition position) {
+        SwitchState sw = switches.get(switchId);
+        if (sw == null) {
+            return false;
+        }
+        if (sw.locked()) {
+            return false;
+        }
+        // Already in the target position — no throw needed
+        if (sw.position() == position) {
+            return true;
+        }
+        OperationalLineData.SwitchDefinition def = infrastructureCatalog.lineData().switches().stream()
+            .filter(s -> s.id().equals(switchId))
+            .findFirst()
+            .orElse(null);
+        return def != null;
     }
 
     /** 锁闭道岔（联锁规则 2：信号开放时调用）。 */
@@ -347,7 +388,8 @@ public class TrackService {
             0,
             infrastructureCatalog.lineData().lineLengthMeters(),
             simulationProperties.getDefaultSpeedLimitMetersPerSecond(),
-            TrackOccupancy.FREE
+            TrackOccupancy.FREE,
+            "", "", "main"
         );
     }
 }

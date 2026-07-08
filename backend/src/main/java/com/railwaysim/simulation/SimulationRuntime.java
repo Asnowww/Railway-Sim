@@ -9,6 +9,7 @@ import com.railwaysim.dispatch.integration.DispatchCommandPublisher;
 import com.railwaysim.monitor.MonitorService;
 import com.railwaysim.power.PowerConstraint;
 import com.railwaysim.power.PowerService;
+import com.railwaysim.signal.RouteInterlockingService;
 import com.railwaysim.signal.SignalService;
 import com.railwaysim.simulation.event.DomainEvent;
 import com.railwaysim.simulation.event.SimpleEventBus;
@@ -19,10 +20,14 @@ import com.railwaysim.train.TrainState;
 import com.railwaysim.vehicle.VehiclePhysicsOutput;
 import java.time.Instant;
 import java.util.List;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 @Service
 public class SimulationRuntime {
+
+    private static final Logger log = LoggerFactory.getLogger(SimulationRuntime.class);
 
     private final TrainManager trainManager;
     private final TrackService trackService;
@@ -36,6 +41,7 @@ public class SimulationRuntime {
     private final SimpleEventBus eventBus;
     private final RealtimeStateCache realtimeStateCache;
     private final SimulationPersistenceService persistenceService;
+    private final RouteInterlockingService interlockingService;
     private List<DomainEvent> lastEvents = List.of();
     private long tick;
     private SimulationStatus status = SimulationStatus.STOPPED;
@@ -54,7 +60,8 @@ public class SimulationRuntime {
         SimulationProperties simulationProperties,
         SimpleEventBus eventBus,
         RealtimeStateCache realtimeStateCache,
-        SimulationPersistenceService persistenceService
+        SimulationPersistenceService persistenceService,
+        RouteInterlockingService interlockingService
     ) {
         this.trainManager = trainManager;
         this.trackService = trackService;
@@ -68,6 +75,7 @@ public class SimulationRuntime {
         this.eventBus = eventBus;
         this.realtimeStateCache = realtimeStateCache;
         this.persistenceService = persistenceService;
+        this.interlockingService = interlockingService;
     }
 
     public synchronized SimulationSnapshot snapshot() {
@@ -100,6 +108,7 @@ public class SimulationRuntime {
         trainManager.reset();
         trackService.reset();
         signalService.reset();
+        interlockingService.reset();
         powerService.reset();
         realtimeStateCache.clear();
         eventBus.drain();
@@ -120,26 +129,36 @@ public class SimulationRuntime {
         List<TrainState> beforeTrainStates = trainManager.states();
         trackService.updateOccupancy(beforeTrainStates);
         List<TrackConstraint> trackConstraints = trackService.constraintsForTrains(beforeTrainStates);
-        signalService.calculateAuthorities(beforeTrainStates, trackConstraints);
-
+        signalService.calculateAuthorities(beforeTrainStates, trackConstraints, List.of());
         dispatchService.evaluate(context, beforeTrainStates, signalService.authorities());
+
+        // 拦截 REROUTE 调度指令 → 交联锁处理（在约束计算前）
+        List<DispatchCommand> rerouteCmds = dispatchService.drainCommandsOfType("REROUTE");
+        for (DispatchCommand cmd : rerouteCmds) {
+            var result = interlockingService.applyDispatchCommand(cmd.commandType(), commandDetail(cmd), cmd.trainId());
+            if (!result.accepted()) {
+                log.warn("[Runtime] 联锁拒绝调度指令 {}: {}", cmd.id(), result.rejectReason());
+            }
+        }
+
         List<DispatchCommand> generatedCommands = dispatchService.drainCommands();
         if (!generatedCommands.isEmpty()) {
             dispatchCommandPublisher.publish(generatedCommands);
         }
 
-        List<PowerConstraint> powerConstraints = powerService.constraintsForTrains(beforeTrainStates);
         List<DispatchConstraint> dispatchConstraints = dispatchService.constraintsForTrains(beforeTrainStates);
+        signalService.calculateAuthorities(beforeTrainStates, trackConstraints, dispatchConstraints);
+        List<PowerConstraint> powerConstraints = powerService.constraintsForTrains(beforeTrainStates);
 
         List<VehiclePhysicsOutput> outputs = trainManager.tickAll(
             context,
             signalService.authorities(),
             trackConstraints,
-            powerConstraints,
-            dispatchConstraints
+            powerConstraints
         );
         powerService.updateFromVehicleOutputs(outputs);
         trackService.updateOccupancy(trainManager.states());
+        signalService.recomputeSignalAspects(); // 基于最终区段占用刷新灯色
         lastEvents = eventBus.drain();
         persistIfDue(context);
 
@@ -150,6 +169,16 @@ public class SimulationRuntime {
             lastPushAtMillis = nowMillis;
         }
         return snapshot;
+    }
+
+    private String commandDetail(DispatchCommand command) {
+        if (command.payload() != null) {
+            Object detail = command.payload().get("detail");
+            if (detail != null) {
+                return detail.toString();
+            }
+        }
+        return command.reason();
     }
 
     private void persistIfDue(TickContext context) {
@@ -178,6 +207,8 @@ public class SimulationRuntime {
             trackService.states(),
             signalService.authorities(),
             signalService.signalStates(),
+            trackService.switchStates(),
+            interlockingService.states(),
             powerService.states(),
             lastEvents,
             dispatchService.snapshot()

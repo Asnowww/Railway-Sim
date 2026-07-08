@@ -125,7 +125,8 @@ public class JdbcLineDataLoader {
                     rs.getInt("end_endpoint_type"),
                     rs.getInt("end_endpoint_id"),
                     parseList(rs.getString("forward_neighbor_ids_json")),
-                    parseList(rs.getString("side_neighbor_ids_json"))
+                    parseList(rs.getString("side_neighbor_ids_json")),
+                "", "", "main"
                 );
             },
             lineId
@@ -258,7 +259,8 @@ public class JdbcLineDataLoader {
                 rs.getString("reverse_target"),
                 rs.getString("merge_segment_id"),
                 rs.getDouble("diverging_speed_limit_mps"),
-                rs.getString("interoperability_id")
+                rs.getString("interoperability_id"),
+                valueOrDefault(rs.getString("default_position"), "NORMAL")
             ),
             lineId
         );

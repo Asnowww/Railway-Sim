@@ -47,6 +47,14 @@ class SimulationPersistenceServiceTests {
             String.class
         )).isEqualTo("STATION_BRAKE");
         assertThat(jdbcTemplate.queryForObject(
+            "SELECT load_mass_kg FROM train_physics_snapshot WHERE train_id = 'TR-001'",
+            Double.class
+        )).isEqualTo(25_200.0);
+        assertThat(jdbcTemplate.queryForObject(
+            "SELECT overload_status FROM train_physics_snapshot WHERE train_id = 'TR-001'",
+            String.class
+        )).isEqualTo("NORMAL");
+        assertThat(jdbcTemplate.queryForObject(
             "SELECT station_distance_meters FROM train_physics_snapshot WHERE train_id = 'TR-001'",
             Double.class
         )).isEqualTo(40.0);
@@ -90,6 +98,11 @@ class SimulationPersistenceServiceTests {
               regen_power_w DOUBLE NOT NULL,
               fault_code VARCHAR(64) NOT NULL,
               data_quality VARCHAR(32) NOT NULL DEFAULT 'GOOD',
+              load_mass_kg DOUBLE NOT NULL DEFAULT 0,
+              overload_status VARCHAR(32) NOT NULL DEFAULT 'NORMAL',
+              available_traction_count INT NOT NULL DEFAULT 6,
+              available_brake_count INT NOT NULL DEFAULT 6,
+              vehicle_protection_reason VARCHAR(64) NOT NULL DEFAULT 'NONE',
               dynamics_state VARCHAR(32) NOT NULL DEFAULT 'COASTING',
               dynamics_constraint_reason VARCHAR(128) NOT NULL DEFAULT 'NONE',
               speed_limit_mps DOUBLE NOT NULL DEFAULT 0,
@@ -194,6 +207,8 @@ class SimulationPersistenceServiceTests {
         return new PowerSectionState(
             "P01",
             "Power 01",
+            "SS01",
+            "F01",
             0,
             1000,
             735,
