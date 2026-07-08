@@ -1,11 +1,12 @@
 package com.railwaysim.api;
 
+import com.railwaysim.dispatch.DispatchService;
 import com.railwaysim.signal.SignalService;
 import com.railwaysim.simulation.SimulationRuntime;
 import com.railwaysim.simulation.SimulationSnapshot;
+import com.railwaysim.simulation.SimulationStatus;
 import com.railwaysim.track.TrackService;
 import com.railwaysim.train.TrainManager;
-import java.util.List;
 import org.springframework.web.bind.annotation.CrossOrigin;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -22,17 +23,20 @@ public class SimulationController {
     private final TrackService trackService;
     private final SignalService signalService;
     private final TrainManager trainManager;
+    private final DispatchService dispatchService;
 
     public SimulationController(
         SimulationRuntime simulationRuntime,
         TrackService trackService,
         SignalService signalService,
-        TrainManager trainManager
+        TrainManager trainManager,
+        DispatchService dispatchService
     ) {
         this.simulationRuntime = simulationRuntime;
         this.trackService = trackService;
         this.signalService = signalService;
         this.trainManager = trainManager;
+        this.dispatchService = dispatchService;
     }
 
     @GetMapping("/snapshot")
@@ -64,25 +68,37 @@ public class SimulationController {
 
     @PostMapping("/fault/inject")
     public SimulationSnapshot injectFault(@RequestParam String segmentId) {
-        trackService.injectFault(segmentId);
-        trackService.updateOccupancy(trainManager.states());
-        signalService.calculateAuthorities(
-            trainManager.states(),
-            trackService.constraintsForTrains(trainManager.states()),
-            List.of()
-        );
-        return simulationRuntime.snapshot();
+        SimulationSnapshot current = simulationRuntime.snapshot();
+        if (current.status() == SimulationStatus.RUNNING) {
+            throw new IllegalStateException("Cannot inject fault while simulation is RUNNING — pause first");
+        }
+        synchronized (simulationRuntime) {
+            trackService.injectFault(segmentId);
+            trackService.updateOccupancy(trainManager.states());
+            signalService.calculateAuthorities(
+                trainManager.states(),
+                trackService.constraintsForTrains(trainManager.states()),
+                dispatchService.constraintsForTrains(trainManager.states())
+            );
+            return simulationRuntime.snapshot();
+        }
     }
 
     @PostMapping("/fault/clear")
     public SimulationSnapshot clearFault(@RequestParam String segmentId) {
-        trackService.clearFault(segmentId);
-        trackService.updateOccupancy(trainManager.states());
-        signalService.calculateAuthorities(
-            trainManager.states(),
-            trackService.constraintsForTrains(trainManager.states()),
-            List.of()
-        );
-        return simulationRuntime.snapshot();
+        SimulationSnapshot current = simulationRuntime.snapshot();
+        if (current.status() == SimulationStatus.RUNNING) {
+            throw new IllegalStateException("Cannot clear fault while simulation is RUNNING — pause first");
+        }
+        synchronized (simulationRuntime) {
+            trackService.clearFault(segmentId);
+            trackService.updateOccupancy(trainManager.states());
+            signalService.calculateAuthorities(
+                trainManager.states(),
+                trackService.constraintsForTrains(trainManager.states()),
+                dispatchService.constraintsForTrains(trainManager.states())
+            );
+            return simulationRuntime.snapshot();
+        }
     }
 }

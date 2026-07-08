@@ -138,6 +138,11 @@ public class SignalService {
         return signalStates;
     }
 
+    /** 基于当前区段状态和列车位置重新计算信号灯色（不重新算MA）。 */
+    public synchronized void recomputeSignalAspects() {
+        signalStates = computeSignalAspects(List.of());
+    }
+
     private List<SignalState> computeSignalAspects(List<TrainState> trains) {
         List<TrackSegmentState> trackSegments = trackService.states();
         if (trackSegments.isEmpty()) {
