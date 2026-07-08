@@ -47,7 +47,7 @@ SimulationRuntime.tick()
 → SignalService.calculateAuthorities()
 → PowerService.constraintsForTrains()
 → DispatchService.constraintsForTrains()
-→ TcmsAtoAdapterService.buildVehiclePhysicsInput()
+→ OnboardTrainSubsystemManager.control()
 → VehiclePhysicsClient.stepFleet()
 → TrainManager.apply vehicle physics output
 → TrackService.updateOccupancy()

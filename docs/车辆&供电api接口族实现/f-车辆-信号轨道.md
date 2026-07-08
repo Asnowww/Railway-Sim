@@ -2,7 +2,9 @@
 
 ## 实现范围
 
-本接口族在后端内部通过 `TrainState`、`TrackConstraint`、`MovementAuthority` 和 `TcmsAtoAdapterService` 实现。车辆侧只提供信号/轨道安全计算需要的车辆能力状态，不实现 MA、联锁、进路或轨道占用算法。
+本接口族在后端内部通过 `TrainState`、`TrackConstraint`、`MovementAuthority`、`SignalTrainLifecycleCommand` 和 `OnboardTrainSubsystemManager` 实现。车辆侧只提供信号/轨道安全计算需要的车辆能力状态，不实现 MA、联锁、进路或轨道占用算法。
+
+车辆控制系统按外部子系统处理：中央系统只维护外部控制会话、信号网并入状态和电网并入状态，不负责启动车辆控制系统进程，也不下发车辆内部牵引/制动控制细节。
 
 ## 车辆侧输出
 
@@ -11,6 +13,9 @@
 | 字段 | 来源 | 用途 |
 |---|---|---|
 | `trainId` | `TrainState.id` | 匹配 MA、轨道约束和占用。 |
+| `controlSessionState` | `TrainState` | 表达外部车辆控制子系统在中央侧的会话状态。 |
+| `signalNetworkStatus` / `powerNetworkStatus` | `TrainState` | 表达列车是否已并入信号网和供电网。 |
+| `linkId` / `direction` | 信号生命周期协议 | 对齐协议中的 link ID 和上下行方向。 |
 | `headMileage` / `tailMileage` | `TrainState` | 区段占用和尾部清扫判断。 |
 | `lengthMeters` | `TrainState` | 占用范围计算。 |
 | `speedMetersPerSecond` | 车辆物理输出 | ATP/MA 安全判断。 |
@@ -36,7 +41,7 @@
 - `TrackConstraint.curveRadiusMeters`
 - `TrackConstraint.stationDistanceMeters`
 
-这些字段统一进入 `TcmsAtoAdapterService.decideDynamicsState()`，产生车辆动力学状态。
+这些字段统一进入 `OnboardTrainSubsystem` 的本车决策逻辑，产生车辆动力学状态。
 
 代码中预留了接口模型：
 
@@ -47,6 +52,23 @@
 
 调度指令不直接进入车辆模块；调度侧的扣车、临时限速、跳停等策略应先进入信号/ATS，再由信号侧转化为 `MovementAuthority`、速度限制或 `SignalVehicleCommand`。
 
+列车上线/退出由信号侧协议语义进入中央系统：
+
+| 方向 | 模型/接口 | 说明 |
+|---|---|---|
+| 信号到中央 | `POST /api/trains/lifecycle`、`SignalTrainLifecycleCommand` | ADD/DELETE/CLEAR 只改变中央侧外部控制会话和列车实体状态。 |
+| 中央到信号/车辆状态 | `VehicleSignalStatus`、`TrainState` | 输出会话、信号网、电网、载重和车辆能力状态。 |
+
+上线时序：
+
+1. 车辆控制系统作为外部节点已在车辆侧启动。
+2. 信号侧发 `ADD`，携带列车号、link ID、偏移和方向。
+3. 中央创建 `TrainEntity`、`ExternalTrainControlSession` 和 onboard 节点注册信息。
+4. 信号侧在后续 tick 输出 MA/限速，供电侧输出受流约束。
+5. 中央根据约束把会话推进至 `IN_SERVICE`，车辆才进入物理推进闭环。
+
+该流程不以 SQL 为入口。数据库仅保存日志和快照；车辆-信号接口的权威入口仍是生命周期协议和运行时状态对象。
+
 ## 已实现 API 暴露
 
 车辆-信号/轨道接口族当前不新增专用 REST 控制接口；联调通过以下只读状态完成：
@@ -54,6 +76,7 @@
 | 接口 | 说明 |
 |---|---|
 | `GET /api/trains` | 查看车辆侧安全接口字段。 |
+| `POST /api/trains/lifecycle` | 中央信号协议适配入口，用于外部车辆控制会话 ADD/DELETE/CLEAR。 |
 | `GET /api/simulation/snapshot` | 同时查看 `trains[]`、`trackSegments[]`、`authorities[]`。 |
 | `WS /ws/simulation` | 周期推送同一快照。 |
 
@@ -63,7 +86,9 @@
 |---|---|---|
 | 具体逻辑 | 将 `dynamicsState`、`movementAuthorityDistanceMeters`、`stationDistanceMeters`、`stoppingDistanceMeters` 暴露在 `TrainState`。 | 便于联调时解释车辆为何牵引、惰行、制动或停车。 |
 | 业务考量 | 不把车辆内部牵引/制动命令作为信号系统输入。 | 信号系统需要安全能力和状态，不应越级控制车辆物理模型。 |
+| 业务考量 | `ADD` 只声明外部车辆控制子系统接入中央。 | 中央不负责启动车辆控制系统实例，也不通过 SQL 上线列车。 |
 | 边界修正 | 新增 `SignalVehicleCommand` / `VehicleSignalStatus`。 | 明确“调度 -> 信号 -> 车辆”的控制链路。 |
+| 边界修正 | 新增 `SignalTrainLifecycleCommand` / `ExternalTrainControlSession`。 | 明确“外部车辆控制子系统 -> 信号/中央接入会话”的关系，中央系统不实现车辆控制系统本体。 |
 | 现实考量 | 复杂线路拓扑先通过公里标线性投影消费。 | 当前车辆动力学和供电模型仍是 1D 位置模型，复杂图拓扑由信号/轨道侧维护。 |
 
 ## 边界
@@ -72,3 +97,5 @@
 - 不实现道岔和进路联锁。
 - 不实现信号机显示逻辑。
 - 不由信号/轨道直接调用 FMU。
+- 不启动车辆控制系统进程，不维护车辆控制系统内部状态机。
+- 不让车辆侧越级消费调度命令；调度命令仍应经信号/ATS 折算。

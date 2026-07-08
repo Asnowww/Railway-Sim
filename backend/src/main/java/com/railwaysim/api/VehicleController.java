@@ -2,6 +2,8 @@ package com.railwaysim.api;
 
 import com.railwaysim.api.dto.VehicleMaintenanceStateResponse;
 import com.railwaysim.train.TrainManager;
+import com.railwaysim.vehicle.onboard.OnboardTrainNodeState;
+import com.railwaysim.vehicle.onboard.OnboardTrainSubsystemManager;
 import java.time.Instant;
 import java.util.List;
 import org.springframework.web.bind.annotation.CrossOrigin;
@@ -15,9 +17,14 @@ import org.springframework.web.bind.annotation.RestController;
 public class VehicleController {
 
     private final TrainManager trainManager;
+    private final OnboardTrainSubsystemManager onboardTrainSubsystemManager;
 
-    public VehicleController(TrainManager trainManager) {
+    public VehicleController(
+        TrainManager trainManager,
+        OnboardTrainSubsystemManager onboardTrainSubsystemManager
+    ) {
         this.trainManager = trainManager;
+        this.onboardTrainSubsystemManager = onboardTrainSubsystemManager;
     }
 
     @GetMapping("/maintenance-states")
@@ -35,6 +42,11 @@ public class VehicleController {
                 Instant.now()
             ))
             .toList();
+    }
+
+    @GetMapping("/onboard-subsystems")
+    public List<OnboardTrainNodeState> onboardSubsystems() {
+        return onboardTrainSubsystemManager.nodeStates();
     }
 
     private String maintenanceState(int faultLevel) {

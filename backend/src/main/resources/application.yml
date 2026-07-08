@@ -41,6 +41,10 @@ railway:
     fmu-service-enabled: false
     fmu-service-url: http://localhost:9000
     fmu-service-timeout-millis: 500
+    onboard-subsystem-mode: IN_PROCESS
+    onboard-subsystem-url: http://localhost:9100
+    onboard-subsystem-timeout-millis: 300
+    onboard-subsystem-lease-millis: 1000
     external-simulator:
       mode: LOCAL
       max-trains: 20

@@ -3,6 +3,9 @@ package com.railwaysim.train;
 import com.railwaysim.infrastructure.StaticInfrastructureCatalog;
 import com.railwaysim.power.PowerConstraint;
 import com.railwaysim.signal.MovementAuthority;
+import com.railwaysim.signal.vehicle.SignalTrainLifecycleAction;
+import com.railwaysim.signal.vehicle.SignalTrainLifecycleCommand;
+import com.railwaysim.signal.vehicle.SignalTrainLifecycleTrainSpec;
 import com.railwaysim.simulation.RealtimeStateCache;
 import com.railwaysim.simulation.TickContext;
 import com.railwaysim.simulation.event.BrakeForceChangedEvent;
@@ -12,15 +15,19 @@ import com.railwaysim.simulation.event.TractionPowerChangedEvent;
 import com.railwaysim.simulation.event.TrainFaultStateChangedEvent;
 import com.railwaysim.simulation.event.VehiclePhysicsUpdatedEvent;
 import com.railwaysim.track.TrackConstraint;
-import com.railwaysim.vehicle.TcmsAtoAdapterService;
 import com.railwaysim.vehicle.TrainStateReport;
 import com.railwaysim.vehicle.VehiclePhysicsClient;
 import com.railwaysim.vehicle.VehiclePhysicsInput;
 import com.railwaysim.vehicle.VehiclePhysicsOutput;
+import com.railwaysim.vehicle.onboard.OnboardTrainControlInput;
+import com.railwaysim.vehicle.onboard.OnboardTrainSubsystemManager;
 import com.railwaysim.vehicle.protocol.TrainOperationalTelemetry;
+import com.railwaysim.vehicle.external.ExternalTrainDirection;
 import jakarta.annotation.PostConstruct;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Iterator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -32,7 +39,8 @@ import org.springframework.stereotype.Service;
 public class TrainManager {
 
     private final List<TrainEntity> trains = new ArrayList<>();
-    private final TcmsAtoAdapterService tcmsAtoAdapterService;
+    private final Map<String, ExternalTrainControlSession> controlSessions = new LinkedHashMap<>();
+    private final OnboardTrainSubsystemManager onboardTrainSubsystemManager;
     private final VehiclePhysicsClient vehiclePhysicsClient;
     private final StaticInfrastructureCatalog infrastructureCatalog;
     private final RealtimeStateCache realtimeStateCache;
@@ -40,13 +48,13 @@ public class TrainManager {
     private final List<TrainFaultRecord> faultRecords = new ArrayList<>();
 
     public TrainManager(
-        TcmsAtoAdapterService tcmsAtoAdapterService,
+        OnboardTrainSubsystemManager onboardTrainSubsystemManager,
         VehiclePhysicsClient vehiclePhysicsClient,
         StaticInfrastructureCatalog infrastructureCatalog,
         RealtimeStateCache realtimeStateCache,
         SimpleEventBus eventBus
     ) {
-        this.tcmsAtoAdapterService = tcmsAtoAdapterService;
+        this.onboardTrainSubsystemManager = onboardTrainSubsystemManager;
         this.vehiclePhysicsClient = vehiclePhysicsClient;
         this.infrastructureCatalog = infrastructureCatalog;
         this.realtimeStateCache = realtimeStateCache;
@@ -61,8 +69,10 @@ public class TrainManager {
     public synchronized void reset() {
         String routeId = infrastructureCatalog.lineData().lineId();
         trains.clear();
-        trains.add(new TrainEntity("TR-001", routeId, 100, 120, 0.42));
-        trains.add(new TrainEntity("TR-002", routeId, 900, 120, 0.55));
+        controlSessions.clear();
+        onboardTrainSubsystemManager.clear();
+        addInitialTrain("TR-001", routeId, 100, 0.42, 1, ExternalTrainDirection.DOWN);
+        addInitialTrain("TR-002", routeId, 900, 0.55, 2, ExternalTrainDirection.DOWN);
         faultRecords.clear();
     }
 
@@ -78,15 +88,17 @@ public class TrainManager {
             .collect(Collectors.toMap(TrackConstraint::trainId, Function.identity(), (left, right) -> right));
         Map<String, PowerConstraint> powerByTrain = powerConstraints.stream()
             .collect(Collectors.toMap(PowerConstraint::trainId, Function.identity(), (left, right) -> right));
+        advanceControlSessions(authorityByTrain, powerByTrain);
+        removeDisconnectedTrains();
         List<TrainState> currentStates = states();
         List<VehiclePhysicsInput> inputs = currentStates.stream()
-            .map(train -> tcmsAtoAdapterService.buildVehiclePhysicsInput(
+            .map(train -> onboardTrainSubsystemManager.control(new OnboardTrainControlInput(
                 train,
                 context,
                 authorityByTrain.get(train.id()),
                 trackByTrain.get(train.id()),
                 powerByTrain.get(train.id())
-            ))
+            )).physicsInput())
             .toList();
         List<VehiclePhysicsOutput> outputs = vehiclePhysicsClient.stepFleet(inputs);
 
@@ -95,17 +107,72 @@ public class TrainManager {
         Map<String, VehiclePhysicsOutput> outputByTrain = outputs.stream()
             .collect(Collectors.toMap(VehiclePhysicsOutput::trainId, Function.identity(), (left, right) -> right));
         for (TrainEntity train : trains) {
-            TrainState currentState = train.state();
+            TrainState currentState = train.state(controlSessions.get(train.id()));
             VehiclePhysicsOutput output = outputByTrain.get(currentState.id());
             VehiclePhysicsInput input = inputByTrain.get(currentState.id());
             if (output != null && input != null) {
-                TrainStateReport report = tcmsAtoAdapterService.buildTrainStateReport(currentState, input, output);
+                TrainStateReport report = onboardTrainSubsystemManager.buildTrainStateReport(currentState, input, output);
                 train.applyPhysicsOutput(output, report);
                 realtimeStateCache.updateTrainTcmsState(report);
                 publishVehicleEvents(output);
             }
         }
         return outputs;
+    }
+
+    public synchronized List<TrainState> applyLifecycleCommand(SignalTrainLifecycleCommand command) {
+        if (command.action() == SignalTrainLifecycleAction.CLEAR) {
+            requestClearTrains("SIGNAL_CLEAR_ALL_TRAINS");
+            return states();
+        }
+        if (command.action() == SignalTrainLifecycleAction.ADD) {
+            return command.trains().stream().map(this::addTrain).toList();
+        }
+        return command.trains().stream()
+            .map(spec -> requestRemoveTrain(spec.trainId(), "SIGNAL_DELETE_TRAIN"))
+            .flatMap(Optional::stream)
+            .toList();
+    }
+
+    public synchronized TrainState addTrain(SignalTrainLifecycleTrainSpec spec) {
+        String trainId = spec.trainId();
+        Optional<TrainEntity> existing = findTrainEntity(trainId);
+        if (existing.isPresent()) {
+            ExternalTrainControlSession existingNode = controlSessions.get(trainId);
+            return existing.get().state(existingNode);
+        }
+        String routeId = infrastructureCatalog.lineData().lineId();
+        TrainEntity train = new TrainEntity(trainId, routeId, spec.offsetMeters(), 120, 0.35);
+        trains.add(train);
+        onboardTrainSubsystemManager.register(trainId);
+        controlSessions.put(trainId, ExternalTrainControlSession.connecting(
+            trainId,
+            spec.linkId(),
+            spec.offsetMeters(),
+            spec.direction()
+        ));
+        return train.state(controlSessions.get(trainId));
+    }
+
+    public synchronized Optional<TrainState> requestRemoveTrain(String trainId, String reason) {
+        Optional<TrainEntity> train = findTrainEntity(trainId);
+        if (train.isEmpty()) {
+            return Optional.empty();
+        }
+        controlSessions.computeIfAbsent(
+            trainId,
+            id -> ExternalTrainControlSession.inService(id, 0, train.get().state().positionMeters(), ExternalTrainDirection.UNKNOWN)
+        ).requestDetach(reason);
+        return Optional.of(train.get().state(controlSessions.get(trainId)));
+    }
+
+    public synchronized void requestClearTrains(String reason) {
+        for (TrainEntity train : trains) {
+            controlSessions.computeIfAbsent(
+                train.id(),
+                id -> ExternalTrainControlSession.inService(id, 0, train.state().positionMeters(), ExternalTrainDirection.UNKNOWN)
+            ).requestDetach(reason);
+        }
     }
 
     public synchronized void applyOperationalTelemetry(List<TrainOperationalTelemetry> telemetries) {
@@ -120,13 +187,15 @@ public class TrainManager {
     }
 
     public synchronized List<TrainState> states() {
-        return trains.stream().map(TrainEntity::state).toList();
+        return trains.stream()
+            .map(train -> train.state(controlSessions.get(train.id())))
+            .toList();
     }
 
     public synchronized Optional<TrainState> state(String trainId) {
         return trains.stream()
-            .filter(train -> train.state().id().equals(trainId))
-            .map(TrainEntity::state)
+            .filter(train -> train.id().equals(trainId))
+            .map(train -> train.state(controlSessions.get(train.id())))
             .findFirst();
     }
 
@@ -180,10 +249,53 @@ public class TrainManager {
     }
 
     private TrainEntity trainEntity(String trainId) {
-        return trains.stream()
-            .filter(train -> train.state().id().equals(trainId))
-            .findFirst()
+        return findTrainEntity(trainId)
             .orElseThrow(() -> new IllegalArgumentException("Train not found: " + trainId));
+    }
+
+    private Optional<TrainEntity> findTrainEntity(String trainId) {
+        return trains.stream()
+            .filter(train -> train.id().equals(trainId))
+            .findFirst();
+    }
+
+    private void addInitialTrain(
+        String trainId,
+        String routeId,
+        double positionMeters,
+        double loadRate,
+        int linkId,
+        ExternalTrainDirection direction
+    ) {
+        TrainEntity train = new TrainEntity(trainId, routeId, positionMeters, 120, loadRate);
+        trains.add(train);
+        onboardTrainSubsystemManager.register(trainId);
+        controlSessions.put(trainId, ExternalTrainControlSession.inService(trainId, linkId, positionMeters, direction));
+    }
+
+    private void advanceControlSessions(
+        Map<String, MovementAuthority> authorityByTrain,
+        Map<String, PowerConstraint> powerByTrain
+    ) {
+        for (TrainEntity train : trains) {
+            ExternalTrainControlSession node = controlSessions.get(train.id());
+            if (node != null) {
+                node.advance(authorityByTrain.get(train.id()), powerByTrain.get(train.id()));
+            }
+        }
+    }
+
+    private void removeDisconnectedTrains() {
+        Iterator<TrainEntity> iterator = trains.iterator();
+        while (iterator.hasNext()) {
+            TrainEntity train = iterator.next();
+            ExternalTrainControlSession node = controlSessions.get(train.id());
+            if (node != null && node.disconnected()) {
+                iterator.remove();
+                controlSessions.remove(train.id());
+                onboardTrainSubsystemManager.remove(train.id());
+            }
+        }
     }
 
     private void publishVehicleEvents(VehiclePhysicsOutput output) {

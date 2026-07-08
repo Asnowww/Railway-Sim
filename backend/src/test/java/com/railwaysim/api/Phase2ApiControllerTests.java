@@ -105,4 +105,32 @@ class Phase2ApiControllerTests {
             .andExpect(jsonPath("$.selfCheckStatus").value("FAIL"))
             .andExpect(jsonPath("$.faultLevel").value(3));
     }
+
+    @Test
+    void trainLifecycleApiAcceptsExternalControlSessionCommand() throws Exception {
+        mockMvc.perform(post("/api/trains/lifecycle")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "action": "ADD",
+                      "trains": [
+                        {
+                          "trainNo": 1,
+                          "linkId": 1,
+                          "offsetMeters": 100,
+                          "direction": "DOWN"
+                        }
+                      ],
+                      "reason": "api-test",
+                      "operator": "signal-test",
+                      "confirmToken": "SIMULATION_CONFIRM",
+                      "traceId": "trace-lifecycle"
+                    }
+                    """))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$", hasSize(1)))
+            .andExpect(jsonPath("$[0].id").value("TR-001"))
+            .andExpect(jsonPath("$[0].controlSessionState").value("IN_SERVICE"))
+            .andExpect(jsonPath("$[0].signalNetworkStatus").value("ATTACHED"));
+    }
 }
