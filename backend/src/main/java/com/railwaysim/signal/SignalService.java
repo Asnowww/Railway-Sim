@@ -240,15 +240,15 @@ public class SignalService {
     }
 
     private String chooseActiveForwardNeighbor(String currentSegmentId, List<String> forward) {
-        TrackSegmentState current = findSegment(currentSegmentId);
-        if (current != null) {
-            for (SwitchState sw : trackService.switchStates()) {
-                if (current.toNode().equals(sw.nodeId()) && forward.contains(sw.activeSegmentId())) {
-                    return sw.activeSegmentId();
-                }
+        // 1. Prefer the switch-activated branch: if any switch's activeSegmentId
+        //    is in the forward set, that's the currently set path.
+        for (SwitchState sw : trackService.switchStates()) {
+            if (forward.contains(sw.activeSegmentId())) {
+                return sw.activeSegmentId();
             }
         }
 
+        // 2. Fallback: pick the forward neighbor with higher speed limit (main track)
         String best = forward.get(0);
         double bestSpeed = -1;
         for (String fwdId : forward) {

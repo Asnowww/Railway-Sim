@@ -271,6 +271,26 @@ public class TrackService {
         return true;
     }
 
+    /** 预检查道岔是否可以扳动（不实际扳动），用于联锁原子性验证。 */
+    public synchronized boolean canThrowSwitch(String switchId, SwitchPosition position) {
+        SwitchState sw = switches.get(switchId);
+        if (sw == null) {
+            return false;
+        }
+        if (sw.locked()) {
+            return false;
+        }
+        // Already in the target position — no throw needed
+        if (sw.position() == position) {
+            return true;
+        }
+        OperationalLineData.SwitchDefinition def = infrastructureCatalog.lineData().switches().stream()
+            .filter(s -> s.id().equals(switchId))
+            .findFirst()
+            .orElse(null);
+        return def != null;
+    }
+
     /** 锁闭道岔（联锁规则 2：信号开放时调用）。 */
     public synchronized void lockSwitch(String switchId) {
         SwitchState sw = switches.get(switchId);

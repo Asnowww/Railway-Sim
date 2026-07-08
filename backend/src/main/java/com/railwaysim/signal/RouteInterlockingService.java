@@ -9,9 +9,6 @@ import com.railwaysim.track.TrackSegmentState;
 import com.railwaysim.track.TrackService;
 import com.railwaysim.train.TrainState;
 import jakarta.annotation.PostConstruct;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -85,6 +82,7 @@ public class RouteInterlockingService {
 
         Map<OperationalLineData.SwitchDefinition, SwitchPosition> switchRequirements =
             switchRequirements(routeSegments);
+        // Pre-check all switches before throwing any (partial rollback safety)
         for (Map.Entry<OperationalLineData.SwitchDefinition, SwitchPosition> entry : switchRequirements.entrySet()) {
             OperationalLineData.SwitchDefinition swDef = entry.getKey();
             SwitchPosition required = entry.getValue();
@@ -95,13 +93,23 @@ public class RouteInterlockingService {
             if (sw.locked()) {
                 return "Switch " + swDef.id() + " is locked";
             }
-            if (sw.position() != required && !trackService.throwSwitch(swDef.id(), required)) {
+            if (sw.position() != required && !trackService.canThrowSwitch(swDef.id(), required)) {
                 return "Switch " + swDef.id() + " cannot move to " + required;
             }
         }
 
+        // All checks passed — throw and lock switches atomically
         Set<String> lockedIds = new LinkedHashSet<>();
-        for (OperationalLineData.SwitchDefinition swDef : switchRequirements.keySet()) {
+        for (Map.Entry<OperationalLineData.SwitchDefinition, SwitchPosition> entry : switchRequirements.entrySet()) {
+            OperationalLineData.SwitchDefinition swDef = entry.getKey();
+            SwitchPosition required = entry.getValue();
+            SwitchState sw = switchState(swDef.id()).orElse(null);
+            if (sw == null) {
+                continue;
+            }
+            if (sw.position() != required) {
+                trackService.throwSwitch(swDef.id(), required);
+            }
             trackService.lockSwitch(swDef.id());
             lockedIds.add(swDef.id());
         }
@@ -149,6 +157,7 @@ public class RouteInterlockingService {
     }
 
     public synchronized double maLimitFromRouteConflict(String trainId) {
+        double closest = Double.POSITIVE_INFINITY;
         for (RouteState route : routeStates.values()) {
             if (route.status() != RouteStatus.ESTABLISHED) {
                 continue;
@@ -161,11 +170,13 @@ public class RouteInterlockingService {
                 if (seg != null
                     && (seg.occupancy() == TrackOccupancy.RESERVED
                     || seg.occupancy() == TrackOccupancy.OCCUPIED)) {
-                    return seg.startMeters();
+                    if (seg.startMeters() < closest) {
+                        closest = seg.startMeters();
+                    }
                 }
             }
         }
-        return Double.POSITIVE_INFINITY;
+        return closest;
     }
 
     public synchronized List<String> establishedSegmentPathForTrain(String trainId) {
@@ -188,6 +199,7 @@ public class RouteInterlockingService {
                     String rejection = establishRoute(route.routeId(), train.id());
                     if (rejection == null) {
                         log.info("[Interlocking] auto-established route {} for train {}", route.routeId(), train.id());
+                        break; // one route per train per tick
                     }
                 }
             }
@@ -273,9 +285,11 @@ public class RouteInterlockingService {
         for (OperationalLineData.SwitchDefinition sw : switches) {
             boolean usesNormal = routeSegments.contains(sw.normalSegmentId());
             boolean usesReverse = routeSegments.contains(sw.reverseSegmentId());
-            if (usesNormal && !usesReverse) {
+            if (usesNormal && usesReverse) {
+                log.warn("[Interlocking] switch {} used in both NORMAL and REVERSE within route — skipping lock", sw.id());
+            } else if (usesNormal) {
                 requirements.put(sw, SwitchPosition.NORMAL);
-            } else if (usesReverse && !usesNormal) {
+            } else if (usesReverse) {
                 requirements.put(sw, SwitchPosition.REVERSE);
             }
         }
