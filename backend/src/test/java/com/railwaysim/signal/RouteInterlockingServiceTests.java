@@ -75,6 +75,31 @@ class RouteInterlockingServiceTests {
         assertThat(occupancy(fixture.trackService, "SEG-3")).isEqualTo(TrackOccupancy.RESERVED);
     }
 
+    @Test
+    void establishingRouteThatRequiresBothSwitchPositionsIsRejected() {
+        Fixture fixture = fixture(lineDataWithInvalidSwitchRoute());
+        fixture.interlocking.init();
+
+        String rejection = fixture.interlocking.establishRoute("R_BOTH", "TR-1");
+
+        assertThat(rejection).contains("both NORMAL and REVERSE");
+        assertThat(fixture.interlocking.state("R_BOTH").status()).isEqualTo(RouteStatus.AVAILABLE);
+        SwitchState sw = fixture.trackService.switchStates().get(0);
+        assertThat(sw.position()).isEqualTo(SwitchPosition.NORMAL);
+        assertThat(sw.locked()).isFalse();
+    }
+
+    @Test
+    void movementAuthorityConflictUsesNearestReservedConflict() {
+        Fixture fixture = fixture(lineDataWithIndependentRoutes());
+        fixture.interlocking.init();
+        fixture.interlocking.establishRoute("R_FAR", "OTHER-FAR");
+        fixture.interlocking.establishRoute("R_NEAR", "OTHER-NEAR");
+        fixture.trackService.applyReservations(java.util.Set.of("SEG-2", "SEG-4"));
+
+        assertThat(fixture.interlocking.maLimitFromRouteConflict("TR-1")).isEqualTo(100);
+    }
+
     private static Fixture fixture(OperationalLineData lineData) {
         StaticInfrastructureCatalog catalog = new StaticInfrastructureCatalog(lineData, emptyPowerData());
         SimulationProperties properties = new SimulationProperties();
@@ -113,6 +138,37 @@ class RouteInterlockingServiceTests {
         ));
     }
 
+    private static OperationalLineData lineDataWithInvalidSwitchRoute() {
+        return lineData(List.of(
+            route("R_BOTH", "Both switch legs", List.of("SEG-1", "SEG-2", "SEG-3"))
+        ));
+    }
+
+    private static OperationalLineData lineDataWithIndependentRoutes() {
+        return new OperationalLineData(
+            "test-line",
+            "Test Line",
+            List.of(),
+            List.of(
+                segment("SEG-1", 1, 0, 100, List.of("SEG-2"), "N1", "N2", "main", 20),
+                segment("SEG-2", 2, 100, 200, List.of("SEG-3"), "N2", "N3", "main", 20),
+                segment("SEG-3", 3, 200, 300, List.of("SEG-4"), "N3", "N4", "main", 20),
+                segment("SEG-4", 4, 300, 400, List.of(), "N4", "N5", "main", 20)
+            ),
+            List.of(),
+            List.of(),
+            List.of(),
+            List.of(),
+            List.of(),
+            List.of(),
+            List.of(),
+            List.of(
+                route("R_FAR", "Far", List.of("SEG-4")),
+                route("R_NEAR", "Near", List.of("SEG-2"))
+            )
+        );
+    }
+
     private static OperationalLineData lineData(List<OperationalLineData.RouteDefinition> routes) {
         return new OperationalLineData(
             "test-line",
@@ -134,7 +190,8 @@ class RouteInterlockingServiceTests {
                 "SEG-3",
                 "N2",
                 0,
-                null
+                null,
+                "NORMAL"
             )),
             List.of(),
             List.of(),

@@ -20,15 +20,15 @@ public class DispatchService {
         reset();
     }
 
-    public void reset() {
+    public synchronized void reset() {
         pendingCommands.clear();
     }
 
-    public List<DispatchCommand> pendingCommands() {
+    public synchronized List<DispatchCommand> pendingCommands() {
         return List.copyOf(pendingCommands);
     }
 
-    public void submit(DispatchCommand command) {
+    public synchronized void submit(DispatchCommand command) {
         pendingCommands.add(command);
     }
 
@@ -36,7 +36,7 @@ public class DispatchService {
      * 取出并清除指定类型的所有待处理调度指令。
      * 用于联锁等子系统在约束计算前拦截特定指令。
      */
-    public List<DispatchCommand> drainCommandsOfType(String commandType) {
+    public synchronized List<DispatchCommand> drainCommandsOfType(String commandType) {
         List<DispatchCommand> matched = pendingCommands.stream()
             .filter(cmd -> commandType.equals(cmd.commandType()))
             .toList();
@@ -44,13 +44,35 @@ public class DispatchService {
         return matched;
     }
 
-    public List<DispatchConstraint> constraintsForTrains(List<TrainState> trains) {
+    /**
+     * 每 tick 读取并清除所有已消耗的调度指令。
+     * 除 REROUTE（由联锁单独处理）外，其余命令均为一次性：
+     * 应用后即移除，若需持续控制请每 tick 重新提交。
+     */
+    public synchronized List<DispatchConstraint> constraintsForTrains(List<TrainState> trains) {
+        return constraintsForTrains(trains, true);
+    }
+
+    public synchronized List<DispatchConstraint> previewConstraintsForTrains(List<TrainState> trains) {
+        return constraintsForTrains(trains, false);
+    }
+
+    private List<DispatchConstraint> constraintsForTrains(List<TrainState> trains, boolean consumeCommands) {
         Map<String, List<DispatchCommand>> commandsByTrain = pendingCommands.stream()
             .filter(command -> command.trainId() != null && !command.trainId().isBlank())
             .collect(Collectors.groupingBy(DispatchCommand::trainId));
-        return trains.stream()
+        List<DispatchConstraint> constraints = trains.stream()
             .map(train -> constraintForTrain(train.id(), commandsByTrain.getOrDefault(train.id(), List.of())))
             .toList();
+        // 所有非 REROUTE 命令一次性消费后移除，防止永久生效
+        if (!consumeCommands) {
+            return constraints;
+        }
+        List<DispatchCommand> consumed = pendingCommands.stream()
+            .filter(cmd -> !"REROUTE".equals(cmd.commandType()))
+            .toList();
+        pendingCommands.removeAll(consumed);
+        return constraints;
     }
 
     private DispatchConstraint constraintForTrain(String trainId, List<DispatchCommand> commands) {

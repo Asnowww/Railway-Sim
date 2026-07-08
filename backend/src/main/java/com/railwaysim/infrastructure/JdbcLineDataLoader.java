@@ -259,7 +259,8 @@ public class JdbcLineDataLoader {
                 rs.getString("reverse_target"),
                 rs.getString("merge_segment_id"),
                 rs.getDouble("diverging_speed_limit_mps"),
-                rs.getString("interoperability_id")
+                rs.getString("interoperability_id"),
+                valueOrDefault(rs.getString("default_position"), "NORMAL")
             ),
             lineId
         );

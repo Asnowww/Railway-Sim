@@ -140,10 +140,12 @@ public class YamlLineDataLoader {
         List<OperationalLineData.SwitchDefinition> switches = new ArrayList<>();
         if (lineFile.switches != null) {
             for (YamlSwitch sw : lineFile.switches) {
+                // TODO: directionCode 当前用 defaultPosition 占位，YAML 不区分方向编码
                 switches.add(new OperationalLineData.SwitchDefinition(
                     sw.id, sw.id, null,
                     sw.defaultPosition != null ? sw.defaultPosition : "NORMAL",
-                    sw.normalTarget, sw.reverseTarget, sw.node, 0, null
+                    sw.normalTarget, sw.reverseTarget, sw.node, 0, null,
+                    sw.defaultPosition != null ? sw.defaultPosition : "NORMAL"
                 ));
             }
         }

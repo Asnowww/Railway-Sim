@@ -10,6 +10,11 @@ export interface TrainState {
   headMileage: number
   tailMileage: number
   loadRate: number
+  loadMassKg: number
+  overloadStatus: string
+  availableTractionCount: number
+  availableBrakeCount: number
+  vehicleProtectionReason: string
   status: string
   operationMode: string
   zeroSpeed: boolean

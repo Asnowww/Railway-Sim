@@ -87,15 +87,18 @@ public class TrackService {
         switches.clear();
         if (lineData.switches() != null) {
             for (OperationalLineData.SwitchDefinition sw : lineData.switches()) {
-                SwitchPosition defaultPos = "NORMAL".equalsIgnoreCase(sw.normalSegmentId()) || "NORMAL".equals(sw.directionCode())
-                    ? SwitchPosition.NORMAL
-                    : SwitchPosition.REVERSE;
+                SwitchPosition defaultPos = "REVERSE".equalsIgnoreCase(sw.defaultPosition())
+                    ? SwitchPosition.REVERSE
+                    : SwitchPosition.NORMAL;
+                String activeSegment = defaultPos == SwitchPosition.NORMAL
+                    ? sw.normalSegmentId()
+                    : sw.reverseSegmentId();
                 switches.put(sw.id(), new SwitchState(
                     sw.id(),
-                    sw.mergeSegmentId(), // mergeSegmentId 在 YamlLineDataLoader 中被赋值为 node
+                    sw.mergeSegmentId(),
                     defaultPos,
                     false,
-                    sw.normalSegmentId()
+                    activeSegment
                 ));
             }
         }
@@ -266,6 +269,26 @@ public class TrackService {
         switches.put(switchId, sw.withPosition(position).withActiveSegment(activeSegment));
         log.info("[Track] Switch {} thrown to {} (active segment: {})", switchId, position, activeSegment);
         return true;
+    }
+
+    /** 预检查道岔是否可以扳动（不实际扳动），用于联锁原子性验证。 */
+    public synchronized boolean canThrowSwitch(String switchId, SwitchPosition position) {
+        SwitchState sw = switches.get(switchId);
+        if (sw == null) {
+            return false;
+        }
+        if (sw.locked()) {
+            return false;
+        }
+        // Already in the target position — no throw needed
+        if (sw.position() == position) {
+            return true;
+        }
+        OperationalLineData.SwitchDefinition def = infrastructureCatalog.lineData().switches().stream()
+            .filter(s -> s.id().equals(switchId))
+            .findFirst()
+            .orElse(null);
+        return def != null;
     }
 
     /** 锁闭道岔（联锁规则 2：信号开放时调用）。 */

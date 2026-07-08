@@ -1,7 +1,9 @@
 package com.railwaysim.train;
 
 import com.railwaysim.vehicle.TrainStateReport;
+import com.railwaysim.vehicle.VehicleLoadPolicy;
 import com.railwaysim.vehicle.VehiclePhysicsOutput;
+import com.railwaysim.vehicle.protocol.TrainOperationalTelemetry;
 
 public class TrainEntity {
 
@@ -11,6 +13,11 @@ public class TrainEntity {
     private double positionMeters;
     private double speedMetersPerSecond;
     private double loadRate;
+    private double loadMassKg;
+    private String overloadStatus = "NORMAL";
+    private int availableTractionCount = VehicleLoadPolicy.NOMINAL_TRACTION_UNITS;
+    private int availableBrakeCount = VehicleLoadPolicy.NOMINAL_BRAKE_UNITS;
+    private String vehicleProtectionReason = "NONE";
     private String status = "RUNNING";
     private String operationMode = "ATO";
     private String doorState = "CLOSED_LOCKED";
@@ -51,6 +58,7 @@ public class TrainEntity {
         this.positionMeters = positionMeters;
         this.lengthMeters = lengthMeters;
         this.loadRate = loadRate;
+        this.loadMassKg = VehicleLoadPolicy.loadMassFromRate(loadRate);
     }
 
     public void applyPhysicsOutput(VehiclePhysicsOutput output, TrainStateReport report) {
@@ -77,6 +85,12 @@ public class TrainEntity {
         faultLevel = report.faultLevel();
         availableOperationMode = report.availableOperationMode();
         dataQuality = report.dataQuality();
+        loadMassKg = report.loadMassKg();
+        loadRate = VehicleLoadPolicy.loadRateFromMass(loadMassKg);
+        overloadStatus = report.overloadStatus();
+        availableTractionCount = report.availableTractionCount();
+        availableBrakeCount = report.availableBrakeCount();
+        vehicleProtectionReason = report.vehicleProtectionReason();
         dynamicsState = report.dynamicsState();
         dynamicsConstraintReason = report.dynamicsConstraintReason();
         speedLimitMetersPerSecond = report.speedLimitMetersPerSecond();
@@ -87,15 +101,26 @@ public class TrainEntity {
     }
 
     public TrainState state() {
+        double effectiveLoadMassKg = VehicleLoadPolicy.loadMassKg(loadMassKg, loadRate);
+        double effectiveLoadRate = VehicleLoadPolicy.loadRateFromMass(effectiveLoadMassKg);
+        String effectiveOverloadStatus = VehicleLoadPolicy.overloadStatus(effectiveLoadMassKg);
         String effectiveDoorState = effectiveDoorState();
         String effectiveTractionState = effectiveTractionState();
         String effectiveBrakeState = effectiveBrakeState();
         String effectiveCurrentCollectionStatus = effectiveCurrentCollectionStatus();
         boolean effectiveTractionAvailable = effectiveTractionAvailable();
         boolean effectiveBrakeAvailable = effectiveBrakeAvailable();
+        int effectiveAvailableTractionCount = effectiveTractionAvailable ? availableTractionCount : 0;
+        int effectiveAvailableBrakeCount = effectiveBrakeAvailable ? availableBrakeCount : 0;
         String effectiveSelfCheckStatus = injectedFaultCode == null ? selfCheckStatus : "FAIL";
         int effectiveFaultLevel = injectedFaultCode == null ? faultLevel : 3;
-        String effectiveAvailableOperationMode = injectedFaultCode == null ? availableOperationMode : "NO_DEPARTURE";
+        String overloadVehicleProtectionReason = VehicleLoadPolicy.vehicleProtectionReason(effectiveOverloadStatus);
+        String effectiveVehicleProtectionReason = injectedFaultCode == null
+            ? mergeVehicleProtectionReason(vehicleProtectionReason, overloadVehicleProtectionReason)
+            : injectedFaultCode;
+        String effectiveAvailableOperationMode = injectedFaultCode == null
+            ? resolveAvailableOperationMode(availableOperationMode, effectiveVehicleProtectionReason)
+            : "NO_DEPARTURE";
         String effectiveDataQuality = injectedFaultCode == null ? dataQuality : "INVALID";
         String effectiveFaultCode = injectedFaultCode == null ? faultCode : injectedFaultCode;
         String effectiveStatus = injectedFaultCode == null ? status : "FAULT";
@@ -108,7 +133,12 @@ public class TrainEntity {
             lengthMeters,
             positionMeters,
             Math.max(0, positionMeters - lengthMeters),
-            loadRate,
+            effectiveLoadRate,
+            effectiveLoadMassKg,
+            effectiveOverloadStatus,
+            effectiveAvailableTractionCount,
+            effectiveAvailableBrakeCount,
+            effectiveVehicleProtectionReason,
             effectiveStatus,
             operationMode,
             speedMetersPerSecond <= 0.05,
@@ -139,6 +169,24 @@ public class TrainEntity {
             energyRegeneratedKwh,
             effectiveFaultCode
         );
+    }
+
+    public void applyOperationalTelemetry(TrainOperationalTelemetry telemetry) {
+        loadMassKg = VehicleLoadPolicy.loadMassKg(telemetry.loadMassKg(), loadRate);
+        loadRate = VehicleLoadPolicy.loadRateFromMass(loadMassKg);
+        overloadStatus = VehicleLoadPolicy.overloadStatus(loadMassKg);
+        availableTractionCount = VehicleLoadPolicy.normalizeUnitCount(
+            telemetry.availableTractionCount(),
+            VehicleLoadPolicy.NOMINAL_TRACTION_UNITS
+        );
+        availableBrakeCount = VehicleLoadPolicy.normalizeUnitCount(
+            telemetry.availableBrakeCount(),
+            VehicleLoadPolicy.NOMINAL_BRAKE_UNITS
+        );
+        vehicleProtectionReason = VehicleLoadPolicy.vehicleProtectionReason(overloadStatus);
+        if (telemetry.emergencyBrakeApplied()) {
+            brakeState = "EMERGENCY";
+        }
     }
 
     public void injectFault(String faultCode) {
@@ -188,5 +236,20 @@ public class TrainEntity {
 
     private boolean effectiveBrakeAvailable() {
         return injectedFaultCode == null || !"BRAKE_UNAVAILABLE".equals(injectedFaultCode);
+    }
+
+    private String mergeVehicleProtectionReason(String currentReason, String loadReason) {
+        if (loadReason != null && !"NONE".equals(loadReason)) {
+            return loadReason;
+        }
+        return currentReason == null || currentReason.isBlank() ? "NONE" : currentReason;
+    }
+
+    private String resolveAvailableOperationMode(String currentMode, String protectionReason) {
+        if (("OVERLOAD".equals(protectionReason) || "CRITICAL_OVERLOAD".equals(protectionReason))
+            && "NORMAL".equals(currentMode)) {
+            return "DEGRADED";
+        }
+        return currentMode;
     }
 }

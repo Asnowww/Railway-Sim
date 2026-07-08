@@ -7,13 +7,14 @@ import type { SimulationSnapshot, TrainState } from '../../types/simulation'
 type DynamicsState =
   | 'SELF_CHECK_BLOCKED'
   | 'SAFETY_BRAKE'
-  | 'DISPATCH_HOLD'
+  | 'SIGNAL_HOLD'
   | 'POWER_LOSS'
   | 'MA_BRAKE'
   | 'STATION_STOPPED'
   | 'STATION_BRAKE'
   | 'OVERSPEED_BRAKE'
   | 'POWER_DERATED'
+  | 'OVERLOAD_DERATED'
   | 'ACCELERATING'
   | 'CRUISING'
   | 'COASTING'
@@ -48,7 +49,7 @@ interface DemoConfig {
   tractionAvailable: boolean
   brakeAvailable: boolean
   selfCheckPass: boolean
-  dispatchHold: boolean
+  signalHold: boolean
 }
 
 interface DemoTrainState {
@@ -93,13 +94,14 @@ const DEMO_STEP_SECONDS = 0.2
 const stateDefinitions: Array<{ state: DynamicsState; label: string; tone: string }> = [
   { state: 'SELF_CHECK_BLOCKED', label: '自检/联锁阻断', tone: 'danger' },
   { state: 'SAFETY_BRAKE', label: '移动授权耗尽', tone: 'danger' },
-  { state: 'DISPATCH_HOLD', label: '调度扣车', tone: 'warning' },
+  { state: 'SIGNAL_HOLD', label: '信号保持', tone: 'warning' },
   { state: 'POWER_LOSS', label: '受流/供电丢失', tone: 'danger' },
   { state: 'MA_BRAKE', label: 'MA 约束制动', tone: 'warning' },
   { state: 'STATION_STOPPED', label: '站台停车保持', tone: 'neutral' },
   { state: 'STATION_BRAKE', label: '进站制动', tone: 'warning' },
   { state: 'OVERSPEED_BRAKE', label: '超速制动', tone: 'warning' },
   { state: 'POWER_DERATED', label: '供电降额牵引', tone: 'info' },
+  { state: 'OVERLOAD_DERATED', label: '超载降额牵引', tone: 'warning' },
   { state: 'ACCELERATING', label: '牵引加速', tone: 'success' },
   { state: 'CRUISING', label: '巡航控速', tone: 'success' },
   { state: 'COASTING', label: '惰行', tone: 'neutral' }
@@ -110,7 +112,7 @@ const reasonLabels: Record<string, string> = {
   SELF_CHECK_FAILED: '自检失败',
   BRAKE_UNAVAILABLE: '制动不可用',
   MOVEMENT_AUTHORITY_EXHAUSTED: '移动授权耗尽',
-  DISPATCH_HOLD: '调度扣车',
+  SIGNAL_HOLD: '信号保持',
   CURRENT_COLLECTION_LOST: '受流中断',
   POWER_NOT_AVAILABLE: '供电不可用',
   TRACTION_UNAVAILABLE: '牵引不可用',
@@ -119,6 +121,8 @@ const reasonLabels: Record<string, string> = {
   STATION_APPROACH: '接近下一站',
   SPEED_LIMIT_EXCEEDED: '超过目标限速',
   POWER_DERATING: '供电能力降额',
+  OVERLOAD_TRACTION_LIMIT: '超载牵引限制',
+  TRACTION_UNIT_DERATED: '牵引单元降额',
   SPEED_MARGIN_AVAILABLE: '存在速度裕量',
   NEAR_TARGET_SPEED: '接近目标速度',
   TARGET_SPEED_REACHED: '达到目标速度'
@@ -214,7 +218,7 @@ function baseConfig(): DemoConfig {
     tractionAvailable: true,
     brakeAvailable: true,
     selfCheckPass: true,
-    dispatchHold: false
+    signalHold: false
   }
 }
 
@@ -287,7 +291,7 @@ const constraintHealth = computed(() => [
   { label: '牵引可用', active: localConfig.tractionAvailable },
   { label: '制动可用', active: localConfig.brakeAvailable },
   { label: '自检通过', active: localConfig.selfCheckPass },
-  { label: '调度放行', active: !localConfig.dispatchHold }
+  { label: '信号放行', active: !localConfig.signalHold }
 ])
 
 onMounted(() => {
@@ -443,8 +447,8 @@ function decideLocalDynamics(): DynamicsDecision {
       true
     )
   }
-  if (localConfig.dispatchHold) {
-    return decision('DISPATCH_HOLD', 'DISPATCH_HOLD', 0, speed > 0.1 ? 1 : 0.6, false, stoppingDistance)
+  if (localConfig.signalHold) {
+    return decision('SIGNAL_HOLD', 'SIGNAL_HOLD', 0, speed > 0.1 ? 1 : 0.6, false, stoppingDistance)
   }
   if (
     !localConfig.currentCollectionAvailable ||
@@ -853,9 +857,9 @@ function stateLabel(state: string) {
             />
             <input
               v-else
-              :checked="!localConfig.dispatchHold"
+              :checked="!localConfig.signalHold"
               type="checkbox"
-              @change="localConfig.dispatchHold = !($event.target as HTMLInputElement).checked"
+              @change="localConfig.signalHold = !($event.target as HTMLInputElement).checked"
             />
             <span>{{ item.label }}</span>
           </label>

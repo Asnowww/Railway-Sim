@@ -10,7 +10,7 @@
 |---|---|---|
 | 供电到车辆 | `PowerService.constraintsForTrains()` | 根据列车位置映射供电分区，输出 `PowerConstraint`。 |
 | 车辆到供电 | `PowerService.updateFromVehicleOutputs()` | 聚合车辆电流、牵引功率、再生功率和受影响列车。 |
-| 适配层 | `TcmsAtoAdapterService.buildVehiclePhysicsInput()` | 将供电约束、信号/轨道约束和调度约束统一转换为车辆控制输入。 |
+| 适配层 | `TcmsAtoAdapterService.buildVehiclePhysicsInput()` | 将供电约束、信号/轨道约束转换为车辆控制输入；调度约束先由信号模块折算为 MA/限速。 |
 | 快照输出 | `PowerSectionState`、`TrainState` | WebSocket 和 REST 共用同一状态对象。 |
 
 ## 数据流
@@ -28,7 +28,7 @@ TrainState.positionMeters
 
 ## 外部车辆仿真适配
 
-外部仿真系统只接在车辆物理端口，不越级读取或控制供电分区。供电状态仍由 `PowerService` 维护，车辆指令仍由 `TcmsAtoAdapterService` 根据供电、信号、轨道和调度约束生成。
+外部仿真系统只接在车辆物理端口，不越级读取或控制供电分区。供电状态仍由 `PowerService` 维护，车辆指令仍由 `TcmsAtoAdapterService` 根据供电、信号和轨道约束生成；调度约束经信号模块下发。
 
 | 适配对象 | 本期实现 | 说明 |
 |---|---|---|

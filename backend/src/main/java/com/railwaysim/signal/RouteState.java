@@ -29,13 +29,4 @@ public record RouteState(
     public RouteState withConflicted() {
         return new RouteState(routeId, RouteStatus.CONFLICTED, Set.of(), null, axleSegmentIds);
     }
-
-    /** 两进路是否冲突（共享核心区段） */
-    public boolean conflictsWith(RouteState other) {
-        if (other == null) return false;
-        for (String id : axleSegmentIds) {
-            if (other.axleSegmentIds.contains(id)) return true;
-        }
-        return false;
-    }
 }
