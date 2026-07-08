@@ -220,6 +220,19 @@ public class TrackService {
         return Collections.unmodifiableSet(new HashSet<>(faultSegmentIds));
     }
 
+    /**
+     * 区段前向邻居映射（fromNode→toNode 方向）。
+     * 从 OperationalLineData.TrackSegmentDefinition.forwardNeighborSegmentIds 构建。
+     */
+    public synchronized Map<String, List<String>> forwardNeighborMap() {
+        OperationalLineData lineData = infrastructureCatalog.lineData();
+        Map<String, List<String>> map = new HashMap<>();
+        for (OperationalLineData.TrackSegmentDefinition def : lineData.trackSegments()) {
+            map.put(def.id(), def.forwardNeighborSegmentIds());
+        }
+        return map;
+    }
+
     // ==================== 道岔管理 ====================
 
     /**

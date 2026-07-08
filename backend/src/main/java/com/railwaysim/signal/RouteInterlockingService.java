@@ -7,6 +7,7 @@ import com.railwaysim.track.SwitchState;
 import com.railwaysim.track.TrackOccupancy;
 import com.railwaysim.track.TrackSegmentState;
 import com.railwaysim.track.TrackService;
+import com.railwaysim.train.TrainState;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -181,24 +182,118 @@ public class RouteInterlockingService {
 
     /**
      * 检查列车能否通过指定区段列表（用于 MA 计算中的进路约束）。
-     * 返回 MA 应在哪个区段起点前截断（无约束返回 POSITIVE_INFINITY）。
+     *
+     * <p>支持两种 axleSegmentId 格式：
+     * <ul>
+     *   <li>直接区段ID（如 "T01"）—— YAML 数据源</li>
+     *   <li>AXLE-{id} 格式 —— Excel 数据源，需要映射到对应区段ID</li>
+     * </ul>
      */
     public synchronized double maLimitFromRouteConflict(String trainId) {
+        // 构建 AXLE→SEG 映射（仅 Excel 数据源需要）
+        Map<String, String> axleToSeg = buildAxleToSegmentMap();
+
         for (RouteState route : routeStates.values()) {
             if (route.status() != RouteStatus.ESTABLISHED) continue;
             if (trainId.equals(route.establishedByTrainId())) continue;
-            // 找到冲突区段截断点
-            for (String segId : route.axleSegmentIds()) {
-                TrackSegmentState seg = trackService.states().stream()
-                    .filter(s -> s.id().equals(segId))
-                    .findFirst()
-                    .orElse(null);
+            for (String rawId : route.axleSegmentIds()) {
+                // 先直接匹配，再尝试AXLE映射
+                String segId = rawId;
+                TrackSegmentState seg = findSegmentById(rawId);
+                if (seg == null && axleToSeg.containsKey(rawId)) {
+                    segId = axleToSeg.get(rawId);
+                    seg = findSegmentById(segId);
+                }
                 if (seg != null && seg.occupancy() == TrackOccupancy.RESERVED) {
                     return seg.startMeters();
                 }
             }
         }
         return Double.POSITIVE_INFINITY;
+    }
+
+    private Map<String, String> buildAxleToSegmentMap() {
+        // 逻辑区段(AXLE-*)和轨道区段通过Suffix数字匹配
+        Map<String, String> map = new HashMap<>();
+        List<TrackSegmentState> segs = trackService.states();
+        for (String axleId : getAllAxleIds()) {
+            String suffix = axleId.replaceAll("[^0-9]", "");
+            if (suffix.isEmpty()) continue;
+            for (TrackSegmentState seg : segs) {
+                String segSuffix = seg.id().replaceAll("[^0-9]", "");
+                if (suffix.equals(segSuffix)) {
+                    map.put(axleId, seg.id());
+                    break;
+                }
+            }
+        }
+        return map;
+    }
+
+    private Set<String> getAllAxleIds() {
+        Set<String> ids = new HashSet<>();
+        for (RouteState route : routeStates.values()) {
+            for (String id : route.axleSegmentIds()) {
+                if (id.startsWith("AXLE-")) ids.add(id);
+            }
+        }
+        return ids;
+    }
+
+    private TrackSegmentState findSegmentById(String id) {
+        return trackService.states().stream()
+            .filter(s -> s.id().equals(id))
+            .findFirst()
+            .orElse(null);
+    }
+
+    // ==================== 主循环自动触发 ====================
+
+    /**
+     * 每 tick 被 SignalService 调用，根据列车位置自动建立/释放进路。
+     *
+     * <p>策略：遍历所有进路，检查区段是否有车头进入（建立进路）
+     * 或所有列车已完全离开（释放进路）。
+     * 这是联锁状态机接入仿真主流程的核心入口。
+     */
+    public synchronized void touchRoutes(List<TrainState> trains) {
+        // 尝试为每列车的当前位置建立进路
+        for (TrainState train : trains) {
+            for (RouteState route : routeStates.values()) {
+                if (route.status() != RouteStatus.AVAILABLE) continue;
+                // 车头进入了进路核心区段 → 尝试建立
+                boolean headInRoute = route.axleSegmentIds().stream()
+                    .anyMatch(segId -> {
+                        TrackSegmentState seg = findSegmentById(segId);
+                        return seg != null
+                            && train.positionMeters() >= seg.startMeters()
+                            && train.positionMeters() < seg.endMeters();
+                    });
+                if (headInRoute) {
+                    String rejection = establishRoute(route.routeId(), train.id());
+                    if (rejection == null) {
+                        log.info("[联锁] 自动建立: 进路{} ← 列车{}", route.routeId(), train.id());
+                    }
+                }
+            }
+        }
+
+        // 列车完全离开进路 → 释放
+        for (RouteState route : routeStates.values()) {
+            if (route.status() != RouteStatus.ESTABLISHED) continue;
+            boolean anyTrainInRoute = trains.stream().anyMatch(t ->
+                route.axleSegmentIds().stream().anyMatch(segId -> {
+                    TrackSegmentState seg = findSegmentById(segId);
+                    double tail = t.positionMeters() - t.lengthMeters();
+                    return seg != null
+                        && t.positionMeters() > seg.startMeters()
+                        && tail < seg.endMeters();
+                })
+            );
+            if (!anyTrainInRoute) {
+                releaseRoute(route.routeId());
+            }
+        }
     }
 
     // ==================== 调度指令接入 ====================

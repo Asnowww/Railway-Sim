@@ -178,6 +178,26 @@ segments:
     speed_limit_meters_per_second: 16.7
     track: return
 
+routes:
+  - id: R_Y1
+    name: 进站→1号站台
+    type: MAIN
+    start_signal: SIG-Y01
+    end_signal: SIG-Y10
+    axle_section_ids: [Y01, Y02, Y05, Y10]
+  - id: R_Y2
+    name: 进站→2号站台
+    type: DIVERGING
+    start_signal: SIG-Y01
+    end_signal: SIG-Y12
+    axle_section_ids: [Y01, Y03, Y06, Y11, Y12]
+  - id: R_Y3
+    name: 进站→3号站台
+    type: DIVERGING
+    start_signal: SIG-Y01
+    end_signal: SIG-Y09
+    axle_section_ids: [Y01, Y04, Y09]
+
 switches:
   - id: SW_Y1
     node: N2

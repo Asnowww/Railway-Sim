@@ -89,6 +89,20 @@ segments:
     speed_limit_meters_per_second: 13.9
     track: branch
 
+routes:
+  - id: R01
+    name: 进站口→正线
+    type: MAIN
+    start_signal: SIG-T01
+    end_signal: SIG-T06
+    axle_section_ids: [T01, T02, T04, T06]
+  - id: R02
+    name: 进站口→侧线
+    type: DIVERGING
+    start_signal: SIG-T01
+    end_signal: SIG-T07
+    axle_section_ids: [T01, T03, T05, T07]
+
 switches:
   - id: SW01
     node: N2

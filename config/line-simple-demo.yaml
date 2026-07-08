@@ -66,4 +66,12 @@ segments:
     speed_limit_meters_per_second: 20.0
     track: main
 
+routes:
+  - id: R_D1
+    name: 上京南→上京北
+    type: MAIN
+    start_signal: SIG-T01
+    end_signal: SIG-T04
+    axle_section_ids: [T01, T02, T03, T04]
+
 switches: []

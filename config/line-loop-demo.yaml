@@ -117,6 +117,20 @@ segments:
     speed_limit_meters_per_second: 13.9
     track: depot
 
+routes:
+  - id: R_C1
+    name: 环线外圈
+    type: MAIN
+    start_signal: SIG-C01
+    end_signal: SIG-C08
+    axle_section_ids: [C01, C02, C03, C04, C05, C06, C07, C08]
+  - id: R_C2
+    name: 环线→车辆段
+    type: DEPOT
+    start_signal: SIG-C05
+    end_signal: SIG-C09
+    axle_section_ids: [C05, C09]
+
 switches:
   - id: SW_C1
     node: N6

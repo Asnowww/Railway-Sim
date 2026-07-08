@@ -112,7 +112,21 @@ public class YamlLineDataLoader {
             }
         }
 
-        // ---- 6. 车站 & 道岔 ----
+        // ---- 6. 进路（联锁需要） ----
+        List<OperationalLineData.RouteDefinition> routes = new ArrayList<>();
+        if (lineFile.routes != null) {
+            for (YamlRoute route : lineFile.routes) {
+                routes.add(new OperationalLineData.RouteDefinition(
+                    route.id, route.name, route.type != null ? route.type : "MAIN",
+                    route.startSignal, route.endSignal,
+                    route.axleSectionIds != null ? List.copyOf(route.axleSectionIds) : List.of(),
+                    route.protectionSectionIds != null ? List.copyOf(route.protectionSectionIds) : List.of(),
+                    List.of(), List.of(), List.of(), List.of()
+                ));
+            }
+        }
+
+        // ---- 7. 车站 & 道岔 ----
         List<OperationalLineData.StationDefinition> stations = new ArrayList<>();
         if (lineFile.stations != null) {
             for (YamlStation st : lineFile.stations) {
@@ -133,14 +147,15 @@ public class YamlLineDataLoader {
             }
         }
 
-        // ---- 7. 组装 ----
+        // ---- 8. 组装 ----
         String lineId = lineFile.line == null || lineFile.line.id == null ? "demo-line" : lineFile.line.id;
         String lineName = lineFile.line == null || lineFile.line.name == null ? lineId : lineFile.line.name;
 
         return new OperationalLineData(
             lineId, lineName,
             points, segments, speedZones, List.of(),
-            switches, stations, List.of(), List.of(), List.of(), List.of()
+            switches, stations, List.of(), List.of(), List.of(),
+            routes
         );
     }
 
@@ -158,6 +173,7 @@ public class YamlLineDataLoader {
         public List<YamlNode> nodes;
         public List<YamlStation> stations;
         public List<YamlSegment> segments;
+        public List<YamlRoute> routes;
         public List<YamlSwitch> switches;
     }
 
@@ -192,6 +208,17 @@ public class YamlLineDataLoader {
         @JsonProperty("end_meters") public double endMeters;
         @JsonProperty("speed_limit_meters_per_second") public double speedLimitMetersPerSecond;
         public String track;
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    static final class YamlRoute {
+        public String id;
+        public String name;
+        public String type;
+        @JsonProperty("start_signal") public String startSignal;
+        @JsonProperty("end_signal") public String endSignal;
+        @JsonProperty("axle_section_ids") public List<String> axleSectionIds;
+        @JsonProperty("protection_section_ids") public List<String> protectionSectionIds;
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
