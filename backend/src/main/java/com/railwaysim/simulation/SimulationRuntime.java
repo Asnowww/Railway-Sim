@@ -162,6 +162,8 @@ public class SimulationRuntime {
             trackService.states(),
             signalService.authorities(),
             signalService.signalStates(),
+            trackService.switchStates(),
+            interlockingService.states(),
             powerService.states(),
             lastEvents
         );
