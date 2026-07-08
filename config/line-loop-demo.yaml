@@ -1,0 +1,125 @@
+# 环线拓扑 Demo
+# 模拟城市地铁环线（如北京10号线）
+#
+# 拓扑图:
+#   N1 ─T01─ N2 ─T02─ N3 ─T03─ N4
+#    │                         │
+#    └─────── T08 ─────────────┘
+#    │                         │
+#   N8 ─T07─ N7 ─T06─ N6 ─T05─ N5
+#                  ↓
+#             车辆段出入线(T09)
+#
+# 总长约 6400m，8个主区段 + 1条出入线
+# Generated 2026-07-08
+
+line:
+  id: loop-demo
+  name: 环线示范区段
+  length_meters: 6400
+
+stations:
+  - id: ST_N2
+    name: 环线北站
+    position_meters: 800
+  - id: ST_N4
+    name: 环线东站
+    position_meters: 2400
+  - id: ST_N6
+    name: 环线南站
+    position_meters: 4000
+  - id: ST_N8
+    name: 环线西站
+    position_meters: 5600
+
+nodes:
+  - id: N1
+    name: 起点/终点(西北角)
+  - id: N2
+    name: 北站节点
+  - id: N3
+    name: 东北角
+  - id: N4
+    name: 东站节点
+  - id: N5
+    name: 东南角
+  - id: N6
+    name: 南站节点
+  - id: N7
+    name: 西南角
+  - id: N8
+    name: 西站节点
+  - id: N9
+    name: 车辆段入口
+
+segments:
+  - id: C01
+    from: N1
+    to: N2
+    start_meters: 0
+    end_meters: 800
+    speed_limit_meters_per_second: 22.2
+    track: ring
+  - id: C02
+    from: N2
+    to: N3
+    start_meters: 800
+    end_meters: 1600
+    speed_limit_meters_per_second: 22.2
+    track: ring
+  - id: C03
+    from: N3
+    to: N4
+    start_meters: 1600
+    end_meters: 2400
+    speed_limit_meters_per_second: 20.0
+    track: ring
+  - id: C04
+    from: N4
+    to: N5
+    start_meters: 2400
+    end_meters: 3200
+    speed_limit_meters_per_second: 22.2
+    track: ring
+  - id: C05
+    from: N5
+    to: N6
+    start_meters: 3200
+    end_meters: 4000
+    speed_limit_meters_per_second: 22.2
+    track: ring
+  - id: C06
+    from: N6
+    to: N7
+    start_meters: 4000
+    end_meters: 4800
+    speed_limit_meters_per_second: 20.0
+    track: ring
+  - id: C07
+    from: N7
+    to: N8
+    start_meters: 4800
+    end_meters: 5600
+    speed_limit_meters_per_second: 22.2
+    track: ring
+  - id: C08
+    from: N8
+    to: N1
+    start_meters: 5600
+    end_meters: 6400
+    speed_limit_meters_per_second: 20.0
+    track: ring
+  - id: C09
+    from: N6
+    to: N9
+    start_meters: 4000
+    end_meters: 4800
+    speed_limit_meters_per_second: 13.9
+    track: depot
+
+switches:
+  - id: SW_C1
+    node: N6
+    normal_target: C06
+    reverse_target: C09
+    default_position: NORMAL

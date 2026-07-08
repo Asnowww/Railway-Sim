@@ -1,0 +1,206 @@
+# 大型站场拓扑 Demo
+# 模拟终点站站后折返 + 多股道场景
+#
+# 拓扑图:
+#                      ┌─T05─ N5 ─T09─ N9 (站台3)
+#   N1 ─T01─ N2 ─T02─┬─T03─ N3 ─T06─ N6 ─T10─ N10(站台1)
+#                      │               ↑
+#                      ├─T04─ N4 ─T07─╝
+#                      │        ↓
+#                      └────── T08 ─ N8 ─T12─ N12(站台2)
+#                               ↑
+#                      N7 ─T11─╝(存车线)
+#
+# 16段 + 5道岔 + 4站台
+# 模拟终点站咽喉区全貌
+# Generated 2026-07-08
+
+line:
+  id: yard-demo
+  name: 终点站站场全貌
+  length_meters: 3600
+
+stations:
+  - id: ST_ENTRY
+    name: 进站区间
+    position_meters: 0
+  - id: ST_PLAT1
+    name: 1号站台
+    position_meters: 2000
+  - id: ST_PLAT2
+    name: 2号站台
+    position_meters: 2600
+  - id: ST_PLAT3
+    name: 3号站台
+    position_meters: 2200
+
+nodes:
+  - id: N1
+    name: 线路入口
+  - id: N2
+    name: 第一分叉(渡线1)
+  - id: N3
+    name: 正线直通
+  - id: N4
+    name: 侧线起点
+  - id: N5
+    name: 站台3轨道
+  - id: N6
+    name: 站台1岔前
+  - id: N7
+    name: 存车线起点
+  - id: N8
+    name: 折返渡线
+  - id: N9
+    name: 站台3端
+  - id: N10
+    name: 站台1端
+  - id: N11
+    name: 分叉(渡线2)
+  - id: N12
+    name: 站台2端
+
+segments:
+  # 进站段
+  - id: Y01
+    from: N1
+    to: N2
+    start_meters: 0
+    end_meters: 600
+    speed_limit_meters_per_second: 16.7
+    track: main
+  # 咽喉区分叉
+  - id: Y02
+    from: N2
+    to: N3
+    start_meters: 600
+    end_meters: 1200
+    speed_limit_meters_per_second: 20.0
+    track: main
+  - id: Y03
+    from: N2
+    to: N4
+    start_meters: 600
+    end_meters: 1200
+    speed_limit_meters_per_second: 13.9
+    track: side1
+  - id: Y04
+    from: N2
+    to: N5
+    start_meters: 600
+    end_meters: 1400
+    speed_limit_meters_per_second: 13.9
+    track: side2
+  # 站台区
+  - id: Y05
+    from: N3
+    to: N6
+    start_meters: 1200
+    end_meters: 1800
+    speed_limit_meters_per_second: 22.2
+    track: main
+  - id: Y06
+    from: N4
+    to: N6
+    start_meters: 1200
+    end_meters: 1800
+    speed_limit_meters_per_second: 13.9
+    track: side1
+  - id: Y07
+    from: N4
+    to: N7
+    start_meters: 1200
+    end_meters: 1600
+    speed_limit_meters_per_second: 13.9
+    track: depot
+  - id: Y08
+    from: N7
+    to: N8
+    start_meters: 1600
+    end_meters: 2200
+    speed_limit_meters_per_second: 13.9
+    track: depot
+  # 站台段
+  - id: Y09
+    from: N5
+    to: N9
+    start_meters: 1400
+    end_meters: 2200
+    speed_limit_meters_per_second: 20.0
+    track: side2
+  - id: Y10
+    from: N6
+    to: N10
+    start_meters: 1800
+    end_meters: 2400
+    speed_limit_meters_per_second: 22.2
+    track: main
+  - id: Y11
+    from: N6
+    to: N8
+    start_meters: 1800
+    end_meters: 2400
+    speed_limit_meters_per_second: 13.9
+    track: crossover
+  - id: Y12
+    from: N8
+    to: N12
+    start_meters: 2400
+    end_meters: 3000
+    speed_limit_meters_per_second: 20.0
+    track: depot
+  - id: Y13
+    from: N11
+    to: N12
+    start_meters: 2800
+    end_meters: 3200
+    speed_limit_meters_per_second: 16.7
+    track: main
+  - id: Y14
+    from: N10
+    to: N11
+    start_meters: 2400
+    end_meters: 2800
+    speed_limit_meters_per_second: 22.2
+    track: main
+  - id: Y15
+    from: N9
+    to: N11
+    start_meters: 2200
+    end_meters: 2800
+    speed_limit_meters_per_second: 16.7
+    track: side2
+  - id: Y16
+    from: N12
+    to: N10
+    start_meters: 3200
+    end_meters: 3600
+    speed_limit_meters_per_second: 16.7
+    track: return
+
+switches:
+  - id: SW_Y1
+    node: N2
+    normal_target: Y02
+    reverse_target: Y03
+    default_position: NORMAL
+  - id: SW_Y2
+    node: N2
+    normal_target: Y03
+    reverse_target: Y04
+    default_position: NORMAL
+  - id: SW_Y3
+    node: N6
+    normal_target: Y10
+    reverse_target: Y11
+    default_position: NORMAL
+  - id: SW_Y4
+    node: N8
+    normal_target: Y08
+    reverse_target: Y12
+    default_position: NORMAL
+  - id: SW_Y5
+    node: N11
+    normal_target: Y14
+    reverse_target: Y15
+    default_position: NORMAL

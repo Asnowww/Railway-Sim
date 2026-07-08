@@ -1,0 +1,69 @@
+# 简单直线 Demo — 适合前端初版开发用
+# 4区段 + 5站，5km直线，无分叉，最简单场景
+# Generated 2026-07-08
+
+line:
+  id: simple-demo
+  name: 上京地铁示范线(直线)
+  length_meters: 5000
+
+stations:
+  - id: S01
+    name: 上京南站
+    position_meters: 0
+  - id: S02
+    name: 科创园站
+    position_meters: 1250
+  - id: S03
+    name: 中央公园站
+    position_meters: 2500
+  - id: S04
+    name: 北城站
+    position_meters: 3750
+  - id: S05
+    name: 上京北站
+    position_meters: 5000
+
+nodes:
+  - id: N1
+    name: 线路起点
+  - id: N2
+    name: 科创园节点
+  - id: N3
+    name: 中央公园节点
+  - id: N4
+    name: 北城节点
+  - id: N5
+    name: 线路终点
+
+segments:
+  - id: T01
+    from: N1
+    to: N2
+    start_meters: 0
+    end_meters: 1250
+    speed_limit_meters_per_second: 20.0
+    track: main
+  - id: T02
+    from: N2
+    to: N3
+    start_meters: 1250
+    end_meters: 2500
+    speed_limit_meters_per_second: 22.2
+    track: main
+  - id: T03
+    from: N3
+    to: N4
+    start_meters: 2500
+    end_meters: 3750
+    speed_limit_meters_per_second: 22.2
+    track: main
+  - id: T04
+    from: N4
+    to: N5
+    start_meters: 3750
+    end_meters: 5000
+    speed_limit_meters_per_second: 20.0
+    track: main
+
+switches: []
