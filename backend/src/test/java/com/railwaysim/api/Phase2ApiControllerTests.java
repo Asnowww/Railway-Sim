@@ -6,6 +6,10 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.railwaysim.vehicle.external.ExternalTrainDirection;
+import com.railwaysim.vehicle.protocol.SignalTrainContentCodec;
+import com.railwaysim.vehicle.protocol.TrainOperationalTelemetry;
+import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -132,5 +136,71 @@ class Phase2ApiControllerTests {
             .andExpect(jsonPath("$[0].id").value("TR-001"))
             .andExpect(jsonPath("$[0].controlSessionState").value("IN_SERVICE"))
             .andExpect(jsonPath("$[0].signalNetworkStatus").value("ATTACHED"));
+    }
+
+    @Test
+    void signalVehicleInterfaceAcceptsOperationalTelemetryAndProjectsCommands() throws Exception {
+        mockMvc.perform(post("/api/simulation/reset"))
+            .andExpect(status().isOk());
+
+        mockMvc.perform(get("/api/signal/vehicles/statuses"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$", hasSize(2)))
+            .andExpect(jsonPath("$[0].trainId").value("TR-001"))
+            .andExpect(jsonPath("$[0].faultCode").value("OK"));
+
+        mockMvc.perform(post("/api/signal/vehicles/telemetry")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    [
+                      {
+                        "trainNo": 1,
+                        "speedMetersPerSecond": 12.34,
+                        "cumulativeDistanceMeters": 987.65,
+                        "direction": "DOWN",
+                        "loadMassKg": 86400,
+                        "faultSpeedLimitMetersPerSecond": 2.0,
+                        "emergencyBrakeApplied": true,
+                        "availableTractionCount": 4,
+                        "availableBrakeCount": 5
+                      }
+                    ]
+                    """))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$[0].headMileage").value(987.65))
+            .andExpect(jsonPath("$[0].speedMetersPerSecond").value(12.34))
+            .andExpect(jsonPath("$[0].overloadStatus").value("CRITICAL_OVERLOAD"))
+            .andExpect(jsonPath("$[0].availableTractionCount").value(4))
+            .andExpect(jsonPath("$[0].vehicleFaultSpeedLimitMetersPerSecond").value(2.0))
+            .andExpect(jsonPath("$[0].faultCode").value("ATP_BRAKE"));
+
+        byte[] contentPacket = new SignalTrainContentCodec().encode(List.of(new TrainOperationalTelemetry(
+            2,
+            8.0,
+            456.78,
+            ExternalTrainDirection.UP,
+            72_000,
+            0,
+            false,
+            6,
+            6
+        )));
+        mockMvc.perform(post("/api/signal/vehicles/telemetry/content-packet")
+                .param("trainCount", "1")
+                .contentType(MediaType.APPLICATION_OCTET_STREAM)
+                .content(contentPacket))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$[1].trainId").value("TR-002"))
+            .andExpect(jsonPath("$[1].headMileage").value(456.78))
+            .andExpect(jsonPath("$[1].loadMassKg").value(72000));
+
+        mockMvc.perform(get("/api/signal/vehicles/commands"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$", hasSize(2)))
+            .andExpect(jsonPath("$[0].trainId").value("TR-001"))
+            .andExpect(jsonPath("$[0].tractionCutoff").value(true))
+            .andExpect(jsonPath("$[0].serviceBrakeCommand").value(true))
+            .andExpect(jsonPath("$[0].emergencyBrakeCommand").value(true))
+            .andExpect(jsonPath("$[0].reason").value("NO_MOVEMENT_AUTHORITY"));
     }
 }

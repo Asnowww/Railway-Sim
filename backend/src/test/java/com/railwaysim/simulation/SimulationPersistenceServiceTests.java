@@ -71,6 +71,10 @@ class SimulationPersistenceServiceTests {
             Double.class
         )).isEqualTo(40.0);
         assertThat(jdbcTemplate.queryForObject(
+            "SELECT vehicle_fault_speed_limit_mps FROM train_physics_snapshot WHERE train_id = 'TR-001'",
+            Double.class
+        )).isZero();
+        assertThat(jdbcTemplate.queryForObject(
             "SELECT affected_train_ids_json FROM power_section_record WHERE section_id = 'P01'",
             String.class
         )).isEqualTo("[\"TR-001\"]");
@@ -124,6 +128,7 @@ class SimulationPersistenceServiceTests {
               dynamics_state VARCHAR(32) NOT NULL DEFAULT 'COASTING',
               dynamics_constraint_reason VARCHAR(128) NOT NULL DEFAULT 'NONE',
               speed_limit_mps DOUBLE NOT NULL DEFAULT 0,
+              vehicle_fault_speed_limit_mps DOUBLE NOT NULL DEFAULT 0,
               ma_distance_meters DOUBLE NOT NULL DEFAULT 0,
               station_distance_meters DOUBLE NOT NULL DEFAULT 0,
               stopping_distance_meters DOUBLE NOT NULL DEFAULT 0,
@@ -237,10 +242,16 @@ class SimulationPersistenceServiceTests {
             80_000,
             20_000,
             2_500_000,
+            "DOUBLE_END",
+            "CLOSED",
+            "AVAILABLE",
             "CLOSED",
             "NORMAL",
             "NONE",
             "UNLOCKED",
+            "GOOD",
+            "NORMAL",
+            "",
             List.of("TR-001"),
             "GOOD",
             Instant.parse("2026-07-07T00:00:05Z")

@@ -143,7 +143,12 @@ class TrainManagerLifecycleTests {
                 "NONE",
                 "UNLOCKED",
                 0.00005
-            ))
+            )),
+            List.of(),
+            List.of(),
+            List.of(),
+            List.of(),
+            List.of()
         );
     }
 }

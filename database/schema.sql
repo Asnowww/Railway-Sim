@@ -349,6 +349,7 @@ CREATE TABLE IF NOT EXISTS train_physics_snapshot (
   dynamics_state VARCHAR(32) NOT NULL DEFAULT 'COASTING',
   dynamics_constraint_reason VARCHAR(128) NOT NULL DEFAULT 'NONE',
   speed_limit_mps DOUBLE NOT NULL DEFAULT 0,
+  vehicle_fault_speed_limit_mps DOUBLE NOT NULL DEFAULT 0,
   ma_distance_meters DOUBLE NOT NULL DEFAULT 0,
   station_distance_meters DOUBLE NOT NULL DEFAULT 0,
   stopping_distance_meters DOUBLE NOT NULL DEFAULT 0,

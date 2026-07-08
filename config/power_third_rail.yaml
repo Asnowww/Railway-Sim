@@ -35,6 +35,144 @@ sections:
     lockoutState: UNLOCKED
     resistanceOhmPerMeter: 0.00002
 
+substations:
+  - id: SS01
+    name: 南段牵引变电所
+    startMeters: 0
+    endMeters: 2500
+    supplyMode: DOUBLE_END
+    available: true
+    feederIds: [F01]
+    sectionIds: [P01]
+    devices:
+      - id: SS01-TR
+        name: 南段牵引变压器
+        deviceType: TRACTION_TRANSFORMER
+        defaultState: AVAILABLE
+        ratedVoltage: 35000
+        ratedCurrentAmps: 1800
+        locationMeters: 100
+        affectsSectionIds: [P01]
+      - id: SS01-REC
+        name: 南段整流器
+        deviceType: RECTIFIER
+        defaultState: AVAILABLE
+        ratedVoltage: 1500
+        ratedCurrentAmps: 2200
+        locationMeters: 105
+        affectsSectionIds: [P01]
+      - id: SS01-DCB
+        name: 南段直流快速断路器
+        deviceType: DC_BREAKER
+        defaultState: CLOSED
+        ratedVoltage: 1500
+        ratedCurrentAmps: 2200
+        locationMeters: 110
+        affectsSectionIds: [P01]
+  - id: SS02
+    name: 北段牵引变电所
+    startMeters: 2500
+    endMeters: 5000
+    supplyMode: DOUBLE_END
+    available: true
+    feederIds: [F02]
+    sectionIds: [P02]
+    devices:
+      - id: SS02-TR
+        name: 北段牵引变压器
+        deviceType: TRACTION_TRANSFORMER
+        defaultState: AVAILABLE
+        ratedVoltage: 35000
+        ratedCurrentAmps: 1800
+        locationMeters: 2600
+        affectsSectionIds: [P02]
+      - id: SS02-REC
+        name: 北段整流器
+        deviceType: RECTIFIER
+        defaultState: AVAILABLE
+        ratedVoltage: 1500
+        ratedCurrentAmps: 2200
+        locationMeters: 2605
+        affectsSectionIds: [P02]
+      - id: SS02-DCB
+        name: 北段直流快速断路器
+        deviceType: DC_BREAKER
+        defaultState: CLOSED
+        ratedVoltage: 1500
+        ratedCurrentAmps: 2200
+        locationMeters: 2610
+        affectsSectionIds: [P02]
+
+thirdRailSections:
+  - id: TRS01
+    name: 南段接触轨
+    powerSectionId: P01
+    startMeters: 0
+    endMeters: 2500
+    isolatorIds: [ISO-P01-A, ISO-P01-B]
+    returnCurrentDeviceId: RCD-P01
+  - id: TRS02
+    name: 北段接触轨
+    powerSectionId: P02
+    startMeters: 2500
+    endMeters: 5000
+    isolatorIds: [ISO-P02-A, ISO-P02-B]
+    returnCurrentDeviceId: RCD-P02
+
+isolators:
+  - id: ISO-P01-A
+    name: 南段首端隔离开关
+    thirdRailSectionId: TRS01
+    positionMeters: 0
+    defaultState: CLOSED
+    normallyOpen: false
+  - id: ISO-P01-B
+    name: 南段末端隔离开关
+    thirdRailSectionId: TRS01
+    positionMeters: 2500
+    defaultState: CLOSED
+    normallyOpen: false
+  - id: ISO-P02-A
+    name: 北段首端隔离开关
+    thirdRailSectionId: TRS02
+    positionMeters: 2500
+    defaultState: CLOSED
+    normallyOpen: false
+  - id: ISO-P02-B
+    name: 北段末端隔离开关
+    thirdRailSectionId: TRS02
+    positionMeters: 5000
+    defaultState: CLOSED
+    normallyOpen: false
+
+returnCurrentDevices:
+  - id: RCD-P01
+    name: 南段排流柜
+    sectionId: P01
+    deviceType: DRAINAGE_CABINET
+    defaultState: NORMAL
+  - id: RCD-P02
+    name: 北段排流柜
+    sectionId: P02
+    deviceType: DRAINAGE_CABINET
+    defaultState: NORMAL
+
+strayCurrentMonitorPoints:
+  - id: SCP-P01
+    name: 南段极化电位监测点
+    sectionId: P01
+    positionMeters: 1250
+    returnCurrentDeviceId: RCD-P01
+    normalMinPotentialVolts: -0.8
+    normalMaxPotentialVolts: 1.8
+  - id: SCP-P02
+    name: 北段极化电位监测点
+    sectionId: P02
+    positionMeters: 3750
+    returnCurrentDeviceId: RCD-P02
+    normalMinPotentialVolts: -0.8
+    normalMaxPotentialVolts: 1.8
+
 regeneration:
   sameSectionAbsorbFirst: true
   unabsorbedMode: BRAKE_RESISTOR
