@@ -80,6 +80,11 @@ public class RouteInterlockingService {
             }
         }
 
+        Optional<String> invalidSwitchRequirement = invalidSwitchRequirement(routeSegments);
+        if (invalidSwitchRequirement.isPresent()) {
+            return invalidSwitchRequirement.get();
+        }
+
         Map<OperationalLineData.SwitchDefinition, SwitchPosition> switchRequirements =
             switchRequirements(routeSegments);
         // Pre-check all switches before throwing any (partial rollback safety)
@@ -294,6 +299,23 @@ public class RouteInterlockingService {
             }
         }
         return requirements;
+    }
+
+    private Optional<String> invalidSwitchRequirement(Set<String> routeSegments) {
+        List<OperationalLineData.SwitchDefinition> switches = infrastructureCatalog.lineData().switches();
+        if (switches == null) {
+            return Optional.empty();
+        }
+        for (OperationalLineData.SwitchDefinition sw : switches) {
+            boolean usesNormal = routeSegments.contains(sw.normalSegmentId());
+            boolean usesReverse = routeSegments.contains(sw.reverseSegmentId());
+            if (usesNormal && usesReverse) {
+                String reason = "Route requires switch " + sw.id() + " in both NORMAL and REVERSE";
+                log.warn("[Interlocking] {}", reason);
+                return Optional.of(reason);
+            }
+        }
+        return Optional.empty();
     }
 
     private Set<String> resolvedSegmentIds(RouteState route) {
