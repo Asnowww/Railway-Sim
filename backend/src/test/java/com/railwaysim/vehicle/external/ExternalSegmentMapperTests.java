@@ -53,7 +53,10 @@ class ExternalSegmentMapperTests {
             0,
             0,
             List.of(),
-            List.of()
+            List.of(),
+            id + "-FROM",
+            id + "-TO",
+            "main"
         );
     }
 }

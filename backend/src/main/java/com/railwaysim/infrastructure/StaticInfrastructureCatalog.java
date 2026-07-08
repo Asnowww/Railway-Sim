@@ -17,6 +17,11 @@ public class StaticInfrastructureCatalog {
     private final OperationalLineData lineData;
     private final OperationalPowerData powerData;
 
+    public StaticInfrastructureCatalog(OperationalLineData lineData, OperationalPowerData powerData) {
+        this.lineData = lineData;
+        this.powerData = powerData;
+    }
+
     public StaticInfrastructureCatalog(
         SimulationProperties simulationProperties,
         SpreadsheetLineDataLoader spreadsheetLineDataLoader,
