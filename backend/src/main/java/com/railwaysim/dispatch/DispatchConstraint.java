@@ -12,6 +12,9 @@ public record DispatchConstraint(
     }
 
     public double applyToSpeedLimit(double speedLimitMetersPerSecond) {
+        if (holdTrain) {
+            return 0;
+        }
         double limitedByFactor = speedLimitMetersPerSecond * Math.max(0, Math.min(1, speedFactor));
         if (targetSpeedMetersPerSecond == null) {
             return limitedByFactor;

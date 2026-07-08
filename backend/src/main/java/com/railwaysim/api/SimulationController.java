@@ -78,7 +78,7 @@ public class SimulationController {
             signalService.calculateAuthorities(
                 trainManager.states(),
                 trackService.constraintsForTrains(trainManager.states()),
-                dispatchService.constraintsForTrains(trainManager.states())
+                dispatchService.previewConstraintsForTrains(trainManager.states())
             );
             return simulationRuntime.snapshot();
         }
@@ -96,7 +96,7 @@ public class SimulationController {
             signalService.calculateAuthorities(
                 trainManager.states(),
                 trackService.constraintsForTrains(trainManager.states()),
-                dispatchService.constraintsForTrains(trainManager.states())
+                dispatchService.previewConstraintsForTrains(trainManager.states())
             );
             return simulationRuntime.snapshot();
         }
