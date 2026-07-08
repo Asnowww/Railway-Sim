@@ -70,13 +70,18 @@ public class TrackService {
     public synchronized void reset() {
         OperationalLineData lineData = infrastructureCatalog.lineData();
         segments.clear();
+        // 从 YamlLineDataLoader 存的数据需要 YAML rawSeg 的 track 字段
+        // 当前通过 segment.fromNode/fromNodeId 推断：同from的第二个区段为分支
         segments.addAll(lineData.trackSegments().stream()
             .map(segment -> new TrackSegmentState(
                 segment.id(),
                 segment.startMeters(),
                 segment.endMeters(),
                 segment.defaultSpeedLimitMetersPerSecond(),
-                TrackOccupancy.FREE
+                TrackOccupancy.FREE,
+                segment.fromNodeId(),
+                segment.toNodeId(),
+                segment.track()
             ))
             .toList());
         switches.clear();
@@ -217,6 +222,19 @@ public class TrackService {
         return Collections.unmodifiableSet(new HashSet<>(faultSegmentIds));
     }
 
+    /**
+     * 区段前向邻居映射（fromNode→toNode 方向）。
+     * 从 OperationalLineData.TrackSegmentDefinition.forwardNeighborSegmentIds 构建。
+     */
+    public synchronized Map<String, List<String>> forwardNeighborMap() {
+        OperationalLineData lineData = infrastructureCatalog.lineData();
+        Map<String, List<String>> map = new HashMap<>();
+        for (OperationalLineData.TrackSegmentDefinition def : lineData.trackSegments()) {
+            map.put(def.id(), def.forwardNeighborSegmentIds());
+        }
+        return map;
+    }
+
     // ==================== 道岔管理 ====================
 
     /**
@@ -347,7 +365,8 @@ public class TrackService {
             0,
             infrastructureCatalog.lineData().lineLengthMeters(),
             simulationProperties.getDefaultSpeedLimitMetersPerSecond(),
-            TrackOccupancy.FREE
+            TrackOccupancy.FREE,
+            "", "", "main"
         );
     }
 }

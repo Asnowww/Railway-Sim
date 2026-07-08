@@ -2,11 +2,13 @@ package com.railwaysim.simulation;
 
 import com.railwaysim.api.SimulationWebSocketHandler;
 import com.railwaysim.config.SimulationProperties;
+import com.railwaysim.dispatch.DispatchCommand;
 import com.railwaysim.dispatch.DispatchConstraint;
 import com.railwaysim.dispatch.DispatchService;
 import com.railwaysim.monitor.MonitorService;
 import com.railwaysim.power.PowerConstraint;
 import com.railwaysim.power.PowerService;
+import com.railwaysim.signal.RouteInterlockingService;
 import com.railwaysim.signal.SignalService;
 import com.railwaysim.simulation.event.DomainEvent;
 import com.railwaysim.simulation.event.SimpleEventBus;
@@ -33,6 +35,7 @@ public class SimulationRuntime {
     private final SimpleEventBus eventBus;
     private final RealtimeStateCache realtimeStateCache;
     private final SimulationPersistenceService persistenceService;
+    private final RouteInterlockingService interlockingService;
     private List<DomainEvent> lastEvents = List.of();
     private long tick;
     private SimulationStatus status = SimulationStatus.STOPPED;
@@ -48,7 +51,8 @@ public class SimulationRuntime {
         SimulationProperties simulationProperties,
         SimpleEventBus eventBus,
         RealtimeStateCache realtimeStateCache,
-        SimulationPersistenceService persistenceService
+        SimulationPersistenceService persistenceService,
+        RouteInterlockingService interlockingService
     ) {
         this.trainManager = trainManager;
         this.trackService = trackService;
@@ -61,6 +65,7 @@ public class SimulationRuntime {
         this.eventBus = eventBus;
         this.realtimeStateCache = realtimeStateCache;
         this.persistenceService = persistenceService;
+        this.interlockingService = interlockingService;
     }
 
     public synchronized SimulationSnapshot snapshot() {
@@ -90,6 +95,7 @@ public class SimulationRuntime {
         trainManager.reset();
         trackService.reset();
         signalService.reset();
+        interlockingService.reset();
         powerService.reset();
         dispatchService.reset();
         realtimeStateCache.clear();
@@ -110,9 +116,16 @@ public class SimulationRuntime {
         List<TrainState> beforeTrainStates = trainManager.states();
         trackService.updateOccupancy(beforeTrainStates);
         List<TrackConstraint> trackConstraints = trackService.constraintsForTrains(beforeTrainStates);
-        signalService.calculateAuthorities(beforeTrainStates, trackConstraints);
-        List<PowerConstraint> powerConstraints = powerService.constraintsForTrains(beforeTrainStates);
+
+        // 拦截 REROUTE 调度指令 → 交联锁处理（在约束计算前）
+        List<DispatchCommand> rerouteCmds = dispatchService.drainCommandsOfType("REROUTE");
+        for (DispatchCommand cmd : rerouteCmds) {
+            interlockingService.applyDispatchCommand(cmd.commandType(), cmd.detail(), cmd.trainId());
+        }
+
         List<DispatchConstraint> dispatchConstraints = dispatchService.constraintsForTrains(beforeTrainStates);
+        signalService.calculateAuthorities(beforeTrainStates, trackConstraints, dispatchConstraints);
+        List<PowerConstraint> powerConstraints = powerService.constraintsForTrains(beforeTrainStates);
 
         List<VehiclePhysicsOutput> outputs = trainManager.tickAll(
             context,
@@ -157,6 +170,8 @@ public class SimulationRuntime {
             trackService.states(),
             signalService.authorities(),
             signalService.signalStates(),
+            trackService.switchStates(),
+            interlockingService.states(),
             powerService.states(),
             lastEvents
         );

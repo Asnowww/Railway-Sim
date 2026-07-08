@@ -5,6 +5,7 @@ import com.railwaysim.simulation.SimulationRuntime;
 import com.railwaysim.simulation.SimulationSnapshot;
 import com.railwaysim.track.TrackService;
 import com.railwaysim.train.TrainManager;
+import java.util.List;
 import org.springframework.web.bind.annotation.CrossOrigin;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -64,9 +65,11 @@ public class SimulationController {
     @PostMapping("/fault/inject")
     public SimulationSnapshot injectFault(@RequestParam String segmentId) {
         trackService.injectFault(segmentId);
+        trackService.updateOccupancy(trainManager.states());
         signalService.calculateAuthorities(
             trainManager.states(),
-            trackService.constraintsForTrains(trainManager.states())
+            trackService.constraintsForTrains(trainManager.states()),
+            List.of()
         );
         return simulationRuntime.snapshot();
     }
@@ -74,9 +77,11 @@ public class SimulationController {
     @PostMapping("/fault/clear")
     public SimulationSnapshot clearFault(@RequestParam String segmentId) {
         trackService.clearFault(segmentId);
+        trackService.updateOccupancy(trainManager.states());
         signalService.calculateAuthorities(
             trainManager.states(),
-            trackService.constraintsForTrains(trainManager.states())
+            trackService.constraintsForTrains(trainManager.states()),
+            List.of()
         );
         return simulationRuntime.snapshot();
     }

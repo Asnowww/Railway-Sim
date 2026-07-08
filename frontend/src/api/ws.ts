@@ -7,13 +7,24 @@ export class SimulationSocket {
   private listeners = new Set<SnapshotListener>()
 
   connect() {
+    if (this.socket || !window.location.host) {
+      return
+    }
     const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws'
-    this.socket = new WebSocket(`${protocol}://${window.location.host}/ws/simulation`)
+    try {
+      this.socket = new WebSocket(`${protocol}://${window.location.host}/ws/simulation`)
+    } catch {
+      this.socket = null
+      return
+    }
     this.socket.addEventListener('message', (event) => {
       const message = JSON.parse(event.data) as SocketMessage
       if (message.type === 'snapshot') {
         this.listeners.forEach((listener) => listener(message.payload))
       }
+    })
+    this.socket.addEventListener('close', () => {
+      this.socket = null
     })
   }
 
@@ -29,4 +40,3 @@ export class SimulationSocket {
 }
 
 export const simulationSocket = new SimulationSocket()
-

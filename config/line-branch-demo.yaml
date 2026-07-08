@@ -1,0 +1,116 @@
+# 站场咽喉区 — 分支拓扑 Demo
+# 模拟车站入口处正线分叉为多条站线的场景
+#
+# 拓扑图:
+#   N1(0m) ─T01─ N2(400m) ─T02─┬─ N3(1000m) ─T04─ N5(1400m) ─T06─ N7(2000m)   ← 正线上行
+#                                │
+#                                └─T03─ N4(1000m) ─T05─ N6(1400m) ─T07─ N7(2000m) ← 正线下行/侧线
+#
+#   N2: 分叉点(道岔) — 可开通正线(T02)或侧线(T03)
+#   N5: 汇合点 — 两条线汇聚
+#
+# Generated 2026-07-08
+
+line:
+  id: branch-demo
+  name: 站场咽喉区示范
+  length_meters: 2000
+
+stations:
+  - id: N1_station
+    name: 进站口
+    position_meters: 0
+
+nodes:
+  - id: N1
+    name: 线路起点
+  - id: N2
+    name: 分叉点(道岔)
+    type: switch
+  - id: N3
+    name: 正线中段
+  - id: N4
+    name: 侧线中段
+  - id: N5
+    name: 汇合点
+  - id: N6
+    name: 侧线后段
+  - id: N7
+    name: 线路终点
+
+segments:
+  - id: T01
+    from: N1
+    to: N2
+    start_meters: 0
+    end_meters: 400
+    speed_limit_meters_per_second: 20.0
+    track: main
+  - id: T02
+    from: N2
+    to: N3
+    start_meters: 400
+    end_meters: 1000
+    speed_limit_meters_per_second: 22.2
+    track: main
+  - id: T03
+    from: N2
+    to: N4
+    start_meters: 400
+    end_meters: 1000
+    speed_limit_meters_per_second: 13.9
+    track: branch
+  - id: T04
+    from: N3
+    to: N5
+    start_meters: 1000
+    end_meters: 1400
+    speed_limit_meters_per_second: 22.2
+    track: main
+  - id: T05
+    from: N4
+    to: N6
+    start_meters: 1000
+    end_meters: 1400
+    speed_limit_meters_per_second: 13.9
+    track: branch
+  - id: T06
+    from: N5
+    to: N7
+    start_meters: 1400
+    end_meters: 2000
+    speed_limit_meters_per_second: 20.0
+    track: main
+  - id: T07
+    from: N6
+    to: N7
+    start_meters: 1400
+    end_meters: 2000
+    speed_limit_meters_per_second: 13.9
+    track: branch
+
+routes:
+  - id: R01
+    name: 进站口→正线
+    type: MAIN
+    start_signal: SIG-T01
+    end_signal: SIG-T06
+    axle_section_ids: [T01, T02, T04, T06]
+  - id: R02
+    name: 进站口→侧线
+    type: DIVERGING
+    start_signal: SIG-T01
+    end_signal: SIG-T07
+    axle_section_ids: [T01, T03, T05, T07]
+
+switches:
+  - id: SW01
+    node: N2
+    normal_target: T02
+    reverse_target: T03
+    default_position: NORMAL
+  - id: SW02
+    node: N5
+    normal_target: T04
+    reverse_target: T05
+    default_position: NORMAL

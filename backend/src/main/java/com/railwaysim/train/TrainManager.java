@@ -10,6 +10,7 @@ import com.railwaysim.simulation.event.BrakeForceChangedEvent;
 import com.railwaysim.simulation.event.RegenerativePowerGeneratedEvent;
 import com.railwaysim.simulation.event.SimpleEventBus;
 import com.railwaysim.simulation.event.TractionPowerChangedEvent;
+import com.railwaysim.simulation.event.TrainFaultStateChangedEvent;
 import com.railwaysim.simulation.event.VehiclePhysicsUpdatedEvent;
 import com.railwaysim.track.TrackConstraint;
 import com.railwaysim.vehicle.TcmsAtoAdapterService;
@@ -22,6 +23,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import org.springframework.stereotype.Service;
@@ -35,6 +37,7 @@ public class TrainManager {
     private final StaticInfrastructureCatalog infrastructureCatalog;
     private final RealtimeStateCache realtimeStateCache;
     private final SimpleEventBus eventBus;
+    private final List<TrainFaultRecord> faultRecords = new ArrayList<>();
 
     public TrainManager(
         TcmsAtoAdapterService tcmsAtoAdapterService,
@@ -60,6 +63,7 @@ public class TrainManager {
         trains.clear();
         trains.add(new TrainEntity("TR-001", routeId, 100, 120, 0.42));
         trains.add(new TrainEntity("TR-002", routeId, 900, 120, 0.55));
+        faultRecords.clear();
     }
 
     public synchronized List<VehiclePhysicsOutput> tickAll(
@@ -111,6 +115,69 @@ public class TrainManager {
 
     public synchronized List<TrainState> states() {
         return trains.stream().map(TrainEntity::state).toList();
+    }
+
+    public synchronized Optional<TrainState> state(String trainId) {
+        return trains.stream()
+            .filter(train -> train.state().id().equals(trainId))
+            .map(TrainEntity::state)
+            .findFirst();
+    }
+
+    public synchronized TrainFaultRecord injectFault(String trainId, String faultCode, String detail, String traceId) {
+        TrainEntity train = trainEntity(trainId);
+        train.injectFault(faultCode);
+        TrainState state = train.state();
+        TrainFaultRecord record = new TrainFaultRecord(
+            trainId,
+            state.faultCode(),
+            state.faultLevel(),
+            state.selfCheckStatus(),
+            state.availableOperationMode(),
+            "ACTIVE",
+            detail,
+            traceId,
+            Instant.now(),
+            null
+        );
+        faultRecords.add(record);
+        eventBus.publish(new TrainFaultStateChangedEvent(trainId, state.faultCode(), "INJECTED", detail, record.raisedAt()));
+        return record;
+    }
+
+    public synchronized TrainFaultRecord clearFault(String trainId, String detail, String traceId) {
+        TrainEntity train = trainEntity(trainId);
+        String clearedFaultCode = train.injectedFaultCode() == null ? "NONE" : train.injectedFaultCode();
+        train.clearFault();
+        TrainState state = train.state();
+        TrainFaultRecord record = new TrainFaultRecord(
+            trainId,
+            clearedFaultCode,
+            state.faultLevel(),
+            state.selfCheckStatus(),
+            state.availableOperationMode(),
+            "CLEARED",
+            detail,
+            traceId,
+            Instant.now(),
+            Instant.now()
+        );
+        faultRecords.add(record);
+        eventBus.publish(new TrainFaultStateChangedEvent(trainId, clearedFaultCode, "CLEARED", detail, record.raisedAt()));
+        return record;
+    }
+
+    public synchronized List<TrainFaultRecord> faultRecords(String trainId) {
+        return faultRecords.stream()
+            .filter(record -> record.trainId().equals(trainId))
+            .toList();
+    }
+
+    private TrainEntity trainEntity(String trainId) {
+        return trains.stream()
+            .filter(train -> train.state().id().equals(trainId))
+            .findFirst()
+            .orElseThrow(() -> new IllegalArgumentException("Train not found: " + trainId));
     }
 
     private void publishVehicleEvents(VehiclePhysicsOutput output) {

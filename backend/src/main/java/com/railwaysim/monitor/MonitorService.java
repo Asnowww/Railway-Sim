@@ -2,7 +2,9 @@ package com.railwaysim.monitor;
 
 import com.railwaysim.power.PowerSectionState;
 import com.railwaysim.signal.MovementAuthority;
+import com.railwaysim.signal.RouteState;
 import com.railwaysim.signal.SignalState;
+import com.railwaysim.track.SwitchState;
 import com.railwaysim.simulation.SimulationSnapshot;
 import com.railwaysim.simulation.SimulationStatus;
 import com.railwaysim.simulation.event.DomainEvent;
@@ -12,6 +14,7 @@ import com.railwaysim.simulation.event.PowerFaultStateChangedEvent;
 import com.railwaysim.simulation.event.PowerLimitTriggeredEvent;
 import com.railwaysim.simulation.event.PowerMaintenanceLockChangedEvent;
 import com.railwaysim.simulation.event.RegenerativeEnergyAbsorbedEvent;
+import com.railwaysim.simulation.event.TrainFaultStateChangedEvent;
 import com.railwaysim.track.TrackSegmentState;
 import com.railwaysim.train.TrainState;
 import java.time.Instant;
@@ -30,6 +33,8 @@ public class MonitorService {
         List<TrackSegmentState> trackSegments,
         List<MovementAuthority> authorities,
         List<SignalState> signalStates,
+        List<SwitchState> switchStates,
+        List<RouteState> routeStates,
         List<PowerSectionState> powerSections,
         List<DomainEvent> events
     ) {
@@ -41,6 +46,8 @@ public class MonitorService {
             trackSegments,
             authorities,
             signalStates,
+            switchStates,
+            routeStates,
             powerSections,
             buildAlarms(tick, simulatedTime, trains, authorities, powerSections, events)
         );
@@ -170,6 +177,18 @@ public class MonitorService {
                 1,
                 "再生制动能量未完全吸收",
                 "回馈 " + regenerativeEnergy.regenPowerWatts() + " W，未吸收 " + regenerativeEnergy.unabsorbedPowerWatts() + " W，处理方式 " + regenerativeEnergy.unabsorbedMode(),
+                simulatedTime,
+                false
+            );
+        }
+        if (event instanceof TrainFaultStateChangedEvent trainFault) {
+            return new Alarm(
+                "TRAIN-FAULT-" + tick + "-" + trainFault.trainId(),
+                "vehicle",
+                trainFault.trainId(),
+                "CLEARED".equals(trainFault.state()) ? 1 : 3,
+                "车辆故障状态变化",
+                "故障码 " + trainFault.faultCode() + "，状态 " + trainFault.state() + "，说明 " + trainFault.detail(),
                 simulatedTime,
                 false
             );
