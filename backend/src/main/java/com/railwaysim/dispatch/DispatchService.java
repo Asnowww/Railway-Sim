@@ -44,13 +44,24 @@ public class DispatchService {
         return matched;
     }
 
+    /**
+     * 每 tick 读取并清除所有已消耗的调度指令。
+     * 除 REROUTE（由联锁单独处理）外，其余命令均为一次性：
+     * 应用后即移除，若需持续控制请每 tick 重新提交。
+     */
     public List<DispatchConstraint> constraintsForTrains(List<TrainState> trains) {
         Map<String, List<DispatchCommand>> commandsByTrain = pendingCommands.stream()
             .filter(command -> command.trainId() != null && !command.trainId().isBlank())
             .collect(Collectors.groupingBy(DispatchCommand::trainId));
-        return trains.stream()
+        List<DispatchConstraint> constraints = trains.stream()
             .map(train -> constraintForTrain(train.id(), commandsByTrain.getOrDefault(train.id(), List.of())))
             .toList();
+        // 所有非 REROUTE 命令一次性消费后移除，防止永久生效
+        List<DispatchCommand> consumed = pendingCommands.stream()
+            .filter(cmd -> !"REROUTE".equals(cmd.commandType()))
+            .toList();
+        pendingCommands.removeAll(consumed);
+        return constraints;
     }
 
     private DispatchConstraint constraintForTrain(String trainId, List<DispatchCommand> commands) {

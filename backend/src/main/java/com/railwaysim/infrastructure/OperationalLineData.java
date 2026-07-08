@@ -154,8 +154,12 @@ public record OperationalLineData(
         String reverseSegmentId,
         String mergeSegmentId,
         double divergingSpeedLimitMetersPerSecond,
-        String interoperabilityId
+        String interoperabilityId,
+        String defaultPosition
     ) {
+        public SwitchDefinition {
+            defaultPosition = (defaultPosition == null || defaultPosition.isBlank()) ? "NORMAL" : defaultPosition;
+        }
     }
 
     public record StationDefinition(

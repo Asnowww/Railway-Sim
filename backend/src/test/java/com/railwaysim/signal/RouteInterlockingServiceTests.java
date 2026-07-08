@@ -134,7 +134,8 @@ class RouteInterlockingServiceTests {
                 "SEG-3",
                 "N2",
                 0,
-                null
+                null,
+                "NORMAL"
             )),
             List.of(),
             List.of(),

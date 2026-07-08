@@ -19,10 +19,14 @@ import com.railwaysim.train.TrainState;
 import com.railwaysim.vehicle.VehiclePhysicsOutput;
 import java.time.Instant;
 import java.util.List;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 @Service
 public class SimulationRuntime {
+
+    private static final Logger log = LoggerFactory.getLogger(SimulationRuntime.class);
 
     private final TrainManager trainManager;
     private final TrackService trackService;
@@ -120,7 +124,10 @@ public class SimulationRuntime {
         // 拦截 REROUTE 调度指令 → 交联锁处理（在约束计算前）
         List<DispatchCommand> rerouteCmds = dispatchService.drainCommandsOfType("REROUTE");
         for (DispatchCommand cmd : rerouteCmds) {
-            interlockingService.applyDispatchCommand(cmd.commandType(), cmd.detail(), cmd.trainId());
+            var result = interlockingService.applyDispatchCommand(cmd.commandType(), cmd.detail(), cmd.trainId());
+            if (!result.accepted()) {
+                log.warn("[Runtime] 联锁拒绝调度指令 {}: {}", cmd.id(), result.rejectReason());
+            }
         }
 
         List<DispatchConstraint> dispatchConstraints = dispatchService.constraintsForTrains(beforeTrainStates);
@@ -135,6 +142,7 @@ public class SimulationRuntime {
         );
         powerService.updateFromVehicleOutputs(outputs);
         trackService.updateOccupancy(trainManager.states());
+        signalService.recomputeSignalAspects(); // 基于最终区段占用刷新灯色
         lastEvents = eventBus.drain();
         persistIfDue(context);
 

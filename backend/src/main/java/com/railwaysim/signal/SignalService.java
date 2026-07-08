@@ -138,6 +138,11 @@ public class SignalService {
         return signalStates;
     }
 
+    /** 基于当前区段状态和列车位置重新计算信号灯色（不重新算MA）。 */
+    public synchronized void recomputeSignalAspects() {
+        signalStates = computeSignalAspects(List.of());
+    }
+
     private List<SignalState> computeSignalAspects(List<TrainState> trains) {
         List<TrackSegmentState> trackSegments = trackService.states();
         if (trackSegments.isEmpty()) {
@@ -235,15 +240,15 @@ public class SignalService {
     }
 
     private String chooseActiveForwardNeighbor(String currentSegmentId, List<String> forward) {
-        TrackSegmentState current = findSegment(currentSegmentId);
-        if (current != null) {
-            for (SwitchState sw : trackService.switchStates()) {
-                if (current.toNode().equals(sw.nodeId()) && forward.contains(sw.activeSegmentId())) {
-                    return sw.activeSegmentId();
-                }
+        // 1. Prefer the switch-activated branch: if any switch's activeSegmentId
+        //    is in the forward set, that's the currently set path.
+        for (SwitchState sw : trackService.switchStates()) {
+            if (forward.contains(sw.activeSegmentId())) {
+                return sw.activeSegmentId();
             }
         }
 
+        // 2. Fallback: pick the forward neighbor with higher speed limit (main track)
         String best = forward.get(0);
         double bestSpeed = -1;
         for (String fwdId : forward) {

@@ -8,11 +8,14 @@ spring:
     import:
       - optional:file:./application-local.yml
       - optional:file:./config/application-local.yml
+  datasource:
+    url: jdbc:mysql://${DB_HOST:localhost}:${DB_PORT:3306}/${DB_NAME:railway_sim}?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
+    username: ${DB_USER:railway_user}
+    password: ${DB_PASSWORD:}
+    driver-class-name: com.mysql.cj.jdbc.Driver
   sql:
     init:
-      mode: always
-      continue-on-error: true
-      schema-locations: file:../database/schema.sql
+      mode: never
   jackson:
     time-zone: Asia/Shanghai
 
@@ -24,10 +27,10 @@ railway:
     default-speed-limit-meters-per-second: 22.2
     default-curve-radius-meters: 1000
     safety-gap-meters: 120
-    line-data-source: database
+    line-data-source: file
     line-id: "1"
-    line-data-auto-import: true
-    line-data-path: ../database/线路数据(1).xls
+    line-data-auto-import: false
+    line-data-path: ../config/line-branch-demo.yaml
     power-config-path: ../config/power_third_rail.yaml
     fmu-step-millis: 100
     track-step-millis: 100
