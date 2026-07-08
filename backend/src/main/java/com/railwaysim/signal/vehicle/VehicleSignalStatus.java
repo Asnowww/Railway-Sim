@@ -4,6 +4,12 @@ import com.railwaysim.train.TrainState;
 
 public record VehicleSignalStatus(
     String trainId,
+    String controlSessionState,
+    String signalNetworkStatus,
+    String powerNetworkStatus,
+    String controlSessionReason,
+    int linkId,
+    String direction,
     double headMileage,
     double tailMileage,
     double speedMetersPerSecond,
@@ -22,6 +28,12 @@ public record VehicleSignalStatus(
     public static VehicleSignalStatus from(TrainState train) {
         return new VehicleSignalStatus(
             train.id(),
+            train.controlSessionState(),
+            train.signalNetworkStatus(),
+            train.powerNetworkStatus(),
+            train.controlSessionReason(),
+            train.linkId(),
+            train.direction(),
             train.headMileage(),
             train.tailMileage(),
             train.speedMetersPerSecond(),

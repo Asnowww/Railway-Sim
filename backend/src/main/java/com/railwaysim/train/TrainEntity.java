@@ -101,6 +101,10 @@ public class TrainEntity {
     }
 
     public TrainState state() {
+        return state(null);
+    }
+
+    public TrainState state(ExternalTrainControlSession controlSession) {
         double effectiveLoadMassKg = VehicleLoadPolicy.loadMassKg(loadMassKg, loadRate);
         double effectiveLoadRate = VehicleLoadPolicy.loadRateFromMass(effectiveLoadMassKg);
         String effectiveOverloadStatus = VehicleLoadPolicy.overloadStatus(effectiveLoadMassKg);
@@ -128,6 +132,12 @@ public class TrainEntity {
             id,
             routeId,
             id,
+            controlSession == null ? ExternalTrainControlSessionState.IN_SERVICE.name() : controlSession.state().name(),
+            controlSession == null ? "ATTACHED" : controlSession.signalNetworkStatus(),
+            controlSession == null ? "ATTACHED" : controlSession.powerNetworkStatus(),
+            controlSession == null ? "EXTERNAL_CONTROL_IN_SERVICE" : controlSession.reason(),
+            controlSession == null ? 0 : controlSession.linkId(),
+            controlSession == null ? "UNKNOWN" : controlSession.direction().name(),
             positionMeters,
             speedMetersPerSecond,
             lengthMeters,
@@ -199,6 +209,10 @@ public class TrainEntity {
 
     public String injectedFaultCode() {
         return injectedFaultCode;
+    }
+
+    public String id() {
+        return id;
     }
 
     private String resolveStatus(TrainStateReport report, VehiclePhysicsOutput output) {

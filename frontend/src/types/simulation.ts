@@ -4,6 +4,12 @@ export interface TrainState {
   id: string
   routeId: string
   serviceNo: string
+  controlSessionState: string
+  signalNetworkStatus: string
+  powerNetworkStatus: string
+  controlSessionReason: string
+  linkId: number
+  direction: string
   positionMeters: number
   speedMetersPerSecond: number
   lengthMeters: number
