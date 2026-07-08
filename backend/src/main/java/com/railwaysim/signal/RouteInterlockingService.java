@@ -227,7 +227,7 @@ public class RouteInterlockingService {
             case "REROUTE" -> {
                 String routeId = findBestRoute(detail);
                 if (routeId == null) {
-                    yield new RouteDispatchResult(false, "No matching route");
+                    yield new RouteDispatchResult(false, "No matching route for detail=" + detail);
                 }
                 String rejection = establishRoute(routeId, trainId);
                 yield rejection == null
@@ -355,16 +355,175 @@ public class RouteInterlockingService {
             .findFirst();
     }
 
+    // ==================== 路线选择 ====================
+
+    /**
+     * 查询所有可用进路信息，供调度系统获取路线列表和当前状态。
+     */
+    public record RouteInfo(String routeId, String name, String type,
+                            String fromStation, String toStation,
+                            List<String> segmentIds, String status) {}
+
+    public synchronized List<RouteInfo> queryRoutes() {
+        OperationalLineData lineData = infrastructureCatalog.lineData();
+        List<OperationalLineData.StationDefinition> stations = lineData.stations();
+        List<OperationalLineData.RouteDefinition> routes = lineData.routes();
+        if (routes == null) return List.of();
+
+        return routes.stream().map(route -> {
+            String fromSt = findStationNameForSignal(route.startSignalId(), stations);
+            String toSt = findStationNameForSignal(route.endSignalId(), stations);
+            RouteState state = routeStates.getOrDefault(route.id(),
+                new RouteState(route.id(), RouteStatus.AVAILABLE, Set.of(), null, new LinkedHashSet<>()));
+            return new RouteInfo(
+                route.id(), route.name(), route.typeCode(),
+                fromSt, toSt,
+                route.axleSectionIds(), state.status().name()
+            );
+        }).toList();
+    }
+
+    /**
+     * 根据调度传入的 detail 查找匹配进路。支持三种格式：
+     * <ul>
+     *   <li>{"routeId":"R_MAIN"} — 直接指定进路ID</li>
+     *   <li>{"fromStation":"S01","toStation":"S03"} — 按起止站点选路</li>
+     *   <li>{"from":"S01","to":"S03"} — 同上（简写）</li>
+     * </ul>
+     *
+     * <p>选路策略：多个可选进路时，优先选 MAIN 类型（正线），其次选区段数最少的（最短路径）。
+     */
     private String findBestRoute(String detail) {
         List<OperationalLineData.RouteDefinition> routes = infrastructureCatalog.lineData().routes();
         if (routes == null || routes.isEmpty()) {
             return null;
         }
+
+        // ① 直接指定 routeId
+        String directId = parseJsonField(detail, "routeId");
+        if (directId != null && routeStates.containsKey(directId)) {
+            return directId;
+        }
+
+        // ② 按起止站名
+        String fromStation = parseJsonField(detail, "fromStation");
+        String toStation = parseJsonField(detail, "toStation");
+        if (fromStation == null) fromStation = parseJsonField(detail, "from");
+        if (toStation == null) toStation = parseJsonField(detail, "to");
+
+        if (fromStation != null && toStation != null) {
+            return findRouteByStations(fromStation, toStation);
+        }
+
+        // ③ 按起止信号机
+        String fromSignal = parseJsonField(detail, "fromSignal");
+        String toSignal = parseJsonField(detail, "toSignal");
+        if (fromSignal != null && toSignal != null) {
+            return findRouteBySignals(fromSignal, toSignal);
+        }
+
+        // ④ 兜底：detail 中包含进路名
         return routes.stream()
             .filter(route -> detail != null && route.name() != null && detail.contains(route.name()))
             .map(OperationalLineData.RouteDefinition::id)
             .findFirst()
             .orElse(null);
+    }
+
+    private String findRouteByStations(String fromStation, String toStation) {
+        OperationalLineData lineData = infrastructureCatalog.lineData();
+        List<OperationalLineData.SignalDefinition> signals = lineData.signals();
+        List<OperationalLineData.StationDefinition> stations = lineData.stations();
+
+        String fromSignal = findSignalNearStation(fromStation, stations, signals);
+        String toSignal = findSignalNearStation(toStation, stations, signals);
+
+        if (fromSignal != null && toSignal != null) {
+            return findRouteBySignals(fromSignal, toSignal);
+        }
+        return null;
+    }
+
+    private String findRouteBySignals(String startSignalId, String endSignalId) {
+        List<OperationalLineData.RouteDefinition> routes = infrastructureCatalog.lineData().routes();
+        if (routes == null || routes.isEmpty()) return null;
+
+        List<OperationalLineData.RouteDefinition> matches = routes.stream()
+            .filter(r -> startSignalId.equals(r.startSignalId()) && endSignalId.equals(r.endSignalId()))
+            .toList();
+        if (matches.isEmpty()) {
+            matches = routes.stream()
+                .filter(r -> r.startSignalId() != null && r.startSignalId().contains(startSignalId)
+                    && r.endSignalId() != null && r.endSignalId().contains(endSignalId))
+                .toList();
+        }
+        if (matches.isEmpty()) return null;
+        if (matches.size() == 1) return matches.get(0).id();
+
+        // 多条：优先 MAIN → 最短路径
+        return matches.stream()
+            .min((a, b) -> {
+                boolean aMain = "MAIN".equalsIgnoreCase(a.typeCode());
+                boolean bMain = "MAIN".equalsIgnoreCase(b.typeCode());
+                if (aMain != bMain) return aMain ? -1 : 1;
+                return a.axleSectionIds().size() - b.axleSectionIds().size();
+            })
+            .map(OperationalLineData.RouteDefinition::id)
+            .orElse(matches.get(0).id());
+    }
+
+    private String findSignalNearStation(String stationIdOrName,
+                                          List<OperationalLineData.StationDefinition> stations,
+                                          List<OperationalLineData.SignalDefinition> signals) {
+        if (stations == null || signals == null || signals.isEmpty()) return null;
+        OperationalLineData.StationDefinition station = stations.stream()
+            .filter(s -> s.id().equals(stationIdOrName)
+                || (s.name() != null && s.name().equals(stationIdOrName)))
+            .findFirst()
+            .orElse(null);
+        if (station == null) return null;
+
+        return signals.stream()
+            .min((a, b) -> {
+                double da = Math.abs(a.positionMeters() - station.centerMeters());
+                double db = Math.abs(b.positionMeters() - station.centerMeters());
+                return Double.compare(da, db);
+            })
+            .map(OperationalLineData.SignalDefinition::id)
+            .orElse(null);
+    }
+
+    private String findStationNameForSignal(String signalId,
+                                             List<OperationalLineData.StationDefinition> stations) {
+        if (signalId == null || stations == null || stations.isEmpty()) return "?";
+        OperationalLineData.SignalDefinition sig = infrastructureCatalog.lineData().signals().stream()
+            .filter(s -> signalId.equals(s.id()))
+            .findFirst().orElse(null);
+        if (sig == null) return "?";
+        return stations.stream()
+            .min((a, b) -> Double.compare(
+                Math.abs(a.centerMeters() - sig.positionMeters()),
+                Math.abs(b.centerMeters() - sig.positionMeters())))
+            .map(OperationalLineData.StationDefinition::name)
+            .orElse("?");
+    }
+
+    /** 从简易 JSON 串中提取字段值 */
+    private static String parseJsonField(String json, String key) {
+        if (json == null || key == null) return null;
+        String pattern = "\"" + key + "\"";
+        int ki = json.indexOf(pattern);
+        if (ki < 0) return null;
+        int colon = json.indexOf(':', ki + pattern.length());
+        if (colon < 0) return null;
+        String remainder = json.substring(colon + 1).trim();
+        if (remainder.startsWith("\"")) {
+            int end = remainder.indexOf('"', 1);
+            return end > 0 ? remainder.substring(1, end) : remainder.substring(1);
+        }
+        int end = 0;
+        while (end < remainder.length() && remainder.charAt(end) != ',' && remainder.charAt(end) != '}') end++;
+        return remainder.substring(0, end).trim();
     }
 
     private static boolean intersects(Set<String> left, Set<String> right) {
