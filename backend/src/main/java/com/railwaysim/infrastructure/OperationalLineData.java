@@ -111,11 +111,15 @@ public record OperationalLineData(
         int endEndpointType,
         int endEndpointId,
         List<String> forwardNeighborSegmentIds,
-        List<String> sideNeighborSegmentIds
+        List<String> sideNeighborSegmentIds,
+        String fromNodeId,
+        String toNodeId
     ) {
         public TrackSegmentDefinition {
             forwardNeighborSegmentIds = List.copyOf(forwardNeighborSegmentIds);
             sideNeighborSegmentIds = List.copyOf(sideNeighborSegmentIds);
+            fromNodeId = fromNodeId == null ? "" : fromNodeId;
+            toNodeId = toNodeId == null ? "" : toNodeId;
         }
     }
 

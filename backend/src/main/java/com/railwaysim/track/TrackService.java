@@ -76,7 +76,10 @@ public class TrackService {
                 segment.startMeters(),
                 segment.endMeters(),
                 segment.defaultSpeedLimitMetersPerSecond(),
-                TrackOccupancy.FREE
+                TrackOccupancy.FREE,
+                segment.fromNodeId(),
+                segment.toNodeId(),
+                ""
             ))
             .toList());
         switches.clear();
@@ -347,7 +350,8 @@ public class TrackService {
             0,
             infrastructureCatalog.lineData().lineLengthMeters(),
             simulationProperties.getDefaultSpeedLimitMetersPerSecond(),
-            TrackOccupancy.FREE
+            TrackOccupancy.FREE,
+            "", "", "main"
         );
     }
 }

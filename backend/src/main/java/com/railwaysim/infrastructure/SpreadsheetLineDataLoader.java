@@ -54,7 +54,8 @@ public class SpreadsheetLineDataLoader {
                     segment.endEndpointType(),
                     segment.endEndpointId(),
                     segment.forwardNeighborIds(),
-                    segment.sideNeighborIds()
+                    segment.sideNeighborIds(),
+                "", ""
                 ))
                 .toList();
 
