@@ -165,6 +165,8 @@ public class SimulationRuntime {
                 powerService.states(),
                 lastEvents
             );
+            persistenceService.persistTrackOccupancy(context, trackService.states());
+            persistenceService.persistSignalStates(context, signalService.authorities());
         }
     }
 
