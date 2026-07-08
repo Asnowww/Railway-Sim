@@ -2,7 +2,9 @@
 
 ## 实现范围
 
-本接口族是后端仿真热循环内的内部接口，不直接暴露给调度或前端作为控制入口。供电模块只输出约束，车辆模块通过 `TcmsAtoAdapterService` 消费约束并生成车辆物理输入。
+本接口族是后端仿真热循环内的内部接口，不直接暴露给调度或前端作为控制入口。供电模块只输出约束，车辆模块通过 `OnboardTrainSubsystemManager` 消费约束并生成车辆物理输入。
+
+列车上线由信号生命周期 `ADD` 进入中央系统；供电模块不通过 SQL 或供电接口创建列车。新车被 `TrainManager` 纳管后，供电模块在下一轮 `constraintsForTrains()` 中按位置输出 `PowerConstraint`，再由车辆控制节点决定牵引、惰行或制动。
 
 ## 代码落点
 
@@ -10,7 +12,7 @@
 |---|---|---|
 | 供电到车辆 | `PowerService.constraintsForTrains()` | 根据列车位置映射供电分区，输出 `PowerConstraint`。 |
 | 车辆到供电 | `PowerService.updateFromVehicleOutputs()` | 聚合车辆电流、牵引功率、再生功率和受影响列车。 |
-| 适配层 | `TcmsAtoAdapterService.buildVehiclePhysicsInput()` | 将供电约束、信号/轨道约束转换为车辆控制输入；调度约束先由信号模块折算为 MA/限速。 |
+| 单车基层智能子系统 | `OnboardTrainSubsystemManager.control()` | 将供电约束、信号/轨道约束转换为本车控制输入；调度约束先由信号模块折算为 MA/限速。 |
 | 快照输出 | `PowerSectionState`、`TrainState` | WebSocket 和 REST 共用同一状态对象。 |
 
 ## 数据流
@@ -19,7 +21,8 @@
 TrainState.positionMeters
   -> PowerService.sectionAt()
   -> PowerConstraint(sectionId, railVoltage, powerAvailableWatts, powerDeratingFactor, regenAvailable)
-  -> TcmsAtoAdapterService
+  -> OnboardTrainSubsystemManager
+  -> OnboardTrainSubsystem
   -> VehiclePhysicsInput
   -> VehiclePhysicsClient / LOCAL / EXTERNAL_UDP / EXTERNAL_RTLAB_API / DUAL_SHADOW
   -> VehiclePhysicsOutput
@@ -28,7 +31,7 @@ TrainState.positionMeters
 
 ## 外部车辆仿真适配
 
-外部仿真系统只接在车辆物理端口，不越级读取或控制供电分区。供电状态仍由 `PowerService` 维护，车辆指令仍由 `TcmsAtoAdapterService` 根据供电、信号和轨道约束生成；调度约束经信号模块下发。
+外部仿真系统只接在车辆物理端口，不越级读取或控制供电分区。供电状态仍由 `PowerService` 维护，车辆指令仍由 `OnboardTrainSubsystem` 根据供电、信号和轨道约束生成；调度约束经信号模块下发。
 
 | 适配对象 | 本期实现 | 说明 |
 |---|---|---|

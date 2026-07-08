@@ -47,6 +47,18 @@ class SimulationPersistenceServiceTests {
             String.class
         )).isEqualTo("STATION_BRAKE");
         assertThat(jdbcTemplate.queryForObject(
+            "SELECT control_session_state FROM train_physics_snapshot WHERE train_id = 'TR-001'",
+            String.class
+        )).isEqualTo("IN_SERVICE");
+        assertThat(jdbcTemplate.queryForObject(
+            "SELECT signal_network_status FROM train_physics_snapshot WHERE train_id = 'TR-001'",
+            String.class
+        )).isEqualTo("ATTACHED");
+        assertThat(jdbcTemplate.queryForObject(
+            "SELECT power_network_status FROM train_physics_snapshot WHERE train_id = 'TR-001'",
+            String.class
+        )).isEqualTo("ATTACHED");
+        assertThat(jdbcTemplate.queryForObject(
             "SELECT load_mass_kg FROM train_physics_snapshot WHERE train_id = 'TR-001'",
             Double.class
         )).isEqualTo(25_200.0);
@@ -87,6 +99,12 @@ class SimulationPersistenceServiceTests {
               id BIGINT AUTO_INCREMENT PRIMARY KEY,
               train_id VARCHAR(64) NOT NULL,
               tick BIGINT NOT NULL,
+              control_session_state VARCHAR(32) NOT NULL DEFAULT 'IN_SERVICE',
+              signal_network_status VARCHAR(32) NOT NULL DEFAULT 'ATTACHED',
+              power_network_status VARCHAR(32) NOT NULL DEFAULT 'ATTACHED',
+              control_session_reason VARCHAR(128) NOT NULL DEFAULT 'EXTERNAL_CONTROL_IN_SERVICE',
+              link_id INT NOT NULL DEFAULT 0,
+              direction VARCHAR(16) NOT NULL DEFAULT 'UNKNOWN',
               position_meters DOUBLE NOT NULL,
               speed_mps DOUBLE NOT NULL,
               acceleration_mps2 DOUBLE NOT NULL,

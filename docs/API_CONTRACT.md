@@ -28,6 +28,46 @@ GET /api/trains/{trainId}/energy
 GET /api/trains/{trainId}/faults
 ```
 
+### 外部车辆控制会话接入/退出
+
+中央系统只接收外部车辆控制子系统的接入/退出语义，不负责启动车辆控制系统本体，也不替信号系统生成具体行车命令。
+
+```http
+POST /api/trains/lifecycle
+```
+
+请求：
+
+```json
+{
+  "action": "ADD",
+  "trains": [
+    {
+      "trainNo": 3,
+      "linkId": 12,
+      "offsetMeters": 640.0,
+      "direction": "DOWN"
+    }
+  ],
+  "reason": "external train control attached",
+  "operator": "signal",
+  "confirmToken": "SIMULATION_CONFIRM",
+  "traceId": "signal-train-003"
+}
+```
+
+`action` 支持：
+
+| action | 对应协议指令 | 作用 |
+|---|---|---|
+| `ADD` | `0x01` | 建立中央侧外部车辆控制会话，并进入信号网/电网并入流程。 |
+| `DELETE` | `0x02` | 请求指定列车退出信号网和电网，完成退出后清理本地列车实体。 |
+| `CLEAR` | `0x04` | 请求所有列车退出。 |
+
+协议二进制模型在 `SignalTrainLifecycleCommandCodec` 中落地：包头 `0xff 0xf1`，小端，ADD 每车包含列车号、link ID、偏移、方向和保留字节，DELETE 每车只包含列车号。
+
+中央处理顺序：`TrainController` 转换请求 -> `TrainManager.applyLifecycleCommand()` -> `TrainManager.addTrain()` -> `OnboardTrainSubsystemManager.register()` -> 后续 tick 按信号和供电约束推进会话状态。
+
 ### 获取供电状态
 
 ```http
@@ -44,7 +84,10 @@ GET /api/power/maintenance-locks
 GET /api/energy/trains
 GET /api/energy/power-sections
 GET /api/vehicle/maintenance-states
+GET /api/vehicle/onboard-subsystems
 ```
+
+`GET /api/vehicle/onboard-subsystems` 返回中央侧纳管的单车基层智能子系统节点状态，用于查看本地/外部车辆控制节点是否在线、是否 fallback、租约是否仍有效。该接口只读，不用于调度越级控车。
 
 ### 仿真故障注入
 
@@ -184,7 +227,15 @@ GET /api/dispatch/station-records
 
 ## 外部车辆仿真协议适配
 
-该协议不是面向前端或调度系统的 REST 接口，而是后端 `VehiclePhysicsClient.stepFleet()` 背后的车辆物理端口实现。主系统仍通过 `TcmsAtoAdapterService` 汇总信号、轨道、供电约束后生成车辆控制输入；调度约束先由信号模块折算为 MA/限速或后续 `SignalVehicleCommand`。
+该协议不是面向前端或调度系统的 REST 接口，而是后端 `VehiclePhysicsClient.stepFleet()` 背后的车辆物理端口实现。主系统通过 `OnboardTrainSubsystemManager` 汇总信号、轨道、供电约束后生成车辆控制输入；调度约束先由信号模块折算为 MA/限速或后续 `SignalVehicleCommand`。
+
+中央到车辆控制节点的调用通过 `railway.simulation.onboard-subsystem-mode` 切换：
+
+| mode | 行为 |
+|---|---|
+| `IN_PROCESS` | 使用进程内 `OnboardTrainSubsystem`，默认模式。 |
+| `EXTERNAL_HTTP` | 通过 `HttpOnboardTrainSubsystemClient` 调用外部车辆控制节点，失败时本地 fallback。 |
+| `DUAL_SHADOW` | 本地输出为权威，外部节点只做影子在线验证。 |
 
 配置：
 
@@ -260,6 +311,12 @@ ws://localhost:8080/ws/simulation
   "id": "TR-001",
   "routeId": "demo-line-1",
   "serviceNo": "T001",
+  "controlSessionState": "IN_SERVICE",
+  "signalNetworkStatus": "ATTACHED",
+  "powerNetworkStatus": "ATTACHED",
+  "controlSessionReason": "EXTERNAL_CONTROL_IN_SERVICE",
+  "linkId": 12,
+  "direction": "DOWN",
   "positionMeters": 120.0,
   "speedMetersPerSecond": 12.5,
   "lengthMeters": 120.0,

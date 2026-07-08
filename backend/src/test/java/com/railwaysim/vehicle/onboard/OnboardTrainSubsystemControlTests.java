@@ -1,4 +1,4 @@
-package com.railwaysim.vehicle;
+package com.railwaysim.vehicle.onboard;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -12,27 +12,33 @@ import com.railwaysim.simulation.TickContext;
 import com.railwaysim.track.TrackConstraint;
 import com.railwaysim.train.TrainEntity;
 import com.railwaysim.train.TrainState;
+import com.railwaysim.vehicle.SimpleVehicleDynamicsModel;
+import com.railwaysim.vehicle.TrainStateReport;
+import com.railwaysim.vehicle.VehicleLoadPolicy;
+import com.railwaysim.vehicle.VehiclePhysicsInput;
+import com.railwaysim.vehicle.VehiclePhysicsOutput;
 import com.railwaysim.vehicle.external.ExternalSegmentMapper;
 import com.railwaysim.vehicle.external.ExternalTrainCommand;
 import com.railwaysim.vehicle.external.ExternalVehicleCommandMapper;
 import java.time.Instant;
 import org.junit.jupiter.api.Test;
 
-class TcmsAtoAdapterServiceTests {
+class OnboardTrainSubsystemControlTests {
 
     @Test
     void deenergizedPowerConstraintCutsTractionAndReportsCurrentCollectionFailure() {
-        TcmsAtoAdapterService adapter = adapter();
-        VehiclePhysicsInput input = adapter.buildVehiclePhysicsInput(
-            new TrainEntity("TR-001", "demo-line-1", 500, 120).state(),
-            new TickContext(1, 200, 0.2, Instant.now()),
+        OnboardTrainSubsystemManager manager = manager();
+        TrainState train = new TrainEntity("TR-001", "demo-line-1", 500, 120).state();
+        VehiclePhysicsInput input = control(
+            manager,
+            train,
             null,
             null,
             new PowerConstraint("TR-001", "P01", 0, 0, false, 0, false, false, "DEENERGIZED")
         );
 
         VehiclePhysicsOutput output = new SimpleVehicleDynamicsModel().step(input);
-        TrainStateReport report = adapter.buildTrainStateReport(input, output);
+        TrainStateReport report = manager.buildTrainStateReport(train, input, output);
 
         assertThat(input.tractionCommand()).isZero();
         ExternalTrainCommand externalCommand = new ExternalVehicleCommandMapper(
@@ -51,10 +57,11 @@ class TcmsAtoAdapterServiceTests {
 
     @Test
     void externalSimulatorFallbackFaultMarksVehicleDataQualityAsFallback() {
-        TcmsAtoAdapterService adapter = adapter();
-        VehiclePhysicsInput input = adapter.buildVehiclePhysicsInput(
-            new TrainEntity("TR-001", "demo-line-1", 500, 120).state(),
-            new TickContext(1, 200, 0.2, Instant.now()),
+        OnboardTrainSubsystemManager manager = manager();
+        TrainState train = new TrainEntity("TR-001", "demo-line-1", 500, 120).state();
+        VehiclePhysicsInput input = control(
+            manager,
+            train,
             null,
             null,
             new PowerConstraint("TR-001", "P01", 1500, 3_200_000, true)
@@ -76,7 +83,7 @@ class TcmsAtoAdapterServiceTests {
             "EXTERNAL_SIM_FALLBACK"
         );
 
-        TrainStateReport report = adapter.buildTrainStateReport(input, fallbackOutput);
+        TrainStateReport report = manager.buildTrainStateReport(train, input, fallbackOutput);
 
         assertThat(report.dataQuality()).isEqualTo("FALLBACK");
         assertThat(report.faultLevel()).isEqualTo(2);
@@ -85,10 +92,10 @@ class TcmsAtoAdapterServiceTests {
 
     @Test
     void stationApproachConstraintSelectsStationBrakeState() {
-        TcmsAtoAdapterService adapter = adapter();
-        VehiclePhysicsInput input = adapter.buildVehiclePhysicsInput(
+        OnboardTrainSubsystemManager manager = manager();
+        VehiclePhysicsInput input = control(
+            manager,
             movingTrainState(10.0),
-            new TickContext(1, 200, 0.2, Instant.now()),
             null,
             new TrackConstraint("TR-001", "SEG-1", 13.33, -0.02, 1_000, 35),
             new PowerConstraint("TR-001", "P01", 1500, 3_200_000, true)
@@ -103,26 +110,26 @@ class TcmsAtoAdapterServiceTests {
 
     @Test
     void dynamicOverloadDeratesTractionAndExtendsStoppingDistanceWithoutDispatchCommand() {
-        TcmsAtoAdapterService adapter = adapter();
+        OnboardTrainSubsystemManager manager = manager();
         TrainState normal = movingTrainState(5.0, 25_200, 6, 6);
         TrainState overloaded = movingTrainState(5.0, 86_400, 6, 6);
 
-        VehiclePhysicsInput normalInput = adapter.buildVehiclePhysicsInput(
+        VehiclePhysicsInput normalInput = control(
+            manager,
             normal,
-            new TickContext(1, 200, 0.2, Instant.now()),
             null,
             new TrackConstraint("TR-001", "SEG-1", 13.33, 0, 1_000, 1_000),
             new PowerConstraint("TR-001", "P01", 1500, 3_200_000, true)
         );
-        VehiclePhysicsInput overloadedInput = adapter.buildVehiclePhysicsInput(
+        VehiclePhysicsInput overloadedInput = control(
+            manager,
             overloaded,
-            new TickContext(1, 200, 0.2, Instant.now()),
             null,
             new TrackConstraint("TR-001", "SEG-1", 13.33, 0, 1_000, 1_000),
             new PowerConstraint("TR-001", "P01", 1500, 3_200_000, true)
         );
         VehiclePhysicsOutput output = new SimpleVehicleDynamicsModel().step(overloadedInput);
-        TrainStateReport report = adapter.buildTrainStateReport(overloaded, overloadedInput, output);
+        TrainStateReport report = manager.buildTrainStateReport(overloaded, overloadedInput, output);
 
         assertThat(normalInput.dynamicsState()).isEqualTo("ACCELERATING");
         assertThat(overloadedInput.dynamicsState()).isEqualTo("OVERLOAD_DERATED");
@@ -136,11 +143,11 @@ class TcmsAtoAdapterServiceTests {
 
     @Test
     void unavailableBrakeUnitsBlockVehicleSelfCheck() {
-        TcmsAtoAdapterService adapter = adapter();
+        OnboardTrainSubsystemManager manager = manager();
 
-        VehiclePhysicsInput input = adapter.buildVehiclePhysicsInput(
+        VehiclePhysicsInput input = control(
+            manager,
             movingTrainState(3.0, 25_200, 6, 0),
-            new TickContext(1, 200, 0.2, Instant.now()),
             null,
             new TrackConstraint("TR-001", "SEG-1", 13.33, 0, 1_000, 1_000),
             new PowerConstraint("TR-001", "P01", 1500, 3_200_000, true)
@@ -151,7 +158,23 @@ class TcmsAtoAdapterServiceTests {
         assertThat(input.brakeCommand()).isGreaterThan(0);
     }
 
-    private TcmsAtoAdapterService adapter() {
+    private VehiclePhysicsInput control(
+        OnboardTrainSubsystemManager manager,
+        TrainState train,
+        com.railwaysim.signal.MovementAuthority authority,
+        TrackConstraint track,
+        PowerConstraint power
+    ) {
+        return manager.control(new OnboardTrainControlInput(
+            train,
+            new TickContext(1, 200, 0.2, Instant.now()),
+            authority,
+            track,
+            power
+        )).physicsInput();
+    }
+
+    private OnboardTrainSubsystemManager manager() {
         SimulationProperties properties = new SimulationProperties();
         properties.setLineDataPath("../database/线路数据(1).xls");
         properties.setPowerConfigPath("../config/power_third_rail.yaml");
@@ -161,7 +184,7 @@ class TcmsAtoAdapterServiceTests {
             new YamlLineDataLoader(),
             new PowerConfigLoader()
         );
-        return new TcmsAtoAdapterService(properties, catalog);
+        return new OnboardTrainSubsystemManager(properties, catalog);
     }
 
     private TrainState movingTrainState(double speedMetersPerSecond) {
