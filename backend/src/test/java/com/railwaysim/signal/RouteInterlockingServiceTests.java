@@ -121,6 +121,11 @@ class RouteInterlockingServiceTests {
             0.02,
             true,
             "BRAKE_RESISTOR",
+            List.of(),
+            List.of(),
+            List.of(),
+            List.of(),
+            List.of(),
             List.of()
         );
     }

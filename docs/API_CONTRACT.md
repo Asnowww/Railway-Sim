@@ -116,7 +116,25 @@ GET /api/power/sections/{sectionId}
 GET /api/power/sections/{sectionId}/events
 GET /api/power/energy
 GET /api/power/maintenance-locks
+GET /api/power/substations
+GET /api/power/substations/{substationId}/devices
+GET /api/power/isolators
+GET /api/power/stray-current
+GET /api/power/external-health
 ```
+
+这些接口是其他模块访问中央供电控制模块的统一入口。外部供电仿真系统只由中央 `PowerIntegrationService` 调用，综合监控、车辆、调度、维修/能耗模块不得直接访问外部供电仿真服务。
+
+`PowerSectionState` 在分区电压、电流、负荷、保护和检修状态之外，已扩展：
+
+| 字段 | 含义 |
+|---|---|
+| `supplyMode` | `DOUBLE_END`、`SINGLE_END`、`CROSS_FEED`、`OUTAGE` 等供电方式。 |
+| `isolatorStatus` | 供电分区边界隔离开关汇总状态。 |
+| `substationAvailability` | 关联牵引变电所可用性。 |
+| `externalDataQuality` | 供电设备级状态来源质量，外部供电仿真失联时为 `FALLBACK`。 |
+| `strayCurrentRiskLevel` | 杂散电流风险等级：`NORMAL`、`ATTENTION`、`WARNING`、`CRITICAL`。 |
+| `strayCurrentRiskReason` | 杂散电流风险原因。 |
 
 ### 能耗和维修预留
 
@@ -136,6 +154,7 @@ GET /api/vehicle/onboard-subsystems
 ```http
 POST /api/power/sections/{sectionId}/faults
 POST /api/power/sections/{sectionId}/faults/clear
+POST /api/power/operations
 POST /api/trains/{trainId}/faults
 POST /api/trains/{trainId}/faults/clear
 ```
@@ -157,6 +176,7 @@ POST /api/trains/{trainId}/faults/clear
 - 写接口会记录 `operation_log`；供电写接口同时记录 `power_operation_log`。
 - 车辆故障注入会立即影响 `TrainState` 中的门、牵引、制动、受流、自检和故障等级字段。
 - 供电故障注入会立即刷新 `PowerSectionState`，清除故障不会绕过 `maintenanceState` 或 `lockoutState`。
+- `/api/power/operations` 是中央供电控制模块的设备级操作入口，用于隔离开关、变电所设备、排流柜等仿真操作；调用方仍是中央 REST，不直接访问外部供电仿真系统。
 - 调度策略只消费状态和影响范围，不由供电/车辆故障接口直接下发扣车或折返。
 
 ### 调度命令

@@ -2,6 +2,7 @@ package com.railwaysim.power;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.railwaysim.config.ExternalPowerNetworkProperties;
 import com.railwaysim.config.SimulationProperties;
 import com.railwaysim.infrastructure.PowerConfigLoader;
 import com.railwaysim.infrastructure.SpreadsheetLineDataLoader;
@@ -15,6 +16,7 @@ import com.railwaysim.train.TrainEntity;
 import com.railwaysim.vehicle.VehiclePhysicsOutput;
 import java.util.List;
 import org.junit.jupiter.api.Test;
+import org.springframework.web.client.RestClient;
 
 class PowerServiceTests {
 
@@ -60,6 +62,23 @@ class PowerServiceTests {
         assertThat(eventBus.drain()).anySatisfy(event -> assertThat(event).isInstanceOf(PowerFaultStateChangedEvent.class));
     }
 
+    @Test
+    void sectionStateIncludesExternalProjectionAndDeviceViews() {
+        PowerService powerService = powerService(new SimpleEventBus());
+        powerService.reset();
+        powerService.updateFromVehicleOutputs(List.of(output("TR-001", 500, 300, 200_000, 0)));
+
+        PowerSectionState section = powerService.section("P01");
+        assertThat(section.supplyMode()).isEqualTo("DOUBLE_END");
+        assertThat(section.isolatorStatus()).isEqualTo("CLOSED");
+        assertThat(section.substationAvailability()).isEqualTo("AVAILABLE");
+        assertThat(section.externalDataQuality()).isEqualTo("GOOD");
+        assertThat(section.strayCurrentRiskLevel()).isEqualTo("NORMAL");
+        assertThat(powerService.substations()).isNotEmpty();
+        assertThat(powerService.isolators()).isNotEmpty();
+        assertThat(powerService.strayCurrentRisks()).isNotEmpty();
+    }
+
     private PowerService powerService(SimpleEventBus eventBus) {
         SimulationProperties properties = new SimulationProperties();
         properties.setLineDataPath("../config/line-demo.yaml");
@@ -70,7 +89,20 @@ class PowerServiceTests {
             new YamlLineDataLoader(),
             new PowerConfigLoader()
         );
-        return new PowerService(catalog, new RealtimeStateCache(), eventBus);
+        PowerTopologyService topologyService = new PowerTopologyService(catalog);
+        PowerIntegrationService integrationService = new PowerIntegrationService(
+            new ExternalPowerNetworkProperties(),
+            topologyService,
+            RestClient.builder()
+        );
+        PowerConstraintService constraintService = new PowerConstraintService(catalog);
+        return new PowerService(
+            topologyService,
+            integrationService,
+            constraintService,
+            new RealtimeStateCache(),
+            eventBus
+        );
     }
 
     private VehiclePhysicsOutput output(

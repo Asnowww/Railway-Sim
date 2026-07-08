@@ -45,6 +45,11 @@ railway:
     onboard-subsystem-url: http://localhost:9100
     onboard-subsystem-timeout-millis: 300
     onboard-subsystem-lease-millis: 1000
+    external-power-network:
+      mode: LOCAL
+      base-url: http://localhost:9200
+      timeout-millis: 300
+      auto-bootstrap: true
     external-simulator:
       mode: LOCAL
       max-trains: 20
