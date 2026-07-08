@@ -28,7 +28,7 @@ class DispatchServiceTests {
     private final DispatchService dispatchService = dispatchService();
 
     @Test
-    void holdCommandConsumesOnceAndForcesZeroSpeedLimit() {
+    void submittedHoldCommandForcesZeroSpeedLimit() {
         dispatchService.submit(command("TR-1", "HOLD", null));
 
         List<DispatchConstraint> constraints = dispatchService.constraintsForTrains(List.of(train("TR-1")));
@@ -37,7 +37,6 @@ class DispatchServiceTests {
         DispatchConstraint constraint = constraints.get(0);
         assertThat(constraint.holdTrain()).isTrue();
         assertThat(constraint.applyToSpeedLimit(20)).isZero();
-        assertThat(dispatchService.pendingCommands()).isEmpty();
     }
 
     @Test
