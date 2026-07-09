@@ -1,7 +1,9 @@
 package com.railwaysim.vehicleruntime.runtime;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.railwaysim.vehicleruntime.api.VehicleRuntimeController;
 import com.railwaysim.vehicleruntime.config.VehicleRuntimeProperties;
 import com.railwaysim.vehicleruntime.model.MovementAuthoritySnapshot;
 import com.railwaysim.vehicleruntime.model.PowerConstraintSnapshot;
@@ -14,7 +16,9 @@ import java.time.Instant;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
+import org.springframework.http.HttpStatus;
 import org.springframework.web.client.RestClient;
+import org.springframework.web.server.ResponseStatusException;
 
 class VehicleRuntimeManagerTests {
 
@@ -102,9 +106,21 @@ class VehicleRuntimeManagerTests {
         assertThat(duplicate.trainOutputs()).isEmpty();
         assertThat(duplicate.instanceStates()).singleElement()
             .satisfies(state -> {
+                assertThat(state.lifecycleState()).isEqualTo("RUNNING");
+                assertThat(state.dataQuality()).isEqualTo("GOOD");
                 assertThat(state.controlQueueStatus()).isEqualTo("REJECTED");
                 assertThat(state.reason()).isEqualTo("STALE_OR_DUPLICATE_TICK");
             });
+    }
+
+    @Test
+    void registerRejectsPathAndBodyTrainIdMismatch() {
+        VehicleRuntimeController controller = new VehicleRuntimeController(manager());
+
+        assertThatThrownBy(() -> controller.register("TR-PATH", train("TR-BODY", 100, 0)))
+            .isInstanceOfSatisfying(ResponseStatusException.class, exception ->
+                assertThat(exception.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST)
+            );
     }
 
     @Test

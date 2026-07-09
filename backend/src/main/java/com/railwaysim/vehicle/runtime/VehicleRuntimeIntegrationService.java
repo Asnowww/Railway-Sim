@@ -261,8 +261,8 @@ public class VehicleRuntimeIntegrationService implements VehiclePowerLoadForward
         return new VehicleRuntimeStepResult(steps, health, latestInstances);
     }
 
-    private void bootstrapIfNeeded() {
-        if (!properties.isAutoBootstrap() || !bootstrapped.compareAndSet(false, true)) {
+    private synchronized void bootstrapIfNeeded() {
+        if (!properties.isAutoBootstrap() || bootstrapped.get()) {
             return;
         }
         double lineLength = infrastructureCatalog.lineData().lineLengthMeters() > 0
@@ -277,6 +277,8 @@ public class VehicleRuntimeIntegrationService implements VehiclePowerLoadForward
             properties.getMode() == VehicleRuntimeMode.EXTERNAL_HTTP
                 && externalPowerNetworkProperties.getMode() != ExternalPowerNetworkMode.LOCAL
         ));
+        // 只有 bootstrap 成功后才置位；失败保持可重试，避免外部运行时长期使用默认供电配置。
+        bootstrapped.set(true);
     }
 
     private boolean usesExternalRuntime() {

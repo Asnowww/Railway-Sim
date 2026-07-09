@@ -11,6 +11,7 @@ import com.railwaysim.vehicleruntime.model.VehicleRuntimeStepRequest;
 import com.railwaysim.vehicleruntime.model.VehicleRuntimeStepResponse;
 import com.railwaysim.vehicleruntime.runtime.VehicleRuntimeManager;
 import java.util.List;
+import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -19,6 +20,7 @@ import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.server.ResponseStatusException;
 
 /**
  * 外部车辆运行时 HTTP 边界，前端不直接访问，中央只通过受控接口同步状态。
@@ -46,8 +48,12 @@ public class VehicleRuntimeController {
     @PutMapping("/trains/{trainId}")
     public VehicleRuntimeInstanceState register(@PathVariable String trainId, @RequestBody(required = false) TrainStateSnapshot train) {
         // 兼容旧中央反向注册；请求体为空时用路径生成最小实例，避免旧联调调用失败。
-        TrainStateSnapshot effective = train == null ? minimalTrain(trainId) : train;
-        return manager.register(effective.id() == null || effective.id().isBlank() ? minimalTrain(trainId) : effective);
+        if (train != null && train.id() != null && !train.id().isBlank() && !trainId.equals(train.id())) {
+            // path 是路由权威标识，body 不一致直接拒绝，避免注册出另一个列车实例。
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "path trainId and body id must match");
+        }
+        TrainStateSnapshot effective = train == null || train.id() == null || train.id().isBlank() ? minimalTrain(trainId) : train;
+        return manager.register(effective);
     }
 
     @PostMapping("/trains/launch")

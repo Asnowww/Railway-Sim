@@ -61,12 +61,12 @@ final class VehicleRuntimeInstance {
         Instant startedAt = Instant.now();
         if (!inFlight.compareAndSet(false, true)) {
             // 同车上一 tick 未完成时直接拒绝，避免队列积压导致中央状态倒挂。
-            return reject("INSTANCE_BUSY", startedAt);
+            return rejectWithoutFault("INSTANCE_BUSY", startedAt);
         }
         try {
             if (tick <= lastTick) {
-                // 过期或重复 tick 不再重算，中央应按响应质量决定是否 fallback。
-                return reject("STALE_OR_DUPLICATE_TICK", startedAt);
+                // 重放同一 tick 是幂等/重试场景，不改变车辆生命周期和数据质量。
+                return rejectWithoutFault("STALE_OR_DUPLICATE_TICK", startedAt);
             }
             controlQueueStatus = "RUNNING";
             VehiclePhysicsInputDto input = controlQueue.control(tick, deltaSeconds, train, authority, track, dispatch, power);
@@ -108,6 +108,15 @@ final class VehicleRuntimeInstance {
     private StepResult reject(String rejectReason, Instant startedAt) {
         lifecycleState = "FAULT";
         dataQuality = "INVALID";
+        reason = rejectReason;
+        controlQueueStatus = "REJECTED";
+        simulationQueueStatus = "REJECTED";
+        latencyMillis = Duration.between(startedAt, Instant.now()).toMillis();
+        updatedAt = Instant.now();
+        return new StepResult(Optional.empty(), Optional.empty(), state());
+    }
+
+    private StepResult rejectWithoutFault(String rejectReason, Instant startedAt) {
         reason = rejectReason;
         controlQueueStatus = "REJECTED";
         simulationQueueStatus = "REJECTED";
