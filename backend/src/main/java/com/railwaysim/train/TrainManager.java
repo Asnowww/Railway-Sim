@@ -138,7 +138,7 @@ public class TrainManager {
             return existing.get().state(existingNode);
         }
         String routeId = infrastructureCatalog.lineData().lineId();
-        TrainEntity train = new TrainEntity(trainId, routeId, spec.offsetMeters(), 120, 0.35);
+        TrainEntity train = new TrainEntity(trainId, routeId, spec.offsetMeters(), 120, 0.35, infrastructureCatalog.lineData());
         trains.add(train);
         onboardTrainSubsystemManager.register(trainId);
         controlSessions.put(trainId, ExternalTrainControlSession.connecting(
@@ -166,7 +166,7 @@ public class TrainManager {
             return existing.get().state(controlSessions.get(trainId));
         }
         String routeId = infrastructureCatalog.lineData().lineId();
-        TrainEntity train = new TrainEntity(trainId.trim(), routeId, offsetMeters, 120, 0.35);
+        TrainEntity train = new TrainEntity(trainId.trim(), routeId, offsetMeters, 120, 0.35, infrastructureCatalog.lineData());
         trains.add(train);
         // 该入口由 9300 主动发起，中央只建立镜像和 fallback 纳管视图，不能再反向注册 9300。
         onboardTrainSubsystemManager.register(train.id());
@@ -302,7 +302,7 @@ public class TrainManager {
         int linkId,
         ExternalTrainDirection direction
     ) {
-        TrainEntity train = new TrainEntity(trainId, routeId, positionMeters, 120, loadRate);
+        TrainEntity train = new TrainEntity(trainId, routeId, positionMeters, 120, loadRate, infrastructureCatalog.lineData());
         trains.add(train);
         onboardTrainSubsystemManager.register(trainId);
         controlSessions.put(trainId, ExternalTrainControlSession.inService(trainId, linkId, positionMeters, direction));

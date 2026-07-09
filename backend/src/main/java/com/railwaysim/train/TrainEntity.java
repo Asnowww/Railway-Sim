@@ -1,5 +1,6 @@
 package com.railwaysim.train;
 
+import com.railwaysim.infrastructure.OperationalLineData;
 import com.railwaysim.vehicle.TrainStateReport;
 import com.railwaysim.vehicle.VehicleLoadPolicy;
 import com.railwaysim.vehicle.VehiclePhysicsOutput;
@@ -8,6 +9,7 @@ import com.railwaysim.vehicle.drivercab.DriverCabPlcInputPacket;
 import com.railwaysim.vehicle.drivercab.DriverCabStateSnapshot;
 import com.railwaysim.vehicle.protocol.TrainOperationalTelemetry;
 import java.time.Instant;
+import java.util.List;
 
 public class TrainEntity {
 
@@ -56,18 +58,31 @@ public class TrainEntity {
     private int dwellElapsedSeconds;
     private String lastDepartureAt;
     private DriverCabStateSnapshot driverCabState;
+    private final List<OperationalLineData.StationDefinition> stations;
 
     public TrainEntity(String id, String routeId, double positionMeters, double lengthMeters) {
         this(id, routeId, positionMeters, lengthMeters, 0.35);
     }
 
     public TrainEntity(String id, String routeId, double positionMeters, double lengthMeters, double loadRate) {
+        this(id, routeId, positionMeters, lengthMeters, loadRate, null);
+    }
+
+    public TrainEntity(
+        String id,
+        String routeId,
+        double positionMeters,
+        double lengthMeters,
+        double loadRate,
+        OperationalLineData lineData
+    ) {
         this.id = id;
         this.routeId = routeId;
         this.positionMeters = positionMeters;
         this.lengthMeters = lengthMeters;
         this.loadRate = loadRate;
         this.loadMassKg = VehicleLoadPolicy.loadMassFromRate(loadRate);
+        this.stations = lineData == null ? List.of() : lineData.stations();
     }
 
     public void applyPhysicsOutput(VehiclePhysicsOutput output, TrainStateReport report) {
@@ -323,6 +338,18 @@ public class TrainEntity {
     }
 
     private String inferStationId() {
+        if (!stations.isEmpty()) {
+            String nearest = null;
+            double nearestDistance = Double.MAX_VALUE;
+            for (OperationalLineData.StationDefinition station : stations) {
+                double distance = Math.abs(positionMeters - station.centerMeters());
+                if (distance < nearestDistance) {
+                    nearestDistance = distance;
+                    nearest = station.id();
+                }
+            }
+            return nearestDistance <= 30 ? nearest : null;
+        }
         double[] stationPositions = {0, 1250, 2500, 3750, 5000};
         String[] stationIds = {"S01", "S02", "S03", "S04", "S05"};
         String nearest = null;

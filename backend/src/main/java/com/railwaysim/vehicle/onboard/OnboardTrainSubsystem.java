@@ -19,12 +19,16 @@ class OnboardTrainSubsystem {
     private static final double GRAVITY = 9.81;
     private static final double SERVICE_BRAKE_DECELERATION = 0.9;
     private static final double STATION_STOP_WINDOW_METERS = 8.0;
+    private static final double STATION_EXIT_WINDOW_METERS = 30.0;
+    private static final double STATION_RELEASE_DISTANCE_METERS = 40.0;
     private static final double NO_STATION_DISTANCE_METERS = 1_000_000;
 
     private final String trainId;
     private final String subsystemId;
     private final SimulationProperties simulationProperties;
     private final StaticInfrastructureCatalog infrastructureCatalog;
+    private String releasedStationId;
+    private double releasedStationPositionMeters = Double.NaN;
 
     OnboardTrainSubsystem(
         String trainId,
@@ -47,7 +51,12 @@ class OnboardTrainSubsystem {
         double maDistance = resolveMovementAuthorityDistance(train, input.authority());
         boolean doorClosed = "CLOSED_LOCKED".equals(train.doorState());
         double stationDistance = resolveStationDistance(train, input.track());
-        if (shouldReleaseStationStop(train, input.dispatch())) {
+        boolean releaseStationStop = shouldReleaseStationStop(train, input.dispatch());
+        if (releaseStationStop) {
+            beginStationRelease(train);
+        }
+        boolean stationReleaseWindowActive = shouldSuppressReleasedStationCapture(train, stationDistance);
+        if (stationReleaseWindowActive) {
             stationDistance = NO_STATION_DISTANCE_METERS;
         }
         double loadMassKg = VehicleLoadPolicy.loadMassKg(train.loadMassKg(), train.loadRate());
@@ -59,7 +68,8 @@ class OnboardTrainSubsystem {
             doorClosed,
             input.track(),
             input.power(),
-            input.authority()
+            input.authority(),
+            stationReleaseWindowActive
         );
 
         VehiclePhysicsInput physicsInput = new VehiclePhysicsInput(
@@ -145,7 +155,8 @@ class OnboardTrainSubsystem {
         boolean doorClosed,
         TrackConstraint track,
         PowerConstraint power,
-        MovementAuthority authority
+        MovementAuthority authority,
+        boolean stationReleaseWindowActive
     ) {
         double speed = train.speedMetersPerSecond();
         double loadMassKg = VehicleLoadPolicy.loadMassKg(train.loadMassKg(), train.loadRate());
@@ -195,6 +206,18 @@ class OnboardTrainSubsystem {
                 "TRACTION_UNAVAILABLE",
                 0,
                 speed > 0.1 ? 0.4 : 0,
+                false,
+                stoppingDistance
+            );
+        }
+
+        if (stationReleaseWindowActive) {
+            double speedMargin = speedLimit - speed;
+            return new DynamicsDecision(
+                TrainDynamicsState.DEPARTING_STATION,
+                "STATION_RELEASE_WINDOW",
+                tractionForSpeedMargin(speedMargin, speedLimit) * tractionCapacityFactor,
+                0,
                 false,
                 stoppingDistance
             );
@@ -339,6 +362,38 @@ class OnboardTrainSubsystem {
             || (train.currentStationId() != null && !train.currentStationId().isBlank())
             || train.dwellElapsedSeconds() > 0;
         return dwelling && train.speedMetersPerSecond() <= 0.5;
+    }
+
+    private void beginStationRelease(TrainState train) {
+        releasedStationId = stationIdOrUnknown(train.currentStationId());
+        releasedStationPositionMeters = train.positionMeters();
+    }
+
+    private boolean shouldSuppressReleasedStationCapture(TrainState train, double stationDistance) {
+        if (releasedStationId == null) {
+            return false;
+        }
+        double departedMeters = Math.abs(train.positionMeters() - releasedStationPositionMeters);
+        if (departedMeters >= STATION_RELEASE_DISTANCE_METERS || stationDistance > STATION_EXIT_WINDOW_METERS) {
+            clearStationRelease();
+            return false;
+        }
+        if (train.currentStationId() != null
+            && !train.currentStationId().isBlank()
+            && !releasedStationId.equals(stationIdOrUnknown(train.currentStationId()))) {
+            clearStationRelease();
+            return false;
+        }
+        return true;
+    }
+
+    private void clearStationRelease() {
+        releasedStationId = null;
+        releasedStationPositionMeters = Double.NaN;
+    }
+
+    private String stationIdOrUnknown(String stationId) {
+        return stationId == null || stationId.isBlank() ? "UNKNOWN_STATION" : stationId;
     }
 
     private String resolveOperationMode(VehiclePhysicsInput input) {
