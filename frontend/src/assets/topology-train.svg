@@ -1,0 +1,17 @@
+<svg width="92" height="42" viewBox="0 0 92 42" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <filter id="shadow" x="2" y="4" width="88" height="36" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+    <feDropShadow dx="0" dy="3" stdDeviation="2.5" flood-color="#0f172a" flood-opacity="0.22"/>
+  </filter>
+  <g filter="url(#shadow)">
+    <path d="M13 28C10.7909 28 9 26.2091 9 24V17.0176C9 14.9365 10.5948 13.2015 12.6683 13.0261L68.8039 8.27712C72.2827 7.98277 75.6039 9.78613 77.2512 12.8659L82.1973 22.1102C83.6223 24.7738 81.6926 28 78.6715 28H13Z" fill="#2563EB"/>
+    <path d="M15 25C13.8954 25 13 24.1046 13 23V17.9088C13 16.8695 13.7953 16.0022 14.8301 15.9131L67.2533 11.3988C70.085 11.155 72.7918 12.6135 74.1477 15.111L78.8488 23.7716C79.2102 24.4372 78.7284 25.2457 77.9711 25.2442L15 25Z" fill="#EFF6FF"/>
+    <path d="M19 18.5C19 17.6716 19.6716 17 20.5 17H35.5C36.3284 17 37 17.6716 37 18.5V21.5C37 22.3284 36.3284 23 35.5 23H20.5C19.6716 23 19 22.3284 19 21.5V18.5Z" fill="#0F172A"/>
+    <path d="M41 17.5C41 16.6716 41.6716 16 42.5 16H55.5C56.3284 16 57 16.6716 57 17.5V21.5C57 22.3284 56.3284 23 55.5 23H42.5C41.6716 23 41 22.3284 41 21.5V17.5Z" fill="#0F172A"/>
+    <path d="M61 16.5C61 15.6716 61.6716 15 62.5 15H68.7251C70.1895 15 71.5297 15.8254 72.1876 17.1335L74.2992 21.331C74.7173 22.1622 74.1132 23.1429 73.1827 23.1429H62.5C61.6716 23.1429 61 22.4713 61 21.6429V16.5Z" fill="#0F172A"/>
+    <path d="M15 27.5H80" stroke="#1D4ED8" stroke-width="3" stroke-linecap="round"/>
+    <circle cx="24" cy="30" r="3" fill="#1E293B"/>
+    <circle cx="64" cy="30" r="3" fill="#1E293B"/>
+    <path d="M10.5 20.5H15" stroke="#FBBF24" stroke-width="2" stroke-linecap="round"/>
+    <path d="M79 24H83" stroke="#EF4444" stroke-width="2" stroke-linecap="round"/>
+  </g>
+</svg>
