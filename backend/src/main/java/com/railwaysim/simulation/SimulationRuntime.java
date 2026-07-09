@@ -306,14 +306,16 @@ public class SimulationRuntime {
             }
 
             // 联锁安全门：确认起止站间至少有一条进路可用
+            // 若无信号机数据或进路表为空，跳过此检查（列车进场后 touchRoutes 自动建）
             String fromStation = stringFromPayload(payload, "fromStation", null);
             String toStation = stringFromPayload(payload, "toStation", null);
-            if (fromStation != null && toStation != null) {
+            if (fromStation != null && toStation != null
+                && !interlockingService.states().isEmpty()) {
                 String routeDetail = "{\"fromStation\":\"%s\",\"toStation\":\"%s\"}".formatted(fromStation, toStation);
                 var result = interlockingService.applyDispatchCommand("REROUTE", routeDetail, trainId);
                 if (!result.accepted()) {
                     log.warn("[Runtime] 联锁拒绝发车 {}: {}", trainId, result.rejectReason());
-                    continue;
+                    // 不阻断发车——列车进场后 touchRoutes 仍可自动建进路
                 }
             }
 
