@@ -3,6 +3,9 @@ package com.railwaysim.train;
 import com.railwaysim.vehicle.TrainStateReport;
 import com.railwaysim.vehicle.VehicleLoadPolicy;
 import com.railwaysim.vehicle.VehiclePhysicsOutput;
+import com.railwaysim.vehicle.drivercab.DriverCabMasterHandleState;
+import com.railwaysim.vehicle.drivercab.DriverCabPlcInputPacket;
+import com.railwaysim.vehicle.drivercab.DriverCabStateSnapshot;
 import com.railwaysim.vehicle.protocol.TrainOperationalTelemetry;
 import java.time.Instant;
 
@@ -52,6 +55,7 @@ public class TrainEntity {
     private String currentStationId;
     private int dwellElapsedSeconds;
     private String lastDepartureAt;
+    private DriverCabStateSnapshot driverCabState;
 
     public TrainEntity(String id, String routeId, double positionMeters, double lengthMeters) {
         this(id, routeId, positionMeters, lengthMeters, 0.35);
@@ -187,7 +191,8 @@ public class TrainEntity {
             effectiveFaultCode,
             currentStationId,
             dwellElapsedSeconds,
-            lastDepartureAt
+            lastDepartureAt,
+            driverCabState
         );
     }
 
@@ -215,6 +220,77 @@ public class TrainEntity {
             availableOperationMode = "NO_DEPARTURE";
         }
         vehicleFaultSpeedLimitMetersPerSecond = telemetry.faultSpeedLimitMetersPerSecond();
+    }
+
+    public void applyDriverCabInput(DriverCabPlcInputPacket input) {
+        if (input == null) {
+            throw new IllegalArgumentException("driver cab PLC input is required");
+        }
+        driverCabState = DriverCabStateSnapshot.fromInput(input, Instant.now());
+        if (input.openDoorRequested()) {
+            doorState = "OPEN";
+        } else if (input.closeDoorRequested()) {
+            doorState = "CLOSED_LOCKED";
+        }
+
+        if (!input.keySwitchLocked()) {
+            operationMode = "STANDBY";
+            tractionState = "IDLE";
+            brakeState = speedMetersPerSecond > 0.1 ? "SERVICE" : "RELEASED";
+            tractionAvailable = false;
+            selfCheckStatus = "FAIL";
+            faultLevel = Math.max(faultLevel, 2);
+            availableOperationMode = "NO_DEPARTURE";
+            vehicleProtectionReason = "DRIVER_CAB_KEY_OFF";
+            faultCode = "DRIVER_CAB_KEY_OFF";
+            return;
+        }
+
+        if ("DRIVER_CAB_KEY_OFF".equals(faultCode)) {
+            faultCode = "OK";
+            faultLevel = 0;
+            selfCheckStatus = "PASS";
+            availableOperationMode = "NORMAL";
+            tractionAvailable = true;
+            vehicleProtectionReason = "NONE";
+        }
+
+        if (input.emergencyBrakeRequested()) {
+            operationMode = "ATP_BRAKE";
+            brakeState = "EMERGENCY";
+            tractionState = "IDLE";
+            status = "EMERGENCY_BRAKE";
+            faultCode = "DRIVER_CAB_EMERGENCY_BRAKE";
+            faultLevel = Math.max(faultLevel, 3);
+            availableOperationMode = "NO_DEPARTURE";
+            vehicleProtectionReason = "DRIVER_CAB_EMERGENCY_BRAKE";
+            return;
+        }
+
+        if (input.automaticTurnbackFlag()) {
+            operationMode = "AR";
+        } else if (input.atoStartFlag()) {
+            operationMode = "ATO";
+        } else if (input.masterHandleState() != DriverCabMasterHandleState.ZERO) {
+            operationMode = "DEGRADED";
+        }
+
+        switch (input.masterHandleState()) {
+            case TRACTION -> {
+                tractionState = "APPLYING";
+                brakeState = "RELEASED";
+            }
+            case BRAKE -> {
+                tractionState = "IDLE";
+                brakeState = "SERVICE";
+            }
+            default -> {
+                if (!"EMERGENCY".equals(brakeState)) {
+                    tractionState = "IDLE";
+                    brakeState = "RELEASED";
+                }
+            }
+        }
     }
 
     public void injectFault(String faultCode) {

@@ -17,6 +17,7 @@ import com.railwaysim.simulation.event.TrainFaultStateChangedEvent;
 import com.railwaysim.simulation.event.VehiclePhysicsUpdatedEvent;
 import com.railwaysim.track.TrackConstraint;
 import com.railwaysim.vehicle.VehiclePhysicsOutput;
+import com.railwaysim.vehicle.drivercab.DriverCabPlcInputPacket;
 import com.railwaysim.vehicle.onboard.OnboardTrainSubsystemManager;
 import com.railwaysim.vehicle.protocol.TrainOperationalTelemetry;
 import com.railwaysim.vehicle.external.ExternalTrainDirection;
@@ -208,6 +209,12 @@ public class TrainManager {
                 train.applyOperationalTelemetry(telemetry);
             }
         }
+    }
+
+    public synchronized TrainState applyDriverCabInput(String trainId, DriverCabPlcInputPacket input) {
+        TrainEntity train = trainEntity(trainId);
+        train.applyDriverCabInput(input);
+        return train.state(controlSessions.get(train.id()));
     }
 
     public synchronized List<TrainState> states() {

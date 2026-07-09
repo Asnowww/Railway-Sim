@@ -53,7 +53,7 @@ GET /api/signal/vehicles/statuses
 | `dataQuality` | 适配层 | GOOD、FALLBACK、INVALID。 |
 | `driverConsoleState` | 司机台 PLC 状态投影 | 对齐门模式开关、ATO 启动标志、模式升/降级确认、自动折返、方向手柄和主手柄状态。 |
 
-`driverConsoleState` 当前由车辆状态派生，字段覆盖司机台 PLC 协议 T19/T20 中本期需要的开关量：
+`driverConsoleState` 当前优先来自车辆控制系统内的 `DriverCabStateSnapshot`；若没有真实司机台 PLC 输入，则由车辆状态派生。字段覆盖司机台 PLC 协议 T19/T20 中本期需要的开关量：
 
 | 字段 | 取值 | 说明 |
 |---|---|---|
@@ -63,6 +63,8 @@ GET /api/signal/vehicles/statuses
 | `automaticTurnbackFlag` | boolean | `operationMode=AR` 时置位。 |
 | `directionHandleState` | `ZERO`、`FORWARD`、`BACKWARD` | 当前按列车上下行接入方向投影为前进位。 |
 | `masterHandleState` | `ZERO`、`TRACTION`、`BRAKE`、`FAST_BRAKE` | 按牵引、常用制动、紧急制动状态投影。 |
+
+司机台 PLC 原始报文不属于车辆-信号接口本身，而属于 `司机驾驶模拟台 PLC <-> 车辆控制系统 DriverCabAdapter`。车辆-信号接口只消费车辆控制系统整理后的 `driverConsoleState` 和 `cabDisplay`。
 
 ### 车辆遥测 JSON 入口
 

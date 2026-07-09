@@ -1,6 +1,7 @@
 package com.railwaysim.train;
 
 import com.railwaysim.vehicle.VehicleLoadPolicy;
+import com.railwaysim.vehicle.drivercab.DriverCabStateSnapshot;
 import com.railwaysim.vehicle.external.ExternalTrainDirection;
 
 public record TrainState(
@@ -56,8 +57,122 @@ public record TrainState(
     String faultCode,
     String currentStationId,
     int dwellElapsedSeconds,
-    String lastDepartureAt
+    String lastDepartureAt,
+    DriverCabStateSnapshot driverCabState
 ) {
+    public TrainState(
+        String id,
+        String routeId,
+        String serviceNo,
+        String controlSessionState,
+        String signalNetworkStatus,
+        String powerNetworkStatus,
+        String controlSessionReason,
+        int linkId,
+        String direction,
+        double positionMeters,
+        double speedMetersPerSecond,
+        double lengthMeters,
+        double headMileage,
+        double tailMileage,
+        double loadRate,
+        double loadMassKg,
+        String overloadStatus,
+        int availableTractionCount,
+        int availableBrakeCount,
+        String vehicleProtectionReason,
+        String status,
+        String operationMode,
+        boolean zeroSpeed,
+        String doorState,
+        String tractionState,
+        String brakeState,
+        String currentCollectionStatus,
+        boolean tractionAvailable,
+        boolean brakeAvailable,
+        String selfCheckStatus,
+        int faultLevel,
+        String availableOperationMode,
+        String dataQuality,
+        String dynamicsState,
+        String dynamicsConstraintReason,
+        double speedLimitMetersPerSecond,
+        double vehicleFaultSpeedLimitMetersPerSecond,
+        double movementAuthorityDistanceMeters,
+        double stationDistanceMeters,
+        double stoppingDistanceMeters,
+        double accelerationMetersPerSecondSquared,
+        double tractionForceNewtons,
+        double brakeForceNewtons,
+        double regenBrakeForceNewtons,
+        double railCurrentAmps,
+        double tractionPowerWatts,
+        double regenPowerWatts,
+        double energyConsumedKwh,
+        double energyRegeneratedKwh,
+        String faultCode,
+        String currentStationId,
+        int dwellElapsedSeconds,
+        String lastDepartureAt
+    ) {
+        this(
+            id,
+            routeId,
+            serviceNo,
+            controlSessionState,
+            signalNetworkStatus,
+            powerNetworkStatus,
+            controlSessionReason,
+            linkId,
+            direction,
+            positionMeters,
+            speedMetersPerSecond,
+            lengthMeters,
+            headMileage,
+            tailMileage,
+            loadRate,
+            loadMassKg,
+            overloadStatus,
+            availableTractionCount,
+            availableBrakeCount,
+            vehicleProtectionReason,
+            status,
+            operationMode,
+            zeroSpeed,
+            doorState,
+            tractionState,
+            brakeState,
+            currentCollectionStatus,
+            tractionAvailable,
+            brakeAvailable,
+            selfCheckStatus,
+            faultLevel,
+            availableOperationMode,
+            dataQuality,
+            dynamicsState,
+            dynamicsConstraintReason,
+            speedLimitMetersPerSecond,
+            vehicleFaultSpeedLimitMetersPerSecond,
+            movementAuthorityDistanceMeters,
+            stationDistanceMeters,
+            stoppingDistanceMeters,
+            accelerationMetersPerSecondSquared,
+            tractionForceNewtons,
+            brakeForceNewtons,
+            regenBrakeForceNewtons,
+            railCurrentAmps,
+            tractionPowerWatts,
+            regenPowerWatts,
+            energyConsumedKwh,
+            energyRegeneratedKwh,
+            faultCode,
+            currentStationId,
+            dwellElapsedSeconds,
+            lastDepartureAt,
+            null
+        );
+    }
+
     public TrainState(
         String id,
         String routeId,
@@ -153,6 +268,7 @@ public record TrainState(
             faultCode,
             null,
             0,
+            null,
             null
         );
     }
@@ -255,6 +371,7 @@ public record TrainState(
             faultCode,
             null,
             0,
+            null,
             null
         );
     }

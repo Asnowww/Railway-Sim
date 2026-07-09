@@ -1,6 +1,10 @@
 package com.railwaysim.signal.vehicle;
 
 import com.railwaysim.train.TrainState;
+import com.railwaysim.vehicle.drivercab.DriverCabDirectionHandleState;
+import com.railwaysim.vehicle.drivercab.DriverCabDoorModeSwitch;
+import com.railwaysim.vehicle.drivercab.DriverCabMasterHandleState;
+import com.railwaysim.vehicle.drivercab.DriverCabStateSnapshot;
 
 public record SignalDriverConsoleState(
     String trainId,
@@ -13,6 +17,9 @@ public record SignalDriverConsoleState(
     MasterHandleState masterHandleState
 ) {
     public static SignalDriverConsoleState from(TrainState train) {
+        if (train.driverCabState() != null) {
+            return fromDriverCabState(train.id(), train.driverCabState());
+        }
         return new SignalDriverConsoleState(
             train.id(),
             resolveDoorMode(train),
@@ -23,6 +30,44 @@ public record SignalDriverConsoleState(
             resolveDirectionHandle(train),
             resolveMasterHandle(train)
         );
+    }
+
+    private static SignalDriverConsoleState fromDriverCabState(String trainId, DriverCabStateSnapshot state) {
+        return new SignalDriverConsoleState(
+            trainId,
+            mapDoorMode(state.doorModeSwitchState()),
+            state.atoStartFlag(),
+            state.modeUpgradeConfirmFlag(),
+            state.modeDowngradeConfirmFlag(),
+            state.automaticTurnbackFlag(),
+            mapDirectionHandle(state.directionHandleState()),
+            mapMasterHandle(state.masterHandleState())
+        );
+    }
+
+    private static DoorModeSwitch mapDoorMode(DriverCabDoorModeSwitch state) {
+        return switch (state) {
+            case MANUAL -> DoorModeSwitch.MANUAL;
+            case AUTOMATIC -> DoorModeSwitch.AUTOMATIC;
+            default -> DoorModeSwitch.SEMI_AUTOMATIC;
+        };
+    }
+
+    private static DirectionHandleState mapDirectionHandle(DriverCabDirectionHandleState state) {
+        return switch (state) {
+            case FORWARD -> DirectionHandleState.FORWARD;
+            case BACKWARD -> DirectionHandleState.BACKWARD;
+            default -> DirectionHandleState.ZERO;
+        };
+    }
+
+    private static MasterHandleState mapMasterHandle(DriverCabMasterHandleState state) {
+        return switch (state) {
+            case TRACTION -> MasterHandleState.TRACTION;
+            case BRAKE -> MasterHandleState.BRAKE;
+            case FAST_BRAKE -> MasterHandleState.FAST_BRAKE;
+            default -> MasterHandleState.ZERO;
+        };
     }
 
     private static DoorModeSwitch resolveDoorMode(TrainState train) {
