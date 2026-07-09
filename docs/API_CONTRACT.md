@@ -30,11 +30,27 @@ GET /api/trains/{trainId}/faults
 
 ### 外部车辆控制会话接入/退出
 
-中央系统只接收外部车辆控制子系统的接入/退出语义，不负责启动车辆控制系统本体，也不替信号系统生成具体行车命令。
+推荐启动流程由外部车辆运行时发起：`vehicle-runtime-service:9300` 先启动车辆仿真实例并唤醒车辆控制队列，再调用中央注册接口建立状态镜像。中央不替信号系统生成具体行车命令。
 
 ```http
+POST /api/trains/runtime-registrations
 POST /api/trains/lifecycle
 ```
+
+`POST /api/trains/runtime-registrations` 是服务间入口，由 `vehicle-runtime-service` 调用：
+
+```json
+{
+  "trainId": "TR-003",
+  "linkId": 12,
+  "offsetMeters": 640.0,
+  "direction": "DOWN",
+  "reason": "vehicle runtime launch",
+  "traceId": "runtime-train-003"
+}
+```
+
+`POST /api/trains/lifecycle` 作为中央侧兼容/联调入口保留：
 
 请求：
 
@@ -66,7 +82,9 @@ POST /api/trains/lifecycle
 
 协议二进制模型在 `SignalTrainLifecycleCommandCodec` 中落地：包头 `0xff 0xf1`，小端，ADD 每车包含列车号、link ID、偏移、方向和保留字节，DELETE 每车只包含列车号。
 
-中央处理顺序：`TrainController` 转换请求 -> `TrainManager.applyLifecycleCommand()` -> `TrainManager.addTrain()` -> `OnboardTrainSubsystemManager.register()` -> 后续 tick 按信号和供电约束推进会话状态。
+推荐处理顺序：`vehicle-runtime-service /vehicle-runtime/trains/launch` -> 创建 `VehicleRuntimeInstance` -> 唤醒 `VehicleControlQueue` -> `TrainController.registerFromVehicleRuntime()` -> `TrainManager.registerRuntimeStartedTrain()` -> 后续 tick 按信号和供电约束推进会话状态。
+
+兼容处理顺序：`POST /api/trains/lifecycle` -> `TrainManager.applyLifecycleCommand()` -> `TrainManager.addTrain()` -> 中央反向注册外部运行时。该路径用于旧演示和生命周期语义联调，不作为推荐列车启动流程。
 
 ### 车辆-信号接口
 
@@ -123,7 +141,7 @@ GET /api/power/stray-current
 GET /api/power/external-health
 ```
 
-这些接口是其他模块访问中央供电控制模块的统一入口。外部供电仿真系统只由中央 `PowerIntegrationService` 调用，综合监控、车辆、调度、维修/能耗模块不得直接访问外部供电仿真服务。
+这些接口是其他模块访问中央供电控制模块的统一入口。外部供电仿真系统由中央 `PowerIntegrationService` 管控；在 `EXTERNAL_HTTP` 权威车辆运行时健康且 `forwardPowerLoads=true` 时，`vehicle-runtime-service` 可作为仿真层把分区负荷推送到供电仿真，但综合监控、车辆、调度、维修/能耗等中央业务模块不得直接访问外部供电仿真服务。
 
 `PowerSectionState` 在分区电压、电流、负荷、保护和检修状态之外，已扩展：
 
@@ -133,8 +151,17 @@ GET /api/power/external-health
 | `isolatorStatus` | 供电分区边界隔离开关汇总状态。 |
 | `substationAvailability` | 关联牵引变电所可用性。 |
 | `externalDataQuality` | 供电设备级状态来源质量，外部供电仿真失联时为 `FALLBACK`。 |
+| `externalVoltage` | 外部供电仿真返回的接触轨电压；`voltage` 仍表示中央本地计算电压。 |
+| `externalCurrent` | 外部供电仿真返回的区段牵引电流。 |
+| `externalLoadWatts` | 外部供电仿真返回的区段牵引负荷。 |
+| `voltageDeviation` | 外部电压减中央电压，单位 V。 |
+| `voltageDeviationPercent` | 电压偏差百分比，按中央电压归一化。 |
+| `voltageComparisonStatus` | `NO_EXTERNAL_DATA`、`MATCHED`、`DEVIATED`、`DIVERGED`。 |
+| `externalSupportReason` | 外部仿真对当前供电支撑方式、电压结果或降级原因的说明。 |
 | `strayCurrentRiskLevel` | 杂散电流风险等级：`NORMAL`、`ATTENTION`、`WARNING`、`CRITICAL`。 |
 | `strayCurrentRiskReason` | 杂散电流风险原因。 |
+
+中央仍以本地 `voltage/current/availablePowerWatts` 生成车辆 `PowerConstraint`；外部电压 v1 只进入监控、偏差告警和联调可视化。
 
 ### 能耗和维修预留
 
@@ -422,6 +449,59 @@ Content-Type: application/json
 | `SPEED_LIMIT` / `TEMP_SPEED_LIMIT` | 速度上限，单位 m/s | 由信号模块与轨道限速、安全距离共同计算后下发给车辆 |
 | `SPEED_FACTOR` / `LIMIT_FACTOR` | 0-1 比例 | 由信号模块折算速度授权，不由车辆直接消费 |
 
+## 外部车辆运行时服务接口
+
+`vehicle-runtime-service` 是新的外部车辆侧运行时，默认端口 `9300`。中央系统仍是唯一对前端和其他中央模块开放的入口；列车启动推荐由 `vehicle-runtime-service` 主动发起，中央通过 `railway.simulation.vehicle-runtime.mode=EXTERNAL_HTTP` 或 `DUAL_SHADOW` 在后续 tick 中接入外部服务。
+
+车辆接口迁移边界见 `docs/车辆运行时接口迁移评估.md`：中央 REST / WebSocket 保留为业务入口，`vehicle-runtime-service` 只承接仿真 tick 内的车辆控制和动力学执行。
+
+```http
+GET  /vehicle-runtime/health
+POST /vehicle-runtime/bootstrap
+POST /vehicle-runtime/trains/launch
+PUT  /vehicle-runtime/trains/{trainId}
+DELETE /vehicle-runtime/trains/{trainId}
+DELETE /vehicle-runtime/trains
+GET  /vehicle-runtime/instances
+POST /vehicle-runtime/step-fleet
+GET  /vehicle-runtime/events
+```
+
+`POST /vehicle-runtime/trains/launch` 启动顺序固定为：创建车辆仿真实例、唤醒该车 `VehicleControlQueue`、调用中央 `/api/trains/runtime-registrations` 建立中央状态镜像。请求示例：
+
+```json
+{
+  "trainId": "TR-003",
+  "linkId": 12,
+  "offsetMeters": 640.0,
+  "direction": "DOWN",
+  "registerWithCentral": true,
+  "reason": "demo launch",
+  "traceId": "runtime-train-003"
+}
+```
+
+`POST /vehicle-runtime/step-fleet` 请求包含 `tick`、`deltaSeconds`、`requestedAt`、`trains[]`、`movementAuthorities[]`、`trackConstraints[]`、`powerConstraints[]`。外部服务按每车实例的控制队列和仿真队列同步返回 `trainOutputs[]`、`trainReports[]`、`instanceStates[]`。
+
+`POST /vehicle-runtime/bootstrap` 还会携带供电仿真联动配置：
+
+| 字段 | 含义 |
+|---|---|
+| `powerNetworkBaseUrl` | 中央配置的外部供电仿真地址，默认 `http://localhost:9200`。 |
+| `forwardPowerLoads` | 是否由外部车辆运行时把列车牵引/再生负荷推送到 `/power-network/state/query`。 |
+
+当 `vehicle-runtime-service` 处于 `EXTERNAL_HTTP` 权威模式、健康且 `forwardPowerLoads=true` 时，供电负荷写入链路为 `vehicle-runtime-service:9300 -> power-network-service:9200`；中央 `PowerIntegrationService` 只调用 `/power-network/state` 拉取供电状态。`LOCAL`、`DUAL_SHADOW`、外部车辆运行时不可用或降级时，中央恢复原路径：`PowerIntegrationService.refreshSnapshot(sectionLoads) -> POST /power-network/state/query`。
+
+中央新增监控入口：
+
+```http
+GET /api/vehicle/runtime-health
+```
+
+该接口返回外部车辆运行时健康状态和实例队列状态。`/api/simulation/snapshot` 与 WebSocket 快照同步携带 `vehicleRuntime` 字段。
+
+实现状态：首期已完成 HTTP 同步批量步进、实例队列、中央 fallback、供电负荷转发单元测试和中央供电写入权切换测试；尚未进行 `9300 + 9200 + backend` 长时间联动、真实多车压力、真实 FMU/RT-LAB 逻辑验收。
+
 #### 查询到发记录
 
 ```http
@@ -526,7 +606,7 @@ POST http://localhost:9000/step-fleet
 
 ## 外部车辆仿真协议适配
 
-该协议不是面向前端或调度系统的 REST 接口，而是后端 `VehiclePhysicsClient.stepFleet()` 背后的车辆物理端口实现。主系统通过 `OnboardTrainSubsystemManager` 汇总信号、轨道、供电约束后生成车辆控制输入；调度约束先由信号模块折算为 MA/限速或后续 `SignalVehicleCommand`。
+该协议不是面向前端或调度系统的 REST 接口，而是后端车辆运行时背后的实现。新 `vehicle-runtime-service` 健康时可同时接管车辆控制决策和车辆物理仿真；旧 `external-simulator` / FMU / UDP / RT-LAB 适配仍作为物理端口历史兼容路径保留。
 
 中央到车辆控制节点的调用通过 `railway.simulation.onboard-subsystem-mode` 切换：
 
@@ -718,10 +798,23 @@ ws://localhost:8080/ws/simulation
   "absorbedRegenPowerWatts": 0.0,
   "unabsorbedRegenPowerWatts": 0.0,
   "availablePowerWatts": 3000000.0,
+  "supplyMode": "DOUBLE_END",
+  "isolatorStatus": "CLOSED",
+  "substationAvailability": "AVAILABLE",
   "breakerStatus": "CLOSED",
   "protectionState": "NORMAL",
   "maintenanceState": "NONE",
   "lockoutState": "UNLOCKED",
+  "externalDataQuality": "GOOD",
+  "externalVoltage": 1492.0,
+  "externalCurrent": 418.0,
+  "externalLoadWatts": 626000.0,
+  "voltageDeviation": -8.0,
+  "voltageDeviationPercent": 0.53,
+  "voltageComparisonStatus": "MATCHED",
+  "externalSupportReason": "normal double-end supply",
+  "strayCurrentRiskLevel": "NORMAL",
+  "strayCurrentRiskReason": "状态正常",
   "affectedTrainIds": ["TR-001"],
   "dataQuality": "GOOD",
   "updatedAt": "2026-07-07T10:00:00Z"

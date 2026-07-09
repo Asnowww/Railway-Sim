@@ -45,6 +45,21 @@ public class HttpExternalPowerNetworkClient implements ExternalPowerNetworkClien
     }
 
     @Override
+    public PowerNetworkStateSnapshot queryState(PowerNetworkStateQueryRequest request) {
+        PowerNetworkStateSnapshot snapshot = restClient.post()
+            .uri("/power-network/state/query")
+            .contentType(MediaType.APPLICATION_JSON)
+            .accept(MediaType.APPLICATION_JSON)
+            .body(request)
+            .retrieve()
+            .body(PowerNetworkStateSnapshot.class);
+        if (snapshot == null) {
+            throw new IllegalStateException("External power network returned empty queried state");
+        }
+        return snapshot;
+    }
+
+    @Override
     public List<PowerNetworkEventPayload> events() {
         PowerNetworkEventPayload[] events = restClient.get()
             .uri("/power-network/events")

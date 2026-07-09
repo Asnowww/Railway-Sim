@@ -4,6 +4,7 @@ import com.railwaysim.api.dto.FaultMutationRequest;
 import com.railwaysim.api.dto.OperationLogEntry;
 import com.railwaysim.api.dto.TrainEnergyResponse;
 import com.railwaysim.api.dto.TrainLifecycleCommandRequest;
+import com.railwaysim.api.dto.VehicleRuntimeRegistrationRequest;
 import com.railwaysim.signal.vehicle.SignalTrainLifecycleAction;
 import com.railwaysim.signal.vehicle.SignalTrainLifecycleCommand;
 import com.railwaysim.signal.vehicle.SignalTrainLifecycleTrainSpec;
@@ -80,6 +81,30 @@ public class TrainController {
             request.normalizedTraceId()
         );
         return afterStates;
+    }
+
+    @PostMapping("/runtime-registrations")
+    public TrainState registerFromVehicleRuntime(@RequestBody VehicleRuntimeRegistrationRequest request) {
+        if (request == null || request.normalizedTrainId().isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "trainId or trainNo is required");
+        }
+        TrainState state = trainManager.registerRuntimeStartedTrain(
+            request.normalizedTrainId(),
+            request.normalizedLinkId(),
+            request.normalizedOffsetMeters(),
+            parseDirection(request.direction())
+        );
+        // 该接口由车辆仿真运行时主动调用，用于中央建镜像和审计，不再触发反向注册。
+        operationLogService.record(
+            "vehicle-runtime",
+            "TRAIN_RUNTIME_REGISTER",
+            "train:" + state.id(),
+            "runtime-launch",
+            state.controlSessionState(),
+            request.normalizedReason(),
+            request.normalizedTraceId()
+        );
+        return state;
     }
 
     @GetMapping("/{trainId}/faults")

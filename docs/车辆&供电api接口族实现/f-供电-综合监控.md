@@ -50,9 +50,13 @@
 - `status`、`breakerStatus`、`protectionState`
 - `maintenanceState`、`lockoutState`
 - `supplyMode`、`isolatorStatus`、`substationAvailability`
-- `externalDataQuality`
+- `externalDataQuality`、`externalVoltage`、`externalCurrent`、`externalLoadWatts`
+- `voltageDeviation`、`voltageDeviationPercent`、`voltageComparisonStatus`
+- `externalSupportReason`
 - `strayCurrentRiskLevel`、`strayCurrentRiskReason`
 - `affectedTrainIds`、`dataQuality`、`updatedAt`
+
+其中 `voltage/current/loadWatts` 是中央供电控制模块本地计算值，`external*` 是外部供电仿真按列车区段负荷回算的遥测值，`voltageComparisonStatus` 用于综合监控显示偏差告警。
 
 设备级 REST 只用于综合监控、维修检修和演示联调视图：
 

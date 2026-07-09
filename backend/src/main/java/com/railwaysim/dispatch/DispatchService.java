@@ -9,6 +9,7 @@ import com.railwaysim.dispatch.disturbance.DisturbanceDetector;
 import com.railwaysim.dispatch.disturbance.DisturbanceEvent;
 import com.railwaysim.dispatch.disturbance.DisturbanceRecordStore;
 import com.railwaysim.dispatch.monitor.InMemoryStationRecordStore;
+import com.railwaysim.dispatch.monitor.StationInfo;
 import com.railwaysim.dispatch.monitor.TrainRunMonitor;
 import com.railwaysim.dispatch.monitor.TrainRunProfile;
 import com.railwaysim.dispatch.plan.CurrentRunPlan;
@@ -261,6 +262,11 @@ public class DispatchService {
 
     public synchronized CurrentRunPlan currentPlan() {
         return currentPlan;
+    }
+
+    /** 返回时刻表中定义的站点列表（按里程排序） */
+    public synchronized List<StationInfo> stations() {
+        return planLoader.stations();
     }
 
     public synchronized String simulationRunId() {

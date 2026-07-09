@@ -32,10 +32,17 @@ class PowerNetworkStateSnapshotTests {
                 {
                   "id": "TR-P01",
                   "powerSectionId": "P01",
+                  "startMeters": 0.0,
+                  "endMeters": 1200.0,
                   "energizationState": "ENERGIZED",
                   "feederState": "AVAILABLE",
                   "recommendedSupplyMode": "DOUBLE_END",
-                  "calculatedContactRailVoltage": 728.0
+                  "contactRailVoltage": 728.0,
+                  "tractionCurrentAmps": 420.0,
+                  "tractionPowerWatts": 305760.0,
+                  "regenPowerWatts": 0.0,
+                  "absorbedRegenWatts": 0.0,
+                  "supportReason": "normal double-end supply"
                 }
               ],
               "isolators": [
@@ -77,6 +84,8 @@ class PowerNetworkStateSnapshotTests {
         assertThat(snapshot.substations().get(0).devices()).isEmpty();
         assertThat(snapshot.thirdRailSections()).extracting(PowerNetworkStateSnapshot.ThirdRailSectionSnapshot::powerSectionId)
             .containsExactly("P01");
+        assertThat(snapshot.thirdRailSections().get(0).contactRailVoltage()).isEqualTo(728.0);
+        assertThat(snapshot.thirdRailSections().get(0).tractionCurrentAmps()).isEqualTo(420.0);
         assertThat(snapshot.isolators()).hasSize(1);
         assertThat(snapshot.strayCurrentMonitors()).extracting(PowerNetworkStateSnapshot.StrayCurrentSnapshot::riskLevel)
             .containsExactly("NORMAL");

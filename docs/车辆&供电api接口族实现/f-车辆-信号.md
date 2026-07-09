@@ -14,7 +14,8 @@
 | 车辆到信号 | `POST /api/signal/vehicles/telemetry` | JSON 形式接收车辆控制节点上报的列车运行遥测。 |
 | 车辆到信号 | `POST /api/signal/vehicles/telemetry/content-packet?trainCount=N` | 二进制小端 `SignalTrainContentCodec` 协议包入口。 |
 | 信号到车辆 | `GET /api/signal/vehicles/commands` | 将当前 MA/限速投影为车辆侧可消费的信号命令。 |
-| 信号到中央纳管 | `POST /api/trains/lifecycle` | ADD/DELETE/CLEAR 管理外部车辆控制会话上线/下线。 |
+| 车辆运行时到中央纳管 | `POST /api/trains/runtime-registrations` | 车辆仿真实例启动并唤醒控制队列后，向中央注册状态镜像。 |
+| 信号到中央纳管 | `POST /api/trains/lifecycle` | ADD/DELETE/CLEAR 兼容入口，主要用于下线、清空和旧联调语义。 |
 | 仿真主循环内部 | `SimulationRuntime -> SignalService -> TrainManager.tickAll()` | 每 tick 将 `MovementAuthority` 送入 `OnboardTrainSubsystemManager`。 |
 
 ## 车辆到信号：状态与遥测
@@ -116,19 +117,19 @@ GET /api/signal/vehicles/commands
 
 ## 上线/下线场景
 
-列车上线/退出由信号侧生命周期语义进入中央系统：
+推荐列车上线由车辆仿真系统先启动实例，再向中央注册；信号侧生命周期语义仍保留下线、清空和兼容联调能力：
 
 | action | 协议指令 | 行为 |
 |---|---|---|
-| `ADD` | `0x01` | 创建中央侧 `TrainEntity`、`ExternalTrainControlSession` 和 onboard 节点注册信息。 |
+| `ADD` | `0x01` | 兼容创建中央侧 `TrainEntity`、`ExternalTrainControlSession` 和 onboard 节点注册信息。 |
 | `DELETE` | `0x02` | 请求指定列车退出信号网和电网，完成摘除后清理本地实体。 |
 | `CLEAR` | `0x04` | 请求所有列车退出。 |
 
 上线时序：
 
-1. 车辆控制系统作为外部车辆节点已在车辆侧启动。
-2. 信号侧发 `ADD`，携带列车号、link ID、偏移和方向。
-3. 中央创建外部控制会话，状态从 `CONNECTING` 进入 `SIGNAL_ATTACHING`。
+1. 车辆仿真系统调用 `POST /vehicle-runtime/trains/launch`，创建车辆仿真实例。
+2. 车辆运行时唤醒该车 `VehicleControlQueue`，使随车控制实例可接收 MA、轨道约束和供电约束。
+3. 车辆运行时调用中央 `POST /api/trains/runtime-registrations`，中央建立 `TrainEntity` 镜像和外部控制会话。
 4. 信号侧输出 MA 后，会话进入 `POWER_ATTACHING`。
 5. 供电约束允许受流后，会话进入 `ONLINE_STANDBY`，再进入 `IN_SERVICE`。
 6. 车辆开始在主循环中消费 MA/限速并输出运行状态。
@@ -145,7 +146,7 @@ GET /api/signal/vehicles/commands
 
 | 场景 | 当前实现 |
 |---|---|
-| 正常上线 | `SignalTrainLifecycleCommand` + `ExternalTrainControlSession`。 |
+| 正常上线 | `POST /vehicle-runtime/trains/launch` + `POST /api/trains/runtime-registrations` + `ExternalTrainControlSession`。 |
 | 正常运行 | `MovementAuthority` 进入 `OnboardTrainSubsystemManager`。 |
 | 正常牵引 | 信号给 MA/限速，车辆侧自行算牵引。 |
 | 常用制动 | MA 接近、限速为 0 或站停逻辑触发服务制动。 |
@@ -163,5 +164,5 @@ GET /api/signal/vehicles/commands
 - 不实现调度到车辆的直接控制接口；调度意图由信号/ATS 折算。
 - 不实现轨道区段占用、道岔、坡度、曲线、站距接口；这些属于车辆-轨道或信号-轨道接口族。
 - 不由信号系统直接调用 FMU 或外部车辆动力学模型。
-- 不由中央系统启动车辆控制系统进程；中央只纳管外部车辆节点会话。
+- 不由中央系统启动车辆控制系统进程；车辆仿真系统先拉起实例，中央只纳管外部车辆节点会话镜像。
 - 不把车辆内部牵引/制动百分比暴露为信号系统直接控制量。
