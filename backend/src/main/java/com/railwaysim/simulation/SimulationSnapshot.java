@@ -8,6 +8,7 @@ import com.railwaysim.signal.SignalState;
 import com.railwaysim.track.SwitchState;
 import com.railwaysim.track.TrackSegmentState;
 import com.railwaysim.train.TrainState;
+import com.railwaysim.vehicle.runtime.VehicleRuntimeHealth;
 import java.time.Instant;
 import java.util.List;
 
@@ -22,7 +23,7 @@ public record SimulationSnapshot(
     List<SwitchState> switchStates,
     List<RouteState> routeStates,
     List<PowerSectionState> powerSections,
+    VehicleRuntimeHealth vehicleRuntime,
     List<Alarm> alarms
 ) {
 }
-

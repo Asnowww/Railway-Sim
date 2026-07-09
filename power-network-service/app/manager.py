@@ -20,6 +20,14 @@ def normalized_state(value: str | None, fallback: str) -> str:
     return fallback if value is None or value == "" else value.upper()
 
 
+def positive_float(value: Any, fallback: float) -> float:
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return fallback
+    return parsed if parsed > 0 else fallback
+
+
 @dataclass
 class MediumVoltageBus:
     id: str
@@ -114,6 +122,10 @@ class PowerNetworkModel:
     line_id: str = "beijing-reference"
     line_name: str = "北京地铁抽象供电网络"
     topology_segments: list[dict[str, Any]] = field(default_factory=list)
+    nominal_dc_voltage: float = NOMINAL_DC_VOLTAGE
+    minimum_dc_voltage: float = MINIMUM_DC_VOLTAGE
+    cutoff_dc_voltage: float = 500.0
+    max_traction_current_amps: float = 2_000.0
     buses: dict[str, MediumVoltageBus] = field(default_factory=dict)
     feeders: dict[str, RingFeeder] = field(default_factory=dict)
     substations: dict[str, SubstationState] = field(default_factory=dict)
@@ -132,6 +144,10 @@ class PowerNetworkModel:
     def bootstrap(self, payload: dict[str, Any]) -> dict[str, Any]:
         self.line_id = payload.get("lineId", "")
         self.line_name = payload.get("lineName", "")
+        self.nominal_dc_voltage = positive_float(payload.get("nominalVoltage"), NOMINAL_DC_VOLTAGE)
+        self.minimum_dc_voltage = positive_float(payload.get("minimumVoltage"), MINIMUM_DC_VOLTAGE)
+        self.cutoff_dc_voltage = positive_float(payload.get("cutoffVoltage"), self.minimum_dc_voltage * 0.9)
+        self.max_traction_current_amps = positive_float(payload.get("maxTractionCurrentAmps"), 2_000.0)
         self.topology_segments = [
             {
                 "id": segment.get("id", ""),
@@ -249,7 +265,7 @@ class PowerNetworkModel:
         return {
             "lineId": self.line_id,
             "lineName": self.line_name,
-            "nominalDcVoltage": NOMINAL_DC_VOLTAGE,
+            "nominalDcVoltage": self.nominal_dc_voltage,
             "mediumVoltageKv": MEDIUM_VOLTAGE_KV,
             "topologySegments": list(self.topology_segments),
             "mediumVoltageBuses": [self._bus_payload(bus) for bus in self.buses.values()],
@@ -353,8 +369,8 @@ class PowerNetworkModel:
         resistance = distance_km * (CONTACT_RAIL_OHM_PER_KM + RUNNING_RAIL_OHM_PER_KM)
         mode_factor = {"DOUBLE_END": 0.5, "CROSS_FEED": 0.75, "SINGLE_END": 1.0}.get(section.recommended_supply_mode, 1.0)
         voltage_drop = section.traction_current_amps * resistance * mode_factor
-        section.contact_rail_voltage = max(0.0, NOMINAL_DC_VOLTAGE - voltage_drop)
-        if section.contact_rail_voltage < MINIMUM_DC_VOLTAGE:
+        section.contact_rail_voltage = max(0.0, self.nominal_dc_voltage - voltage_drop)
+        if section.contact_rail_voltage < self.minimum_dc_voltage:
             section.feeder_state = "UNDERVOLTAGE"
             self._append_event(
                 "DC_UNDERVOLTAGE",
@@ -474,10 +490,10 @@ class PowerNetworkModel:
 
     def _effective_current(self, load: SectionLoad) -> float:
         if load.current_amps > 0:
-            regen_current = load.regen_power_watts / max(1.0, NOMINAL_DC_VOLTAGE)
+            regen_current = load.regen_power_watts / max(1.0, self.nominal_dc_voltage)
             return max(0.0, load.current_amps - regen_current)
         net_power = max(0.0, load.traction_power_watts - load.regen_power_watts)
-        return net_power / max(1.0, NOMINAL_DC_VOLTAGE)
+        return net_power / max(1.0, self.nominal_dc_voltage)
 
     def _substation_for_section(self, power_section_id: str) -> SubstationState | None:
         for substation in self.substations.values():

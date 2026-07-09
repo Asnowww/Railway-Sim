@@ -133,8 +133,17 @@ GET /api/power/external-health
 | `isolatorStatus` | 供电分区边界隔离开关汇总状态。 |
 | `substationAvailability` | 关联牵引变电所可用性。 |
 | `externalDataQuality` | 供电设备级状态来源质量，外部供电仿真失联时为 `FALLBACK`。 |
+| `externalVoltage` | 外部供电仿真返回的接触轨电压；`voltage` 仍表示中央本地计算电压。 |
+| `externalCurrent` | 外部供电仿真返回的区段牵引电流。 |
+| `externalLoadWatts` | 外部供电仿真返回的区段牵引负荷。 |
+| `voltageDeviation` | 外部电压减中央电压，单位 V。 |
+| `voltageDeviationPercent` | 电压偏差百分比，按中央电压归一化。 |
+| `voltageComparisonStatus` | `NO_EXTERNAL_DATA`、`MATCHED`、`DEVIATED`、`DIVERGED`。 |
+| `externalSupportReason` | 外部仿真对当前供电支撑方式、电压结果或降级原因的说明。 |
 | `strayCurrentRiskLevel` | 杂散电流风险等级：`NORMAL`、`ATTENTION`、`WARNING`、`CRITICAL`。 |
 | `strayCurrentRiskReason` | 杂散电流风险原因。 |
+
+中央仍以本地 `voltage/current/availablePowerWatts` 生成车辆 `PowerConstraint`；外部电压 v1 只进入监控、偏差告警和联调可视化。
 
 ### 能耗和维修预留
 
@@ -203,6 +212,33 @@ POST /api/dispatch/commands
 | `HOLD` / `HOLD_TRAIN` | 任意说明文本 | 调度服务记录扣车意图，由信号模块折算为 MA/限速或后续 `SignalVehicleCommand` |
 | `SPEED_LIMIT` / `TEMP_SPEED_LIMIT` | 速度上限，单位 m/s | 由信号模块与轨道限速、安全距离共同计算后下发给车辆 |
 | `SPEED_FACTOR` / `LIMIT_FACTOR` | 0-1 比例 | 由信号模块折算速度授权，不由车辆直接消费 |
+
+## 外部车辆运行时服务接口
+
+`vehicle-runtime-service` 是新的外部车辆侧运行时，默认端口 `9300`。中央系统仍是唯一对前端和其他中央模块开放的入口；中央通过 `railway.simulation.vehicle-runtime.mode=EXTERNAL_HTTP` 或 `DUAL_SHADOW` 接入外部服务。
+
+```http
+GET  /vehicle-runtime/health
+POST /vehicle-runtime/bootstrap
+PUT  /vehicle-runtime/trains/{trainId}
+DELETE /vehicle-runtime/trains/{trainId}
+DELETE /vehicle-runtime/trains
+GET  /vehicle-runtime/instances
+POST /vehicle-runtime/step-fleet
+GET  /vehicle-runtime/events
+```
+
+`POST /vehicle-runtime/step-fleet` 请求包含 `tick`、`deltaSeconds`、`requestedAt`、`trains[]`、`movementAuthorities[]`、`trackConstraints[]`、`powerConstraints[]`。外部服务按每车实例的控制队列和仿真队列同步返回 `trainOutputs[]`、`trainReports[]`、`instanceStates[]`。
+
+中央新增监控入口：
+
+```http
+GET /api/vehicle/runtime-health
+```
+
+该接口返回外部车辆运行时健康状态和实例队列状态。`/api/simulation/snapshot` 与 WebSocket 快照同步携带 `vehicleRuntime` 字段。
+
+实现状态：首期已完成 HTTP 同步批量步进、实例队列、中央 fallback 和单元/集成测试；尚未进行长时间运行、真实多车压力、真实 FMU/RT-LAB 逻辑验收。
 
 ## 内部 FMU 服务接口
 
@@ -273,7 +309,7 @@ POST http://localhost:9000/step-fleet
 
 ## 外部车辆仿真协议适配
 
-该协议不是面向前端或调度系统的 REST 接口，而是后端 `VehiclePhysicsClient.stepFleet()` 背后的车辆物理端口实现。主系统通过 `OnboardTrainSubsystemManager` 汇总信号、轨道、供电约束后生成车辆控制输入；调度约束先由信号模块折算为 MA/限速或后续 `SignalVehicleCommand`。
+该协议不是面向前端或调度系统的 REST 接口，而是后端车辆运行时背后的实现。新 `vehicle-runtime-service` 健康时可同时接管车辆控制决策和车辆物理仿真；旧 `external-simulator` / FMU / UDP / RT-LAB 适配仍作为物理端口历史兼容路径保留。
 
 中央到车辆控制节点的调用通过 `railway.simulation.onboard-subsystem-mode` 切换：
 
@@ -452,10 +488,23 @@ ws://localhost:8080/ws/simulation
   "absorbedRegenPowerWatts": 0.0,
   "unabsorbedRegenPowerWatts": 0.0,
   "availablePowerWatts": 3000000.0,
+  "supplyMode": "DOUBLE_END",
+  "isolatorStatus": "CLOSED",
+  "substationAvailability": "AVAILABLE",
   "breakerStatus": "CLOSED",
   "protectionState": "NORMAL",
   "maintenanceState": "NONE",
   "lockoutState": "UNLOCKED",
+  "externalDataQuality": "GOOD",
+  "externalVoltage": 1492.0,
+  "externalCurrent": 418.0,
+  "externalLoadWatts": 626000.0,
+  "voltageDeviation": -8.0,
+  "voltageDeviationPercent": 0.53,
+  "voltageComparisonStatus": "MATCHED",
+  "externalSupportReason": "normal double-end supply",
+  "strayCurrentRiskLevel": "NORMAL",
+  "strayCurrentRiskReason": "状态正常",
   "affectedTrainIds": ["TR-001"],
   "dataQuality": "GOOD",
   "updatedAt": "2026-07-07T10:00:00Z"

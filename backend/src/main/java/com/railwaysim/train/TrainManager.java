@@ -15,14 +15,14 @@ import com.railwaysim.simulation.event.TractionPowerChangedEvent;
 import com.railwaysim.simulation.event.TrainFaultStateChangedEvent;
 import com.railwaysim.simulation.event.VehiclePhysicsUpdatedEvent;
 import com.railwaysim.track.TrackConstraint;
-import com.railwaysim.vehicle.TrainStateReport;
-import com.railwaysim.vehicle.VehiclePhysicsClient;
-import com.railwaysim.vehicle.VehiclePhysicsInput;
 import com.railwaysim.vehicle.VehiclePhysicsOutput;
-import com.railwaysim.vehicle.onboard.OnboardTrainControlInput;
 import com.railwaysim.vehicle.onboard.OnboardTrainSubsystemManager;
 import com.railwaysim.vehicle.protocol.TrainOperationalTelemetry;
 import com.railwaysim.vehicle.external.ExternalTrainDirection;
+import com.railwaysim.vehicle.runtime.VehicleRuntimeHealth;
+import com.railwaysim.vehicle.runtime.VehicleRuntimeIntegrationService;
+import com.railwaysim.vehicle.runtime.VehicleRuntimeStepResult;
+import com.railwaysim.vehicle.runtime.VehicleRuntimeTrainStep;
 import jakarta.annotation.PostConstruct;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -41,7 +41,7 @@ public class TrainManager {
     private final List<TrainEntity> trains = new ArrayList<>();
     private final Map<String, ExternalTrainControlSession> controlSessions = new LinkedHashMap<>();
     private final OnboardTrainSubsystemManager onboardTrainSubsystemManager;
-    private final VehiclePhysicsClient vehiclePhysicsClient;
+    private final VehicleRuntimeIntegrationService vehicleRuntimeIntegrationService;
     private final StaticInfrastructureCatalog infrastructureCatalog;
     private final RealtimeStateCache realtimeStateCache;
     private final SimpleEventBus eventBus;
@@ -49,13 +49,13 @@ public class TrainManager {
 
     public TrainManager(
         OnboardTrainSubsystemManager onboardTrainSubsystemManager,
-        VehiclePhysicsClient vehiclePhysicsClient,
+        VehicleRuntimeIntegrationService vehicleRuntimeIntegrationService,
         StaticInfrastructureCatalog infrastructureCatalog,
         RealtimeStateCache realtimeStateCache,
         SimpleEventBus eventBus
     ) {
         this.onboardTrainSubsystemManager = onboardTrainSubsystemManager;
-        this.vehiclePhysicsClient = vehiclePhysicsClient;
+        this.vehicleRuntimeIntegrationService = vehicleRuntimeIntegrationService;
         this.infrastructureCatalog = infrastructureCatalog;
         this.realtimeStateCache = realtimeStateCache;
         this.eventBus = eventBus;
@@ -71,6 +71,7 @@ public class TrainManager {
         trains.clear();
         controlSessions.clear();
         onboardTrainSubsystemManager.clear();
+        vehicleRuntimeIntegrationService.clear();
         addInitialTrain("TR-001", routeId, 100, 0.42, 1, ExternalTrainDirection.DOWN);
         addInitialTrain("TR-002", routeId, 900, 0.55, 2, ExternalTrainDirection.DOWN);
         faultRecords.clear();
@@ -91,33 +92,26 @@ public class TrainManager {
         advanceControlSessions(authorityByTrain, powerByTrain);
         removeDisconnectedTrains();
         List<TrainState> currentStates = states();
-        List<VehiclePhysicsInput> inputs = currentStates.stream()
-            .map(train -> onboardTrainSubsystemManager.control(new OnboardTrainControlInput(
-                train,
-                context,
-                authorityByTrain.get(train.id()),
-                trackByTrain.get(train.id()),
-                powerByTrain.get(train.id())
-            )).physicsInput())
-            .toList();
-        List<VehiclePhysicsOutput> outputs = vehiclePhysicsClient.stepFleet(inputs);
-
-        Map<String, VehiclePhysicsInput> inputByTrain = inputs.stream()
-            .collect(Collectors.toMap(VehiclePhysicsInput::trainId, Function.identity(), (left, right) -> right));
-        Map<String, VehiclePhysicsOutput> outputByTrain = outputs.stream()
-            .collect(Collectors.toMap(VehiclePhysicsOutput::trainId, Function.identity(), (left, right) -> right));
+        // 车辆控制和动力学统一从运行时集成服务返回，外部失败时服务内部完成本地 fallback。
+        VehicleRuntimeStepResult runtimeResult = vehicleRuntimeIntegrationService.stepFleet(
+            context,
+            currentStates,
+            authorities,
+            trackConstraints,
+            powerConstraints
+        );
+        Map<String, VehicleRuntimeTrainStep> stepByTrain = runtimeResult.trainSteps().stream()
+            .collect(Collectors.toMap(VehicleRuntimeTrainStep::trainId, Function.identity(), (left, right) -> right));
         for (TrainEntity train : trains) {
             TrainState currentState = train.state(controlSessions.get(train.id()));
-            VehiclePhysicsOutput output = outputByTrain.get(currentState.id());
-            VehiclePhysicsInput input = inputByTrain.get(currentState.id());
-            if (output != null && input != null) {
-                TrainStateReport report = onboardTrainSubsystemManager.buildTrainStateReport(currentState, input, output);
-                train.applyPhysicsOutput(output, report);
-                realtimeStateCache.updateTrainTcmsState(report);
-                publishVehicleEvents(output);
+            VehicleRuntimeTrainStep step = stepByTrain.get(currentState.id());
+            if (step != null && step.output() != null && step.report() != null) {
+                train.applyPhysicsOutput(step.output(), step.report());
+                realtimeStateCache.updateTrainTcmsState(step.report());
+                publishVehicleEvents(step.output());
             }
         }
-        return outputs;
+        return runtimeResult.outputs();
     }
 
     public synchronized List<TrainState> applyLifecycleCommand(SignalTrainLifecycleCommand command) {
@@ -151,7 +145,9 @@ public class TrainManager {
             spec.offsetMeters(),
             spec.direction()
         ));
-        return train.state(controlSessions.get(trainId));
+        TrainState state = train.state(controlSessions.get(trainId));
+        vehicleRuntimeIntegrationService.register(state);
+        return state;
     }
 
     public synchronized Optional<TrainState> requestRemoveTrain(String trainId, String reason) {
@@ -190,6 +186,10 @@ public class TrainManager {
         return trains.stream()
             .map(train -> train.state(controlSessions.get(train.id())))
             .toList();
+    }
+
+    public synchronized VehicleRuntimeHealth vehicleRuntimeHealth() {
+        return vehicleRuntimeIntegrationService.health();
     }
 
     public synchronized Optional<TrainState> state(String trainId) {
@@ -271,6 +271,7 @@ public class TrainManager {
         trains.add(train);
         onboardTrainSubsystemManager.register(trainId);
         controlSessions.put(trainId, ExternalTrainControlSession.inService(trainId, linkId, positionMeters, direction));
+        vehicleRuntimeIntegrationService.register(train.state(controlSessions.get(trainId)));
     }
 
     private void advanceControlSessions(
@@ -294,6 +295,7 @@ public class TrainManager {
                 iterator.remove();
                 controlSessions.remove(train.id());
                 onboardTrainSubsystemManager.remove(train.id());
+                vehicleRuntimeIntegrationService.remove(train.id());
             }
         }
     }

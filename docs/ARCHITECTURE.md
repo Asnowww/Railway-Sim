@@ -106,9 +106,13 @@ YAML 存仿真静态配置：
 
 车辆和供电链路通过内部事件总线发布运行状态变化，包括 `VehiclePhysicsUpdated`、`TractionPowerChanged`、`BrakeForceChanged`、`RegenerativePowerGenerated`、`ThirdRailVoltageChanged`、`PowerLimitTriggered`、`FmuStepFailed` 和 `FmuFallbackActivated`。监控层只消费事件和状态快照生成告警，不直接参与车辆物理计算。
 
+新增 `vehicle-runtime-service` 作为外部车辆运行时，端口 `9300`。中央在每个 tick 将列车状态、MA、轨道约束和供电约束同步发送给外部服务，外部服务按每车一对控制/仿真队列返回 `VehiclePhysicsOutput` 和 `TrainStateReport`。外部服务失败时，中央立即回退本地 `OnboardTrainSubsystemManager + VehiclePhysicsClient` 链路，并把车辆运行时健康状态标记为 `FALLBACK`。
+
 外部 Python FMU 服务默认关闭，`FmuVehiclePhysicsAdapter` 当前使用 `SimpleVehicleDynamicsModel` 作为可运行降级模型。后续启用外部 FMU 时，如果远程步进失败，系统会发布 FMU 失败和降级事件，并继续用简化模型推进列车，避免仿真主控被模型服务拖垮。
 
-## FMU 服务
+## 外部车辆运行时与 FMU 服务
+
+`vehicle-runtime-service` 是首期推荐的外部车辆侧运行时，内部以 `VehicleRuntimeInstance -> VehicleControlQueue + VehicleSimulationQueue` 管理每辆车。首期物理模型移植 Java fallback，不接真实 FMU；已完成单元测试和中央 HTTP 集成测试，但未进行完整长时间逻辑仿真验收。
 
 `fmu-service` 采用 HTTP JSON 批量调用作为第一版接入方式，接口为 `POST /step-fleet`。服务内部按 `FmuManager → FleetStepper → TrainFMUInstance` 分层，当前 `TrainFMUInstance` 使用 Python fallback 模型执行，后续导出 `TrainTractionBrake.fmu` 后在这一层替换为 FMPy/PyFMI 加载 FMU。
 

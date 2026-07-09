@@ -17,6 +17,7 @@ import com.railwaysim.simulation.event.RegenerativeEnergyAbsorbedEvent;
 import com.railwaysim.simulation.event.TrainFaultStateChangedEvent;
 import com.railwaysim.track.TrackSegmentState;
 import com.railwaysim.train.TrainState;
+import com.railwaysim.vehicle.runtime.VehicleRuntimeHealth;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
@@ -36,6 +37,7 @@ public class MonitorService {
         List<SwitchState> switchStates,
         List<RouteState> routeStates,
         List<PowerSectionState> powerSections,
+        VehicleRuntimeHealth vehicleRuntime,
         List<DomainEvent> events
     ) {
         return new SimulationSnapshot(
@@ -49,6 +51,7 @@ public class MonitorService {
             switchStates,
             routeStates,
             powerSections,
+            vehicleRuntime,
             buildAlarms(tick, simulatedTime, trains, authorities, powerSections, events)
         );
     }

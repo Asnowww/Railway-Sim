@@ -8,7 +8,9 @@ import com.railwaysim.power.external.HttpExternalPowerNetworkClient;
 import com.railwaysim.power.external.PowerNetworkEventPayload;
 import com.railwaysim.power.external.PowerNetworkOperationRequest;
 import com.railwaysim.power.external.PowerNetworkOperationResult;
+import com.railwaysim.power.external.PowerNetworkSectionLoadRequest;
 import com.railwaysim.power.external.PowerNetworkStateSnapshot;
+import com.railwaysim.power.external.PowerNetworkStateQueryRequest;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
@@ -40,6 +42,10 @@ public class PowerIntegrationService {
     }
 
     public synchronized PowerNetworkStateSnapshot refreshSnapshot() {
+        return refreshSnapshot(List.of());
+    }
+
+    public synchronized PowerNetworkStateSnapshot refreshSnapshot(List<PowerSectionLoadSnapshot> loads) {
         if (properties.getMode() == ExternalPowerNetworkMode.LOCAL) {
             latestSnapshot = powerTopologyService.defaultSnapshot();
             health = ExternalPowerNetworkHealth.local();
@@ -51,7 +57,7 @@ public class PowerIntegrationService {
                 bootstrapped = true;
             }
             Instant startedAt = Instant.now();
-            latestSnapshot = externalClient.currentState();
+            latestSnapshot = externalClient.queryState(new PowerNetworkStateQueryRequest(toExternalLoads(loads)));
             health = new ExternalPowerNetworkHealth(
                 properties.getMode(),
                 latestSnapshot.heartbeatStatus(),
@@ -62,9 +68,23 @@ public class PowerIntegrationService {
             return latestSnapshot;
         } catch (RuntimeException exception) {
             health = ExternalPowerNetworkHealth.fallback(properties.getMode(), summarize(exception));
-            latestSnapshot = powerTopologyService.defaultSnapshot();
+            latestSnapshot = powerTopologyService.defaultSnapshot("FALLBACK", "FALLBACK");
             return latestSnapshot;
         }
+    }
+
+    private List<PowerNetworkSectionLoadRequest> toExternalLoads(List<PowerSectionLoadSnapshot> loads) {
+        return loads == null
+            ? List.of()
+            : loads.stream()
+                .map(load -> new PowerNetworkSectionLoadRequest(
+                    load.powerSectionId(),
+                    load.trainIds(),
+                    load.tractionPowerWatts(),
+                    load.regenPowerWatts(),
+                    load.currentAmps()
+                ))
+                .toList();
     }
 
     public synchronized PowerNetworkOperationResult operate(PowerNetworkOperationRequest request) {

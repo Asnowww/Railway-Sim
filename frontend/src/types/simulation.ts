@@ -115,13 +115,53 @@ export interface PowerSectionState {
   absorbedRegenPowerWatts: number
   unabsorbedRegenPowerWatts: number
   availablePowerWatts: number
+  supplyMode: string
+  isolatorStatus: string
+  substationAvailability: string
   breakerStatus: string
   protectionState: string
   maintenanceState: string
   lockoutState: string
+  externalDataQuality: string
+  externalVoltage: number
+  externalCurrent: number
+  externalLoadWatts: number
+  voltageDeviation: number
+  voltageDeviationPercent: number
+  voltageComparisonStatus: string
+  externalSupportReason: string
+  strayCurrentRiskLevel: string
+  strayCurrentRiskReason: string
   affectedTrainIds: string[]
   dataQuality: string
   updatedAt: string
+}
+
+export interface VehicleRuntimeHealth {
+  mode: string
+  heartbeatStatus: string
+  sourceTimestamp: string
+  latencyMillis: number
+  dataQuality: string
+  instanceCount: number
+  reason: string
+}
+
+export interface VehicleRuntimeInstanceState {
+  trainId: string
+  lifecycleState: string
+  controlQueueStatus: string
+  simulationQueueStatus: string
+  lastTick: number
+  latencyMillis: number
+  dataQuality: string
+  reason: string
+  updatedAt: string
+}
+
+export interface VehicleRuntimeStatusResponse {
+  health: VehicleRuntimeHealth
+  instances: VehicleRuntimeInstanceState[]
 }
 
 export interface Alarm {
@@ -154,6 +194,7 @@ export interface SimulationSnapshot {
   switchStates: SwitchState[]
   routeStates: RouteState[]
   powerSections: PowerSectionState[]
+  vehicleRuntime: VehicleRuntimeHealth
   alarms: Alarm[]
 }
 

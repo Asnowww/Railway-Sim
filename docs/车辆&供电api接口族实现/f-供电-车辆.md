@@ -28,10 +28,12 @@ TrainState.positionMeters
   -> VehiclePhysicsClient / LOCAL / EXTERNAL_UDP / EXTERNAL_RTLAB_API / DUAL_SHADOW
   -> VehiclePhysicsOutput
   -> PowerService.updateFromVehicleOutputs()
+  -> PowerConstraintService.loadSnapshots()
+  -> PowerIntegrationService.refreshSnapshot(sectionLoads)
   -> PowerConstraintService.calculateStates()
 ```
 
-`PowerIntegrationService` 在供电模块内部同步变电所、隔离开关、接触轨和杂散电流风险状态。车辆侧只消费 `PowerConstraint`，不需要知道这些设备状态来自本地配置、fallback 还是外部供电仿真系统。
+`PowerIntegrationService` 在供电模块内部同步变电所、隔离开关、接触轨和杂散电流风险状态。`EXTERNAL_HTTP` 模式下，中央会把 `powerSectionId/trainIds/tractionPowerWatts/regenPowerWatts/currentAmps` 聚合为 `sectionLoads`，通过 `/power-network/state/query` 发送给外部供电仿真系统，再用返回的外部电压与中央本地电压做偏差对比。车辆侧只消费 `PowerConstraint`，不需要知道这些设备状态来自本地配置、fallback 还是外部供电仿真系统。
 
 ## 外部车辆仿真适配
 

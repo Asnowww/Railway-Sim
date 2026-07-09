@@ -17,8 +17,12 @@ import com.railwaysim.vehicle.SimpleVehicleDynamicsModel;
 import com.railwaysim.vehicle.VehiclePhysicsClient;
 import com.railwaysim.vehicle.external.ExternalTrainDirection;
 import com.railwaysim.vehicle.onboard.OnboardTrainSubsystemManager;
+import com.railwaysim.vehicle.runtime.HttpVehicleRuntimeClient;
+import com.railwaysim.vehicle.runtime.VehicleRuntimeIntegrationService;
+import com.railwaysim.config.VehicleRuntimeProperties;
 import java.time.Instant;
 import java.util.List;
+import org.springframework.web.client.RestClient;
 import org.junit.jupiter.api.Test;
 
 class TrainManagerLifecycleTests {
@@ -68,9 +72,17 @@ class TrainManagerLifecycleTests {
         VehiclePhysicsClient physicsClient = inputs -> inputs.stream()
             .map(new SimpleVehicleDynamicsModel()::step)
             .toList();
+        OnboardTrainSubsystemManager onboard = new OnboardTrainSubsystemManager(properties, catalog);
         return new TrainManager(
-            new OnboardTrainSubsystemManager(properties, catalog),
-            physicsClient,
+            onboard,
+            new VehicleRuntimeIntegrationService(
+                new VehicleRuntimeProperties(),
+                properties,
+                catalog,
+                new HttpVehicleRuntimeClient(new VehicleRuntimeProperties(), RestClient.builder()),
+                onboard,
+                physicsClient
+            ),
             catalog,
             new RealtimeStateCache(),
             new SimpleEventBus()

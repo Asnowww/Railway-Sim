@@ -11,6 +11,8 @@ logs/
 
 # Java / Maven
 backend/target/
+vehicle-runtime-service/target/
+*.class
 
 # Node / Vue
 node_modules/

@@ -180,6 +180,7 @@ public class SimulationRuntime {
             trackService.switchStates(),
             interlockingService.states(),
             powerService.states(),
+            trainManager.vehicleRuntimeHealth(),
             lastEvents
         );
     }
