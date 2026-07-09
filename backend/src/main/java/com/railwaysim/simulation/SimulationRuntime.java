@@ -3,6 +3,7 @@ package com.railwaysim.simulation;
 import com.railwaysim.api.SimulationWebSocketHandler;
 import com.railwaysim.config.SimulationProperties;
 import com.railwaysim.dispatch.DispatchCommand;
+import com.railwaysim.dispatch.DispatchCommandFeedback;
 import com.railwaysim.dispatch.DispatchConstraint;
 import com.railwaysim.dispatch.DispatchService;
 import com.railwaysim.dispatch.command.CommandStatus;
@@ -249,16 +250,17 @@ public class SimulationRuntime {
     }
 
     /**
-     * 信号→调度反馈：检查调度约束是否已完成执行。
+     * 信号→调度反馈：检查调度约束是否已作用到信号/车辆链路。
      *
-     * <p>逻辑：列车实际速度已接近目标限速（差值<0.5m/s）→ 对应指令标记 COMPLETED。
-     * 这解决了"调度只看车状态看不出是哪个指令导致的变化"的问题。
+     * <p>只反馈带 sourceCommandIds 的真实调度指令；运行图自动约束只参与控制，不伪造成调度指令。
      */
     private void checkDispatchCompletion(List<DispatchConstraint> constraints) {
-        List<DispatchCommand> completedCommands = new ArrayList<>();
+        List<DispatchCommandFeedback> feedbacks = new ArrayList<>();
         List<TrainState> trains = trainManager.states();
         for (DispatchConstraint constraint : constraints) {
-            if (constraint.reason().contains("NORMAL")) continue;
+            if (constraint.sourceCommandIds().isEmpty()) {
+                continue;
+            }
             TrainState train = trains.stream()
                 .filter(t -> t.id().equals(constraint.trainId()))
                 .findFirst().orElse(null);
@@ -274,22 +276,27 @@ public class SimulationRuntime {
             }
 
             if (done) {
-                completedCommands.add(new DispatchCommand(
-                    "COMPLETED-" + train.id(),
-                    train.id(),
-                    "SPEED_BIAS",
-                    Map.of("reason", constraint.reason(),
-                        "actualSpeed", train.speedMetersPerSecond()),
-                    constraint.reason(),
-                    CommandStatus.COMPLETED,
-                    Instant.now(),
-                    Instant.now()
-                ));
+                for (String commandId : constraint.sourceCommandIds()) {
+                    feedbacks.add(new DispatchCommandFeedback(
+                        commandId,
+                        train.id(),
+                        null,
+                        "SIGNAL_RUNTIME",
+                        CommandStatus.APPLIED,
+                        constraint.reason(),
+                        Instant.now(),
+                        Map.of(
+                            "actualSpeed", train.speedMetersPerSecond(),
+                            "zeroSpeed", train.zeroSpeed(),
+                            "constraintReason", constraint.reason()
+                        )
+                    ));
+                }
             }
         }
-        if (!completedCommands.isEmpty()) {
-            dispatchCommandPublisher.publish(completedCommands);
-            log.info("[Runtime] 信号回执：{} 条调度指令已完成", completedCommands.size());
+        if (!feedbacks.isEmpty()) {
+            dispatchService.acceptFeedback(feedbacks);
+            log.info("[Runtime] 信号回执：{} 条调度指令已作用", feedbacks.size());
         }
     }
 

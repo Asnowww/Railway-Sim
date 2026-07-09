@@ -37,10 +37,12 @@ public class SignalService {
 
     /** 每列车在站台已停 tick 数（用于停站时间控制） */
     private final Map<String, Integer> stationDwellTicks = new LinkedHashMap<>();
+    /** 每列车同一站停站完成后的释放锁存，防止刚释放又被同一站二次截停。 */
+    private final Set<String> releasedStationStops = new HashSet<>();
     /** 每列车当前是否在站台停车中 */
     private final Map<String, Boolean> atStationStop = new LinkedHashMap<>();
-    /** 默认站台停站 tick 数（仅在没有调度停站时间时使用） */
-    private static final int DEFAULT_DWELL_TICKS = 25;
+    /** 默认站台停站秒数（仅在没有调度停站时间时使用） */
+    private static final int DEFAULT_DWELL_SECONDS = 25;
 
     public SignalService(
         SimulationProperties simulationProperties,
@@ -57,6 +59,9 @@ public class SignalService {
     public synchronized void reset() {
         authorities = List.of();
         signalStates = List.of();
+        stationDwellTicks.clear();
+        releasedStationStops.clear();
+        atStationStop.clear();
     }
 
     public synchronized void calculateAuthorities(
@@ -145,7 +150,9 @@ public class SignalService {
             String reason = buildReason(authorityEnd, nextTrainTailLimit, lineEndLimit,
                 faultLimit, interlockingLimit, lineLengthMeters);
             if (stationLimits.containsKey("isDwelling") && stationLimits.get("isDwelling") > 0) {
-                reason = "站台停靠";
+                int dwellElapsedSec = stationLimits.getOrDefault("dwellElapsedSec", 0.0).intValue();
+                int dwellTargetSec = stationLimits.getOrDefault("dwellTargetSec", (double) DEFAULT_DWELL_SECONDS).intValue();
+                reason = "站台停靠(" + dwellElapsedSec + "/" + dwellTargetSec + "s)";
             }
 
             String segId = currentSeg != null ? currentSeg.id() : "?";
@@ -322,37 +329,52 @@ public class SignalService {
         if (stations.isEmpty()) return result;
 
         double head = train.positionMeters();
-        double tail = head - train.lengthMeters();
 
-        // 找最近的下一站
+        // 找车头前方的下一站；允许车头在站中心后方 10m 内继续被视为站停窗口。
         OperationalLineData.StationDefinition nextStation = stations.stream()
-            .filter(s -> s.centerMeters() > tail + 1)
+            .filter(s -> s.centerMeters() >= head - 10)
             .min(Comparator.comparingDouble(s -> s.centerMeters() - head))
             .orElse(null);
         if (nextStation == null) return result;
 
-        String sid = nextStation.id();
+        String dwellKey = train.id() + ":" + nextStation.id();
         boolean stopped = Math.abs(head - nextStation.centerMeters()) < 10 && train.zeroSpeed();
-        int tickCount = stationDwellTicks.getOrDefault(sid, 0);
+        if (releasedStationStops.contains(dwellKey)) {
+            atStationStop.remove(train.id());
+            return result;
+        }
+        int tickCount = stationDwellTicks.getOrDefault(dwellKey, 0);
 
         if (stopped) {
-            stationDwellTicks.put(sid, tickCount + 1);
+            stationDwellTicks.put(dwellKey, tickCount + 1);
             atStationStop.put(train.id(), true);
         }
 
-        int dwellTicks = stationDwellTicks.getOrDefault(sid, 0);
+        int dwellTicks = stationDwellTicks.getOrDefault(dwellKey, 0);
+        int targetDwellTicks = targetDwellTicks();
+        int dwellElapsedSec = (int) Math.floor(dwellTicks * simulationProperties.getTickMillis() / 1000.0);
 
         // 站停未完成 → MA 截到站台位置
-        if (dwellTicks < DEFAULT_DWELL_TICKS) {
+        if (dwellTicks < targetDwellTicks) {
             result.put("maEndAt", nextStation.centerMeters() + 10);
-            if (dwellTicks > 0) result.put("isDwelling", 1.0);
+            if (dwellTicks > 0) {
+                result.put("isDwelling", 1.0);
+                result.put("dwellElapsedSec", (double) dwellElapsedSec);
+                result.put("dwellTargetSec", (double) DEFAULT_DWELL_SECONDS);
+            }
             return result;
         }
 
         // 站停完成 → 释放 MA，清除计数
-        stationDwellTicks.remove(sid);
+        stationDwellTicks.remove(dwellKey);
+        releasedStationStops.add(dwellKey);
         atStationStop.remove(train.id());
         return result;
+    }
+
+    private int targetDwellTicks() {
+        long tickMillis = Math.max(1, simulationProperties.getTickMillis());
+        return Math.max(1, (int) Math.ceil(DEFAULT_DWELL_SECONDS * 1000.0 / tickMillis));
     }
 
     // ==================== 故障安全距离 ====================

@@ -48,6 +48,7 @@ class DisturbanceDetectorTests {
     private static TrainRunProfile profile(String trainId, double headwayActualSec) {
         return new TrainRunProfile(
             trainId,
+            "TR-FRONT",
             100,
             0,
             0.35,
@@ -58,6 +59,8 @@ class DisturbanceDetectorTests {
             0,
             headwayActualSec,
             0,
+            "ON_TARGET",
+            "NONE",
             null
         );
     }

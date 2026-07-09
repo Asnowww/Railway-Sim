@@ -70,12 +70,18 @@ public class TrainManager {
 
     public synchronized void reset() {
         String routeId = infrastructureCatalog.lineData().lineId();
+        double lineLengthMeters = infrastructureCatalog.lineData().lineLengthMeters();
+        if (lineLengthMeters <= 0) {
+            lineLengthMeters = 5_000;
+        }
+        double rearStartMeters = Math.min(100, Math.max(0, lineLengthMeters * 0.05));
+        double frontStartMeters = Math.min(lineLengthMeters - 100, Math.max(900, lineLengthMeters * 0.52));
         trains.clear();
         controlSessions.clear();
         onboardTrainSubsystemManager.clear();
         vehicleRuntimeIntegrationService.clear();
-        addInitialTrain("TR-001", routeId, 100, 0.42, 1, ExternalTrainDirection.DOWN);
-        addInitialTrain("TR-002", routeId, 900, 0.55, 2, ExternalTrainDirection.DOWN);
+        addInitialTrain("TR-001", routeId, rearStartMeters, 0.42, 1, ExternalTrainDirection.DOWN);
+        addInitialTrain("TR-002", routeId, frontStartMeters, 0.55, 2, ExternalTrainDirection.DOWN);
         faultRecords.clear();
     }
 
@@ -108,7 +114,7 @@ public class TrainManager {
             TrainState currentState = train.state(controlSessions.get(train.id()));
             VehicleRuntimeTrainStep step = stepByTrain.get(currentState.id());
             if (step != null && step.output() != null && step.report() != null) {
-                train.applyPhysicsOutput(step.output(), step.report());
+                train.applyPhysicsOutput(step.output(), step.report(), context.deltaSeconds());
                 realtimeStateCache.updateTrainTcmsState(step.report());
                 publishVehicleEvents(step.output());
             }

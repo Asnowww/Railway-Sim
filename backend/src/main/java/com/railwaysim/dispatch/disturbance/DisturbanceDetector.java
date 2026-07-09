@@ -54,6 +54,10 @@ public class DisturbanceDetector {
             .toList();
     }
 
+    public List<DisturbanceEvent> events() {
+        return List.copyOf(openEvents.values());
+    }
+
     public void reset() {
         consecutiveHits.clear();
         lastTriggeredAt.clear();
@@ -105,7 +109,8 @@ public class DisturbanceDetector {
         if (lastTriggered != null && simulatedAt.getEpochSecond() - lastTriggered.getEpochSecond() < properties.getCooldownSec()) {
             return;
         }
-        if (openEvents.containsKey(key)) {
+        DisturbanceEvent existing = openEvents.get(key);
+        if (existing != null && ("OPEN".equals(existing.status()) || "HANDLED".equals(existing.status()))) {
             return;
         }
         DisturbanceEvent event = new DisturbanceEvent(

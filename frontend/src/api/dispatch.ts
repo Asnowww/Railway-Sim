@@ -15,5 +15,22 @@ export const dispatchApi = {
   status: () => request<DispatchSnapshot>('/api/dispatch/status'),
   disturbances: () => request<DispatchDisturbance[]>('/api/dispatch/disturbances'),
   commands: () => request<DispatchCommandView[]>('/api/dispatch/commands'),
+  submitCommand: (body: {
+    trainId: string
+    commandType: string
+    detail?: string
+    targetHeadwaySec?: number
+    speedBiasRatio?: number
+    deltaDwellSec?: number
+  }) =>
+    request<DispatchCommandView>('/api/dispatch/commands', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    }),
+  cancelCommand: (commandId: string) =>
+    request<Record<string, unknown>>(`/api/dispatch/commands/${encodeURIComponent(commandId)}/cancel`, {
+      method: 'POST'
+    }),
   stationRecords: () => request<TrainStationEvent[]>('/api/dispatch/station-records')
 }

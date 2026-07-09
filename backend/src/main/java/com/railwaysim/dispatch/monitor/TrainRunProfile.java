@@ -4,6 +4,7 @@ import java.time.Instant;
 
 public record TrainRunProfile(
     String trainId,
+    String frontTrainId,
     double positionMeters,
     double speedMps,
     double loadRate,
@@ -14,6 +15,8 @@ public record TrainRunProfile(
     int dwellDeviationSec,
     Double headwayActualSec,
     int headwayDeviationSec,
+    String headwayState,
+    String headwayAction,
     Instant lastDepartureAt
 ) {
 }

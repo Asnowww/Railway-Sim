@@ -20,6 +20,7 @@ public class DispatchProperties {
     private double baseCruiseSpeedMps = 15.0;
     private int minDwellSec = 15;
     private int maxDwellSec = 60;
+    private int commandEffectTimeoutSec = 180;
 
     public String getPlanLocation() {
         return planLocation;
@@ -139,5 +140,13 @@ public class DispatchProperties {
 
     public void setMaxDwellSec(int maxDwellSec) {
         this.maxDwellSec = maxDwellSec;
+    }
+
+    public int getCommandEffectTimeoutSec() {
+        return commandEffectTimeoutSec;
+    }
+
+    public void setCommandEffectTimeoutSec(int commandEffectTimeoutSec) {
+        this.commandEffectTimeoutSec = commandEffectTimeoutSec;
     }
 }

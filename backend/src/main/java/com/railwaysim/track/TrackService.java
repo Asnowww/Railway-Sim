@@ -338,9 +338,8 @@ public class TrackService {
                     speedLimit,
                     lineData.gradientAt(train.positionMeters()),
                     simulationProperties.getDefaultCurveRadiusMeters(),
-                    Double.isFinite(nextStationDistance)
-                        ? nextStationDistance
-                        : Math.max(0, segment.endMeters() - train.positionMeters())
+                    // Only real station definitions may trigger onboard station-stop logic.
+                    nextStationDistance
                 );
             })
             .toList();

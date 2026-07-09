@@ -1,13 +1,31 @@
 package com.railwaysim.dispatch;
 
+import java.util.List;
+
 public record DispatchConstraint(
     String trainId,
     boolean holdTrain,
     double speedFactor,
     Double targetSpeedMetersPerSecond,
     boolean releaseStationStop,
-    String reason
+    String reason,
+    List<String> sourceCommandIds
 ) {
+    public DispatchConstraint {
+        sourceCommandIds = sourceCommandIds == null ? List.of() : List.copyOf(sourceCommandIds);
+    }
+
+    public DispatchConstraint(
+        String trainId,
+        boolean holdTrain,
+        double speedFactor,
+        Double targetSpeedMetersPerSecond,
+        boolean releaseStationStop,
+        String reason
+    ) {
+        this(trainId, holdTrain, speedFactor, targetSpeedMetersPerSecond, releaseStationStop, reason, List.of());
+    }
+
     public static DispatchConstraint none(String trainId) {
         return new DispatchConstraint(trainId, false, 1.0, null, false, "NORMAL");
     }

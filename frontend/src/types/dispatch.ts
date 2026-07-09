@@ -1,7 +1,10 @@
 export interface DispatchTrainProfile {
   trainId: string
+  frontTrainId: string | null
   headwayActualSeconds: number | null
   headwayDeviationSeconds: number
+  headwayState: string
+  headwayAction: string
   dwellDeviationSeconds: number
 }
 
