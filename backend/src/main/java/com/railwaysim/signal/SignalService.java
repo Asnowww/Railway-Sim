@@ -12,7 +12,9 @@ import com.railwaysim.track.TrackService;
 import com.railwaysim.train.TrainState;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -32,6 +34,13 @@ public class SignalService {
     private final RouteInterlockingService interlockingService;
     private List<MovementAuthority> authorities = List.of();
     private List<SignalState> signalStates = List.of();
+
+    /** 每列车在站台已停 tick 数（用于停站时间控制） */
+    private final Map<String, Integer> stationDwellTicks = new LinkedHashMap<>();
+    /** 每列车当前是否在站台停车中 */
+    private final Map<String, Boolean> atStationStop = new LinkedHashMap<>();
+    /** 默认站台停站 tick 数（仅在没有调度停站时间时使用） */
+    private static final int DEFAULT_DWELL_TICKS = 25;
 
     public SignalService(
         SimulationProperties simulationProperties,
@@ -86,15 +95,24 @@ public class SignalService {
             TrainState train = ordered.get(i);
             double trainHead = train.positionMeters();
 
+            // ---- 故障安全：刹车/牵引失效 → 加大安全距离 ----
+            double effectiveSafetyGap = resolveSafetyGap(train);
+
             double nextTrainTailLimit = Double.POSITIVE_INFINITY;
             if (i + 1 < ordered.size()) {
                 TrainState nextTrain = ordered.get(i + 1);
-                nextTrainTailLimit = nextTrain.positionMeters() - nextTrain.lengthMeters() - safetyGap;
+                nextTrainTailLimit = nextTrain.positionMeters() - nextTrain.lengthMeters() - effectiveSafetyGap;
             }
 
             double lineEndLimit = lineLengthMeters;
-            double faultLimit = trackService.nextFaultPosition(trainHead) - safetyGap;
+            double faultLimit = trackService.nextFaultPosition(trainHead) - effectiveSafetyGap;
             double interlockingLimit = interlockingService.maLimitFromRouteConflict(train.id());
+
+            // ---- 停站控制：MA终点收到站台位置前，等停站时间到才延伸 ----
+            Map<String, Double> stationLimits = resolveStationDwell(train);
+            if (stationLimits.containsKey("maEndAt")) {
+                lineEndLimit = Math.min(lineEndLimit, stationLimits.get("maEndAt"));
+            }
 
             double authorityEnd = Math.min(
                 Math.min(nextTrainTailLimit, lineEndLimit),
@@ -118,9 +136,17 @@ public class SignalService {
                 ? safeBrakingSpeed
                 : dispatch.applyToSpeedLimit(safeBrakingSpeed);
 
+            // 如已在站台停靠中且 MA 已到站台位置，速度应降到 0
+            if (stationLimits.containsKey("isDwelling") && stationLimits.get("isDwelling") > 0) {
+                dispatchLimitedSpeed = 0;
+            }
+
             double speedLimit = Math.min(segmentSpeedLimit, dispatchLimitedSpeed);
             String reason = buildReason(authorityEnd, nextTrainTailLimit, lineEndLimit,
                 faultLimit, interlockingLimit, lineLengthMeters);
+            if (stationLimits.containsKey("isDwelling") && stationLimits.get("isDwelling") > 0) {
+                reason = "站台停靠";
+            }
 
             nextAuthorities.add(new MovementAuthority(train.id(), authorityEnd, speedLimit, reason));
         }
@@ -136,6 +162,16 @@ public class SignalService {
 
     public synchronized List<SignalState> signalStates() {
         return signalStates;
+    }
+
+    /**
+     * 信号门控：列车在站台+零速+进路建立 → 允许开门。
+     */
+    public synchronized List<String> doorOpenAllowedTrainIds() {
+        return atStationStop.entrySet().stream()
+            .filter(Map.Entry::getValue)
+            .map(Map.Entry::getKey)
+            .toList();
     }
 
     /** 基于当前区段状态和列车位置重新计算信号灯色（不重新算MA）。 */
@@ -268,6 +304,72 @@ public class SignalService {
             }
         }
         return null;
+    }
+
+    // ==================== 停站控制 ====================
+
+    /**
+     * 信号决定停站时机：列车接近站台 → MA 收到站台位置 → 零速稳定后累计站停 ticks。
+     * 站停时间到（默认 25 ticks = 5s）后 MA 延伸至下一区段，列车可发车。
+     *
+     * @return Map with "maEndAt"(截断MA终点) and/or "isDwelling"(>0 表示正在站停)
+     */
+    private Map<String, Double> resolveStationDwell(TrainState train) {
+        Map<String, Double> result = new LinkedHashMap<>();
+        OperationalLineData lineData = infrastructureCatalog.lineData();
+        List<OperationalLineData.StationDefinition> stations = lineData.stations();
+        if (stations.isEmpty()) return result;
+
+        double head = train.positionMeters();
+        double tail = head - train.lengthMeters();
+
+        // 找最近的下一站
+        OperationalLineData.StationDefinition nextStation = stations.stream()
+            .filter(s -> s.centerMeters() > tail + 1)
+            .min(Comparator.comparingDouble(s -> s.centerMeters() - head))
+            .orElse(null);
+        if (nextStation == null) return result;
+
+        String sid = nextStation.id();
+        boolean stopped = Math.abs(head - nextStation.centerMeters()) < 10 && train.zeroSpeed();
+        int tickCount = stationDwellTicks.getOrDefault(sid, 0);
+
+        if (stopped) {
+            stationDwellTicks.put(sid, tickCount + 1);
+            atStationStop.put(train.id(), true);
+        }
+
+        int dwellTicks = stationDwellTicks.getOrDefault(sid, 0);
+
+        // 站停未完成 → MA 截到站台位置
+        if (dwellTicks < DEFAULT_DWELL_TICKS) {
+            result.put("maEndAt", nextStation.centerMeters() + 10);
+            if (dwellTicks > 0) result.put("isDwelling", 1.0);
+            return result;
+        }
+
+        // 站停完成 → 释放 MA，清除计数
+        stationDwellTicks.remove(sid);
+        atStationStop.remove(train.id());
+        return result;
+    }
+
+    // ==================== 故障安全距离 ====================
+
+    /**
+     * 刹车失效/牵引失效 → 制动能力下降 → 需要更长安全距离。
+     * 正常: 120m, 部分失效(>=1/3): 180m, 严重(>=2/3): 300m.
+     */
+    private double resolveSafetyGap(TrainState train) {
+        double base = simulationProperties.getSafetyGapMeters();
+        if (base <= 0) base = 120;
+        // totalCount=0 means no data yet — default to normal
+        // 严重故障(faultLevel>=2): 2.5x
+        if (train.faultLevel() >= 2) return base * 2.5;
+        // 部分失效: 1.5x
+        if (!train.brakeAvailable() && !train.tractionAvailable()) return base * 2.0;
+        if (!train.brakeAvailable() || !train.tractionAvailable()) return base * 1.5;
+        return base;
     }
 
     private String buildReason(double authorityEnd, double nextTrainLimit, double lineEnd,
