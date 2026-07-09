@@ -117,7 +117,9 @@ POST /api/signal/vehicles/telemetry/content-packet?trainCount=1
 
 `content-packet` 使用 `application/octet-stream` 和 `SignalTrainContentCodec` 小端包：每车 18 字节，包含列车号、速度、累计里程、方向、载重、车辆故障限速、紧急制动、可用牵引单元数和可用制动单元数。
 
-`GET /api/signal/vehicles/commands` 将当前 `MovementAuthority` 和车辆状态投影为 `SignalVehicleCommand`：
+`GET /api/signal/vehicles/statuses` 返回的 `VehicleSignalStatus` 包含 `driverConsoleState`，用于暴露司机台 PLC 侧开关/手柄状态投影：门模式开关、ATO 启动标志、模式升/降级确认、自动折返、方向手柄和主手柄状态。
+
+`GET /api/signal/vehicles/commands` 将当前 `MovementAuthority` 和车辆状态投影为 `SignalVehicleCommand`，同时通过 `cabDisplay` 下发司机台/DMI 显示字段：
 
 | 场景 | 输出 |
 |---|---|
@@ -125,6 +127,8 @@ POST /api/signal/vehicles/telemetry/content-packet?trainCount=1
 | 无 MA 或 MA 耗尽 | 牵引切除、常用制动、紧急制动。 |
 | 未并入车辆控制会话 | 牵引切除、常用制动，不进入紧急制动。 |
 | 车辆故障限速 | 授权速度取 `min(MA限速, vehicleFaultSpeedLimitMetersPerSecond)`。 |
+
+`cabDisplay` 对齐 ATP/ATO -> DMI 和网络屏/信号屏语义，包含 `currentDrivingMode`、`maximumAvailableDrivingMode`、`doorEnable`、`doorControlMode`、`tractionBrakeInfo`、`departureInfo`、`turnbackInfo`、`speedLimitMetersPerSecond`、`emergencyBrake`、`distanceToNextStationMeters`。模式枚举使用 `DTO`、`ATO`、`AR`、`SM`、`RM`；门控模式使用 `AUTOMATIC`、`SEMI_AUTOMATIC`、`MANUAL`。
 
 ### 获取供电状态
 

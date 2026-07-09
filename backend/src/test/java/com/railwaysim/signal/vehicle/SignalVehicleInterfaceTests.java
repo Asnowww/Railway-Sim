@@ -24,6 +24,9 @@ class SignalVehicleInterfaceTests {
         assertThat(status.vehicleProtectionReason()).isEqualTo("NONE");
         assertThat(status.operationMode()).isEqualTo("ATO");
         assertThat(status.faultCode()).isEqualTo("OK");
+        assertThat(status.driverConsoleState().doorModeSwitchState())
+            .isEqualTo(SignalDriverConsoleState.DoorModeSwitch.AUTOMATIC);
+        assertThat(status.driverConsoleState().atoStartFlag()).isTrue();
     }
 
     @Test
@@ -37,6 +40,8 @@ class SignalVehicleInterfaceTests {
         assertThat(command.speedLimitMetersPerSecond()).isEqualTo(13.33);
         assertThat(command.tractionCutoff()).isFalse();
         assertThat(command.emergencyBrakeCommand()).isFalse();
+        assertThat(command.cabDisplay().currentDrivingMode()).isEqualTo(SignalCabDisplayState.DrivingMode.ATO);
+        assertThat(command.cabDisplay().departureInfo()).isEqualTo(SignalCabDisplayState.DepartureInfo.DEPART);
     }
 
     @Test
@@ -62,6 +67,7 @@ class SignalVehicleInterfaceTests {
         assertThat(command.speedLimitMetersPerSecond()).isEqualTo(2.0);
         assertThat(command.reason()).isEqualTo("VEHICLE_FAULT_SPEED_LIMIT");
         assertThat(command.tractionCutoff()).isFalse();
+        assertThat(command.cabDisplay().speedLimitMetersPerSecond()).isEqualTo(2.0);
         assertThat(VehicleSignalStatus.from(train.state()).vehicleFaultSpeedLimitMetersPerSecond()).isEqualTo(2.0);
     }
 
@@ -79,6 +85,9 @@ class SignalVehicleInterfaceTests {
         assertThat(missingAuthority.serviceBrakeCommand()).isTrue();
         assertThat(missingAuthority.emergencyBrakeCommand()).isTrue();
         assertThat(missingAuthority.reason()).isEqualTo("NO_MOVEMENT_AUTHORITY");
+        assertThat(missingAuthority.cabDisplay().tractionBrakeInfo())
+            .isEqualTo(SignalCabDisplayState.TractionBrakeInfo.EMERGENCY_BRAKING);
+        assertThat(missingAuthority.cabDisplay().departureInfo()).isEqualTo(SignalCabDisplayState.DepartureInfo.HOLD);
         assertThat(exhaustedAuthority.emergencyBrakeCommand()).isTrue();
         assertThat(exhaustedAuthority.reason()).isEqualTo("MOVEMENT_AUTHORITY_EXHAUSTED");
     }
@@ -97,6 +106,8 @@ class SignalVehicleInterfaceTests {
         assertThat(command.serviceBrakeCommand()).isTrue();
         assertThat(command.emergencyBrakeCommand()).isFalse();
         assertThat(command.reason()).isEqualTo("CONTROL_SESSION_CONNECTING");
+        assertThat(command.cabDisplay().maximumAvailableDrivingMode()).isEqualTo(SignalCabDisplayState.DrivingMode.RM);
+        assertThat(command.cabDisplay().departureInfo()).isEqualTo(SignalCabDisplayState.DepartureInfo.HOLD);
     }
 
     @Test
@@ -126,5 +137,9 @@ class SignalVehicleInterfaceTests {
         assertThat(status.faultCode()).isEqualTo("ATP_BRAKE");
         assertThat(status.vehicleFaultSpeedLimitMetersPerSecond()).isEqualTo(2.0);
         assertThat(status.availableOperationMode()).isEqualTo("NO_DEPARTURE");
+        assertThat(status.driverConsoleState().doorModeSwitchState())
+            .isEqualTo(SignalDriverConsoleState.DoorModeSwitch.MANUAL);
+        assertThat(status.driverConsoleState().masterHandleState())
+            .isEqualTo(SignalDriverConsoleState.MasterHandleState.FAST_BRAKE);
     }
 }
