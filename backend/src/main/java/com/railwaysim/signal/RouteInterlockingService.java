@@ -163,6 +163,7 @@ public class RouteInterlockingService {
 
     public synchronized double maLimitFromRouteConflict(String trainId) {
         double closest = Double.POSITIVE_INFINITY;
+        Set<String> mySegments = trainRouteSegments(trainId);
         for (RouteState route : routeStates.values()) {
             if (route.status() != RouteStatus.ESTABLISHED) {
                 continue;
@@ -171,10 +172,12 @@ public class RouteInterlockingService {
                 continue;
             }
             for (String segId : resolvedSegmentIds(route)) {
+                // 如果该区段也在我的进路中 → 同线路前后车，不构成冲突
+                if (mySegments.contains(segId)) {
+                    continue;
+                }
                 TrackSegmentState seg = findSegmentById(segId).orElse(null);
-                if (seg != null
-                    && (seg.occupancy() == TrackOccupancy.RESERVED
-                    || seg.occupancy() == TrackOccupancy.OCCUPIED)) {
+                if (seg != null && seg.occupancy() == TrackOccupancy.RESERVED) {
                     if (seg.startMeters() < closest) {
                         closest = seg.startMeters();
                     }
@@ -182,6 +185,16 @@ public class RouteInterlockingService {
             }
         }
         return closest;
+    }
+
+    private Set<String> trainRouteSegments(String trainId) {
+        for (RouteState route : routeStates.values()) {
+            if (route.status() == RouteStatus.ESTABLISHED
+                && trainId.equals(route.establishedByTrainId())) {
+                return resolvedSegmentIds(route);
+            }
+        }
+        return Set.of();
     }
 
     public synchronized List<String> establishedSegmentPathForTrain(String trainId) {
