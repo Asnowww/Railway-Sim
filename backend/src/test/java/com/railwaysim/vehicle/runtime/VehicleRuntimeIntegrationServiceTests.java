@@ -24,6 +24,7 @@ import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
 import org.springframework.web.client.RestClient;
@@ -80,6 +81,42 @@ class VehicleRuntimeIntegrationServiceTests {
                 .satisfies(step -> assertThat(step.report().dataQuality()).isEqualTo("FALLBACK"));
             assertThat(result.health().dataQuality()).isEqualTo("FALLBACK");
             assertThat(service.ownsPowerLoadForwarding()).isFalse();
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    void bootstrapFailureIsRetriedOnNextExternalTick() throws IOException {
+        AtomicInteger bootstrapCalls = new AtomicInteger();
+        AtomicReference<String> successfulBootstrapBody = new AtomicReference<>("");
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/vehicle-runtime/bootstrap", exchange -> {
+            int call = bootstrapCalls.incrementAndGet();
+            String body = new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
+            if (call == 1) {
+                writeJson(exchange, 500, "{\"error\":\"temporary bootstrap failure\"}");
+            } else {
+                successfulBootstrapBody.set(body);
+                writeJson(exchange, 200, healthJson("GOOD"));
+            }
+        });
+        server.createContext("/vehicle-runtime/step-fleet", exchange -> {
+            exchange.getRequestBody().readAllBytes();
+            writeJson(exchange, 200, stepResponseJson("OK", "GOOD", 456.0));
+        });
+        server.start();
+        try {
+            VehicleRuntimeIntegrationService service = service(server, VehicleRuntimeMode.EXTERNAL_HTTP, ExternalPowerNetworkMode.EXTERNAL_HTTP);
+
+            VehicleRuntimeStepResult first = service.stepFleet(tick(1), List.of(train()), authority(), track(), List.of(), power());
+            VehicleRuntimeStepResult second = service.stepFleet(tick(2), List.of(train()), authority(), track(), List.of(), power());
+
+            assertThat(first.health().dataQuality()).isEqualTo("FALLBACK");
+            assertThat(second.outputs()).singleElement()
+                .satisfies(output -> assertThat(output.newPositionMeters()).isEqualTo(456.0));
+            assertThat(bootstrapCalls.get()).isEqualTo(2);
+            assertThat(successfulBootstrapBody.get()).contains("\"forwardPowerLoads\":true");
         } finally {
             server.stop(0);
         }
