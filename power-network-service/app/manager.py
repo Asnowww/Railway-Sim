@@ -113,6 +113,7 @@ class SectionLoad:
 class PowerNetworkModel:
     line_id: str = "beijing-reference"
     line_name: str = "北京地铁抽象供电网络"
+    topology_segments: list[dict[str, Any]] = field(default_factory=list)
     buses: dict[str, MediumVoltageBus] = field(default_factory=dict)
     feeders: dict[str, RingFeeder] = field(default_factory=dict)
     substations: dict[str, SubstationState] = field(default_factory=dict)
@@ -131,6 +132,18 @@ class PowerNetworkModel:
     def bootstrap(self, payload: dict[str, Any]) -> dict[str, Any]:
         self.line_id = payload.get("lineId", "")
         self.line_name = payload.get("lineName", "")
+        self.topology_segments = [
+            {
+                "id": segment.get("id", ""),
+                "rawSegmentId": segment.get("rawSegmentId"),
+                "startMeters": float(segment.get("startMeters", 0) or 0),
+                "endMeters": float(segment.get("endMeters", 0) or 0),
+                "fromNodeId": segment.get("fromNodeId", ""),
+                "toNodeId": segment.get("toNodeId", ""),
+                "track": segment.get("track", ""),
+            }
+            for segment in payload.get("topologySegments", [])
+        ]
         self.buses, self.feeders = self._derive_medium_voltage_network(payload)
         self.substations = {}
         for index, substation in enumerate(payload.get("substations", []), start=1):
@@ -238,6 +251,7 @@ class PowerNetworkModel:
             "lineName": self.line_name,
             "nominalDcVoltage": NOMINAL_DC_VOLTAGE,
             "mediumVoltageKv": MEDIUM_VOLTAGE_KV,
+            "topologySegments": list(self.topology_segments),
             "mediumVoltageBuses": [self._bus_payload(bus) for bus in self.buses.values()],
             "ringFeeders": [self._feeder_payload(feeder) for feeder in self.feeders.values()],
             "substations": [self._substation_payload(substation) for substation in self.substations.values()],
@@ -601,6 +615,8 @@ class PowerNetworkModel:
         return {
             "id": section.id,
             "powerSectionId": section.power_section_id,
+            "startMeters": section.start_meters,
+            "endMeters": section.end_meters,
             "energizationState": section.energization_state,
             "feederState": section.feeder_state,
             "recommendedSupplyMode": section.recommended_supply_mode,
