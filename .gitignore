@@ -30,6 +30,10 @@ frontend/.vite/
 backend/application-local.yml
 backend/config/application-local.yml
 
+# Debug & demo files (not for production)
+backend/src/main/resources/static/
+backend/src/main/resources/config/dispatch-plan-demo.yaml
+
 # Runtime data
 data/
 uploads/
