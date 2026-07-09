@@ -130,6 +130,16 @@ POST /api/signal/vehicles/telemetry/content-packet?trainCount=1
 
 `cabDisplay` 对齐 ATP/ATO -> DMI 和网络屏/信号屏语义，包含 `currentDrivingMode`、`maximumAvailableDrivingMode`、`doorEnable`、`doorControlMode`、`tractionBrakeInfo`、`departureInfo`、`turnbackInfo`、`speedLimitMetersPerSecond`、`emergencyBrake`、`distanceToNextStationMeters`。模式枚举使用 `DTO`、`ATO`、`AR`、`SM`、`RM`；门控模式使用 `AUTOMATIC`、`SEMI_AUTOMATIC`、`MANUAL`。
 
+视景适配接口用于把车辆侧运行态补齐到信号/ATS 视图，再由信号模块按 UDP 包发送给外部视景系统：
+
+```http
+PUT /api/signal/vehicles/{trainId}/vision-state
+GET /api/signal/vehicles/vision-states
+POST /api/signal/vision/udp/send?trainId=TR-001&host=18.32.115.28&port=8302
+```
+
+`PUT /vision-state` 是车辆系统到中央信号模块的打包上报入口，可上报 `speedMetersPerSecond`、`accelerationMetersPerSecondSquared`、`accelerationPercent`、`headPositionMeters`、`headSegmentId`、`directionCode`、`runCondition`、`headlightState`、`operationCode`、`departureCountdownSeconds`。UDP 发送时，本车字段优先使用该缓存，缺失时回退到 `TrainState`；信号机和道岔分别来自 `SignalState` 与 `SwitchState`。
+
 ### 获取供电状态
 
 ```http

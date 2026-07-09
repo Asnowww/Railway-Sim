@@ -46,6 +46,10 @@ railway:
     onboard-subsystem-url: http://localhost:9100
     onboard-subsystem-timeout-millis: 300
     onboard-subsystem-lease-millis: 1000
+    vision:
+      target-host: 18.32.115.28
+      target-port: 8302
+      local-port: 0
     vehicle-runtime:
       mode: LOCAL
       base-url: http://localhost:9300
