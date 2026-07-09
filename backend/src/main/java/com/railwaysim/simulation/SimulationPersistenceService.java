@@ -74,9 +74,10 @@ public class SimulationPersistenceService {
                   load_mass_kg, overload_status, available_traction_count,
                   available_brake_count, vehicle_protection_reason,
                   dynamics_state, dynamics_constraint_reason, speed_limit_mps,
-                  ma_distance_meters, station_distance_meters, stopping_distance_meters,
+                  vehicle_fault_speed_limit_mps, ma_distance_meters,
+                  station_distance_meters, stopping_distance_meters,
                   recorded_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
             train.id(),
             context.tick(),
@@ -105,6 +106,7 @@ public class SimulationPersistenceService {
             train.dynamicsState(),
             train.dynamicsConstraintReason(),
             train.speedLimitMetersPerSecond(),
+            train.vehicleFaultSpeedLimitMetersPerSecond(),
             train.movementAuthorityDistanceMeters(),
             train.stationDistanceMeters(),
             train.stoppingDistanceMeters(),

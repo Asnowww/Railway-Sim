@@ -1,12 +1,20 @@
 package com.railwaysim.api;
 
 import com.railwaysim.api.dto.FaultMutationRequest;
+import com.railwaysim.api.dto.ExternalPowerNetworkHealthResponse;
+import com.railwaysim.api.dto.IsolatorStateResponse;
 import com.railwaysim.api.dto.OperationLogEntry;
 import com.railwaysim.api.dto.PowerEnergyResponse;
 import com.railwaysim.api.dto.PowerMaintenanceLockResponse;
+import com.railwaysim.api.dto.StrayCurrentRiskResponse;
+import com.railwaysim.api.dto.SubstationDeviceResponse;
+import com.railwaysim.api.dto.SubstationStateResponse;
 import com.railwaysim.power.PowerSectionEvent;
 import com.railwaysim.power.PowerSectionState;
 import com.railwaysim.power.PowerService;
+import com.railwaysim.power.external.PowerNetworkEventPayload;
+import com.railwaysim.power.external.PowerNetworkOperationRequest;
+import com.railwaysim.power.external.PowerNetworkOperationResult;
 import java.time.Instant;
 import java.util.List;
 import org.springframework.http.HttpStatus;
@@ -72,6 +80,105 @@ public class PowerController {
                 section.updatedAt()
             ))
             .toList();
+    }
+
+    @GetMapping("/substations")
+    public List<SubstationStateResponse> substations() {
+        return powerService.substations().stream()
+            .map(substation -> new SubstationStateResponse(
+                substation.id(),
+                substation.name(),
+                substation.supplyMode(),
+                substation.availability(),
+                substation.devices().stream()
+                    .map(device -> new SubstationDeviceResponse(
+                        device.id(),
+                        device.name(),
+                        device.deviceType(),
+                        device.state(),
+                        device.available(),
+                        device.affectsSectionIds()
+                    ))
+                    .toList(),
+                substation.sectionIds(),
+                substation.dataQuality(),
+                substation.updatedAt()
+            ))
+            .toList();
+    }
+
+    @GetMapping("/substations/{substationId}/devices")
+    public List<SubstationDeviceResponse> substationDevices(@PathVariable String substationId) {
+        return substations().stream()
+            .filter(substation -> substation.id().equals(substationId))
+            .findFirst()
+            .map(SubstationStateResponse::devices)
+            .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Substation not found: " + substationId));
+    }
+
+    @GetMapping("/isolators")
+    public List<IsolatorStateResponse> isolators() {
+        return powerService.isolators().stream()
+            .map(isolator -> new IsolatorStateResponse(
+                isolator.id(),
+                isolator.thirdRailSectionId(),
+                isolator.state(),
+                isolator.dataQuality(),
+                isolator.updatedAt()
+            ))
+            .toList();
+    }
+
+    @GetMapping("/stray-current")
+    public List<StrayCurrentRiskResponse> strayCurrent() {
+        return powerService.strayCurrentRisks().stream()
+            .map(risk -> new StrayCurrentRiskResponse(
+                risk.id(),
+                risk.sectionId(),
+                risk.cabinetState(),
+                risk.polarizedPotentialVolts(),
+                risk.riskLevel(),
+                risk.riskReason(),
+                risk.suggestedAction(),
+                risk.dataQuality(),
+                risk.updatedAt()
+            ))
+            .toList();
+    }
+
+    @GetMapping("/external-health")
+    public ExternalPowerNetworkHealthResponse externalHealth() {
+        var health = powerService.externalHealth();
+        return new ExternalPowerNetworkHealthResponse(
+            health.mode(),
+            health.heartbeatStatus(),
+            health.lastPacketAt(),
+            health.latencyMillis(),
+            health.dataQuality()
+        );
+    }
+
+    @GetMapping("/external-events")
+    public List<PowerNetworkEventPayload> externalEvents() {
+        return powerService.externalEvents();
+    }
+
+    @PostMapping("/operations")
+    public PowerNetworkOperationResult operate(@RequestBody PowerNetworkOperationRequest request) {
+        if (request == null || request.confirmToken() == null || !CONFIRM_TOKEN.equals(request.confirmToken())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "confirmToken must be SIMULATION_CONFIRM");
+        }
+        PowerNetworkOperationResult result = powerService.operate(request);
+        operationLogService.record(
+            request.normalizedOperator(),
+            "POWER_NETWORK_OPERATION",
+            request.targetType() + ":" + request.targetId(),
+            request.desiredState(),
+            result.resultState(),
+            request.normalizedReason(),
+            request.traceId()
+        );
+        return result;
     }
 
     @PostMapping("/sections/{sectionId}/faults")

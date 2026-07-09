@@ -23,6 +23,14 @@ public record VehicleSignalStatus(
     int availableTractionCount,
     int availableBrakeCount,
     String vehicleProtectionReason,
+    String operationMode,
+    String selfCheckStatus,
+    int faultLevel,
+    String availableOperationMode,
+    String faultCode,
+    String dynamicsState,
+    String dynamicsConstraintReason,
+    double vehicleFaultSpeedLimitMetersPerSecond,
     String dataQuality
 ) {
     public static VehicleSignalStatus from(TrainState train) {
@@ -47,6 +55,14 @@ public record VehicleSignalStatus(
             train.availableTractionCount(),
             train.availableBrakeCount(),
             train.vehicleProtectionReason(),
+            train.operationMode(),
+            train.selfCheckStatus(),
+            train.faultLevel(),
+            train.availableOperationMode(),
+            train.faultCode(),
+            train.dynamicsState(),
+            train.dynamicsConstraintReason(),
+            train.vehicleFaultSpeedLimitMetersPerSecond(),
             train.dataQuality()
         );
     }
