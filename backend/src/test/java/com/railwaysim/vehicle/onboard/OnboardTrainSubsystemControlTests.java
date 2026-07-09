@@ -3,6 +3,7 @@ package com.railwaysim.vehicle.onboard;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.railwaysim.config.SimulationProperties;
+import com.railwaysim.dispatch.DispatchConstraint;
 import com.railwaysim.infrastructure.PowerConfigLoader;
 import com.railwaysim.infrastructure.SpreadsheetLineDataLoader;
 import com.railwaysim.infrastructure.StaticInfrastructureCatalog;
@@ -109,6 +110,23 @@ class OnboardTrainSubsystemControlTests {
     }
 
     @Test
+    void dispatchReleaseStationStopAllowsDwellingTrainToDepart() {
+        OnboardTrainSubsystemManager manager = manager();
+        VehiclePhysicsInput input = control(
+            manager,
+            dwellingTrainState(20),
+            null,
+            new TrackConstraint("TR-001", "SEG-1", 13.33, 0, 1_000, 0),
+            new DispatchConstraint("TR-001", false, 1.0, null, true, "SHORTEN_DWELL"),
+            new PowerConstraint("TR-001", "P01", 1500, 3_200_000, true)
+        );
+
+        assertThat(input.dynamicsState()).isEqualTo("ACCELERATING");
+        assertThat(input.stationDistanceMeters()).isGreaterThan(100_000);
+        assertThat(input.tractionCommand()).isGreaterThan(0);
+    }
+
+    @Test
     void dynamicOverloadDeratesTractionAndExtendsStoppingDistanceWithoutDispatchCommand() {
         OnboardTrainSubsystemManager manager = manager();
         TrainState normal = movingTrainState(5.0, 25_200, 6, 6);
@@ -165,11 +183,23 @@ class OnboardTrainSubsystemControlTests {
         TrackConstraint track,
         PowerConstraint power
     ) {
+        return control(manager, train, authority, track, null, power);
+    }
+
+    private VehiclePhysicsInput control(
+        OnboardTrainSubsystemManager manager,
+        TrainState train,
+        com.railwaysim.signal.MovementAuthority authority,
+        TrackConstraint track,
+        DispatchConstraint dispatch,
+        PowerConstraint power
+    ) {
         return manager.control(new OnboardTrainControlInput(
             train,
             new TickContext(1, 200, 0.2, Instant.now()),
             authority,
             track,
+            dispatch,
             power
         )).physicsInput();
     }
@@ -247,6 +277,64 @@ class OnboardTrainSubsystemControlTests {
             0,
             0,
             "OK"
+        );
+    }
+
+    private TrainState dwellingTrainState(int dwellElapsedSeconds) {
+        return new TrainState(
+            "TR-001",
+            "1",
+            "TR-001",
+            "IN_SERVICE",
+            "ATTACHED",
+            "ATTACHED",
+            "TEST",
+            0,
+            "UNKNOWN",
+            1_250,
+            0,
+            120,
+            1_250,
+            1_130,
+            0.42,
+            VehicleLoadPolicy.loadMassFromRate(0.42),
+            "NORMAL",
+            VehicleLoadPolicy.NOMINAL_TRACTION_UNITS,
+            VehicleLoadPolicy.NOMINAL_BRAKE_UNITS,
+            "NONE",
+            "DWELLING",
+            "STATION_CONTROL",
+            true,
+            "CLOSED_LOCKED",
+            "IDLE",
+            "APPLYING",
+            "NORMAL",
+            true,
+            true,
+            "PASS",
+            0,
+            "NORMAL",
+            "GOOD",
+            "STATION_STOPPED",
+            "TEST",
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            "OK",
+            "S02",
+            dwellElapsedSeconds,
+            null
         );
     }
 }

@@ -54,8 +54,43 @@ class DispatchServiceTests {
         assertThat(applied.get(0).targetSpeedMetersPerSecond()).isEqualTo(8);
     }
 
+    @Test
+    void extendDwellCommandHoldsDwellingTrainUntilAdjustedTarget() {
+        dispatchService.submit(commandWithPayload("TR-1", "EXTEND_DWELL", Map.of("deltaDwellSec", 10)));
+
+        DispatchConstraint constraint = dispatchService.previewConstraintsForTrains(List.of(dwellingTrain("TR-1", 20))).get(0);
+
+        assertThat(constraint.holdTrain()).isTrue();
+        assertThat(constraint.releaseStationStop()).isFalse();
+        assertThat(constraint.applyToSpeedLimit(20)).isZero();
+    }
+
+    @Test
+    void shortenDwellCommandReleasesStationStopAfterAdjustedTarget() {
+        dispatchService.submit(commandWithPayload("TR-1", "SHORTEN_DWELL", Map.of("deltaDwellSec", -5)));
+
+        DispatchConstraint constraint = dispatchService.previewConstraintsForTrains(List.of(dwellingTrain("TR-1", 20))).get(0);
+
+        assertThat(constraint.holdTrain()).isFalse();
+        assertThat(constraint.releaseStationStop()).isTrue();
+        assertThat(constraint.applyToSpeedLimit(20)).isEqualTo(20);
+    }
+
+    @Test
+    void headwayAdjustCommandCanReleaseMinimumDwellForShorterHeadway() {
+        dispatchService.submit(commandWithPayload("TR-1", "HEADWAY_ADJUST", Map.of("targetHeadwaySec", 200)));
+
+        DispatchConstraint constraint = dispatchService.previewConstraintsForTrains(List.of(dwellingTrain("TR-1", 15))).get(0);
+
+        assertThat(constraint.releaseStationStop()).isTrue();
+    }
+
     private static DispatchCommand command(String trainId, String type, String detail) {
         Map<String, Object> payload = detail == null ? Map.of() : Map.of("detail", detail);
+        return commandWithPayload(trainId, type, payload);
+    }
+
+    private static DispatchCommand commandWithPayload(String trainId, String type, Map<String, Object> payload) {
         return new DispatchCommand(
             "DC-test-" + type,
             trainId,
@@ -70,6 +105,64 @@ class DispatchServiceTests {
 
     private static TrainState train(String id) {
         return new TrainEntity(id, "test-line", 50, 20).state();
+    }
+
+    private static TrainState dwellingTrain(String id, int dwellElapsedSeconds) {
+        return new TrainState(
+            id,
+            "test-line",
+            id,
+            "IN_SERVICE",
+            "ATTACHED",
+            "ATTACHED",
+            "TEST",
+            0,
+            "UNKNOWN",
+            50,
+            0,
+            20,
+            50,
+            30,
+            0.35,
+            25_200,
+            "NORMAL",
+            6,
+            6,
+            "NONE",
+            "DWELLING",
+            "STATION_CONTROL",
+            true,
+            "CLOSED_LOCKED",
+            "IDLE",
+            "APPLYING",
+            "NORMAL",
+            true,
+            true,
+            "PASS",
+            0,
+            "NORMAL",
+            "GOOD",
+            "STATION_STOPPED",
+            "TEST",
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            "OK",
+            "S01",
+            dwellElapsedSeconds,
+            null
+        );
     }
 
     private static DispatchService dispatchService() {

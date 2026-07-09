@@ -154,6 +154,7 @@ public class SimulationRuntime {
             context,
             signalService.authorities(),
             trackConstraints,
+            dispatchConstraints,
             powerConstraints
         );
         powerService.updateFromVehicleOutputs(outputs);

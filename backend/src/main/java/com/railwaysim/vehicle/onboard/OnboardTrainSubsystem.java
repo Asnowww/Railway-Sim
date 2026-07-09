@@ -1,6 +1,7 @@
 package com.railwaysim.vehicle.onboard;
 
 import com.railwaysim.config.SimulationProperties;
+import com.railwaysim.dispatch.DispatchConstraint;
 import com.railwaysim.infrastructure.StaticInfrastructureCatalog;
 import com.railwaysim.power.PowerConstraint;
 import com.railwaysim.signal.MovementAuthority;
@@ -46,6 +47,9 @@ class OnboardTrainSubsystem {
         double maDistance = resolveMovementAuthorityDistance(train, input.authority());
         boolean doorClosed = "CLOSED_LOCKED".equals(train.doorState());
         double stationDistance = resolveStationDistance(train, input.track());
+        if (shouldReleaseStationStop(train, input.dispatch())) {
+            stationDistance = NO_STATION_DISTANCE_METERS;
+        }
         double loadMassKg = VehicleLoadPolicy.loadMassKg(train.loadMassKg(), train.loadRate());
         DynamicsDecision decision = decideDynamicsState(
             train,
@@ -325,6 +329,16 @@ class OnboardTrainSubsystem {
             return NO_STATION_DISTANCE_METERS;
         }
         return Math.max(0, distance);
+    }
+
+    private boolean shouldReleaseStationStop(TrainState train, DispatchConstraint dispatch) {
+        if (dispatch == null || !dispatch.releaseStationStop()) {
+            return false;
+        }
+        boolean dwelling = "DWELLING".equals(train.status())
+            || (train.currentStationId() != null && !train.currentStationId().isBlank())
+            || train.dwellElapsedSeconds() > 0;
+        return dwelling && train.speedMetersPerSecond() <= 0.5;
     }
 
     private String resolveOperationMode(VehiclePhysicsInput input) {
