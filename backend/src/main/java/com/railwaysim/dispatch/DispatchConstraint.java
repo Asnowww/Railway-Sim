@@ -5,10 +5,11 @@ public record DispatchConstraint(
     boolean holdTrain,
     double speedFactor,
     Double targetSpeedMetersPerSecond,
+    boolean releaseStationStop,
     String reason
 ) {
     public static DispatchConstraint none(String trainId) {
-        return new DispatchConstraint(trainId, false, 1.0, null, "NORMAL");
+        return new DispatchConstraint(trainId, false, 1.0, null, false, "NORMAL");
     }
 
     public double applyToSpeedLimit(double speedLimitMetersPerSecond) {

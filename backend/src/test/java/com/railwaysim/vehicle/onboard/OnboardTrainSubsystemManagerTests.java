@@ -30,6 +30,7 @@ class OnboardTrainSubsystemManagerTests {
             new TickContext(1, 200, 0.2, Instant.parse("2026-07-08T00:00:00Z")),
             null,
             null,
+            null,
             new PowerConstraint("TR-009", "P01", 1500, 3_200_000, true)
         )).physicsInput();
 
@@ -55,6 +56,7 @@ class OnboardTrainSubsystemManagerTests {
         VehiclePhysicsInput input = manager.control(new OnboardTrainControlInput(
             new TrainEntity("TR-010", "demo-line-1", 500, 120).state(),
             new TickContext(1, 200, 0.2, Instant.parse("2026-07-08T00:00:00Z")),
+            null,
             null,
             null,
             new PowerConstraint("TR-010", "P01", 0, 0, false, 0, false, false, "DEENERGIZED")
@@ -90,6 +92,7 @@ class OnboardTrainSubsystemManagerTests {
         VehiclePhysicsInput input = manager.control(new OnboardTrainControlInput(
             new TrainEntity("TR-011", "demo-line-1", 500, 120).state(),
             new TickContext(1, 200, 0.2, Instant.parse("2026-07-08T00:00:00Z")),
+            null,
             null,
             null,
             new PowerConstraint("TR-011", "P01", 1500, 3_200_000, true)

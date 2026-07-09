@@ -10,6 +10,7 @@ public record VehicleRuntimeStepRequest(
     List<TrainStateSnapshot> trains,
     List<MovementAuthoritySnapshot> movementAuthorities,
     List<TrackConstraintSnapshot> trackConstraints,
+    List<DispatchConstraintSnapshot> dispatchConstraints,
     List<PowerConstraintSnapshot> powerConstraints
 ) {
 }

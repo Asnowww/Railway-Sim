@@ -1,5 +1,6 @@
 package com.railwaysim.monitor;
 
+import com.railwaysim.dispatch.DispatchSnapshot;
 import com.railwaysim.power.PowerSectionState;
 import com.railwaysim.signal.MovementAuthority;
 import com.railwaysim.signal.RouteState;
@@ -38,7 +39,8 @@ public class MonitorService {
         List<RouteState> routeStates,
         List<PowerSectionState> powerSections,
         VehicleRuntimeHealth vehicleRuntime,
-        List<DomainEvent> events
+        List<DomainEvent> events,
+        DispatchSnapshot dispatch
     ) {
         return new SimulationSnapshot(
             tick,
@@ -52,7 +54,8 @@ public class MonitorService {
             routeStates,
             powerSections,
             vehicleRuntime,
-            buildAlarms(tick, simulatedTime, trains, authorities, powerSections, events)
+            buildAlarms(tick, simulatedTime, trains, authorities, powerSections, events),
+            dispatch
         );
     }
 

@@ -47,12 +47,13 @@ class VehicleRuntimeIntegrationServiceTests {
         try {
             VehicleRuntimeIntegrationService service = service(server, VehicleRuntimeMode.EXTERNAL_HTTP, ExternalPowerNetworkMode.EXTERNAL_HTTP);
 
-            VehicleRuntimeStepResult result = service.stepFleet(tick(1), List.of(train()), authority(), track(), power());
+            VehicleRuntimeStepResult result = service.stepFleet(tick(1), List.of(train()), authority(), track(), List.of(), power());
 
             assertThat(bootstrapBody.get()).contains("\"powerNetworkBaseUrl\":\"http://localhost:9200\"");
             assertThat(bootstrapBody.get()).contains("\"forwardPowerLoads\":true");
             assertThat(requestBody.get()).contains("\"powerConstraints\"");
             assertThat(requestBody.get()).contains("\"movementAuthorities\"");
+            assertThat(requestBody.get()).contains("\"dispatchConstraints\"");
             assertThat(result.outputs()).singleElement()
                 .satisfies(output -> assertThat(output.newPositionMeters()).isEqualTo(321.0));
             assertThat(result.health().dataQuality()).isEqualTo("GOOD");
@@ -71,7 +72,7 @@ class VehicleRuntimeIntegrationServiceTests {
         try {
             VehicleRuntimeIntegrationService service = service(server, VehicleRuntimeMode.EXTERNAL_HTTP);
 
-            VehicleRuntimeStepResult result = service.stepFleet(tick(1), List.of(train()), authority(), track(), power());
+            VehicleRuntimeStepResult result = service.stepFleet(tick(1), List.of(train()), authority(), track(), List.of(), power());
 
             assertThat(result.outputs()).singleElement()
                 .satisfies(output -> assertThat(output.faultCode()).isEqualTo("EXTERNAL_SIM_FALLBACK"));
@@ -97,7 +98,7 @@ class VehicleRuntimeIntegrationServiceTests {
         try {
             VehicleRuntimeIntegrationService service = service(server, VehicleRuntimeMode.DUAL_SHADOW, ExternalPowerNetworkMode.EXTERNAL_HTTP);
 
-            VehicleRuntimeStepResult result = service.stepFleet(tick(1), List.of(train()), authority(), track(), power());
+            VehicleRuntimeStepResult result = service.stepFleet(tick(1), List.of(train()), authority(), track(), List.of(), power());
 
             assertThat(bootstrapBody.get()).contains("\"forwardPowerLoads\":false");
             assertThat(result.health().mode()).isEqualTo(VehicleRuntimeMode.LOCAL);

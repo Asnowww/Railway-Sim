@@ -1,6 +1,7 @@
 package com.railwaysim.vehicleruntime.runtime;
 
 import com.railwaysim.vehicleruntime.config.VehicleRuntimeProperties;
+import com.railwaysim.vehicleruntime.model.DispatchConstraintSnapshot;
 import com.railwaysim.vehicleruntime.model.MovementAuthoritySnapshot;
 import com.railwaysim.vehicleruntime.model.PowerConstraintSnapshot;
 import com.railwaysim.vehicleruntime.model.PowerNetworkSectionLoadRequest;
@@ -142,6 +143,7 @@ public class VehicleRuntimeManager {
         List<TrainStateSnapshot> trains = request.trains() == null ? List.of() : request.trains();
         Map<String, MovementAuthoritySnapshot> authorityByTrain = index(request.movementAuthorities(), MovementAuthoritySnapshot::trainId);
         Map<String, TrackConstraintSnapshot> trackByTrain = index(request.trackConstraints(), TrackConstraintSnapshot::trainId);
+        Map<String, DispatchConstraintSnapshot> dispatchByTrain = index(request.dispatchConstraints(), DispatchConstraintSnapshot::trainId);
         Map<String, PowerConstraintSnapshot> powerByTrain = index(request.powerConstraints(), PowerConstraintSnapshot::trainId);
         List<VehiclePhysicsOutputDto> outputs = new ArrayList<>();
         List<TrainStateReportDto> reports = new ArrayList<>();
@@ -155,6 +157,7 @@ public class VehicleRuntimeManager {
                 train,
                 authorityByTrain.get(train.id()),
                 trackByTrain.get(train.id()),
+                dispatchByTrain.get(train.id()),
                 powerByTrain.get(train.id())
             );
             result.output().ifPresent(outputs::add);

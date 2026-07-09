@@ -1,6 +1,7 @@
 package com.railwaysim.vehicleruntime.runtime;
 
 import com.railwaysim.vehicleruntime.config.VehicleRuntimeProperties;
+import com.railwaysim.vehicleruntime.model.DispatchConstraintSnapshot;
 import com.railwaysim.vehicleruntime.model.MovementAuthoritySnapshot;
 import com.railwaysim.vehicleruntime.model.PowerConstraintSnapshot;
 import com.railwaysim.vehicleruntime.model.TrackConstraintSnapshot;
@@ -32,9 +33,10 @@ final class VehicleControlQueue {
         TrainStateSnapshot train,
         MovementAuthoritySnapshot authority,
         TrackConstraintSnapshot track,
+        DispatchConstraintSnapshot dispatch,
         PowerConstraintSnapshot power
     ) {
-        return queue.execute(tick, () -> buildInput(deltaSeconds, train, authority, track, power));
+        return queue.execute(tick, () -> buildInput(deltaSeconds, train, authority, track, dispatch, power));
     }
 
     private VehiclePhysicsInputDto buildInput(
@@ -42,12 +44,16 @@ final class VehicleControlQueue {
         TrainStateSnapshot train,
         MovementAuthoritySnapshot authority,
         TrackConstraintSnapshot track,
+        DispatchConstraintSnapshot dispatch,
         PowerConstraintSnapshot power
     ) {
-        double speedLimit = resolveSpeedLimit(authority, track);
+        double speedLimit = applyDispatchSpeed(resolveSpeedLimit(authority, track), dispatch);
         double maDistance = resolveMovementAuthorityDistance(train, authority);
         boolean doorClosed = "CLOSED_LOCKED".equals(nullTo(train.doorState(), "CLOSED_LOCKED"));
         double stationDistance = resolveStationDistance(track);
+        if (shouldReleaseStationStop(train, dispatch)) {
+            stationDistance = NO_STATION_DISTANCE_METERS;
+        }
         double loadMassKg = VehicleLoadPolicy.loadMassKg(train.loadMassKg(), train.loadRate());
         DynamicsDecision decision = decideDynamicsState(
             train,
@@ -186,6 +192,20 @@ final class VehicleControlQueue {
     private double resolveStationDistance(TrackConstraintSnapshot track) {
         double distance = track == null ? NO_STATION_DISTANCE_METERS : track.stationDistanceMeters();
         return Double.isFinite(distance) ? Math.max(0, distance) : NO_STATION_DISTANCE_METERS;
+    }
+
+    private double applyDispatchSpeed(double speedLimit, DispatchConstraintSnapshot dispatch) {
+        return dispatch == null ? speedLimit : dispatch.applyToSpeedLimit(speedLimit);
+    }
+
+    private boolean shouldReleaseStationStop(TrainStateSnapshot train, DispatchConstraintSnapshot dispatch) {
+        if (dispatch == null || !dispatch.releaseStationStop()) {
+            return false;
+        }
+        // 调度释放站停只影响已停站或低速进站状态，不越级跳过运行中的安全制动。
+        boolean dwelling = "DWELLING".equals(train.status())
+            || "STATION_STOPPED".equals(train.dynamicsState());
+        return dwelling && train.speedMetersPerSecond() <= 0.5;
     }
 
     private String resolveSelfCheckBlockReason(boolean doorClosed, TrainStateSnapshot train) {

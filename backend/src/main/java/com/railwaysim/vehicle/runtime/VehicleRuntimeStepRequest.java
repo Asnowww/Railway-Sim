@@ -1,6 +1,7 @@
 package com.railwaysim.vehicle.runtime;
 
 import com.railwaysim.power.PowerConstraint;
+import com.railwaysim.dispatch.DispatchConstraint;
 import com.railwaysim.signal.MovementAuthority;
 import com.railwaysim.track.TrackConstraint;
 import com.railwaysim.train.TrainState;
@@ -14,6 +15,7 @@ public record VehicleRuntimeStepRequest(
     List<TrainState> trains,
     List<MovementAuthority> movementAuthorities,
     List<TrackConstraint> trackConstraints,
+    List<DispatchConstraint> dispatchConstraints,
     List<PowerConstraint> powerConstraints
 ) {
 }

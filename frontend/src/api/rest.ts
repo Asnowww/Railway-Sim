@@ -12,6 +12,7 @@ export const simulationApi = {
   snapshot: () => request<SimulationSnapshot>('/api/simulation/snapshot'),
   start: () => request<SimulationSnapshot>('/api/simulation/start', { method: 'POST' }),
   pause: () => request<SimulationSnapshot>('/api/simulation/pause', { method: 'POST' }),
-  reset: () => request<SimulationSnapshot>('/api/simulation/reset', { method: 'POST' })
+  reset: () => request<SimulationSnapshot>('/api/simulation/reset', { method: 'POST' }),
+  tick: () => request<SimulationSnapshot>('/api/simulation/tick', { method: 'POST' })
 }
 

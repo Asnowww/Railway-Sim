@@ -3,6 +3,7 @@ package com.railwaysim.vehicle.runtime;
 import com.railwaysim.config.SimulationProperties;
 import com.railwaysim.config.ExternalPowerNetworkProperties;
 import com.railwaysim.config.VehicleRuntimeProperties;
+import com.railwaysim.dispatch.DispatchConstraint;
 import com.railwaysim.infrastructure.StaticInfrastructureCatalog;
 import com.railwaysim.power.PowerConstraint;
 import com.railwaysim.power.external.ExternalPowerNetworkMode;
@@ -65,12 +66,13 @@ public class VehicleRuntimeIntegrationService implements VehiclePowerLoadForward
         List<TrainState> trains,
         List<MovementAuthority> authorities,
         List<TrackConstraint> trackConstraints,
+        List<DispatchConstraint> dispatchConstraints,
         List<PowerConstraint> powerConstraints
     ) {
         return switch (properties.getMode()) {
-            case LOCAL -> localStep(context, trains, authorities, trackConstraints, powerConstraints, null);
-            case EXTERNAL_HTTP -> externalOrFallback(context, trains, authorities, trackConstraints, powerConstraints);
-            case DUAL_SHADOW -> shadowStep(context, trains, authorities, trackConstraints, powerConstraints);
+            case LOCAL -> localStep(context, trains, authorities, trackConstraints, dispatchConstraints, powerConstraints, null);
+            case EXTERNAL_HTTP -> externalOrFallback(context, trains, authorities, trackConstraints, dispatchConstraints, powerConstraints);
+            case DUAL_SHADOW -> shadowStep(context, trains, authorities, trackConstraints, dispatchConstraints, powerConstraints);
         };
     }
 
@@ -141,17 +143,18 @@ public class VehicleRuntimeIntegrationService implements VehiclePowerLoadForward
         List<TrainState> trains,
         List<MovementAuthority> authorities,
         List<TrackConstraint> trackConstraints,
+        List<DispatchConstraint> dispatchConstraints,
         List<PowerConstraint> powerConstraints
     ) {
         try {
-            VehicleRuntimeStepResult result = externalStep(context, trains, authorities, trackConstraints, powerConstraints);
+            VehicleRuntimeStepResult result = externalStep(context, trains, authorities, trackConstraints, dispatchConstraints, powerConstraints);
             latestHealth = result.health();
             latestInstances = result.instanceStates();
             return result;
         } catch (RuntimeException exception) {
             // 外部车辆运行时在热循环中失败时，中央立即降级到本地模型。
             latestHealth = VehicleRuntimeHealth.fallback(properties.getMode(), summarize(exception));
-            return localStep(context, trains, authorities, trackConstraints, powerConstraints, "EXTERNAL_SIM_FALLBACK");
+            return localStep(context, trains, authorities, trackConstraints, dispatchConstraints, powerConstraints, "EXTERNAL_SIM_FALLBACK");
         }
     }
 
@@ -160,11 +163,12 @@ public class VehicleRuntimeIntegrationService implements VehiclePowerLoadForward
         List<TrainState> trains,
         List<MovementAuthority> authorities,
         List<TrackConstraint> trackConstraints,
+        List<DispatchConstraint> dispatchConstraints,
         List<PowerConstraint> powerConstraints
     ) {
-        VehicleRuntimeStepResult local = localStep(context, trains, authorities, trackConstraints, powerConstraints, null);
+        VehicleRuntimeStepResult local = localStep(context, trains, authorities, trackConstraints, dispatchConstraints, powerConstraints, null);
         try {
-            VehicleRuntimeStepResult shadow = externalStep(context, trains, authorities, trackConstraints, powerConstraints);
+            VehicleRuntimeStepResult shadow = externalStep(context, trains, authorities, trackConstraints, dispatchConstraints, powerConstraints);
             latestHealth = shadow.health();
             latestInstances = shadow.instanceStates();
         } catch (RuntimeException exception) {
@@ -179,6 +183,7 @@ public class VehicleRuntimeIntegrationService implements VehiclePowerLoadForward
         List<TrainState> trains,
         List<MovementAuthority> authorities,
         List<TrackConstraint> trackConstraints,
+        List<DispatchConstraint> dispatchConstraints,
         List<PowerConstraint> powerConstraints
     ) {
         bootstrapIfNeeded();
@@ -189,6 +194,7 @@ public class VehicleRuntimeIntegrationService implements VehiclePowerLoadForward
             trains,
             authorities,
             trackConstraints,
+            dispatchConstraints,
             powerConstraints
         ));
         if (response.trainOutputs() == null || response.trainReports() == null || response.trainOutputs().size() != trains.size() || response.trainReports().size() != trains.size()) {
@@ -221,11 +227,13 @@ public class VehicleRuntimeIntegrationService implements VehiclePowerLoadForward
         List<TrainState> trains,
         List<MovementAuthority> authorities,
         List<TrackConstraint> trackConstraints,
+        List<DispatchConstraint> dispatchConstraints,
         List<PowerConstraint> powerConstraints,
         String faultCodeOverride
     ) {
         Map<String, MovementAuthority> authorityByTrain = index(authorities, MovementAuthority::trainId);
         Map<String, TrackConstraint> trackByTrain = index(trackConstraints, TrackConstraint::trainId);
+        Map<String, DispatchConstraint> dispatchByTrain = index(dispatchConstraints, DispatchConstraint::trainId);
         Map<String, PowerConstraint> powerByTrain = index(powerConstraints, PowerConstraint::trainId);
         List<VehiclePhysicsInput> inputs = trains.stream()
             .map(train -> onboardTrainSubsystemManager.control(new OnboardTrainControlInput(
@@ -233,6 +241,7 @@ public class VehicleRuntimeIntegrationService implements VehiclePowerLoadForward
                 context,
                 authorityByTrain.get(train.id()),
                 trackByTrain.get(train.id()),
+                dispatchByTrain.get(train.id()),
                 powerByTrain.get(train.id())
             )).physicsInput())
             .toList();

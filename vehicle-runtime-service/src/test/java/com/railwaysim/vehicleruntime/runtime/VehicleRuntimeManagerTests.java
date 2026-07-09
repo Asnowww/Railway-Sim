@@ -172,6 +172,7 @@ class VehicleRuntimeManagerTests {
             List.of(train),
             List.of(new MovementAuthoritySnapshot(train.id(), 2_000, 22.2, "NORMAL")),
             List.of(new TrackConstraintSnapshot(train.id(), "SEG-1", 22.2, 0, 1_000, 1_000_000)),
+            List.of(),
             List.of(power)
         );
     }

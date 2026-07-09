@@ -1,0 +1,58 @@
+planId: RP-demo-001
+lineId: demo-line-1
+periods:
+  - type: PEAK
+    start: "07:00"
+    end: "09:00"
+    intervalSec: 180
+    dwellSec: 30
+  - type: PEAK
+    start: "17:00"
+    end: "19:00"
+    intervalSec: 180
+    dwellSec: 30
+  - type: FLAT
+    start: "09:00"
+    end: "17:00"
+    intervalSec: 300
+    dwellSec: 25
+  - type: OFF_PEAK
+    start: "19:00"
+    end: "07:00"
+    intervalSec: 420
+    dwellSec: 20
+
+stations:
+  - id: S01
+    positionMeters: 0
+    platformCapacity: 1200
+  - id: S02
+    positionMeters: 1250
+    platformCapacity: 1000
+  - id: S03
+    positionMeters: 2500
+    platformCapacity: 1000
+  - id: S04
+    positionMeters: 3750
+    platformCapacity: 1000
+  - id: S05
+    positionMeters: 5000
+    platformCapacity: 1200
+
+segments:
+  - id: T01
+    startMeters: 0
+    endMeters: 1250
+    speedLimitMps: 20
+  - id: T02
+    startMeters: 1250
+    endMeters: 2500
+    speedLimitMps: 22.2
+  - id: T03
+    startMeters: 2500
+    endMeters: 3750
+    speedLimitMps: 22.2
+  - id: T04
+    startMeters: 3750
+    endMeters: 5000
+    speedLimitMps: 20

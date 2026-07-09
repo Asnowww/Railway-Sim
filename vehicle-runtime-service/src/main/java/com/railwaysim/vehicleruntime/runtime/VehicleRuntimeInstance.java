@@ -1,6 +1,7 @@
 package com.railwaysim.vehicleruntime.runtime;
 
 import com.railwaysim.vehicleruntime.config.VehicleRuntimeProperties;
+import com.railwaysim.vehicleruntime.model.DispatchConstraintSnapshot;
 import com.railwaysim.vehicleruntime.model.MovementAuthoritySnapshot;
 import com.railwaysim.vehicleruntime.model.PowerConstraintSnapshot;
 import com.railwaysim.vehicleruntime.model.TrackConstraintSnapshot;
@@ -54,6 +55,7 @@ final class VehicleRuntimeInstance {
         TrainStateSnapshot train,
         MovementAuthoritySnapshot authority,
         TrackConstraintSnapshot track,
+        DispatchConstraintSnapshot dispatch,
         PowerConstraintSnapshot power
     ) {
         Instant startedAt = Instant.now();
@@ -67,7 +69,7 @@ final class VehicleRuntimeInstance {
                 return reject("STALE_OR_DUPLICATE_TICK", startedAt);
             }
             controlQueueStatus = "RUNNING";
-            VehiclePhysicsInputDto input = controlQueue.control(tick, deltaSeconds, train, authority, track, power);
+            VehiclePhysicsInputDto input = controlQueue.control(tick, deltaSeconds, train, authority, track, dispatch, power);
             controlQueueStatus = "DONE";
             simulationQueueStatus = "RUNNING";
             VehiclePhysicsOutputDto output = simulationQueue.step(tick, input);

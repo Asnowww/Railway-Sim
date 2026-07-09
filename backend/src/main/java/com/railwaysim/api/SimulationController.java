@@ -64,6 +64,7 @@ public class SimulationController {
         return simulationRuntime.reset();
     }
 
+
     // ---- 故障注入（信号轨道模块）——
 
     @PostMapping("/fault/inject")
