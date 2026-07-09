@@ -324,6 +324,12 @@ CREATE TABLE IF NOT EXISTS train_physics_snapshot (
   id BIGINT PRIMARY KEY AUTO_INCREMENT,
   train_id VARCHAR(64) NOT NULL,
   tick BIGINT NOT NULL,
+  control_session_state VARCHAR(32) NOT NULL DEFAULT 'IN_SERVICE',
+  signal_network_status VARCHAR(32) NOT NULL DEFAULT 'ATTACHED',
+  power_network_status VARCHAR(32) NOT NULL DEFAULT 'ATTACHED',
+  control_session_reason VARCHAR(128) NOT NULL DEFAULT 'EXTERNAL_CONTROL_IN_SERVICE',
+  link_id INT NOT NULL DEFAULT 0,
+  direction VARCHAR(16) NOT NULL DEFAULT 'UNKNOWN',
   position_meters DOUBLE NOT NULL,
   speed_mps DOUBLE NOT NULL,
   acceleration_mps2 DOUBLE NOT NULL,
@@ -343,6 +349,7 @@ CREATE TABLE IF NOT EXISTS train_physics_snapshot (
   dynamics_state VARCHAR(32) NOT NULL DEFAULT 'COASTING',
   dynamics_constraint_reason VARCHAR(128) NOT NULL DEFAULT 'NONE',
   speed_limit_mps DOUBLE NOT NULL DEFAULT 0,
+  vehicle_fault_speed_limit_mps DOUBLE NOT NULL DEFAULT 0,
   ma_distance_meters DOUBLE NOT NULL DEFAULT 0,
   station_distance_meters DOUBLE NOT NULL DEFAULT 0,
   stopping_distance_meters DOUBLE NOT NULL DEFAULT 0,
@@ -456,6 +463,56 @@ CREATE TABLE IF NOT EXISTS train_fault_record (
   INDEX idx_train_fault_train_time (train_id, raised_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+CREATE TABLE IF NOT EXISTS running_plan_config (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  plan_id VARCHAR(64) NOT NULL,
+  line_id VARCHAR(64) NOT NULL,
+  period_type VARCHAR(32) NOT NULL,
+  start_time TIME NOT NULL,
+  end_time TIME NOT NULL,
+  departure_interval_sec INT NOT NULL,
+  default_dwell_time_sec INT NOT NULL,
+  enabled BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY uk_plan_line_window (plan_id, line_id, start_time, end_time),
+  INDEX idx_running_plan_line_enabled (line_id, enabled)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS train_station_record (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  simulation_run_id VARCHAR(64) NOT NULL,
+  train_id VARCHAR(64) NOT NULL,
+  line_id VARCHAR(64) NOT NULL,
+  station_id VARCHAR(64) NOT NULL,
+  planned_arrival TIMESTAMP NULL,
+  actual_arrival TIMESTAMP NULL,
+  planned_departure TIMESTAMP NULL,
+  actual_departure TIMESTAMP NULL,
+  arrival_delay_sec INT DEFAULT 0,
+  departure_delay_sec INT DEFAULT 0,
+  simulated_at TIMESTAMP NOT NULL,
+  recorded_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_train_station_run (simulation_run_id, train_id, station_id),
+  INDEX idx_train_station_time (train_id, simulated_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS disturbance_record (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  simulation_run_id VARCHAR(64) NOT NULL,
+  train_id VARCHAR(64) NOT NULL,
+  station_id VARCHAR(64),
+  disturbance_type VARCHAR(64) NOT NULL,
+  deviation_value DOUBLE NOT NULL,
+  deviation_unit VARCHAR(16) NOT NULL DEFAULT 'SECONDS',
+  status VARCHAR(32) NOT NULL DEFAULT 'OPEN',
+  command_id VARCHAR(64),
+  recorded_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  resolved_at TIMESTAMP NULL,
+  INDEX idx_disturbance_train_time (train_id, recorded_at),
+  INDEX idx_disturbance_status (status, recorded_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 INSERT INTO line_config (line_id, line_name, length_meters, default_speed_limit_mps)
 VALUES ('demo-line-1', '上京地铁示范线', 5000, 22.2)
 ON DUPLICATE KEY UPDATE
@@ -532,3 +589,14 @@ VALUES
 ON DUPLICATE KEY UPDATE
   config_value = VALUES(config_value),
   description = VALUES(description);
+
+INSERT INTO running_plan_config
+  (plan_id, line_id, period_type, start_time, end_time, departure_interval_sec, default_dwell_time_sec)
+VALUES
+  ('RP-demo-001', 'demo-line-1', 'PEAK', '07:00:00', '09:00:00', 180, 30),
+  ('RP-demo-001', 'demo-line-1', 'PEAK', '17:00:00', '19:00:00', 180, 30),
+  ('RP-demo-001', 'demo-line-1', 'FLAT', '09:00:00', '17:00:00', 300, 25),
+  ('RP-demo-001', 'demo-line-1', 'OFF_PEAK', '19:00:00', '07:00:00', 420, 20)
+ON DUPLICATE KEY UPDATE
+  departure_interval_sec = VALUES(departure_interval_sec),
+  default_dwell_time_sec = VALUES(default_dwell_time_sec);

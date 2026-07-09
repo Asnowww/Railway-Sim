@@ -4,6 +4,12 @@ import com.railwaysim.train.TrainState;
 
 public record VehicleSignalStatus(
     String trainId,
+    String controlSessionState,
+    String signalNetworkStatus,
+    String powerNetworkStatus,
+    String controlSessionReason,
+    int linkId,
+    String direction,
     double headMileage,
     double tailMileage,
     double speedMetersPerSecond,
@@ -17,11 +23,25 @@ public record VehicleSignalStatus(
     int availableTractionCount,
     int availableBrakeCount,
     String vehicleProtectionReason,
+    String operationMode,
+    String selfCheckStatus,
+    int faultLevel,
+    String availableOperationMode,
+    String faultCode,
+    String dynamicsState,
+    String dynamicsConstraintReason,
+    double vehicleFaultSpeedLimitMetersPerSecond,
     String dataQuality
 ) {
     public static VehicleSignalStatus from(TrainState train) {
         return new VehicleSignalStatus(
             train.id(),
+            train.controlSessionState(),
+            train.signalNetworkStatus(),
+            train.powerNetworkStatus(),
+            train.controlSessionReason(),
+            train.linkId(),
+            train.direction(),
             train.headMileage(),
             train.tailMileage(),
             train.speedMetersPerSecond(),
@@ -35,6 +55,14 @@ public record VehicleSignalStatus(
             train.availableTractionCount(),
             train.availableBrakeCount(),
             train.vehicleProtectionReason(),
+            train.operationMode(),
+            train.selfCheckStatus(),
+            train.faultLevel(),
+            train.availableOperationMode(),
+            train.faultCode(),
+            train.dynamicsState(),
+            train.dynamicsConstraintReason(),
+            train.vehicleFaultSpeedLimitMetersPerSecond(),
             train.dataQuality()
         );
     }

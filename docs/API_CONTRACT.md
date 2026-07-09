@@ -28,6 +28,86 @@ GET /api/trains/{trainId}/energy
 GET /api/trains/{trainId}/faults
 ```
 
+### 外部车辆控制会话接入/退出
+
+中央系统只接收外部车辆控制子系统的接入/退出语义，不负责启动车辆控制系统本体，也不替信号系统生成具体行车命令。
+
+```http
+POST /api/trains/lifecycle
+```
+
+请求：
+
+```json
+{
+  "action": "ADD",
+  "trains": [
+    {
+      "trainNo": 3,
+      "linkId": 12,
+      "offsetMeters": 640.0,
+      "direction": "DOWN"
+    }
+  ],
+  "reason": "external train control attached",
+  "operator": "signal",
+  "confirmToken": "SIMULATION_CONFIRM",
+  "traceId": "signal-train-003"
+}
+```
+
+`action` 支持：
+
+| action | 对应协议指令 | 作用 |
+|---|---|---|
+| `ADD` | `0x01` | 建立中央侧外部车辆控制会话，并进入信号网/电网并入流程。 |
+| `DELETE` | `0x02` | 请求指定列车退出信号网和电网，完成退出后清理本地列车实体。 |
+| `CLEAR` | `0x04` | 请求所有列车退出。 |
+
+协议二进制模型在 `SignalTrainLifecycleCommandCodec` 中落地：包头 `0xff 0xf1`，小端，ADD 每车包含列车号、link ID、偏移、方向和保留字节，DELETE 每车只包含列车号。
+
+中央处理顺序：`TrainController` 转换请求 -> `TrainManager.applyLifecycleCommand()` -> `TrainManager.addTrain()` -> `OnboardTrainSubsystemManager.register()` -> 后续 tick 按信号和供电约束推进会话状态。
+
+### 车辆-信号接口
+
+该接口族只服务车辆系统与信号系统：车辆侧上报安全状态和运行遥测，信号侧输出 MA/限速/制动命令投影。车辆-调度不是本接口族；调度命令必须先由信号/ATS 折算。
+
+```http
+GET /api/signal/vehicles/statuses
+GET /api/signal/vehicles/commands
+POST /api/signal/vehicles/telemetry
+POST /api/signal/vehicles/telemetry/content-packet?trainCount=1
+```
+
+`POST /api/signal/vehicles/telemetry` 使用 JSON：
+
+```json
+[
+  {
+    "trainNo": 1,
+    "speedMetersPerSecond": 12.34,
+    "cumulativeDistanceMeters": 987.65,
+    "direction": "DOWN",
+    "loadMassKg": 86400,
+    "faultSpeedLimitMetersPerSecond": 2.0,
+    "emergencyBrakeApplied": true,
+    "availableTractionCount": 4,
+    "availableBrakeCount": 5
+  }
+]
+```
+
+`content-packet` 使用 `application/octet-stream` 和 `SignalTrainContentCodec` 小端包：每车 18 字节，包含列车号、速度、累计里程、方向、载重、车辆故障限速、紧急制动、可用牵引单元数和可用制动单元数。
+
+`GET /api/signal/vehicles/commands` 将当前 `MovementAuthority` 和车辆状态投影为 `SignalVehicleCommand`：
+
+| 场景 | 输出 |
+|---|---|
+| 正常 MA | 输出 MA 终点和授权速度。 |
+| 无 MA 或 MA 耗尽 | 牵引切除、常用制动、紧急制动。 |
+| 未并入车辆控制会话 | 牵引切除、常用制动，不进入紧急制动。 |
+| 车辆故障限速 | 授权速度取 `min(MA限速, vehicleFaultSpeedLimitMetersPerSecond)`。 |
+
 ### 获取供电状态
 
 ```http
@@ -36,7 +116,25 @@ GET /api/power/sections/{sectionId}
 GET /api/power/sections/{sectionId}/events
 GET /api/power/energy
 GET /api/power/maintenance-locks
+GET /api/power/substations
+GET /api/power/substations/{substationId}/devices
+GET /api/power/isolators
+GET /api/power/stray-current
+GET /api/power/external-health
 ```
+
+这些接口是其他模块访问中央供电控制模块的统一入口。外部供电仿真系统只由中央 `PowerIntegrationService` 调用，综合监控、车辆、调度、维修/能耗模块不得直接访问外部供电仿真服务。
+
+`PowerSectionState` 在分区电压、电流、负荷、保护和检修状态之外，已扩展：
+
+| 字段 | 含义 |
+|---|---|
+| `supplyMode` | `DOUBLE_END`、`SINGLE_END`、`CROSS_FEED`、`OUTAGE` 等供电方式。 |
+| `isolatorStatus` | 供电分区边界隔离开关汇总状态。 |
+| `substationAvailability` | 关联牵引变电所可用性。 |
+| `externalDataQuality` | 供电设备级状态来源质量，外部供电仿真失联时为 `FALLBACK`。 |
+| `strayCurrentRiskLevel` | 杂散电流风险等级：`NORMAL`、`ATTENTION`、`WARNING`、`CRITICAL`。 |
+| `strayCurrentRiskReason` | 杂散电流风险原因。 |
 
 ### 能耗和维修预留
 
@@ -44,7 +142,10 @@ GET /api/power/maintenance-locks
 GET /api/energy/trains
 GET /api/energy/power-sections
 GET /api/vehicle/maintenance-states
+GET /api/vehicle/onboard-subsystems
 ```
+
+`GET /api/vehicle/onboard-subsystems` 返回中央侧纳管的单车基层智能子系统节点状态，用于查看本地/外部车辆控制节点是否在线、是否 fallback、租约是否仍有效。该接口只读，不用于调度越级控车。
 
 ### 仿真故障注入
 
@@ -53,6 +154,7 @@ GET /api/vehicle/maintenance-states
 ```http
 POST /api/power/sections/{sectionId}/faults
 POST /api/power/sections/{sectionId}/faults/clear
+POST /api/power/operations
 POST /api/trains/{trainId}/faults
 POST /api/trains/{trainId}/faults/clear
 ```
@@ -74,14 +176,18 @@ POST /api/trains/{trainId}/faults/clear
 - 写接口会记录 `operation_log`；供电写接口同时记录 `power_operation_log`。
 - 车辆故障注入会立即影响 `TrainState` 中的门、牵引、制动、受流、自检和故障等级字段。
 - 供电故障注入会立即刷新 `PowerSectionState`，清除故障不会绕过 `maintenanceState` 或 `lockoutState`。
+- `/api/power/operations` 是中央供电控制模块的设备级操作入口，用于隔离开关、变电所设备、排流柜等仿真操作；调用方仍是中央 REST，不直接访问外部供电仿真系统。
 - 调度策略只消费状态和影响范围，不由供电/车辆故障接口直接下发扣车或折返。
 
 ### 调度命令
 
 ```http
+GET /api/dispatch/plan
+GET /api/dispatch/plan/current
+GET /api/dispatch/status
+GET /api/dispatch/disturbances
 GET /api/dispatch/commands
-POST /api/dispatch/commands
-```
+GET /api/dispatch/station-records
 
 提交调度命令：
 
@@ -168,9 +274,28 @@ POST http://localhost:9000/step-fleet
 }
 ```
 
+### 调度模块
+
+```http
+GET /api/dispatch/plan
+GET /api/dispatch/plan/current
+GET /api/dispatch/status
+GET /api/dispatch/disturbances
+GET /api/dispatch/commands
+GET /api/dispatch/station-records
+```
+
 ## 外部车辆仿真协议适配
 
-该协议不是面向前端或调度系统的 REST 接口，而是后端 `VehiclePhysicsClient.stepFleet()` 背后的车辆物理端口实现。主系统仍通过 `TcmsAtoAdapterService` 汇总信号、轨道、供电约束后生成车辆控制输入；调度约束先由信号模块折算为 MA/限速或后续 `SignalVehicleCommand`。
+该协议不是面向前端或调度系统的 REST 接口，而是后端 `VehiclePhysicsClient.stepFleet()` 背后的车辆物理端口实现。主系统通过 `OnboardTrainSubsystemManager` 汇总信号、轨道、供电约束后生成车辆控制输入；调度约束先由信号模块折算为 MA/限速或后续 `SignalVehicleCommand`。
+
+中央到车辆控制节点的调用通过 `railway.simulation.onboard-subsystem-mode` 切换：
+
+| mode | 行为 |
+|---|---|
+| `IN_PROCESS` | 使用进程内 `OnboardTrainSubsystem`，默认模式。 |
+| `EXTERNAL_HTTP` | 通过 `HttpOnboardTrainSubsystemClient` 调用外部车辆控制节点，失败时本地 fallback。 |
+| `DUAL_SHADOW` | 本地输出为权威，外部节点只做影子在线验证。 |
 
 配置：
 
@@ -222,7 +347,17 @@ ws://localhost:8080/ws/simulation
     "trackSegments": [],
     "authorities": [],
     "powerSections": [],
-    "alarms": []
+    "alarms": [],
+    "dispatch": {
+      "runMode": "PEAK",
+      "planId": "RP-demo-001",
+      "targetHeadwaySeconds": 180,
+      "defaultDwellSeconds": 30,
+      "interventionActive": false,
+      "trainProfiles": [],
+      "openDisturbances": [],
+      "activeCommands": []
+    }
   }
 }
 ```
@@ -233,9 +368,15 @@ ws://localhost:8080/ws/simulation
 
 ```json
 {
-  "id": "T001",
+  "id": "TR-001",
   "routeId": "demo-line-1",
   "serviceNo": "T001",
+  "controlSessionState": "IN_SERVICE",
+  "signalNetworkStatus": "ATTACHED",
+  "powerNetworkStatus": "ATTACHED",
+  "controlSessionReason": "EXTERNAL_CONTROL_IN_SERVICE",
+  "linkId": 12,
+  "direction": "DOWN",
   "positionMeters": 120.0,
   "speedMetersPerSecond": 12.5,
   "lengthMeters": 120.0,
@@ -275,7 +416,10 @@ ws://localhost:8080/ws/simulation
   "regenPowerWatts": 0.0,
   "energyConsumedKwh": 0.12,
   "energyRegeneratedKwh": 0.0,
-  "faultCode": "OK"
+  "faultCode": "OK",
+  "currentStationId": "S02",
+  "dwellElapsedSeconds": 12,
+  "lastDepartureAt": "2026-07-07T10:00:00Z"
 }
 ```
 

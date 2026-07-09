@@ -68,18 +68,27 @@ public class SimulationPersistenceService {
         jdbcTemplate.update(
             """
                 INSERT INTO train_physics_snapshot (
-                  train_id, tick, position_meters, speed_mps, acceleration_mps2,
+                  train_id, tick, control_session_state, signal_network_status,
+                  power_network_status, control_session_reason, link_id, direction,
+                  position_meters, speed_mps, acceleration_mps2,
                   traction_force_n, brake_force_n, regen_brake_force_n, rail_current_a,
                   traction_power_w, regen_power_w, fault_code, data_quality,
                   load_mass_kg, overload_status, available_traction_count,
                   available_brake_count, vehicle_protection_reason,
                   dynamics_state, dynamics_constraint_reason, speed_limit_mps,
-                  ma_distance_meters, station_distance_meters, stopping_distance_meters,
+                  vehicle_fault_speed_limit_mps, ma_distance_meters,
+                  station_distance_meters, stopping_distance_meters,
                   recorded_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
             train.id(),
             context.tick(),
+            train.controlSessionState(),
+            train.signalNetworkStatus(),
+            train.powerNetworkStatus(),
+            train.controlSessionReason(),
+            train.linkId(),
+            train.direction(),
             train.positionMeters(),
             train.speedMetersPerSecond(),
             train.accelerationMetersPerSecondSquared(),
@@ -99,6 +108,7 @@ public class SimulationPersistenceService {
             train.dynamicsState(),
             train.dynamicsConstraintReason(),
             train.speedLimitMetersPerSecond(),
+            train.vehicleFaultSpeedLimitMetersPerSecond(),
             train.movementAuthorityDistanceMeters(),
             train.stationDistanceMeters(),
             train.stoppingDistanceMeters(),

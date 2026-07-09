@@ -4,6 +4,7 @@ import com.railwaysim.vehicle.TrainStateReport;
 import com.railwaysim.vehicle.VehicleLoadPolicy;
 import com.railwaysim.vehicle.VehiclePhysicsOutput;
 import com.railwaysim.vehicle.protocol.TrainOperationalTelemetry;
+import java.time.Instant;
 
 public class TrainEntity {
 
@@ -33,6 +34,7 @@ public class TrainEntity {
     private String dynamicsState = "COASTING";
     private String dynamicsConstraintReason = "INITIAL";
     private double speedLimitMetersPerSecond;
+    private double vehicleFaultSpeedLimitMetersPerSecond;
     private double movementAuthorityDistanceMeters;
     private double stationDistanceMeters;
     private double stoppingDistanceMeters;
@@ -47,6 +49,9 @@ public class TrainEntity {
     private double energyRegeneratedKwh;
     private String faultCode = "OK";
     private String injectedFaultCode;
+    private String currentStationId;
+    private int dwellElapsedSeconds;
+    private String lastDepartureAt;
 
     public TrainEntity(String id, String routeId, double positionMeters, double lengthMeters) {
         this(id, routeId, positionMeters, lengthMeters, 0.35);
@@ -97,10 +102,15 @@ public class TrainEntity {
         movementAuthorityDistanceMeters = report.movementAuthorityDistanceMeters();
         stationDistanceMeters = report.stationDistanceMeters();
         stoppingDistanceMeters = report.stoppingDistanceMeters();
+        updateStationTracking(report);
         status = resolveStatus(report, output);
     }
 
     public TrainState state() {
+        return state(null);
+    }
+
+    public TrainState state(ExternalTrainControlSession controlSession) {
         double effectiveLoadMassKg = VehicleLoadPolicy.loadMassKg(loadMassKg, loadRate);
         double effectiveLoadRate = VehicleLoadPolicy.loadRateFromMass(effectiveLoadMassKg);
         String effectiveOverloadStatus = VehicleLoadPolicy.overloadStatus(effectiveLoadMassKg);
@@ -128,6 +138,12 @@ public class TrainEntity {
             id,
             routeId,
             id,
+            controlSession == null ? ExternalTrainControlSessionState.IN_SERVICE.name() : controlSession.state().name(),
+            controlSession == null ? "ATTACHED" : controlSession.signalNetworkStatus(),
+            controlSession == null ? "ATTACHED" : controlSession.powerNetworkStatus(),
+            controlSession == null ? "EXTERNAL_CONTROL_IN_SERVICE" : controlSession.reason(),
+            controlSession == null ? 0 : controlSession.linkId(),
+            controlSession == null ? "UNKNOWN" : controlSession.direction().name(),
             positionMeters,
             speedMetersPerSecond,
             lengthMeters,
@@ -155,6 +171,7 @@ public class TrainEntity {
             dynamicsState,
             dynamicsConstraintReason,
             speedLimitMetersPerSecond,
+            vehicleFaultSpeedLimitMetersPerSecond,
             movementAuthorityDistanceMeters,
             stationDistanceMeters,
             stoppingDistanceMeters,
@@ -167,11 +184,16 @@ public class TrainEntity {
             regenPowerWatts,
             energyConsumedKwh,
             energyRegeneratedKwh,
-            effectiveFaultCode
+            effectiveFaultCode,
+            currentStationId,
+            dwellElapsedSeconds,
+            lastDepartureAt
         );
     }
 
     public void applyOperationalTelemetry(TrainOperationalTelemetry telemetry) {
+        positionMeters = Math.max(0, telemetry.cumulativeDistanceMeters());
+        speedMetersPerSecond = Math.max(0, telemetry.speedMetersPerSecond());
         loadMassKg = VehicleLoadPolicy.loadMassKg(telemetry.loadMassKg(), loadRate);
         loadRate = VehicleLoadPolicy.loadRateFromMass(loadMassKg);
         overloadStatus = VehicleLoadPolicy.overloadStatus(loadMassKg);
@@ -186,7 +208,13 @@ public class TrainEntity {
         vehicleProtectionReason = VehicleLoadPolicy.vehicleProtectionReason(overloadStatus);
         if (telemetry.emergencyBrakeApplied()) {
             brakeState = "EMERGENCY";
+            status = "EMERGENCY_BRAKE";
+            operationMode = "ATP_BRAKE";
+            faultCode = "ATP_BRAKE";
+            faultLevel = Math.max(faultLevel, 3);
+            availableOperationMode = "NO_DEPARTURE";
         }
+        vehicleFaultSpeedLimitMetersPerSecond = telemetry.faultSpeedLimitMetersPerSecond();
     }
 
     public void injectFault(String faultCode) {
@@ -201,9 +229,48 @@ public class TrainEntity {
         return injectedFaultCode;
     }
 
+    private void updateStationTracking(TrainStateReport report) {
+        boolean dwelling = "STATION_STOPPED".equals(report.dynamicsState()) && speedMetersPerSecond <= 0.2;
+        if (dwelling) {
+            if (currentStationId == null) {
+                currentStationId = inferStationId();
+            }
+            dwellElapsedSeconds++;
+            return;
+        }
+
+        if (currentStationId != null) {
+            lastDepartureAt = Instant.now().toString();
+            currentStationId = null;
+            dwellElapsedSeconds = 0;
+        }
+    }
+
+    private String inferStationId() {
+        double[] stationPositions = {0, 1250, 2500, 3750, 5000};
+        String[] stationIds = {"S01", "S02", "S03", "S04", "S05"};
+        String nearest = null;
+        double nearestDistance = Double.MAX_VALUE;
+        for (int i = 0; i < stationPositions.length; i++) {
+            double distance = Math.abs(positionMeters - stationPositions[i]);
+            if (distance < nearestDistance) {
+                nearestDistance = distance;
+                nearest = stationIds[i];
+            }
+        }
+        return nearestDistance <= 30 ? nearest : null;
+    }
+
+    public String id() {
+        return id;
+    }
+
     private String resolveStatus(TrainStateReport report, VehiclePhysicsOutput output) {
         if (report.emergencyBrakeCommand()) {
             return "EMERGENCY_BRAKE";
+        }
+        if ("STATION_STOPPED".equals(report.dynamicsState()) && speedMetersPerSecond <= 0.2) {
+            return "DWELLING";
         }
         if (report.faultLevel() >= 3) {
             return "FAULT";

@@ -1,9 +1,17 @@
+import type { DispatchSnapshot } from './dispatch'
+
 export type SimulationStatus = 'STOPPED' | 'RUNNING' | 'PAUSED'
 
 export interface TrainState {
   id: string
   routeId: string
   serviceNo: string
+  controlSessionState: string
+  signalNetworkStatus: string
+  powerNetworkStatus: string
+  controlSessionReason: string
+  linkId: number
+  direction: string
   positionMeters: number
   speedMetersPerSecond: number
   lengthMeters: number
@@ -44,6 +52,9 @@ export interface TrainState {
   energyConsumedKwh: number
   energyRegeneratedKwh: number
   faultCode: string
+  currentStationId?: string
+  dwellElapsedSeconds?: number
+  lastDepartureAt?: string
 }
 
 export interface TrackSegmentState {
@@ -149,6 +160,7 @@ export interface SimulationSnapshot {
   routeStates: RouteState[]
   powerSections: PowerSectionState[]
   alarms: Alarm[]
+  dispatch: DispatchSnapshot
 }
 
 export interface SocketMessage {

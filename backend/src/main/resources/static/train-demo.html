@@ -1,0 +1,388 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>车辆控制节点接入演示</title>
+  <style>
+    :root {
+      color-scheme: light;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      color: #17212b;
+      background: #f5f7fa;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+    }
+
+    header {
+      padding: 20px 28px 14px;
+      background: #ffffff;
+      border-bottom: 1px solid #d8dee8;
+    }
+
+    h1 {
+      margin: 0 0 8px;
+      font-size: 22px;
+      font-weight: 700;
+      letter-spacing: 0;
+    }
+
+    .meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      color: #536170;
+      font-size: 13px;
+    }
+
+    .shell {
+      width: min(1180px, calc(100vw - 32px));
+      margin: 18px auto 28px;
+      display: grid;
+      gap: 16px;
+    }
+
+    .toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: center;
+      padding: 12px;
+      background: #ffffff;
+      border: 1px solid #d8dee8;
+      border-radius: 8px;
+    }
+
+    button {
+      min-height: 36px;
+      border: 1px solid #9fb0c1;
+      border-radius: 6px;
+      background: #ffffff;
+      color: #17212b;
+      padding: 0 12px;
+      font-size: 14px;
+      cursor: pointer;
+    }
+
+    button.primary {
+      background: #174f8a;
+      border-color: #174f8a;
+      color: #ffffff;
+    }
+
+    button:disabled {
+      opacity: 0.6;
+      cursor: wait;
+    }
+
+    .status {
+      margin-left: auto;
+      min-width: 220px;
+      color: #536170;
+      font-size: 13px;
+      text-align: right;
+    }
+
+    section {
+      background: #ffffff;
+      border: 1px solid #d8dee8;
+      border-radius: 8px;
+      overflow: hidden;
+    }
+
+    section h2 {
+      margin: 0;
+      padding: 12px 14px;
+      font-size: 15px;
+      border-bottom: 1px solid #d8dee8;
+      background: #fbfcfe;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      table-layout: fixed;
+      font-size: 13px;
+    }
+
+    th,
+    td {
+      padding: 10px 12px;
+      border-bottom: 1px solid #edf0f5;
+      text-align: left;
+      vertical-align: top;
+      overflow-wrap: anywhere;
+    }
+
+    th {
+      color: #536170;
+      font-weight: 600;
+      background: #fbfcfe;
+    }
+
+    tr:last-child td {
+      border-bottom: 0;
+    }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      min-height: 22px;
+      padding: 0 8px;
+      border-radius: 999px;
+      background: #edf3f8;
+      color: #1d4e7a;
+      font-size: 12px;
+      font-weight: 600;
+    }
+
+    .pill.warn {
+      background: #fff3d9;
+      color: #8a5b00;
+    }
+
+    .pill.bad {
+      background: #ffe7e4;
+      color: #a33328;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 16px;
+    }
+
+    pre {
+      margin: 0;
+      padding: 12px;
+      min-height: 160px;
+      max-height: 360px;
+      overflow: auto;
+      background: #0f1720;
+      color: #dbe7f3;
+      font-size: 12px;
+      line-height: 1.5;
+    }
+
+    @media (max-width: 860px) {
+      .grid {
+        grid-template-columns: 1fr;
+      }
+
+      .status {
+        width: 100%;
+        margin-left: 0;
+        text-align: left;
+      }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>车辆控制节点接入演示</h1>
+    <div class="meta">
+      <span>后端接口：/api/trains/lifecycle、/api/simulation/tick、/api/vehicle/onboard-subsystems</span>
+      <span>模式：中央系统调用本地或外部车辆控制节点客户端</span>
+    </div>
+  </header>
+
+  <main class="shell">
+    <div class="toolbar">
+      <button id="resetBtn">重置中央系统</button>
+      <button id="addBtn" class="primary">接入 TR-003/004/005</button>
+      <button id="tickBtn">单步 Tick</button>
+      <button id="tick5Btn">连续 5 Tick</button>
+      <button id="refreshBtn">刷新状态</button>
+      <div id="status" class="status">待刷新</div>
+    </div>
+
+    <section>
+      <h2>列车实体</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>列车</th>
+            <th>会话</th>
+            <th>信号/供电</th>
+            <th>位置 / 速度</th>
+            <th>动力学</th>
+            <th>质量</th>
+          </tr>
+        </thead>
+        <tbody id="trainRows"></tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2>车辆控制节点</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>列车</th>
+            <th>请求模式</th>
+            <th>实际节点</th>
+            <th>连接状态</th>
+            <th>数据质量</th>
+            <th>错误</th>
+          </tr>
+        </thead>
+        <tbody id="nodeRows"></tbody>
+      </table>
+    </section>
+
+    <div class="grid">
+      <section>
+        <h2>快照摘要</h2>
+        <pre id="snapshotJson">{}</pre>
+      </section>
+      <section>
+        <h2>最近操作</h2>
+        <pre id="log"></pre>
+      </section>
+    </div>
+  </main>
+
+  <script>
+    const statusEl = document.getElementById('status')
+    const trainRows = document.getElementById('trainRows')
+    const nodeRows = document.getElementById('nodeRows')
+    const snapshotJson = document.getElementById('snapshotJson')
+    const logEl = document.getElementById('log')
+    const buttons = [...document.querySelectorAll('button')]
+
+    function log(message) {
+      const line = `[${new Date().toLocaleTimeString()}] ${message}`
+      logEl.textContent = `${line}\n${logEl.textContent}`.trim()
+    }
+
+    async function request(path, options = {}) {
+      const response = await fetch(path, {
+        headers: { 'Content-Type': 'application/json', ...(options.headers || {}) },
+        ...options
+      })
+      if (!response.ok) {
+        throw new Error(`${response.status} ${await response.text()}`)
+      }
+      return response.json()
+    }
+
+    function setBusy(busy) {
+      buttons.forEach(button => { button.disabled = busy })
+      statusEl.textContent = busy ? '请求中...' : '已就绪'
+    }
+
+    function pill(value) {
+      const cls = ['FALLBACK', 'INVALID', 'ATP_BRAKE', 'SAFETY_BRAKE'].includes(value)
+        ? 'bad'
+        : ['CONNECTING', 'NOT_ATTACHED', 'WARN'].includes(value) ? 'warn' : ''
+      return `<span class="pill ${cls}">${value ?? '-'}</span>`
+    }
+
+    function renderTrains(trains) {
+      trainRows.innerHTML = trains.map(train => `
+        <tr>
+          <td>${train.id}<br>${train.direction || '-'}</td>
+          <td>${pill(train.controlSessionState)}</td>
+          <td>${pill(train.signalNetworkStatus)} ${pill(train.powerNetworkStatus)}</td>
+          <td>${train.positionMeters.toFixed(2)} m<br>${train.speedMetersPerSecond.toFixed(3)} m/s</td>
+          <td>${pill(train.dynamicsState)}<br>${train.dynamicsConstraintReason || '-'}</td>
+          <td>${pill(train.dataQuality)}<br>${train.faultCode || '-'}</td>
+        </tr>
+      `).join('')
+    }
+
+    function renderNodes(nodes) {
+      nodeRows.innerHTML = nodes.map(node => `
+        <tr>
+          <td>${node.trainId}</td>
+          <td>${node.requestedMode}</td>
+          <td>${node.activeMode}</td>
+          <td>${pill(node.connectionState)}</td>
+          <td>${pill(node.dataQuality)}</td>
+          <td>${node.lastError || '-'}</td>
+        </tr>
+      `).join('')
+    }
+
+    async function refresh() {
+      const [snapshot, nodes] = await Promise.all([
+        request('/api/simulation/snapshot'),
+        request('/api/vehicle/onboard-subsystems')
+      ])
+      renderTrains(snapshot.trains || [])
+      renderNodes(nodes || [])
+      snapshotJson.textContent = JSON.stringify({
+        tick: snapshot.tick,
+        status: snapshot.status,
+        trainCount: snapshot.trains?.length ?? 0,
+        trains: (snapshot.trains || []).map(train => ({
+          id: train.id,
+          session: train.controlSessionState,
+          positionMeters: train.positionMeters,
+          speedMetersPerSecond: train.speedMetersPerSecond,
+          dynamicsState: train.dynamicsState,
+          dataQuality: train.dataQuality
+        }))
+      }, null, 2)
+      statusEl.textContent = `tick=${snapshot.tick} trains=${snapshot.trains?.length ?? 0}`
+    }
+
+    async function action(label, fn) {
+      try {
+        setBusy(true)
+        await fn()
+        await refresh()
+        log(`${label} 完成`)
+      } catch (error) {
+        statusEl.textContent = '请求失败'
+        log(`${label} 失败：${error.message}`)
+      } finally {
+        setBusy(false)
+      }
+    }
+
+    document.getElementById('resetBtn').addEventListener('click', () => action('重置', () =>
+      request('/api/simulation/reset', { method: 'POST' })
+    ))
+
+    document.getElementById('addBtn').addEventListener('click', () => action('接入三辆车', () =>
+      request('/api/trains/lifecycle', {
+        method: 'POST',
+        body: JSON.stringify({
+          action: 'ADD',
+          trains: [
+            { trainNo: 3, linkId: 12, offsetMeters: 640.0, direction: 'DOWN' },
+            { trainNo: 4, linkId: 13, offsetMeters: 1280.0, direction: 'DOWN' },
+            { trainNo: 5, linkId: 14, offsetMeters: 1920.0, direction: 'UP' }
+          ],
+          reason: 'html demo attach',
+          operator: 'signal-demo',
+          confirmToken: 'SIMULATION_CONFIRM',
+          traceId: `html-demo-${Date.now()}`
+        })
+      })
+    ))
+
+    document.getElementById('tickBtn').addEventListener('click', () => action('单步 Tick', () =>
+      request('/api/simulation/tick', { method: 'POST' })
+    ))
+
+    document.getElementById('tick5Btn').addEventListener('click', () => action('连续 5 Tick', async () => {
+      for (let i = 0; i < 5; i += 1) {
+        await request('/api/simulation/tick', { method: 'POST' })
+      }
+    }))
+
+    document.getElementById('refreshBtn').addEventListener('click', () => action('刷新', refresh))
+
+    refresh().catch(error => log(`初始化失败：${error.message}`))
+  </script>
+</body>
+</html>

@@ -1,5 +1,6 @@
 package com.railwaysim.config;
 
+import com.railwaysim.vehicle.onboard.OnboardTrainSubsystemMode;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 @ConfigurationProperties(prefix = "railway.simulation")
@@ -25,6 +26,10 @@ public class SimulationProperties {
     private boolean fmuServiceEnabled;
     private String fmuServiceUrl = "http://localhost:9000";
     private long fmuServiceTimeoutMillis = 500;
+    private OnboardTrainSubsystemMode onboardSubsystemMode = OnboardTrainSubsystemMode.IN_PROCESS;
+    private String onboardSubsystemUrl = "http://localhost:9100";
+    private long onboardSubsystemTimeoutMillis = 300;
+    private long onboardSubsystemLeaseMillis = 1000;
 
     public long getTickMillis() {
         return tickMillis;
@@ -184,5 +189,39 @@ public class SimulationProperties {
 
     public void setFmuServiceTimeoutMillis(long fmuServiceTimeoutMillis) {
         this.fmuServiceTimeoutMillis = fmuServiceTimeoutMillis;
+    }
+
+    public OnboardTrainSubsystemMode getOnboardSubsystemMode() {
+        return onboardSubsystemMode;
+    }
+
+    public void setOnboardSubsystemMode(OnboardTrainSubsystemMode onboardSubsystemMode) {
+        this.onboardSubsystemMode = onboardSubsystemMode == null
+            ? OnboardTrainSubsystemMode.IN_PROCESS
+            : onboardSubsystemMode;
+    }
+
+    public String getOnboardSubsystemUrl() {
+        return onboardSubsystemUrl;
+    }
+
+    public void setOnboardSubsystemUrl(String onboardSubsystemUrl) {
+        this.onboardSubsystemUrl = onboardSubsystemUrl;
+    }
+
+    public long getOnboardSubsystemTimeoutMillis() {
+        return onboardSubsystemTimeoutMillis;
+    }
+
+    public void setOnboardSubsystemTimeoutMillis(long onboardSubsystemTimeoutMillis) {
+        this.onboardSubsystemTimeoutMillis = Math.max(1, onboardSubsystemTimeoutMillis);
+    }
+
+    public long getOnboardSubsystemLeaseMillis() {
+        return onboardSubsystemLeaseMillis;
+    }
+
+    public void setOnboardSubsystemLeaseMillis(long onboardSubsystemLeaseMillis) {
+        this.onboardSubsystemLeaseMillis = Math.max(1, onboardSubsystemLeaseMillis);
     }
 }

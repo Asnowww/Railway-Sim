@@ -127,7 +127,7 @@ frontend/src/components/power-train/
 
 先做任务：
 
-1. 维护 `TcmsAtoAdapterService`，把信号、轨道和供电约束转换为车辆物理输入；调度约束由信号模块先折算。
+1. 维护 `OnboardTrainSubsystemManager` 和 onboard 客户端，把信号、轨道和供电约束转换为车辆物理输入；调度约束由信号模块先折算。
 2. 维护 `VehiclePhysicsClient` 接口，后续把 `FmuVehiclePhysicsAdapter` 从简化模型替换为 Python FMU 服务调用。
 3. 维护 `fmu-service` 的 `FmuManager`、`FleetStepper`、`TrainFMUInstance` 和 Modelica 模型草案。
 4. 完善车辆状态：牵引、制动、取流、电功率、再生制动、故障码。
@@ -140,7 +140,7 @@ frontend/src/components/power-train/
 - 车辆是对象，不是服务，不要给每辆车开线程。
 - 多车更新统一由 `TrainManager` 负责。
 - 供电模块输出状态即可，不要直接操控列车，必要时通过事件或调度指令联动。
-- 调度、信号、供电、轨道不要直接调用 FMU，统一通过 TCMS/ATO 适配层进入车辆物理端口。
+- 调度、信号、供电、轨道不要直接调用 FMU，统一通过单车基层智能子系统边界进入车辆物理端口。
 - 实时状态优先放 `RealtimeStateCache`，MySQL 表只用于后续快照、日志和回放。
 - 调度命令只写入 `DispatchService`，再由信号模块折算为 MA、限速或后续 `SignalVehicleCommand`；车辆侧不直接消费 `DispatchConstraint`。
 

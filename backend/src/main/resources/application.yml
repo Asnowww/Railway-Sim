@@ -8,6 +8,7 @@ spring:
     import:
       - optional:file:./application-local.yml
       - optional:file:./config/application-local.yml
+      - optional:file:../config/application-local.yml
   datasource:
     url: jdbc:mysql://${DB_HOST:localhost}:${DB_PORT:3306}/${DB_NAME:railway_sim}?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
     username: ${DB_USER:railway_user}
@@ -41,6 +42,15 @@ railway:
     fmu-service-enabled: false
     fmu-service-url: http://localhost:9000
     fmu-service-timeout-millis: 500
+    onboard-subsystem-mode: IN_PROCESS
+    onboard-subsystem-url: http://localhost:9100
+    onboard-subsystem-timeout-millis: 300
+    onboard-subsystem-lease-millis: 1000
+    external-power-network:
+      mode: LOCAL
+      base-url: http://localhost:9200
+      timeout-millis: 300
+      auto-bootstrap: true
     external-simulator:
       mode: LOCAL
       max-trains: 20
@@ -60,3 +70,19 @@ railway:
         speed-tolerance-meters-per-second: 0.5
         acceleration-tolerance-meters-per-second-squared: 0.3
         distance-tolerance-meters: 2.0
+  dispatch:
+    plan-location: classpath:config/dispatch-plan.yaml
+    average-speed-ratio: 0.8
+    dwell-tolerance-sec: 15
+    departure-delay-sec: 30
+    headway-shrink-ratio: 0.7
+    headway-expand-ratio: 1.5
+    crowding-load-rate: 0.8
+    confirm-ticks: 3
+    cooldown-sec: 60
+    evaluate-interval-ms: 1000
+    arrival-threshold-meters: 5
+    stop-speed-threshold-mps: 0.5
+    base-cruise-speed-mps: 15
+    min-dwell-sec: 15
+    max-dwell-sec: 60

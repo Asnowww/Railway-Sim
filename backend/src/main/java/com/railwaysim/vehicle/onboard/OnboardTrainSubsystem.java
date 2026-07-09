@@ -1,16 +1,19 @@
-package com.railwaysim.vehicle;
+package com.railwaysim.vehicle.onboard;
 
 import com.railwaysim.config.SimulationProperties;
+import com.railwaysim.dispatch.DispatchConstraint;
 import com.railwaysim.infrastructure.StaticInfrastructureCatalog;
 import com.railwaysim.power.PowerConstraint;
 import com.railwaysim.signal.MovementAuthority;
-import com.railwaysim.simulation.TickContext;
 import com.railwaysim.track.TrackConstraint;
 import com.railwaysim.train.TrainState;
-import org.springframework.stereotype.Service;
+import com.railwaysim.vehicle.TrainDynamicsState;
+import com.railwaysim.vehicle.TrainStateReport;
+import com.railwaysim.vehicle.VehicleLoadPolicy;
+import com.railwaysim.vehicle.VehiclePhysicsInput;
+import com.railwaysim.vehicle.VehiclePhysicsOutput;
 
-@Service
-public class TcmsAtoAdapterService {
+class OnboardTrainSubsystem {
 
     private static final double DEFAULT_ADHESION = 0.9;
     private static final double GRAVITY = 9.81;
@@ -18,28 +21,35 @@ public class TcmsAtoAdapterService {
     private static final double STATION_STOP_WINDOW_METERS = 8.0;
     private static final double NO_STATION_DISTANCE_METERS = 1_000_000;
 
+    private final String trainId;
+    private final String subsystemId;
     private final SimulationProperties simulationProperties;
     private final StaticInfrastructureCatalog infrastructureCatalog;
 
-    public TcmsAtoAdapterService(
+    OnboardTrainSubsystem(
+        String trainId,
         SimulationProperties simulationProperties,
         StaticInfrastructureCatalog infrastructureCatalog
     ) {
+        this.trainId = trainId;
+        this.subsystemId = "ONBOARD-" + trainId;
         this.simulationProperties = simulationProperties;
         this.infrastructureCatalog = infrastructureCatalog;
     }
 
-    public VehiclePhysicsInput buildVehiclePhysicsInput(
-        TrainState train,
-        TickContext context,
-        MovementAuthority authority,
-        TrackConstraint track,
-        PowerConstraint power
-    ) {
-        double speedLimit = resolveSpeedLimit(authority, track);
-        double maDistance = resolveMovementAuthorityDistance(train, authority);
+    OnboardTrainRegistration registration() {
+        return new OnboardTrainRegistration(trainId, subsystemId, "IN_PROCESS_SIMULATED");
+    }
+
+    OnboardTrainControlOutput control(OnboardTrainControlInput input) {
+        TrainState train = input.train();
+        double speedLimit = resolveSpeedLimit(input.authority(), input.track());
+        double maDistance = resolveMovementAuthorityDistance(train, input.authority());
         boolean doorClosed = "CLOSED_LOCKED".equals(train.doorState());
-        double stationDistance = resolveStationDistance(train, track);
+        double stationDistance = resolveStationDistance(train, input.track());
+        if (shouldReleaseStationStop(train, input.dispatch())) {
+            stationDistance = NO_STATION_DISTANCE_METERS;
+        }
         double loadMassKg = VehicleLoadPolicy.loadMassKg(train.loadMassKg(), train.loadRate());
         DynamicsDecision decision = decideDynamicsState(
             train,
@@ -47,12 +57,12 @@ public class TcmsAtoAdapterService {
             maDistance,
             stationDistance,
             doorClosed,
-            track,
-            power,
-            authority
+            input.track(),
+            input.power(),
+            input.authority()
         );
 
-        return new VehiclePhysicsInput(
+        VehiclePhysicsInput physicsInput = new VehiclePhysicsInput(
             train.id(),
             train.positionMeters(),
             train.speedMetersPerSecond(),
@@ -62,27 +72,24 @@ public class TcmsAtoAdapterService {
             decision.emergencyBrake(),
             speedLimit,
             maDistance,
-            track == null ? 0 : track.gradient(),
-            track == null ? 1_000 : track.curveRadiusMeters(),
-            power == null ? 1500 : power.railVoltage(),
-            power == null ? 3_200_000 : power.powerAvailableWatts(),
+            input.track() == null ? 0 : input.track().gradient(),
+            input.track() == null ? 1_000 : input.track().curveRadiusMeters(),
+            input.power() == null ? 1500 : input.power().railVoltage(),
+            input.power() == null ? 3_200_000 : input.power().powerAvailableWatts(),
             doorClosed,
             DEFAULT_ADHESION,
             train.energyConsumedKwh(),
             train.energyRegeneratedKwh(),
-            context.deltaSeconds(),
+            input.context().deltaSeconds(),
             decision.state().name(),
             decision.reason(),
             stationDistance,
             decision.stoppingDistanceMeters()
         );
+        return OnboardTrainControlOutput.from(subsystemId, physicsInput);
     }
 
-    public TrainStateReport buildTrainStateReport(VehiclePhysicsInput input, VehiclePhysicsOutput output) {
-        return buildTrainStateReport(null, input, output);
-    }
-
-    public TrainStateReport buildTrainStateReport(
+    TrainStateReport buildTrainStateReport(
         TrainState train,
         VehiclePhysicsInput input,
         VehiclePhysicsOutput output
@@ -146,6 +153,15 @@ public class TcmsAtoAdapterService {
         double stoppingDistance = stoppingDistanceMeters(speed, track == null ? 0 : track.gradient(), brakingFactor);
         double tractionCapacityFactor = VehicleLoadPolicy.tractionCommandFactor(loadMassKg, train.availableTractionCount());
 
+        if (!"IN_SERVICE".equals(train.controlSessionState())) {
+            return brakeDecision(
+                TrainDynamicsState.SELF_CHECK_BLOCKED,
+                "CONTROL_SESSION_" + train.controlSessionState(),
+                speed,
+                stoppingDistance,
+                false
+            );
+        }
         if (!doorClosed || !train.brakeAvailable() || train.availableBrakeCount() <= 0 || "FAIL".equals(train.selfCheckStatus())) {
             return brakeDecision(
                 TrainDynamicsState.SELF_CHECK_BLOCKED,
@@ -315,6 +331,16 @@ public class TcmsAtoAdapterService {
         return Math.max(0, distance);
     }
 
+    private boolean shouldReleaseStationStop(TrainState train, DispatchConstraint dispatch) {
+        if (dispatch == null || !dispatch.releaseStationStop()) {
+            return false;
+        }
+        boolean dwelling = "DWELLING".equals(train.status())
+            || (train.currentStationId() != null && !train.currentStationId().isBlank())
+            || train.dwellElapsedSeconds() > 0;
+        return dwelling && train.speedMetersPerSecond() <= 0.5;
+    }
+
     private String resolveOperationMode(VehiclePhysicsInput input) {
         if (input.emergencyBrakeCommand()) {
             return "ATP_BRAKE";
@@ -475,7 +501,6 @@ public class TcmsAtoAdapterService {
     }
 
     private double stoppingDistanceMeters(double speedMetersPerSecond, double gradient, double brakingFactor) {
-        // The XLS can contain steep local grade records; clamp only the planning contribution.
         double planningGradient = clamp(gradient, -0.04, 0.04);
         double effectiveDeceleration = clamp(
             SERVICE_BRAKE_DECELERATION * clamp(brakingFactor, 0.2, 1.2) + planningGradient * GRAVITY,

@@ -20,14 +20,19 @@
 |---|---|---|
 | `/api/trains/{trainId}/faults` | POST | 注入车辆仿真故障。 |
 | `/api/trains/{trainId}/faults/clear` | POST | 清除车辆仿真故障。 |
+| `/api/trains/lifecycle` | POST | 外部车辆控制会话 ADD/DELETE/CLEAR；用于演示列车接入和退出，不启动车辆控制系统本体。 |
+| `/api/vehicle/onboard-subsystems` | GET | 查看中央侧已纳管车辆控制节点的模式、在线状态、数据质量和最近错误。 |
 
 写接口请求必须包含 `confirmToken=SIMULATION_CONFIRM`。
+
+综合监控侧应把 `/api/trains/lifecycle` 理解为联调/信号协议入口，而不是数据库维护入口。新增列车后，界面应以 `controlSessionState`、`signalNetworkStatus`、`powerNetworkStatus` 和 `/api/vehicle/onboard-subsystems` 判断是否真正上线；只有 `IN_SERVICE + ATTACHED + ATTACHED` 才表示已进入中央主循环。
 
 ## WebSocket 快照字段
 
 `trains[]` 复用 `TrainState`，关键字段包括：
 
 - 位置速度：`positionMeters`、`headMileage`、`tailMileage`、`speedMetersPerSecond`
+- 外部控制会话：`controlSessionState`、`signalNetworkStatus`、`powerNetworkStatus`、`controlSessionReason`
 - 控制状态：`operationMode`、`dynamicsState`、`dynamicsConstraintReason`
 - 车辆设备：`doorState`、`tractionState`、`brakeState`、`currentCollectionStatus`
 - 可用性：`tractionAvailable`、`brakeAvailable`、`selfCheckStatus`
