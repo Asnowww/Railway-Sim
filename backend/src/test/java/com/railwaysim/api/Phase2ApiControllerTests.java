@@ -139,6 +139,35 @@ class Phase2ApiControllerTests {
     }
 
     @Test
+    void vehicleRuntimeRegistrationCreatesCentralMirror() throws Exception {
+        mockMvc.perform(post("/api/simulation/reset"))
+            .andExpect(status().isOk());
+
+        mockMvc.perform(post("/api/trains/runtime-registrations")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "trainId": "TR-901",
+                      "linkId": 9,
+                      "offsetMeters": 450.0,
+                      "direction": "DOWN",
+                      "reason": "runtime-test",
+                      "traceId": "trace-runtime"
+                    }
+                    """))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.id").value("TR-901"))
+            .andExpect(jsonPath("$.positionMeters").value(450.0))
+            .andExpect(jsonPath("$.controlSessionState").value("CONNECTING"))
+            .andExpect(jsonPath("$.linkId").value(9))
+            .andExpect(jsonPath("$.direction").value("DOWN"));
+
+        // 服务间注册接口只建立中央镜像；清理后避免影响同一 Spring 上下文内的其它接口测试。
+        mockMvc.perform(post("/api/simulation/reset"))
+            .andExpect(status().isOk());
+    }
+
+    @Test
     void signalVehicleInterfaceAcceptsOperationalTelemetryAndProjectsCommands() throws Exception {
         mockMvc.perform(post("/api/simulation/reset"))
             .andExpect(status().isOk());

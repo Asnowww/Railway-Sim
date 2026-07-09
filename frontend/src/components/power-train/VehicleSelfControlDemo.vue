@@ -2,7 +2,7 @@
 import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
 import { simulationApi } from '../../api/rest'
 import { simulationSocket } from '../../api/ws'
-import type { SimulationSnapshot, TrainState } from '../../types/simulation'
+import type { PowerSectionState, SimulationSnapshot, TrackSegmentState, TrainState } from '../../types/simulation'
 
 type DynamicsState =
   | 'SELF_CHECK_BLOCKED'
@@ -260,6 +260,56 @@ let snapshotPollTimer: number | undefined
 let demoTimer: number | undefined
 
 const liveTrain = computed<TrainState | null>(() => snapshot.value?.trains[0] ?? null)
+const liveTrackSegments = computed<TrackSegmentState[]>(() => {
+  if (snapshot.value?.trackSegments.length) {
+    return snapshot.value.trackSegments
+  }
+  return [
+    {
+      id: 'LOCAL-DEMO',
+      startMeters: 0,
+      endMeters: localConfig.lineLengthMeters,
+      speedLimitMetersPerSecond: localConfig.speedLimitKmh / 3.6,
+      occupancy: 'FREE',
+      fromNode: 'LOCAL-A',
+      toNode: 'LOCAL-B',
+      track: 'UP'
+    }
+  ]
+})
+const livePowerSections = computed<PowerSectionState[]>(() => snapshot.value?.powerSections ?? [])
+const powerDiagramLength = computed(() => {
+  const trackEnd = liveTrackSegments.value.reduce((max, segment) => Math.max(max, segment.endMeters), 0)
+  const sectionEnd = livePowerSections.value.reduce((max, section) => Math.max(max, section.endMeters), 0)
+  return Math.max(localConfig.lineLengthMeters, trackEnd, sectionEnd, 1)
+})
+const powerTrainPosition = computed(() => liveTrain.value?.positionMeters ?? demoTrain.positionMeters)
+const powerTrainPower = computed(() => liveTrain.value?.tractionPowerWatts ?? demoTrain.tractionPowerWatts)
+const powerTrainCurrent = computed(() => {
+  if (liveTrain.value) {
+    return liveTrain.value.railCurrentAmps
+  }
+  return localConfig.railVoltage > 1 ? demoTrain.tractionPowerWatts / localConfig.railVoltage : 0
+})
+const powerQualitySummary = computed(() => {
+  const qualities = [...new Set(livePowerSections.value.map((section) => section.externalDataQuality || section.dataQuality))]
+  return qualities.length > 0 ? qualities.join(' / ') : 'NO_DATA'
+})
+const powerComparisonSummary = computed(() => {
+  if (livePowerSections.value.length === 0) {
+    return '等待供电快照'
+  }
+  if (livePowerSections.value.some((section) => section.voltageComparisonStatus === 'DIVERGED')) {
+    return '外部电压显著偏离'
+  }
+  if (livePowerSections.value.some((section) => section.voltageComparisonStatus === 'DEVIATED')) {
+    return '外部电压轻微偏离'
+  }
+  if (livePowerSections.value.some((section) => section.voltageComparisonStatus === 'MATCHED')) {
+    return '中央/外部电压匹配'
+  }
+  return '无外部电压数据'
+})
 const backendStateLabel = computed(() => {
   if (backendState.value === 'live') {
     return `LIVE tick ${snapshot.value?.tick ?? 0}`
@@ -614,6 +664,77 @@ function buildPolyline(accessor: (point: HistoryPoint) => number) {
     .join(' ')
 }
 
+function mileageBandStyle(startMeters: number, endMeters: number) {
+  const length = powerDiagramLength.value
+  const start = clamp(startMeters / length, 0, 1)
+  const end = clamp(endMeters / length, start, 1)
+  return {
+    left: `${(start * 100).toFixed(2)}%`,
+    width: `${Math.max((end - start) * 100, 0.65).toFixed(2)}%`
+  }
+}
+
+function powerTrainMarkerStyle() {
+  return {
+    left: percent(powerTrainPosition.value / powerDiagramLength.value)
+  }
+}
+
+function voltageBarStyle(value: number, section: PowerSectionState) {
+  const upper = Math.max(1, section.voltage, section.externalVoltage, localConfig.railVoltage)
+  return {
+    width: percent(value / upper)
+  }
+}
+
+function powerSectionClass(section: PowerSectionState) {
+  return [
+    `status-${(section.status || 'UNKNOWN').toLowerCase().replace(/_/g, '-')}`,
+    `comparison-${comparisonKey(section.voltageComparisonStatus)}`
+  ]
+}
+
+function comparisonKey(status: string | undefined) {
+  return (status || 'NO_EXTERNAL_DATA').toLowerCase().replace(/_/g, '-')
+}
+
+function translatePowerStatus(status: string | undefined) {
+  const labels: Record<string, string> = {
+    ENERGIZED: '带电',
+    UNDERVOLTAGE: '欠压',
+    OVERCURRENT: '过流',
+    DEENERGIZED: '失电',
+    ISOLATED: '隔离',
+    TRIPPED: '跳闸',
+    MAINTENANCE_LOCKED: '检修闭锁'
+  }
+  return labels[status ?? ''] ?? (status || '未知')
+}
+
+function translateComparisonStatus(status: string | undefined) {
+  const labels: Record<string, string> = {
+    MATCHED: '匹配',
+    DEVIATED: '轻微偏离',
+    DIVERGED: '显著偏离',
+    NO_EXTERNAL_DATA: '无外部数据'
+  }
+  return labels[status ?? ''] ?? (status || '未知')
+}
+
+function translateSupplyMode(mode: string | undefined) {
+  const labels: Record<string, string> = {
+    DOUBLE_END: '双端供电',
+    SINGLE_END: '单端供电',
+    CROSS_FEED: '越区供电',
+    OUTAGE: '停电'
+  }
+  return labels[mode ?? ''] ?? (mode || '未知')
+}
+
+function affectedTrainText(section: PowerSectionState) {
+  return section.affectedTrainIds?.length > 0 ? section.affectedTrainIds.join('、') : '无'
+}
+
 function percent(value: number) {
   return `${clamp(value * 100, 0, 100).toFixed(2)}%`
 }
@@ -639,6 +760,30 @@ function formatDistance(value: number) {
 
 function formatPower(value: number) {
   return `${(value / 1_000_000).toFixed(2)} MW`
+}
+
+function formatVoltage(value: number) {
+  return `${value.toFixed(1)} V`
+}
+
+function formatExternalVoltage(section: PowerSectionState) {
+  if (section.voltageComparisonStatus === 'NO_EXTERNAL_DATA' || section.externalVoltage <= 0) {
+    return '无外部数据'
+  }
+  return formatVoltage(section.externalVoltage)
+}
+
+function formatCurrent(value: number) {
+  return `${value.toFixed(0)} A`
+}
+
+function formatSignedVoltage(value: number) {
+  const sign = value > 0 ? '+' : ''
+  return `${sign}${value.toFixed(1)} V`
+}
+
+function formatDeviationPercent(value: number) {
+  return `${value.toFixed(2)}%`
 }
 
 function formatForce(value: number) {
@@ -697,6 +842,127 @@ function stateLabel(state: string) {
           <span>首车速度</span>
           <strong>{{ liveTrain ? formatSpeed(liveTrain.speedMetersPerSecond) : formatSpeed(demoTrain.speedMetersPerSecond) }}</strong>
         </div>
+      </div>
+    </section>
+
+    <section class="power-linkage" aria-label="供电网络联动">
+      <div class="section-heading compact">
+        <div>
+          <span>供电网络联动</span>
+          <h2>轨道拓扑支撑的虚拟电网闭环</h2>
+        </div>
+        <div class="power-summary">
+          <span class="quality-pill">{{ powerQualitySummary }}</span>
+          <strong>{{ powerComparisonSummary }}</strong>
+        </div>
+      </div>
+
+      <div class="power-diagram">
+        <div class="diagram-axis">
+          <span>0 m</span>
+          <span>{{ formatDistance(powerDiagramLength) }}</span>
+        </div>
+        <div class="diagram-row">
+          <span class="diagram-label">轨道区段</span>
+          <div class="diagram-lane track-lane">
+            <span
+              v-for="segment in liveTrackSegments"
+              :key="segment.id"
+              class="track-segment-band"
+              :class="segment.occupancy.toLowerCase()"
+              :style="mileageBandStyle(segment.startMeters, segment.endMeters)"
+            >
+              <b>{{ segment.id }}</b>
+              <small>{{ segment.fromNode }} → {{ segment.toNode }}</small>
+            </span>
+          </div>
+        </div>
+        <div class="diagram-row">
+          <span class="diagram-label">供电分区</span>
+          <div class="diagram-lane power-lane">
+            <span
+              v-for="section in livePowerSections"
+              :key="section.id"
+              class="power-section-band"
+              :class="powerSectionClass(section)"
+              :style="mileageBandStyle(section.startMeters, section.endMeters)"
+            >
+              <b>{{ section.name || section.id }}</b>
+              <small>{{ translatePowerStatus(section.status) }} / {{ translateSupplyMode(section.supplyMode) }}</small>
+            </span>
+            <span class="power-train-marker" :style="powerTrainMarkerStyle()">
+              <i></i>
+              <b>{{ liveTrain?.id ?? demoTrain.id }}</b>
+              <small>{{ formatPower(powerTrainPower) }} / {{ formatCurrent(powerTrainCurrent) }}</small>
+            </span>
+          </div>
+        </div>
+      </div>
+
+      <div v-if="livePowerSections.length === 0" class="power-empty">
+        等待中央系统快照中的供电分区数据。
+      </div>
+      <div v-else class="power-section-cards">
+        <article
+          v-for="section in livePowerSections"
+          :key="section.id"
+          class="power-section-card"
+          :class="powerSectionClass(section)"
+        >
+          <header>
+            <div>
+              <span>{{ section.id }}</span>
+              <h3>{{ section.name }}</h3>
+            </div>
+            <strong>{{ translateComparisonStatus(section.voltageComparisonStatus) }}</strong>
+          </header>
+
+          <div class="voltage-bars" aria-label="中央与外部电压对比">
+            <div class="voltage-row central">
+              <span>中央电压</span>
+              <i><b :style="voltageBarStyle(section.voltage, section)"></b></i>
+              <strong>{{ formatVoltage(section.voltage) }}</strong>
+            </div>
+            <div class="voltage-row external">
+              <span>外部电压</span>
+              <i><b :style="voltageBarStyle(section.externalVoltage, section)"></b></i>
+              <strong>{{ formatExternalVoltage(section) }}</strong>
+            </div>
+          </div>
+
+          <div class="power-detail-grid">
+            <div>
+              <span>偏差</span>
+              <strong>{{ formatSignedVoltage(section.voltageDeviation) }}</strong>
+              <small>{{ formatDeviationPercent(section.voltageDeviationPercent) }}</small>
+            </div>
+            <div>
+              <span>中央负荷</span>
+              <strong>{{ formatPower(section.loadWatts) }}</strong>
+              <small>{{ formatCurrent(section.current) }}</small>
+            </div>
+            <div>
+              <span>外部负荷</span>
+              <strong>{{ formatPower(section.externalLoadWatts) }}</strong>
+              <small>{{ formatCurrent(section.externalCurrent) }}</small>
+            </div>
+            <div>
+              <span>数据质量</span>
+              <strong>{{ section.externalDataQuality }}</strong>
+              <small>{{ section.dataQuality }}</small>
+            </div>
+            <div>
+              <span>受影响列车</span>
+              <strong>{{ affectedTrainText(section) }}</strong>
+              <small>{{ section.externalSupportReason || '无外部支撑说明' }}</small>
+            </div>
+            <div>
+              <span>杂散风险</span>
+              <strong>{{ section.strayCurrentRiskLevel }}</strong>
+              <small>{{ section.strayCurrentRiskReason || '状态正常' }}</small>
+            </div>
+          </div>
+        </article>
       </div>
     </section>
 
@@ -924,6 +1190,7 @@ function stateLabel(state: string) {
 
 .topbar,
 .live-strip,
+.power-linkage,
 .simulator-grid {
   width: min(1480px, 100%);
   margin: 0 auto;
@@ -952,6 +1219,7 @@ function stateLabel(state: string) {
 
 h1,
 h2,
+h3,
 p {
   margin: 0;
 }
@@ -965,6 +1233,12 @@ h1 {
 h2 {
   margin-top: 4px;
   font-size: 22px;
+  line-height: 1.2;
+}
+
+h3 {
+  margin-top: 3px;
+  font-size: 18px;
   line-height: 1.2;
 }
 
@@ -1081,6 +1355,333 @@ button:disabled {
   margin-top: 5px;
   overflow-wrap: anywhere;
   font-size: 17px;
+}
+
+.power-linkage {
+  margin-bottom: 16px;
+  border: 1px solid #d9e2ec;
+  border-radius: 10px;
+  padding: 20px;
+  background:
+    linear-gradient(135deg, rgba(234, 248, 239, 0.86), rgba(255, 255, 255, 0.92) 38%),
+    #ffffff;
+  box-shadow: 0 18px 40px rgba(15, 23, 42, 0.08);
+}
+
+.power-summary {
+  display: grid;
+  justify-items: end;
+  gap: 6px;
+  text-align: right;
+}
+
+.quality-pill {
+  display: inline-flex;
+  min-height: 28px;
+  align-items: center;
+  border: 1px solid #9ccdb0;
+  border-radius: 999px;
+  padding: 0 10px;
+  background: #eaf8ef;
+  color: #126237;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.power-diagram {
+  display: grid;
+  gap: 12px;
+  border: 1px solid #d9e2ec;
+  border-radius: 10px;
+  padding: 14px;
+  background:
+    linear-gradient(#eef3f8 1px, transparent 1px),
+    linear-gradient(90deg, rgba(31, 120, 180, 0.1) 1px, transparent 1px),
+    rgba(255, 255, 255, 0.8);
+  background-size: 100% 44px, 72px 100%, auto;
+}
+
+.diagram-axis {
+  display: flex;
+  justify-content: space-between;
+  color: #627084;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.diagram-row {
+  display: grid;
+  grid-template-columns: 84px minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+}
+
+.diagram-label {
+  color: #273448;
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.diagram-lane {
+  position: relative;
+  min-height: 76px;
+  border-radius: 9px;
+  overflow: hidden;
+}
+
+.track-lane {
+  background:
+    repeating-linear-gradient(90deg, rgba(96, 112, 134, 0.32) 0 2px, transparent 2px 42px),
+    linear-gradient(180deg, #f8fafc, #eef3f8);
+}
+
+.track-lane::before,
+.track-lane::after {
+  position: absolute;
+  right: 0;
+  left: 0;
+  height: 3px;
+  border-radius: 999px;
+  background: #607086;
+  content: '';
+}
+
+.track-lane::before {
+  top: 26px;
+}
+
+.track-lane::after {
+  bottom: 26px;
+}
+
+.power-lane {
+  min-height: 104px;
+  background:
+    linear-gradient(90deg, rgba(31, 120, 180, 0.11), rgba(62, 142, 106, 0.12)),
+    #f8fafc;
+}
+
+.track-segment-band,
+.power-section-band {
+  position: absolute;
+  top: 10px;
+  bottom: 10px;
+  display: grid;
+  align-content: center;
+  gap: 2px;
+  border: 1px solid rgba(96, 112, 134, 0.2);
+  border-radius: 8px;
+  padding: 6px 9px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.72);
+  color: #172033;
+  font-size: 12px;
+  box-shadow: inset 0 -3px 0 rgba(96, 112, 134, 0.16);
+}
+
+.track-segment-band b,
+.power-section-band b {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.track-segment-band small,
+.power-section-band small {
+  overflow: hidden;
+  color: #627084;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.track-segment-band.occupied {
+  border-color: #e0a54c;
+  background: rgba(255, 248, 223, 0.86);
+}
+
+.track-segment-band.fault {
+  border-color: #e89a9a;
+  background: rgba(255, 240, 240, 0.88);
+}
+
+.power-section-band {
+  top: 14px;
+  bottom: 34px;
+  border-color: #96c9e9;
+  background: rgba(237, 247, 255, 0.88);
+  box-shadow: inset 0 -4px 0 #1f78b4;
+}
+
+.power-section-band.status-undervoltage,
+.power-section-card.status-undervoltage {
+  border-color: #e7c56f;
+}
+
+.power-section-band.status-deenergized,
+.power-section-band.status-isolated,
+.power-section-band.status-tripped,
+.power-section-card.status-deenergized,
+.power-section-card.status-isolated,
+.power-section-card.status-tripped {
+  border-color: #e89a9a;
+}
+
+.power-train-marker {
+  position: absolute;
+  z-index: 3;
+  bottom: 8px;
+  transform: translateX(-50%);
+  display: grid;
+  justify-items: center;
+  min-width: 132px;
+  color: #172033;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.power-train-marker i {
+  width: 58px;
+  height: 30px;
+  border: 2px solid #172033;
+  border-radius: 8px 8px 5px 5px;
+  background: #ffffff;
+  box-shadow: inset 0 -8px 0 #c24132;
+}
+
+.power-empty {
+  margin-top: 12px;
+  border: 1px dashed #b7c4d2;
+  border-radius: 8px;
+  padding: 14px;
+  color: #627084;
+  font-weight: 800;
+}
+
+.power-section-cards {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.power-section-card {
+  border: 1px solid #d9e2ec;
+  border-radius: 10px;
+  padding: 16px;
+  background: #ffffff;
+}
+
+.power-section-card header {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 14px;
+}
+
+.power-section-card header span,
+.power-detail-grid span,
+.voltage-row span {
+  display: block;
+  color: #627084;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.power-section-card header > strong {
+  align-self: start;
+  border-radius: 999px;
+  padding: 6px 10px;
+  background: #f1f5f9;
+  color: #273448;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.power-section-card.comparison-matched header > strong {
+  background: #eaf8ef;
+  color: #126237;
+}
+
+.power-section-card.comparison-deviated header > strong {
+  background: #fff8df;
+  color: #855b12;
+}
+
+.power-section-card.comparison-diverged header > strong {
+  background: #fff0f0;
+  color: #9c2626;
+}
+
+.voltage-bars {
+  display: grid;
+  gap: 8px;
+}
+
+.voltage-row {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr) 112px;
+  align-items: center;
+  gap: 10px;
+}
+
+.voltage-row i {
+  height: 10px;
+  border-radius: 999px;
+  background: #e2e8f0;
+  overflow: hidden;
+}
+
+.voltage-row b {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+}
+
+.voltage-row.central b {
+  background: #1f78b4;
+}
+
+.voltage-row.external b {
+  background: #3e8e6a;
+}
+
+.voltage-row strong {
+  text-align: right;
+  font-size: 13px;
+}
+
+.power-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 9px;
+  margin-top: 13px;
+}
+
+.power-detail-grid > div {
+  min-height: 68px;
+  display: grid;
+  align-content: center;
+  gap: 3px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 9px;
+  background: #f8fafc;
+}
+
+.power-detail-grid strong,
+.power-detail-grid small {
+  overflow-wrap: anywhere;
+}
+
+.power-detail-grid strong {
+  color: #172033;
+  font-size: 14px;
+}
+
+.power-detail-grid small {
+  color: #627084;
+  font-size: 11px;
+  font-weight: 700;
 }
 
 .simulator-grid {
@@ -1484,6 +2085,10 @@ button:disabled {
     grid-template-columns: 1fr;
   }
 
+  .power-section-cards {
+    grid-template-columns: 1fr;
+  }
+
   .live-metrics {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -1514,6 +2119,11 @@ button:disabled {
     flex-direction: column;
   }
 
+  .power-summary {
+    justify-items: start;
+    text-align: left;
+  }
+
   .topbar-actions {
     justify-content: flex-start;
   }
@@ -1534,8 +2144,18 @@ button:disabled {
   .scenario-tabs,
   .state-chain,
   .constraint-grid,
-  .telemetry-grid {
+  .telemetry-grid,
+  .power-detail-grid {
     grid-template-columns: 1fr;
+  }
+
+  .diagram-row,
+  .voltage-row {
+    grid-template-columns: 1fr;
+  }
+
+  .voltage-row strong {
+    text-align: left;
   }
 
   .live-metrics > div {

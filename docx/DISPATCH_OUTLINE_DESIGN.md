@@ -1,8 +1,8 @@
 # 运营调度模块概要设计
 
-> 文档版本：v1.1  
-> 所属项目：Railway-Sim 上京地铁仿真系统  
-> 模块负责人：运营调度  
+> 文档版本：v1.1
+> 所属项目：Railway-Sim 上京地铁仿真系统
+> 模块负责人：运营调度
 > 编写说明：本文以当前 Spring Boot 单体架构为实施基准；与 FMU/TCMS Adapter 相关的接入方式见详细设计附录 A，待组长总架构定稿后对齐。
 
 ---
@@ -257,5 +257,5 @@ SimulationRuntime.tick()
 
 > 运营调度模块以 `running_plan_config` 分时段静态计划为基准，通过 `train_station_record` 记录到发偏差，通过 `disturbance_record` 识别轻微扰动，通过 `dispatch_command_record` 记录调度指令。模块在仿真周期内基于内存状态完成决策，MySQL 用于配置与历史追溯。模块不做运行图重构，不涉及工程级 ATS 审批；指令通过 `DispatchCommandPublisher` 下发至车辆模块，并受信号 MA 限速约束。调度结果经 WebSocket 快照供本模块页面与综合监控展示。
 
-详细设计见 [DISPATCH_DETAILED_DESIGN.md](./DISPATCH_DETAILED_DESIGN.md)。  
+详细设计见 [DISPATCH_DETAILED_DESIGN.md](./DISPATCH_DETAILED_DESIGN.md)。
 代码实现计划见 [DISPATCH_IMPLEMENTATION_PLAN.md](./DISPATCH_IMPLEMENTATION_PLAN.md)。

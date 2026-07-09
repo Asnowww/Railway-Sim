@@ -1,9 +1,14 @@
 # FMU Vehicle Physics Service
 
-This service is the planned boundary for the Modelica/FMU vehicle physics model.
+This service is the legacy Python prototype boundary for the Modelica/FMU vehicle physics model.
 Spring Boot remains the simulation coordinator and sends one batch request per
 simulation tick. The FMU service owns the traction, braking, resistance,
 longitudinal dynamics, current draw, and regenerative braking calculations.
+
+The current preferred external vehicle runtime is `vehicle-runtime-service`
+on port `9300`. It is a Spring Boot service that manages per-train control and
+simulation queues. This Python service is retained as an FMU prototype and
+compatibility scaffold; it has not been wired into the new queue-based runtime.
 
 Current scaffold:
 

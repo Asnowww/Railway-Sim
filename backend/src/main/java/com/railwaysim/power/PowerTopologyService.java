@@ -33,6 +33,10 @@ public class PowerTopologyService {
             Instant.now(),
             lineData.lineId(),
             lineData.lineName(),
+            powerData.nominalVoltage(),
+            powerData.minimumVoltage(),
+            powerData.cutoffVoltage(),
+            powerData.maxTractionCurrentAmps(),
             lineData.trackSegments().stream()
                 .map(segment -> new PowerNetworkBootstrapRequest.TopologySegment(
                     segment.id(),
@@ -103,11 +107,15 @@ public class PowerTopologyService {
     }
 
     public PowerNetworkStateSnapshot defaultSnapshot() {
+        return defaultSnapshot("LOCAL", "GOOD");
+    }
+
+    public PowerNetworkStateSnapshot defaultSnapshot(String heartbeatStatus, String dataQuality) {
         OperationalPowerData powerData = infrastructureCatalog.powerData();
         return new PowerNetworkStateSnapshot(
             Instant.now(),
-            "LOCAL",
-            "GOOD",
+            heartbeatStatus,
+            dataQuality,
             powerData.substations().stream()
                 .map(substation -> new PowerNetworkStateSnapshot.SubstationSnapshot(
                     substation.id(),
@@ -130,9 +138,17 @@ public class PowerTopologyService {
                 .map(section -> new PowerNetworkStateSnapshot.ThirdRailSectionSnapshot(
                     section.id(),
                     section.powerSectionId(),
+                    section.startMeters(),
+                    section.endMeters(),
                     "ENERGIZED",
                     "AVAILABLE",
-                    supplyModeForSection(section.powerSectionId())
+                    supplyModeForSection(section.powerSectionId()),
+                    voltageForSection(section.powerSectionId()),
+                    0,
+                    0,
+                    0,
+                    0,
+                    "local default snapshot"
                 ))
                 .toList(),
             powerData.isolators().stream()
@@ -163,5 +179,13 @@ public class PowerTopologyService {
             .map(OperationalPowerData.PowerSectionDefinition::supplyMode)
             .findFirst()
             .orElse("DOUBLE_END");
+    }
+
+    private double voltageForSection(String powerSectionId) {
+        return infrastructureCatalog.powerData().sections().stream()
+            .filter(section -> section.id().equals(powerSectionId))
+            .mapToDouble(OperationalPowerData.PowerSectionDefinition::substationVoltage)
+            .findFirst()
+            .orElse(infrastructureCatalog.powerData().nominalVoltage());
     }
 }

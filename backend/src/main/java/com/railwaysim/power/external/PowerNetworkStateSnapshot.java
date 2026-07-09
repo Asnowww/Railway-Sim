@@ -65,9 +65,17 @@ public record PowerNetworkStateSnapshot(
     public record ThirdRailSectionSnapshot(
         String id,
         String powerSectionId,
+        double startMeters,
+        double endMeters,
         String energizationState,
         String feederState,
-        String recommendedSupplyMode
+        String recommendedSupplyMode,
+        double contactRailVoltage,
+        double tractionCurrentAmps,
+        double tractionPowerWatts,
+        double regenPowerWatts,
+        double absorbedRegenWatts,
+        String supportReason
     ) {
         public ThirdRailSectionSnapshot {
             powerSectionId = powerSectionId == null || powerSectionId.isBlank() ? id : powerSectionId;
@@ -76,6 +84,7 @@ public record PowerNetworkStateSnapshot(
             recommendedSupplyMode = recommendedSupplyMode == null || recommendedSupplyMode.isBlank()
                 ? "DOUBLE_END"
                 : recommendedSupplyMode;
+            supportReason = supportReason == null ? "" : supportReason;
         }
     }
 

@@ -8,6 +8,8 @@ public interface ExternalPowerNetworkClient {
 
     PowerNetworkStateSnapshot currentState();
 
+    PowerNetworkStateSnapshot queryState(PowerNetworkStateQueryRequest request);
+
     List<PowerNetworkEventPayload> events();
 
     PowerNetworkOperationResult operate(PowerNetworkOperationRequest request);

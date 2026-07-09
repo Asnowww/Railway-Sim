@@ -1,9 +1,9 @@
 # 运营调度模块详细设计
 
-> 文档版本：v1.1  
-> 所属项目：Railway-Sim 上京地铁仿真系统  
-> 模块负责人：运营调度  
-> 概要设计见：[DISPATCH_OUTLINE_DESIGN.md](./DISPATCH_OUTLINE_DESIGN.md)  
+> 文档版本：v1.1
+> 所属项目：Railway-Sim 上京地铁仿真系统
+> 模块负责人：运营调度
+> 概要设计见：[DISPATCH_OUTLINE_DESIGN.md](./DISPATCH_OUTLINE_DESIGN.md)
 > 编写说明：本文以当前 Spring Boot 单体架构下的原方案为实施基准；与 FMU/TCMS Adapter 相关的接入方式见**附录 A**，待组长总架构定稿后对齐，不影响本文核心业务设计。
 
 ---
@@ -714,7 +714,7 @@ List<MovementAuthority> authorities = signalService.authorities();
 
 # 附录 A：待定接口与架构演进（非当前实施基准）
 
-> **状态：待组长总架构确认**  
+> **状态：待组长总架构确认**
 > 以下内容仅供参考，不作为当前开发验收依据。总架构定稿后，仅调整 §3.5 联动层与 §7.3 内部接口，§3.1～3.4 业务逻辑保持不变。
 
 ## A.1 待定：仿真主循环顺序
