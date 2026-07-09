@@ -31,6 +31,8 @@
 
 轨道占用由 `TrackService` 按当前车辆状态计算，车辆系统不直接修改轨道系统内部的区段状态。
 
+外部 `vehicle-runtime-service` 启用时也不直接访问轨道系统或线路数据库；中央将 `TrackConstraint` 作为 `step-fleet` 请求的一部分下发给车辆运行时。
+
 ## 轨道到车辆：轨道约束
 
 车辆侧消费 `TrackConstraint`：

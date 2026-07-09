@@ -30,11 +30,27 @@ GET /api/trains/{trainId}/faults
 
 ### 外部车辆控制会话接入/退出
 
-中央系统只接收外部车辆控制子系统的接入/退出语义，不负责启动车辆控制系统本体，也不替信号系统生成具体行车命令。
+推荐启动流程由外部车辆运行时发起：`vehicle-runtime-service:9300` 先启动车辆仿真实例并唤醒车辆控制队列，再调用中央注册接口建立状态镜像。中央不替信号系统生成具体行车命令。
 
 ```http
+POST /api/trains/runtime-registrations
 POST /api/trains/lifecycle
 ```
+
+`POST /api/trains/runtime-registrations` 是服务间入口，由 `vehicle-runtime-service` 调用：
+
+```json
+{
+  "trainId": "TR-003",
+  "linkId": 12,
+  "offsetMeters": 640.0,
+  "direction": "DOWN",
+  "reason": "vehicle runtime launch",
+  "traceId": "runtime-train-003"
+}
+```
+
+`POST /api/trains/lifecycle` 作为中央侧兼容/联调入口保留：
 
 请求：
 
@@ -66,7 +82,9 @@ POST /api/trains/lifecycle
 
 协议二进制模型在 `SignalTrainLifecycleCommandCodec` 中落地：包头 `0xff 0xf1`，小端，ADD 每车包含列车号、link ID、偏移、方向和保留字节，DELETE 每车只包含列车号。
 
-中央处理顺序：`TrainController` 转换请求 -> `TrainManager.applyLifecycleCommand()` -> `TrainManager.addTrain()` -> `OnboardTrainSubsystemManager.register()` -> 后续 tick 按信号和供电约束推进会话状态。
+推荐处理顺序：`vehicle-runtime-service /vehicle-runtime/trains/launch` -> 创建 `VehicleRuntimeInstance` -> 唤醒 `VehicleControlQueue` -> `TrainController.registerFromVehicleRuntime()` -> `TrainManager.registerRuntimeStartedTrain()` -> 后续 tick 按信号和供电约束推进会话状态。
+
+兼容处理顺序：`POST /api/trains/lifecycle` -> `TrainManager.applyLifecycleCommand()` -> `TrainManager.addTrain()` -> 中央反向注册外部运行时。该路径用于旧演示和生命周期语义联调，不作为推荐列车启动流程。
 
 ### 车辆-信号接口
 
@@ -123,7 +141,7 @@ GET /api/power/stray-current
 GET /api/power/external-health
 ```
 
-这些接口是其他模块访问中央供电控制模块的统一入口。外部供电仿真系统只由中央 `PowerIntegrationService` 调用，综合监控、车辆、调度、维修/能耗模块不得直接访问外部供电仿真服务。
+这些接口是其他模块访问中央供电控制模块的统一入口。外部供电仿真系统由中央 `PowerIntegrationService` 管控；在 `EXTERNAL_HTTP` 权威车辆运行时健康且 `forwardPowerLoads=true` 时，`vehicle-runtime-service` 可作为仿真层把分区负荷推送到供电仿真，但综合监控、车辆、调度、维修/能耗等中央业务模块不得直接访问外部供电仿真服务。
 
 `PowerSectionState` 在分区电压、电流、负荷、保护和检修状态之外，已扩展：
 
@@ -215,11 +233,14 @@ POST /api/dispatch/commands
 
 ## 外部车辆运行时服务接口
 
-`vehicle-runtime-service` 是新的外部车辆侧运行时，默认端口 `9300`。中央系统仍是唯一对前端和其他中央模块开放的入口；中央通过 `railway.simulation.vehicle-runtime.mode=EXTERNAL_HTTP` 或 `DUAL_SHADOW` 接入外部服务。
+`vehicle-runtime-service` 是新的外部车辆侧运行时，默认端口 `9300`。中央系统仍是唯一对前端和其他中央模块开放的入口；列车启动推荐由 `vehicle-runtime-service` 主动发起，中央通过 `railway.simulation.vehicle-runtime.mode=EXTERNAL_HTTP` 或 `DUAL_SHADOW` 在后续 tick 中接入外部服务。
+
+车辆接口迁移边界见 `docs/车辆运行时接口迁移评估.md`：中央 REST / WebSocket 保留为业务入口，`vehicle-runtime-service` 只承接仿真 tick 内的车辆控制和动力学执行。
 
 ```http
 GET  /vehicle-runtime/health
 POST /vehicle-runtime/bootstrap
+POST /vehicle-runtime/trains/launch
 PUT  /vehicle-runtime/trains/{trainId}
 DELETE /vehicle-runtime/trains/{trainId}
 DELETE /vehicle-runtime/trains
@@ -228,7 +249,30 @@ POST /vehicle-runtime/step-fleet
 GET  /vehicle-runtime/events
 ```
 
+`POST /vehicle-runtime/trains/launch` 启动顺序固定为：创建车辆仿真实例、唤醒该车 `VehicleControlQueue`、调用中央 `/api/trains/runtime-registrations` 建立中央状态镜像。请求示例：
+
+```json
+{
+  "trainId": "TR-003",
+  "linkId": 12,
+  "offsetMeters": 640.0,
+  "direction": "DOWN",
+  "registerWithCentral": true,
+  "reason": "demo launch",
+  "traceId": "runtime-train-003"
+}
+```
+
 `POST /vehicle-runtime/step-fleet` 请求包含 `tick`、`deltaSeconds`、`requestedAt`、`trains[]`、`movementAuthorities[]`、`trackConstraints[]`、`powerConstraints[]`。外部服务按每车实例的控制队列和仿真队列同步返回 `trainOutputs[]`、`trainReports[]`、`instanceStates[]`。
+
+`POST /vehicle-runtime/bootstrap` 还会携带供电仿真联动配置：
+
+| 字段 | 含义 |
+|---|---|
+| `powerNetworkBaseUrl` | 中央配置的外部供电仿真地址，默认 `http://localhost:9200`。 |
+| `forwardPowerLoads` | 是否由外部车辆运行时把列车牵引/再生负荷推送到 `/power-network/state/query`。 |
+
+当 `vehicle-runtime-service` 处于 `EXTERNAL_HTTP` 权威模式、健康且 `forwardPowerLoads=true` 时，供电负荷写入链路为 `vehicle-runtime-service:9300 -> power-network-service:9200`；中央 `PowerIntegrationService` 只调用 `/power-network/state` 拉取供电状态。`LOCAL`、`DUAL_SHADOW`、外部车辆运行时不可用或降级时，中央恢复原路径：`PowerIntegrationService.refreshSnapshot(sectionLoads) -> POST /power-network/state/query`。
 
 中央新增监控入口：
 
@@ -238,7 +282,7 @@ GET /api/vehicle/runtime-health
 
 该接口返回外部车辆运行时健康状态和实例队列状态。`/api/simulation/snapshot` 与 WebSocket 快照同步携带 `vehicleRuntime` 字段。
 
-实现状态：首期已完成 HTTP 同步批量步进、实例队列、中央 fallback 和单元/集成测试；尚未进行长时间运行、真实多车压力、真实 FMU/RT-LAB 逻辑验收。
+实现状态：首期已完成 HTTP 同步批量步进、实例队列、中央 fallback、供电负荷转发单元测试和中央供电写入权切换测试；尚未进行 `9300 + 9200 + backend` 长时间联动、真实多车压力、真实 FMU/RT-LAB 逻辑验收。
 
 ## 内部 FMU 服务接口
 

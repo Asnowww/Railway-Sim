@@ -34,3 +34,9 @@ uploads/
 # doc
 上京地铁系统立项说明书.pdf
 轨交多系统平台接口协议汇总20260630.docx
+
+# Local frontend demo artifacts
+frontend/src/components/power-train/VehicleSelfControlDemo.vue
+frontend/src/api/rest.ts
+frontend/src/api/ws.ts
+frontend/src/types/simulation.ts

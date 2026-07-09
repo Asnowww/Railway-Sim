@@ -5,6 +5,8 @@ import com.railwaysim.vehicleruntime.model.VehicleRuntimeBootstrapRequest;
 import com.railwaysim.vehicleruntime.model.VehicleRuntimeEvent;
 import com.railwaysim.vehicleruntime.model.VehicleRuntimeHealth;
 import com.railwaysim.vehicleruntime.model.VehicleRuntimeInstanceState;
+import com.railwaysim.vehicleruntime.model.VehicleRuntimeLaunchRequest;
+import com.railwaysim.vehicleruntime.model.VehicleRuntimeLaunchResponse;
 import com.railwaysim.vehicleruntime.model.VehicleRuntimeStepRequest;
 import com.railwaysim.vehicleruntime.model.VehicleRuntimeStepResponse;
 import com.railwaysim.vehicleruntime.runtime.VehicleRuntimeManager;
@@ -18,6 +20,9 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+/**
+ * 外部车辆运行时 HTTP 边界，前端不直接访问，中央只通过受控接口同步状态。
+ */
 @RestController
 @RequestMapping("/vehicle-runtime")
 public class VehicleRuntimeController {
@@ -39,10 +44,16 @@ public class VehicleRuntimeController {
     }
 
     @PutMapping("/trains/{trainId}")
-    public VehicleRuntimeInstanceState register(@PathVariable String trainId, @RequestBody TrainStateSnapshot train) {
-        // 请求体为空时用路径生成最小实例，保证中央上线命令不会因为缺体失败。
+    public VehicleRuntimeInstanceState register(@PathVariable String trainId, @RequestBody(required = false) TrainStateSnapshot train) {
+        // 兼容旧中央反向注册；请求体为空时用路径生成最小实例，避免旧联调调用失败。
         TrainStateSnapshot effective = train == null ? minimalTrain(trainId) : train;
         return manager.register(effective.id() == null || effective.id().isBlank() ? minimalTrain(trainId) : effective);
+    }
+
+    @PostMapping("/trains/launch")
+    public VehicleRuntimeLaunchResponse launch(@RequestBody VehicleRuntimeLaunchRequest request) {
+        // 新启动流程由车辆仿真服务主动拉起实例，再向中央系统注册镜像。
+        return manager.launch(request);
     }
 
     @DeleteMapping("/trains/{trainId}")

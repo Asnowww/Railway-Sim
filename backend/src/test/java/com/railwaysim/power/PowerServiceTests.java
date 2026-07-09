@@ -130,6 +130,7 @@ class PowerServiceTests {
         PowerIntegrationService integrationService = new PowerIntegrationService(
             new ExternalPowerNetworkProperties(),
             topologyService,
+            () -> false,
             RestClient.builder()
         );
         PowerConstraintService constraintService = new PowerConstraintService(catalog);

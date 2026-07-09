@@ -2,6 +2,7 @@ package com.railwaysim.vehicle.runtime;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.railwaysim.config.ExternalPowerNetworkProperties;
 import com.railwaysim.config.SimulationProperties;
 import com.railwaysim.config.VehicleRuntimeProperties;
 import com.railwaysim.infrastructure.OperationalLineData;
@@ -9,6 +10,7 @@ import com.railwaysim.infrastructure.OperationalPowerData;
 import com.railwaysim.infrastructure.OperationalPowerData.PowerSectionDefinition;
 import com.railwaysim.infrastructure.StaticInfrastructureCatalog;
 import com.railwaysim.power.PowerConstraint;
+import com.railwaysim.power.external.ExternalPowerNetworkMode;
 import com.railwaysim.signal.MovementAuthority;
 import com.railwaysim.simulation.TickContext;
 import com.railwaysim.track.TrackConstraint;
@@ -30,24 +32,31 @@ class VehicleRuntimeIntegrationServiceTests {
 
     @Test
     void externalHttpModeUsesRemoteRuntimeOutputAndSendsConstraints() throws IOException {
+        AtomicReference<String> bootstrapBody = new AtomicReference<>("");
         AtomicReference<String> requestBody = new AtomicReference<>("");
         HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
-        server.createContext("/vehicle-runtime/bootstrap", exchange -> writeJson(exchange, 200, healthJson("GOOD")));
+        server.createContext("/vehicle-runtime/bootstrap", exchange -> {
+            bootstrapBody.set(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
+            writeJson(exchange, 200, healthJson("GOOD"));
+        });
         server.createContext("/vehicle-runtime/step-fleet", exchange -> {
             requestBody.set(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
             writeJson(exchange, 200, stepResponseJson("OK", "GOOD", 321.0));
         });
         server.start();
         try {
-            VehicleRuntimeIntegrationService service = service(server, VehicleRuntimeMode.EXTERNAL_HTTP);
+            VehicleRuntimeIntegrationService service = service(server, VehicleRuntimeMode.EXTERNAL_HTTP, ExternalPowerNetworkMode.EXTERNAL_HTTP);
 
             VehicleRuntimeStepResult result = service.stepFleet(tick(1), List.of(train()), authority(), track(), power());
 
+            assertThat(bootstrapBody.get()).contains("\"powerNetworkBaseUrl\":\"http://localhost:9200\"");
+            assertThat(bootstrapBody.get()).contains("\"forwardPowerLoads\":true");
             assertThat(requestBody.get()).contains("\"powerConstraints\"");
             assertThat(requestBody.get()).contains("\"movementAuthorities\"");
             assertThat(result.outputs()).singleElement()
                 .satisfies(output -> assertThat(output.newPositionMeters()).isEqualTo(321.0));
             assertThat(result.health().dataQuality()).isEqualTo("GOOD");
+            assertThat(service.ownsPowerLoadForwarding()).isTrue();
         } finally {
             server.stop(0);
         }
@@ -69,21 +78,52 @@ class VehicleRuntimeIntegrationServiceTests {
             assertThat(result.trainSteps()).singleElement()
                 .satisfies(step -> assertThat(step.report().dataQuality()).isEqualTo("FALLBACK"));
             assertThat(result.health().dataQuality()).isEqualTo("FALLBACK");
+            assertThat(service.ownsPowerLoadForwarding()).isFalse();
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    void dualShadowModeDoesNotDelegatePowerLoadForwarding() throws IOException {
+        AtomicReference<String> bootstrapBody = new AtomicReference<>("");
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/vehicle-runtime/bootstrap", exchange -> {
+            bootstrapBody.set(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
+            writeJson(exchange, 200, healthJson("GOOD"));
+        });
+        server.createContext("/vehicle-runtime/step-fleet", exchange -> writeJson(exchange, 200, stepResponseJson("OK", "GOOD", 321.0)));
+        server.start();
+        try {
+            VehicleRuntimeIntegrationService service = service(server, VehicleRuntimeMode.DUAL_SHADOW, ExternalPowerNetworkMode.EXTERNAL_HTTP);
+
+            VehicleRuntimeStepResult result = service.stepFleet(tick(1), List.of(train()), authority(), track(), power());
+
+            assertThat(bootstrapBody.get()).contains("\"forwardPowerLoads\":false");
+            assertThat(result.health().mode()).isEqualTo(VehicleRuntimeMode.LOCAL);
+            assertThat(service.ownsPowerLoadForwarding()).isFalse();
         } finally {
             server.stop(0);
         }
     }
 
     private VehicleRuntimeIntegrationService service(HttpServer server, VehicleRuntimeMode mode) {
+        return service(server, mode, ExternalPowerNetworkMode.LOCAL);
+    }
+
+    private VehicleRuntimeIntegrationService service(HttpServer server, VehicleRuntimeMode mode, ExternalPowerNetworkMode powerMode) {
         SimulationProperties simulationProperties = new SimulationProperties();
         VehicleRuntimeProperties properties = new VehicleRuntimeProperties();
         properties.setMode(mode);
         properties.setBaseUrl("http://127.0.0.1:" + server.getAddress().getPort());
         properties.setTimeoutMillis(300);
+        ExternalPowerNetworkProperties externalPowerNetworkProperties = new ExternalPowerNetworkProperties();
+        externalPowerNetworkProperties.setMode(powerMode);
         StaticInfrastructureCatalog catalog = new StaticInfrastructureCatalog(lineData(), powerData());
         OnboardTrainSubsystemManager onboard = new OnboardTrainSubsystemManager(simulationProperties, catalog);
         return new VehicleRuntimeIntegrationService(
             properties,
+            externalPowerNetworkProperties,
             simulationProperties,
             catalog,
             new HttpVehicleRuntimeClient(properties, RestClient.builder()),

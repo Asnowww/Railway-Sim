@@ -33,7 +33,11 @@ POST /power-network/state/query
 POST /power-network/operations
 ```
 
-`POST /power-network/state/query` accepts load snapshots:
+`POST /power-network/state/query` accepts load snapshots. In authoritative
+`EXTERNAL_HTTP` vehicle-runtime mode, these snapshots are pushed by
+`vehicle-runtime-service:9300`; in `LOCAL`, `DUAL_SHADOW`, or fallback mode they
+are pushed by the central backend
+`PowerIntegrationService`.
 
 ```json
 {
@@ -54,3 +58,7 @@ Run the local self-test:
 cd power-network-service
 python3 -m app.self_test
 ```
+
+Logic not fully tested: long-running three-service linkage
+(`backend + vehicle-runtime-service + power-network-service`), real PSCADA
+point-table mapping, and physical power-flow validation are still pending.

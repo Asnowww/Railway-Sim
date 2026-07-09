@@ -69,7 +69,36 @@ class PowerIntegrationServiceTests {
         }
     }
 
+    @Test
+    void externalHttpRefreshPullsStateWhenVehicleRuntimeOwnsPowerLoads() throws Exception {
+        AtomicReference<String> queryBody = new AtomicReference<>("");
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/power-network/bootstrap", exchange -> send(exchange, 200, "{\"accepted\":true}"));
+        server.createContext("/power-network/state", exchange -> send(exchange, 200, externalSnapshot()));
+        server.createContext("/power-network/state/query", exchange -> {
+            queryBody.set("called");
+            send(exchange, 200, externalSnapshot());
+        });
+        server.start();
+        try {
+            PowerIntegrationService integrationService = integrationService(server, true);
+
+            PowerNetworkStateSnapshot snapshot = integrationService.refreshSnapshot(List.of(
+                new PowerSectionLoadSnapshot("P01", List.of("TR-001"), 900_000, 0, 1_200)
+            ));
+
+            assertThat(queryBody.get()).isEmpty();
+            assertThat(snapshot.dataQuality()).isEqualTo("GOOD");
+        } finally {
+            server.stop(0);
+        }
+    }
+
     private PowerIntegrationService integrationService(HttpServer server) {
+        return integrationService(server, false);
+    }
+
+    private PowerIntegrationService integrationService(HttpServer server, boolean vehicleRuntimeOwnsLoads) {
         ExternalPowerNetworkProperties properties = new ExternalPowerNetworkProperties();
         properties.setMode(ExternalPowerNetworkMode.EXTERNAL_HTTP);
         properties.setBaseUrl("http://127.0.0.1:" + server.getAddress().getPort());
@@ -78,6 +107,7 @@ class PowerIntegrationServiceTests {
         return new PowerIntegrationService(
             properties,
             new PowerTopologyService(catalog),
+            () -> vehicleRuntimeOwnsLoads,
             RestClient.builder()
         );
     }

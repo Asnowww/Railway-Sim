@@ -38,6 +38,16 @@ final class VehicleRuntimeInstance {
         this.simulationQueue = new VehicleSimulationQueue(properties);
     }
 
+    void launch() {
+        // 车辆仿真实例启动时同步唤醒本车控制队列，后续 tick 才能直接执行控制决策。
+        lifecycleState = "CONTROL_AWAKE";
+        controlQueueStatus = "READY";
+        simulationQueueStatus = "READY";
+        dataQuality = "GOOD";
+        reason = "CONTROL_INSTANCE_AWAKE";
+        updatedAt = Instant.now();
+    }
+
     StepResult step(
         long tick,
         double deltaSeconds,

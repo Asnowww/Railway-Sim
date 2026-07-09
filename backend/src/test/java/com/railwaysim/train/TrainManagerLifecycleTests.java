@@ -2,7 +2,9 @@ package com.railwaysim.train;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.railwaysim.config.ExternalPowerNetworkProperties;
 import com.railwaysim.config.SimulationProperties;
+import com.railwaysim.config.VehicleRuntimeProperties;
 import com.railwaysim.infrastructure.OperationalLineData;
 import com.railwaysim.infrastructure.OperationalLineData.TrackSegmentDefinition;
 import com.railwaysim.infrastructure.OperationalPowerData;
@@ -19,7 +21,6 @@ import com.railwaysim.vehicle.external.ExternalTrainDirection;
 import com.railwaysim.vehicle.onboard.OnboardTrainSubsystemManager;
 import com.railwaysim.vehicle.runtime.HttpVehicleRuntimeClient;
 import com.railwaysim.vehicle.runtime.VehicleRuntimeIntegrationService;
-import com.railwaysim.config.VehicleRuntimeProperties;
 import java.time.Instant;
 import java.util.List;
 import org.springframework.web.client.RestClient;
@@ -43,6 +44,21 @@ class TrainManagerLifecycleTests {
         assertThat(added.linkId()).isEqualTo(12);
         assertThat(added.direction()).isEqualTo("DOWN");
     }
+
+    @Test
+    void runtimeStartedTrainRegistersCentralMirrorWithoutLifecycleCommand() {
+        TrainManager manager = manager();
+        manager.reset();
+
+        TrainState added = manager.registerRuntimeStartedTrain("TR-105", 8, 450, ExternalTrainDirection.DOWN);
+
+        assertThat(added.id()).isEqualTo("TR-105");
+        assertThat(added.positionMeters()).isEqualTo(450);
+        assertThat(added.controlSessionState()).isEqualTo("CONNECTING");
+        assertThat(added.linkId()).isEqualTo(8);
+        assertThat(added.direction()).isEqualTo("DOWN");
+    }
+
 
     @Test
     void deleteCommandDetachesBeforeEntityRemoval() {
@@ -77,6 +93,7 @@ class TrainManagerLifecycleTests {
             onboard,
             new VehicleRuntimeIntegrationService(
                 new VehicleRuntimeProperties(),
+                new ExternalPowerNetworkProperties(),
                 properties,
                 catalog,
                 new HttpVehicleRuntimeClient(new VehicleRuntimeProperties(), RestClient.builder()),

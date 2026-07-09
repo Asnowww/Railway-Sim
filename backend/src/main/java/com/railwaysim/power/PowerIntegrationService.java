@@ -11,6 +11,7 @@ import com.railwaysim.power.external.PowerNetworkOperationResult;
 import com.railwaysim.power.external.PowerNetworkSectionLoadRequest;
 import com.railwaysim.power.external.PowerNetworkStateSnapshot;
 import com.railwaysim.power.external.PowerNetworkStateQueryRequest;
+import com.railwaysim.vehicle.runtime.VehiclePowerLoadForwardingOwner;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
@@ -23,6 +24,7 @@ public class PowerIntegrationService {
 
     private final ExternalPowerNetworkProperties properties;
     private final PowerTopologyService powerTopologyService;
+    private final VehiclePowerLoadForwardingOwner vehiclePowerLoadForwardingOwner;
     private final ExternalPowerNetworkClient externalClient;
     private volatile PowerNetworkStateSnapshot latestSnapshot;
     private volatile ExternalPowerNetworkHealth health;
@@ -31,10 +33,12 @@ public class PowerIntegrationService {
     public PowerIntegrationService(
         ExternalPowerNetworkProperties properties,
         PowerTopologyService powerTopologyService,
+        VehiclePowerLoadForwardingOwner vehiclePowerLoadForwardingOwner,
         RestClient.Builder restClientBuilder
     ) {
         this.properties = properties;
         this.powerTopologyService = powerTopologyService;
+        this.vehiclePowerLoadForwardingOwner = vehiclePowerLoadForwardingOwner;
         this.externalClient = new HttpExternalPowerNetworkClient(properties, restClientBuilder);
         this.latestSnapshot = powerTopologyService.defaultSnapshot();
         this.health = ExternalPowerNetworkHealth.local();
@@ -45,6 +49,9 @@ public class PowerIntegrationService {
         return refreshSnapshot(List.of());
     }
 
+    /**
+     * 按当前写入权同步供电快照：车辆运行时负责推负荷时只读状态，否则由中央提交负荷。
+     */
     public synchronized PowerNetworkStateSnapshot refreshSnapshot(List<PowerSectionLoadSnapshot> loads) {
         if (properties.getMode() == ExternalPowerNetworkMode.LOCAL) {
             latestSnapshot = powerTopologyService.defaultSnapshot();
@@ -57,7 +64,10 @@ public class PowerIntegrationService {
                 bootstrapped = true;
             }
             Instant startedAt = Instant.now();
-            latestSnapshot = externalClient.queryState(new PowerNetworkStateQueryRequest(toExternalLoads(loads)));
+            // 外部车辆运行时已把牵引/再生负荷推到供电仿真时，中央只拉取供电状态，避免重复注入负荷。
+            latestSnapshot = vehiclePowerLoadForwardingOwner.ownsPowerLoadForwarding()
+                ? externalClient.currentState()
+                : externalClient.queryState(new PowerNetworkStateQueryRequest(toExternalLoads(loads)));
             health = new ExternalPowerNetworkHealth(
                 properties.getMode(),
                 latestSnapshot.heartbeatStatus(),

@@ -13,6 +13,11 @@ public class VehicleRuntimeProperties {
     private double defaultSpeedLimitMetersPerSecond = 22.2;
     private double safetyGapMeters = 120;
     private long instanceLeaseMillis = 1000;
+    private boolean forwardPowerLoads;
+    private String powerNetworkBaseUrl = "http://localhost:9200";
+    private long powerNetworkTimeoutMillis = 300;
+    private String centralBaseUrl = "http://localhost:8080";
+    private long centralTimeoutMillis = 300;
 
     public int getQueueCapacity() {
         return queueCapacity;
@@ -54,5 +59,49 @@ public class VehicleRuntimeProperties {
 
     public void setInstanceLeaseMillis(long instanceLeaseMillis) {
         this.instanceLeaseMillis = Math.max(1, instanceLeaseMillis);
+    }
+
+    public boolean isForwardPowerLoads() {
+        return forwardPowerLoads;
+    }
+
+    public void setForwardPowerLoads(boolean forwardPowerLoads) {
+        this.forwardPowerLoads = forwardPowerLoads;
+    }
+
+    public String getPowerNetworkBaseUrl() {
+        return powerNetworkBaseUrl;
+    }
+
+    public void setPowerNetworkBaseUrl(String powerNetworkBaseUrl) {
+        this.powerNetworkBaseUrl = powerNetworkBaseUrl == null || powerNetworkBaseUrl.isBlank()
+            ? "http://localhost:9200"
+            : powerNetworkBaseUrl;
+    }
+
+    public long getPowerNetworkTimeoutMillis() {
+        return powerNetworkTimeoutMillis;
+    }
+
+    public void setPowerNetworkTimeoutMillis(long powerNetworkTimeoutMillis) {
+        this.powerNetworkTimeoutMillis = Math.max(1, powerNetworkTimeoutMillis);
+    }
+
+    public String getCentralBaseUrl() {
+        return centralBaseUrl;
+    }
+
+    public void setCentralBaseUrl(String centralBaseUrl) {
+        this.centralBaseUrl = centralBaseUrl == null || centralBaseUrl.isBlank()
+            ? "http://localhost:8080"
+            : centralBaseUrl;
+    }
+
+    public long getCentralTimeoutMillis() {
+        return centralTimeoutMillis;
+    }
+
+    public void setCentralTimeoutMillis(long centralTimeoutMillis) {
+        this.centralTimeoutMillis = Math.max(1, centralTimeoutMillis);
     }
 }

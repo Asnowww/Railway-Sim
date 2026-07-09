@@ -1,9 +1,11 @@
 package com.railwaysim.vehicle.runtime;
 
 import com.railwaysim.config.SimulationProperties;
+import com.railwaysim.config.ExternalPowerNetworkProperties;
 import com.railwaysim.config.VehicleRuntimeProperties;
 import com.railwaysim.infrastructure.StaticInfrastructureCatalog;
 import com.railwaysim.power.PowerConstraint;
+import com.railwaysim.power.external.ExternalPowerNetworkMode;
 import com.railwaysim.signal.MovementAuthority;
 import com.railwaysim.simulation.TickContext;
 import com.railwaysim.track.TrackConstraint;
@@ -27,9 +29,10 @@ import org.springframework.web.client.RestClientResponseException;
  * 中央车辆运行时编排器，统一封装本地链路、外部 HTTP 链路和 fallback。
  */
 @Service
-public class VehicleRuntimeIntegrationService {
+public class VehicleRuntimeIntegrationService implements VehiclePowerLoadForwardingOwner {
 
     private final VehicleRuntimeProperties properties;
+    private final ExternalPowerNetworkProperties externalPowerNetworkProperties;
     private final SimulationProperties simulationProperties;
     private final StaticInfrastructureCatalog infrastructureCatalog;
     private final VehicleRuntimeClient client;
@@ -41,6 +44,7 @@ public class VehicleRuntimeIntegrationService {
 
     public VehicleRuntimeIntegrationService(
         VehicleRuntimeProperties properties,
+        ExternalPowerNetworkProperties externalPowerNetworkProperties,
         SimulationProperties simulationProperties,
         StaticInfrastructureCatalog infrastructureCatalog,
         VehicleRuntimeClient client,
@@ -48,6 +52,7 @@ public class VehicleRuntimeIntegrationService {
         VehiclePhysicsClient vehiclePhysicsClient
     ) {
         this.properties = properties;
+        this.externalPowerNetworkProperties = externalPowerNetworkProperties;
         this.simulationProperties = simulationProperties;
         this.infrastructureCatalog = infrastructureCatalog;
         this.client = client;
@@ -120,6 +125,15 @@ public class VehicleRuntimeIntegrationService {
 
     public VehicleRuntimeHealth health() {
         return status().health();
+    }
+
+    @Override
+    public boolean ownsPowerLoadForwarding() {
+        // 只有外部车辆运行时真实在线时，中央才让出供电负荷写入权，避免启动初期误判。
+        return properties.getMode() == VehicleRuntimeMode.EXTERNAL_HTTP
+            && latestHealth.mode() == VehicleRuntimeMode.EXTERNAL_HTTP
+            && "UP".equals(latestHealth.heartbeatStatus())
+            && "GOOD".equals(latestHealth.dataQuality());
     }
 
     private VehicleRuntimeStepResult externalOrFallback(
@@ -245,10 +259,14 @@ public class VehicleRuntimeIntegrationService {
         double lineLength = infrastructureCatalog.lineData().lineLengthMeters() > 0
             ? infrastructureCatalog.lineData().lineLengthMeters()
             : simulationProperties.getDefaultLineLengthMeters();
+        // 中央把供电仿真地址同步给车辆运行时，由车辆侧在外部模式下推送牵引负荷。
         client.bootstrap(new VehicleRuntimeBootstrapRequest(
             lineLength,
             simulationProperties.getDefaultSpeedLimitMetersPerSecond(),
-            simulationProperties.getSafetyGapMeters()
+            simulationProperties.getSafetyGapMeters(),
+            externalPowerNetworkProperties.getBaseUrl(),
+            properties.getMode() == VehicleRuntimeMode.EXTERNAL_HTTP
+                && externalPowerNetworkProperties.getMode() != ExternalPowerNetworkMode.LOCAL
         ));
     }
 

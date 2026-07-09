@@ -13,6 +13,8 @@
 | `/api/trains/{trainId}/energy` | GET | 单车牵引能耗、再生能量和净能耗。 |
 | `/api/trains/{trainId}/faults` | GET | 单车故障注入/清除历史。 |
 | `/api/energy/trains` | GET | 全部列车能耗汇总。 |
+| `/api/vehicle/runtime-health` | GET | 外部车辆运行时健康状态、实例队列和 fallback 原因。 |
+| `/api/trains/runtime-registrations` | POST | 服务间注册入口；车辆仿真实例启动后由 9300 调用，综合监控不直接调用。 |
 
 ## 控制/演示接口
 
@@ -20,12 +22,12 @@
 |---|---|---|
 | `/api/trains/{trainId}/faults` | POST | 注入车辆仿真故障。 |
 | `/api/trains/{trainId}/faults/clear` | POST | 清除车辆仿真故障。 |
-| `/api/trains/lifecycle` | POST | 外部车辆控制会话 ADD/DELETE/CLEAR；用于演示列车接入和退出，不启动车辆控制系统本体。 |
+| `/api/trains/lifecycle` | POST | 外部车辆控制会话 ADD/DELETE/CLEAR 兼容入口；推荐上线流程已迁移到 9300 的 `launch`。 |
 | `/api/vehicle/onboard-subsystems` | GET | 查看中央侧已纳管车辆控制节点的模式、在线状态、数据质量和最近错误。 |
 
 写接口请求必须包含 `confirmToken=SIMULATION_CONFIRM`。
 
-综合监控侧应把 `/api/trains/lifecycle` 理解为联调/信号协议入口，而不是数据库维护入口。新增列车后，界面应以 `controlSessionState`、`signalNetworkStatus`、`powerNetworkStatus` 和 `/api/vehicle/onboard-subsystems` 判断是否真正上线；只有 `IN_SERVICE + ATTACHED + ATTACHED` 才表示已进入中央主循环。
+综合监控侧应把 `/api/trains/lifecycle` 理解为联调/信号协议入口，而不是数据库维护入口。推荐启动链路是 `vehicle-runtime-service /vehicle-runtime/trains/launch -> /api/trains/runtime-registrations`，前端仍只看中央 `/api/vehicle/runtime-health`、`controlSessionState`、`signalNetworkStatus`、`powerNetworkStatus` 和 `/api/vehicle/onboard-subsystems` 判断是否真正上线；只有 `IN_SERVICE + ATTACHED + ATTACHED` 才表示已进入中央主循环。
 
 ## WebSocket 快照字段
 
@@ -38,6 +40,8 @@
 - 可用性：`tractionAvailable`、`brakeAvailable`、`selfCheckStatus`
 - 能耗：`tractionPowerWatts`、`regenPowerWatts`、`energyConsumedKwh`、`energyRegeneratedKwh`
 - 故障：`faultCode`、`faultLevel`、`availableOperationMode`、`dataQuality`
+
+快照顶层 `vehicleRuntime` 字段用于展示 `LOCAL`、`EXTERNAL_HTTP`、`DUAL_SHADOW`、`FALLBACK`、实例数量和最近错误。综合监控只读该字段，不直接访问外部 `vehicle-runtime-service:9300`。
 
 ## 增修机制记录
 

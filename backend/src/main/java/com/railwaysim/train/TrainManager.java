@@ -150,6 +150,33 @@ public class TrainManager {
         return state;
     }
 
+    public synchronized TrainState registerRuntimeStartedTrain(
+        String trainId,
+        int linkId,
+        double offsetMeters,
+        ExternalTrainDirection direction
+    ) {
+        if (trainId == null || trainId.isBlank()) {
+            throw new IllegalArgumentException("trainId is required");
+        }
+        Optional<TrainEntity> existing = findTrainEntity(trainId);
+        if (existing.isPresent()) {
+            return existing.get().state(controlSessions.get(trainId));
+        }
+        String routeId = infrastructureCatalog.lineData().lineId();
+        TrainEntity train = new TrainEntity(trainId.trim(), routeId, offsetMeters, 120, 0.35);
+        trains.add(train);
+        // 该入口由 9300 主动发起，中央只建立镜像和 fallback 纳管视图，不能再反向注册 9300。
+        onboardTrainSubsystemManager.register(train.id());
+        controlSessions.put(train.id(), ExternalTrainControlSession.connecting(
+            train.id(),
+            linkId,
+            offsetMeters,
+            direction
+        ));
+        return train.state(controlSessions.get(train.id()));
+    }
+
     public synchronized Optional<TrainState> requestRemoveTrain(String trainId, String reason) {
         Optional<TrainEntity> train = findTrainEntity(trainId);
         if (train.isEmpty()) {

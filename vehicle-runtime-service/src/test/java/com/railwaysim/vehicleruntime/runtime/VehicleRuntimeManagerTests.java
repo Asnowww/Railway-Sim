@@ -7,11 +7,14 @@ import com.railwaysim.vehicleruntime.model.MovementAuthoritySnapshot;
 import com.railwaysim.vehicleruntime.model.PowerConstraintSnapshot;
 import com.railwaysim.vehicleruntime.model.TrackConstraintSnapshot;
 import com.railwaysim.vehicleruntime.model.TrainStateSnapshot;
+import com.railwaysim.vehicleruntime.model.VehicleRuntimeLaunchRequest;
 import com.railwaysim.vehicleruntime.model.VehicleRuntimeStepRequest;
 import com.railwaysim.vehicleruntime.model.VehicleRuntimeStepResponse;
 import java.time.Instant;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
+import org.springframework.web.client.RestClient;
 
 class VehicleRuntimeManagerTests {
 
@@ -22,9 +25,52 @@ class VehicleRuntimeManagerTests {
         var state = manager.register(train("TR-101", 100, 0));
 
         assertThat(state.trainId()).isEqualTo("TR-101");
-        assertThat(state.lifecycleState()).isEqualTo("READY");
+        assertThat(state.lifecycleState()).isEqualTo("CONTROL_AWAKE");
         assertThat(manager.instances()).singleElement()
             .satisfies(instance -> assertThat(instance.trainId()).isEqualTo("TR-101"));
+    }
+
+    @Test
+    void launchCreatesInstanceAndRegistersWithCentral() throws Exception {
+        AtomicReference<String> payload = new AtomicReference<>("");
+        com.sun.net.httpserver.HttpServer server = com.sun.net.httpserver.HttpServer.create(new java.net.InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/api/trains/runtime-registrations", exchange -> {
+            payload.set(new String(exchange.getRequestBody().readAllBytes(), java.nio.charset.StandardCharsets.UTF_8));
+            byte[] response = "{\"id\":\"TR-105\"}".getBytes(java.nio.charset.StandardCharsets.UTF_8);
+            exchange.getResponseHeaders().add("Content-Type", "application/json");
+            exchange.sendResponseHeaders(200, response.length);
+            exchange.getResponseBody().write(response);
+            exchange.close();
+        });
+        server.start();
+        try {
+            VehicleRuntimeProperties properties = new VehicleRuntimeProperties();
+            properties.setCentralBaseUrl("http://127.0.0.1:" + server.getAddress().getPort());
+            VehicleRuntimeManager manager = new VehicleRuntimeManager(
+                properties,
+                new PowerNetworkLoadClient(properties, RestClient.builder()),
+                new CentralTrainRegistrationClient(properties, RestClient.builder())
+            );
+
+            var response = manager.launch(new VehicleRuntimeLaunchRequest(
+                "TR-105",
+                null,
+                8,
+                450.0,
+                "DOWN",
+                true,
+                "demo launch",
+                "trace-launch"
+            ));
+
+            assertThat(response.centralRegistrationStatus()).isEqualTo("REGISTERED");
+            assertThat(response.instanceState().lifecycleState()).isEqualTo("CONTROL_AWAKE");
+            assertThat(payload.get()).contains("\"trainId\":\"TR-105\"");
+            assertThat(payload.get()).contains("\"linkId\":8");
+            assertThat(payload.get()).contains("\"offsetMeters\":450.0");
+        } finally {
+            server.stop(0);
+        }
     }
 
     @Test
@@ -75,10 +121,47 @@ class VehicleRuntimeManagerTests {
             });
     }
 
+    @Test
+    void stepFleetForwardsAggregatedLoadsToPowerNetworkWhenEnabled() throws Exception {
+        AtomicReference<String> payload = new AtomicReference<>("");
+        com.sun.net.httpserver.HttpServer server = com.sun.net.httpserver.HttpServer.create(new java.net.InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/power-network/state/query", exchange -> {
+            payload.set(new String(exchange.getRequestBody().readAllBytes(), java.nio.charset.StandardCharsets.UTF_8));
+            byte[] response = "{\"dataQuality\":\"GOOD\"}".getBytes(java.nio.charset.StandardCharsets.UTF_8);
+            exchange.getResponseHeaders().add("Content-Type", "application/json");
+            exchange.sendResponseHeaders(200, response.length);
+            exchange.getResponseBody().write(response);
+            exchange.close();
+        });
+        server.start();
+        try {
+            VehicleRuntimeProperties properties = new VehicleRuntimeProperties();
+            properties.setForwardPowerLoads(true);
+            properties.setPowerNetworkBaseUrl("http://127.0.0.1:" + server.getAddress().getPort());
+            VehicleRuntimeManager manager = new VehicleRuntimeManager(
+                properties,
+                new PowerNetworkLoadClient(properties, RestClient.builder()),
+                new CentralTrainRegistrationClient(properties, RestClient.builder())
+            );
+
+            manager.stepFleet(request(1, train("TR-101", 100, 0), energized()));
+
+            assertThat(payload.get()).contains("\"sectionLoads\"");
+            assertThat(payload.get()).contains("\"powerSectionId\":\"P01\"");
+            assertThat(payload.get()).contains("\"trainIds\":[\"TR-101\"]");
+        } finally {
+            server.stop(0);
+        }
+    }
+
     private VehicleRuntimeManager manager() {
         VehicleRuntimeProperties properties = new VehicleRuntimeProperties();
         properties.setQueueCapacity(1);
-        return new VehicleRuntimeManager(properties);
+        return new VehicleRuntimeManager(
+            properties,
+            new PowerNetworkLoadClient(properties, RestClient.builder()),
+            new CentralTrainRegistrationClient(properties, RestClient.builder())
+        );
     }
 
     private VehicleRuntimeStepRequest request(long tick, TrainStateSnapshot train, PowerConstraintSnapshot power) {
