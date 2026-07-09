@@ -40,6 +40,7 @@ public record TrainState(
     String dynamicsState,
     String dynamicsConstraintReason,
     double speedLimitMetersPerSecond,
+    double vehicleFaultSpeedLimitMetersPerSecond,
     double movementAuthorityDistanceMeters,
     double stationDistanceMeters,
     double stoppingDistanceMeters,
@@ -52,7 +53,10 @@ public record TrainState(
     double regenPowerWatts,
     double energyConsumedKwh,
     double energyRegeneratedKwh,
-    String faultCode
+    String faultCode,
+    String currentStationId,
+    int dwellElapsedSeconds,
+    String lastDepartureAt
 ) {
     public TrainState(
         String id,
@@ -133,6 +137,7 @@ public record TrainState(
             dynamicsState,
             dynamicsConstraintReason,
             speedLimitMetersPerSecond,
+            0,
             movementAuthorityDistanceMeters,
             stationDistanceMeters,
             stoppingDistanceMeters,
@@ -145,7 +150,10 @@ public record TrainState(
             regenPowerWatts,
             energyConsumedKwh,
             energyRegeneratedKwh,
-            faultCode
+            faultCode,
+            null,
+            0,
+            null
         );
     }
 
@@ -231,6 +239,7 @@ public record TrainState(
             dynamicsState,
             dynamicsConstraintReason,
             speedLimitMetersPerSecond,
+            0,
             movementAuthorityDistanceMeters,
             stationDistanceMeters,
             stoppingDistanceMeters,
@@ -243,7 +252,10 @@ public record TrainState(
             regenPowerWatts,
             energyConsumedKwh,
             energyRegeneratedKwh,
-            faultCode
+            faultCode,
+            null,
+            0,
+            null
         );
     }
 }

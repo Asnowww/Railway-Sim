@@ -1,5 +1,6 @@
 package com.railwaysim.simulation;
 
+import com.railwaysim.dispatch.DispatchSnapshot;
 import com.railwaysim.monitor.Alarm;
 import com.railwaysim.power.PowerSectionState;
 import com.railwaysim.signal.MovementAuthority;
@@ -22,7 +23,8 @@ public record SimulationSnapshot(
     List<SwitchState> switchStates,
     List<RouteState> routeStates,
     List<PowerSectionState> powerSections,
-    List<Alarm> alarms
+    List<Alarm> alarms,
+    DispatchSnapshot dispatch
 ) {
 }
 
