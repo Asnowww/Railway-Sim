@@ -73,6 +73,7 @@ export interface MovementAuthority {
   authorityEndMeters: number
   speedLimitMetersPerSecond: number
   reason: string
+  currentSegmentId: string
 }
 
 export type SignalAspect = 'RED' | 'YELLOW' | 'GREEN'

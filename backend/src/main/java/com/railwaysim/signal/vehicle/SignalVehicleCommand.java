@@ -10,12 +10,49 @@ public record SignalVehicleCommand(
     boolean tractionCutoff,
     boolean serviceBrakeCommand,
     boolean emergencyBrakeCommand,
-    String reason
+    String reason,
+    SignalCabDisplayState cabDisplay
 ) {
+    public SignalVehicleCommand(
+        String trainId,
+        double authorityEndMeters,
+        double speedLimitMetersPerSecond,
+        boolean tractionCutoff,
+        boolean serviceBrakeCommand,
+        boolean emergencyBrakeCommand,
+        String reason
+    ) {
+        this(
+            trainId,
+            authorityEndMeters,
+            speedLimitMetersPerSecond,
+            tractionCutoff,
+            serviceBrakeCommand,
+            emergencyBrakeCommand,
+            reason,
+            SignalCabDisplayState.fromAuthorityOnly(
+                trainId,
+                speedLimitMetersPerSecond,
+                tractionCutoff,
+                serviceBrakeCommand,
+                emergencyBrakeCommand
+            )
+        );
+    }
+
     public SignalVehicleCommand {
         authorityEndMeters = Math.max(0, authorityEndMeters);
         speedLimitMetersPerSecond = Math.max(0, speedLimitMetersPerSecond);
         reason = reason == null || reason.isBlank() ? "SIGNAL_AUTHORITY" : reason;
+        cabDisplay = cabDisplay == null
+            ? SignalCabDisplayState.fromAuthorityOnly(
+                trainId,
+                speedLimitMetersPerSecond,
+                tractionCutoff,
+                serviceBrakeCommand,
+                emergencyBrakeCommand
+            )
+            : cabDisplay;
     }
 
     public static SignalVehicleCommand fromAuthority(MovementAuthority authority) {
@@ -26,7 +63,14 @@ public record SignalVehicleCommand(
             authority.speedLimitMetersPerSecond() <= 0,
             false,
             false,
-            authority.reason()
+            authority.reason(),
+            SignalCabDisplayState.fromAuthorityOnly(
+                authority.trainId(),
+                authority.speedLimitMetersPerSecond(),
+                authority.speedLimitMetersPerSecond() <= 0,
+                false,
+                false
+            )
         );
     }
 
@@ -36,20 +80,20 @@ public record SignalVehicleCommand(
         }
         if (!"IN_SERVICE".equals(train.controlSessionState())) {
             return stopCommand(
-                train.id(),
+                train,
                 train.positionMeters(),
                 false,
                 "CONTROL_SESSION_" + train.controlSessionState()
             );
         }
         if (authority == null) {
-            return stopCommand(train.id(), train.positionMeters(), true, "NO_MOVEMENT_AUTHORITY");
+            return stopCommand(train, train.positionMeters(), true, "NO_MOVEMENT_AUTHORITY");
         }
         if (authority.authorityEndMeters() <= train.positionMeters()) {
-            return stopCommand(train.id(), train.positionMeters(), true, "MOVEMENT_AUTHORITY_EXHAUSTED");
+            return stopCommand(train, train.positionMeters(), true, "MOVEMENT_AUTHORITY_EXHAUSTED");
         }
         if (authority.speedLimitMetersPerSecond() <= 0) {
-            return stopCommand(train.id(), authority.authorityEndMeters(), false, authority.reason());
+            return stopCommand(train, authority.authorityEndMeters(), false, authority.reason());
         }
         double effectiveSpeedLimit = authority.speedLimitMetersPerSecond();
         String reason = authority.reason();
@@ -67,24 +111,33 @@ public record SignalVehicleCommand(
             effectiveSpeedLimit <= 0,
             false,
             false,
-            reason
+            reason,
+            SignalCabDisplayState.fromTrain(
+                train,
+                effectiveSpeedLimit,
+                effectiveSpeedLimit <= 0,
+                false,
+                false,
+                reason
+            )
         );
     }
 
     private static SignalVehicleCommand stopCommand(
-        String trainId,
+        TrainState train,
         double authorityEndMeters,
         boolean emergencyBrakeCommand,
         String reason
     ) {
         return new SignalVehicleCommand(
-            trainId,
+            train.id(),
             authorityEndMeters,
             0,
             true,
             true,
             emergencyBrakeCommand,
-            reason
+            reason,
+            SignalCabDisplayState.fromTrain(train, 0, true, true, emergencyBrakeCommand, reason)
         );
     }
 }

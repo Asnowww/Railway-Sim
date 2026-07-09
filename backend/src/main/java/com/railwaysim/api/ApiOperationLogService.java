@@ -3,10 +3,16 @@ package com.railwaysim.api;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.railwaysim.api.dto.OperationLogEntry;
+import jakarta.annotation.PreDestroy;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.List;
+import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataAccessException;
@@ -17,15 +23,31 @@ import org.springframework.stereotype.Service;
 public class ApiOperationLogService {
 
     private static final Logger log = LoggerFactory.getLogger(ApiOperationLogService.class);
+    private static final int PERSIST_QUEUE_CAPACITY = 256;
 
     private final JdbcTemplate jdbcTemplate;
     private final ObjectMapper objectMapper;
     private final List<OperationLogEntry> entries = new CopyOnWriteArrayList<>();
-    private boolean persistenceWarningLogged;
+    private final ThreadPoolExecutor persistenceExecutor;
+    private final AtomicBoolean persistenceWarningLogged = new AtomicBoolean();
+    private final AtomicBoolean queueWarningLogged = new AtomicBoolean();
 
     public ApiOperationLogService(JdbcTemplate jdbcTemplate, ObjectMapper objectMapper) {
         this.jdbcTemplate = jdbcTemplate;
         this.objectMapper = objectMapper;
+        this.persistenceExecutor = new ThreadPoolExecutor(
+            1,
+            1,
+            0L,
+            TimeUnit.MILLISECONDS,
+            new ArrayBlockingQueue<>(PERSIST_QUEUE_CAPACITY),
+            runnable -> {
+                Thread thread = new Thread(runnable, "api-operation-log-persist");
+                thread.setDaemon(true);
+                return thread;
+            },
+            new ThreadPoolExecutor.AbortPolicy()
+        );
     }
 
     public OperationLogEntry record(
@@ -48,7 +70,7 @@ public class ApiOperationLogService {
             Instant.now()
         );
         entries.add(entry);
-        persistOperation(entry);
+        enqueuePersistence(() -> persistOperation(entry));
         return entry;
     }
 
@@ -63,6 +85,33 @@ public class ApiOperationLogService {
     }
 
     public void recordPowerOperation(OperationLogEntry entry, String sectionId) {
+        enqueuePersistence(() -> persistPowerOperation(entry, sectionId));
+    }
+
+    public void recordTrainFault(OperationLogEntry entry, String trainId, String faultCode, int faultLevel, String state) {
+        if (!"INJECTED".equals(state)) {
+            return;
+        }
+        enqueuePersistence(() -> persistTrainFault(entry, trainId, faultCode, faultLevel));
+    }
+
+    @PreDestroy
+    public void shutdown() {
+        persistenceExecutor.shutdownNow();
+    }
+
+    private void enqueuePersistence(Runnable task) {
+        try {
+            // 审计落库是旁路能力，不能阻塞车辆/供电控制接口；数据库慢或不可用时只丢弃持久化任务。
+            persistenceExecutor.execute(task);
+        } catch (RejectedExecutionException ex) {
+            if (queueWarningLogged.compareAndSet(false, true)) {
+                log.warn("API operation log persistence queue full; subsequent database audit writes may be skipped");
+            }
+        }
+    }
+
+    private void persistPowerOperation(OperationLogEntry entry, String sectionId) {
         try {
             jdbcTemplate.update(
                 """
@@ -84,10 +133,7 @@ public class ApiOperationLogService {
         }
     }
 
-    public void recordTrainFault(OperationLogEntry entry, String trainId, String faultCode, int faultLevel, String state) {
-        if (!"INJECTED".equals(state)) {
-            return;
-        }
+    private void persistTrainFault(OperationLogEntry entry, String trainId, String faultCode, int faultLevel) {
         try {
             jdbcTemplate.update(
                 """
@@ -137,9 +183,8 @@ public class ApiOperationLogService {
     }
 
     private void logPersistenceWarning(DataAccessException ex) {
-        if (!persistenceWarningLogged) {
+        if (persistenceWarningLogged.compareAndSet(false, true)) {
             log.warn("API operation log persistence skipped after database write failure: {}", ex.getMessage());
-            persistenceWarningLogged = true;
         }
     }
 }

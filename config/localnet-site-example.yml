@@ -1,0 +1,47 @@
+# Copy selected values into backend/config/application-local.yml when running in the lab.
+# Keep real site IPs, ports, and point tables out of tracked application.yml.
+
+railway:
+  simulation:
+    localnet:
+      enabled: false
+      audit-enabled: true
+      recent-packet-limit: 50
+      signal:
+        enabled: false
+        bind-host: 0.0.0.0
+        bind-port: 6001
+        remote-host: 192.168.100.10
+        remote-port: 6002
+        send-interval-millis: 100
+        max-trains: 20
+        shadow-comparison: true
+      driver-cab:
+        enabled: false
+        reconnect-millis: 1000
+        connections:
+          - train-id: TR-001
+            role: PLC
+            host: 192.168.100.123
+            port: 8001
+            cycle-millis: 100
+            timeout-millis: 300
+          - train-id: TR-001
+            role: NETWORK_SCREEN
+            host: 192.168.100.123
+            port: 8002
+            cycle-millis: 500
+            timeout-millis: 300
+          - train-id: TR-001
+            role: SIGNAL_SCREEN
+            host: 192.168.100.123
+            port: 8003
+            cycle-millis: 500
+            timeout-millis: 300
+      power-points:
+        enabled: false
+        point-table-path: ../config/power-point-table-example.yaml
+        driver: LOCAL_SIM
+        http-base-url: http://localhost:9200
+        poll-interval-millis: 500
+        timeout-millis: 300

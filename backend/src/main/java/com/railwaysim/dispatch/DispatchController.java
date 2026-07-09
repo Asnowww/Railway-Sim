@@ -7,6 +7,8 @@ import com.railwaysim.dispatch.monitor.TrainStationEvent;
 import com.railwaysim.dispatch.plan.CurrentRunPlan;
 import com.railwaysim.dispatch.plan.OperationPlanLoader;
 import com.railwaysim.dispatch.plan.RunModePeriod;
+import com.railwaysim.signal.RouteInterlockingService;
+import com.railwaysim.signal.RouteInterlockingService.RouteInfo;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import java.time.Instant;
@@ -19,6 +21,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
@@ -29,15 +32,18 @@ public class DispatchController {
     private final DispatchService dispatchService;
     private final OperationPlanLoader planLoader;
     private final StationRecordStore stationRecordStore;
+    private final RouteInterlockingService routeInterlockingService;
 
     public DispatchController(
         DispatchService dispatchService,
         OperationPlanLoader planLoader,
-        StationRecordStore stationRecordStore
+        StationRecordStore stationRecordStore,
+        RouteInterlockingService routeInterlockingService
     ) {
         this.dispatchService = dispatchService;
         this.planLoader = planLoader;
         this.stationRecordStore = stationRecordStore;
+        this.routeInterlockingService = routeInterlockingService;
     }
 
     @GetMapping("/plan")
@@ -86,6 +92,29 @@ public class DispatchController {
         );
         dispatchService.submit(command);
         return command;
+    }
+
+    // ---- 进路查询与建立（信号层 × 调度层调试用） ----
+
+    @GetMapping("/route/list")
+    public List<RouteInfo> routeList() {
+        return routeInterlockingService.queryRoutes();
+    }
+
+    @PostMapping("/route/establish")
+    public Map<String, Object> routeEstablish(
+        @RequestParam @NotBlank String routeId,
+        @RequestParam @NotBlank String trainId
+    ) {
+        String rejection = routeInterlockingService.establishRoute(routeId, trainId);
+        Map<String, Object> result = new HashMap<>();
+        result.put("accepted", rejection == null);
+        result.put("routeId", routeId);
+        result.put("trainId", trainId);
+        if (rejection != null) {
+            result.put("rejectReason", rejection);
+        }
+        return result;
     }
 
     @GetMapping("/station-records")

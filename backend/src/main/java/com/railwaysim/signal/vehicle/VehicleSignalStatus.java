@@ -31,7 +31,8 @@ public record VehicleSignalStatus(
     String dynamicsState,
     String dynamicsConstraintReason,
     double vehicleFaultSpeedLimitMetersPerSecond,
-    String dataQuality
+    String dataQuality,
+    SignalDriverConsoleState driverConsoleState
 ) {
     public static VehicleSignalStatus from(TrainState train) {
         return new VehicleSignalStatus(
@@ -63,7 +64,8 @@ public record VehicleSignalStatus(
             train.dynamicsState(),
             train.dynamicsConstraintReason(),
             train.vehicleFaultSpeedLimitMetersPerSecond(),
-            train.dataQuality()
+            train.dataQuality(),
+            SignalDriverConsoleState.from(train)
         );
     }
 }
