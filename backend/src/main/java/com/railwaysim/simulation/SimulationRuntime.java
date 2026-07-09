@@ -11,6 +11,9 @@ import com.railwaysim.power.PowerConstraint;
 import com.railwaysim.power.PowerService;
 import com.railwaysim.signal.RouteInterlockingService;
 import com.railwaysim.signal.SignalService;
+import com.railwaysim.signal.vehicle.SignalTrainLifecycleAction;
+import com.railwaysim.signal.vehicle.SignalTrainLifecycleCommand;
+import com.railwaysim.signal.vehicle.SignalTrainLifecycleTrainSpec;
 import com.railwaysim.simulation.event.DomainEvent;
 import com.railwaysim.simulation.event.SimpleEventBus;
 import com.railwaysim.track.TrackConstraint;
@@ -18,8 +21,10 @@ import com.railwaysim.track.TrackService;
 import com.railwaysim.train.TrainManager;
 import com.railwaysim.train.TrainState;
 import com.railwaysim.vehicle.VehiclePhysicsOutput;
+import com.railwaysim.vehicle.external.ExternalTrainDirection;
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -141,6 +146,9 @@ public class SimulationRuntime {
             }
         }
 
+        // 发车指令 — 调度→信号→车辆：联锁检查进路→创建列车→列车进场自动建进路
+        handleDepartures(dispatchService.drainCommandsOfType("DEPART"));
+
         List<DispatchCommand> generatedCommands = dispatchService.drainCommands();
         if (!generatedCommands.isEmpty()) {
             dispatchCommandPublisher.publish(generatedCommands);
@@ -180,6 +188,93 @@ public class SimulationRuntime {
             }
         }
         return command.reason();
+    }
+
+    /**
+     * 处理调度发来的发车指令。
+     *
+     * <p>链路：调度时刻表触发 → DEPART指令 → 信号联锁检查 → 车辆层创建列车。
+     * 发车分三步：
+     * <ol>
+     *   <li>解析 payload 中的列车参数（trainNo/linkId/offsetMeters/direction）</li>
+     *   <li>联锁检查：进路是否可用（不实际建立，建路由后续 touchRoutes 自动完成）</li>
+     *   <li>调车辆层创建列车 → 列车进场 → 下一 tick 的 touchRoutes 自动建进路 + MA</li>
+     * </ol>
+     *
+     * <p>DEPART 命令的 payload 格式：
+     * <pre>{@code
+     *   {"trainNo":3, "linkId":1, "offsetMeters":0,
+     *    "fromStation":"S01", "toStation":"S05", "direction":"DOWN"}
+     * }</pre>
+     */
+    private void handleDepartures(List<DispatchCommand> departCommands) {
+        for (DispatchCommand cmd : departCommands) {
+            Map<String, Object> payload = cmd.payload();
+            if (payload == null) {
+                log.warn("[Runtime] DEPART command {} has no payload, skipped", cmd.id());
+                continue;
+            }
+            int trainNo = intFromPayload(payload, "trainNo", 0);
+            if (trainNo <= 0) {
+                log.warn("[Runtime] DEPART command {} missing trainNo", cmd.id());
+                continue;
+            }
+            String trainId = "TR-%03d".formatted(trainNo);
+            int linkId = intFromPayload(payload, "linkId", 1);
+            double offsetMeters = doubleFromPayload(payload, "offsetMeters", 0);
+            String dirStr = stringFromPayload(payload, "direction", "DOWN");
+            ExternalTrainDirection direction = "UP".equalsIgnoreCase(dirStr)
+                ? ExternalTrainDirection.UP : ExternalTrainDirection.DOWN;
+
+            // 安全门：如果列车已存在，跳过
+            if (trainManager.states().stream().anyMatch(t -> t.id().equals(trainId))) {
+                log.info("[Runtime] Train {} already exists, skip DEPART", trainId);
+                continue;
+            }
+
+            // 联锁安全门：确认起止站间至少有一条进路可用
+            String fromStation = stringFromPayload(payload, "fromStation", null);
+            String toStation = stringFromPayload(payload, "toStation", null);
+            if (fromStation != null && toStation != null) {
+                String routeDetail = "{\"fromStation\":\"%s\",\"toStation\":\"%s\"}".formatted(fromStation, toStation);
+                var result = interlockingService.applyDispatchCommand("REROUTE", routeDetail, trainId);
+                if (!result.accepted()) {
+                    log.warn("[Runtime] 联锁拒绝发车 {}: {}", trainId, result.rejectReason());
+                    continue;
+                }
+            }
+
+            // 创建列车 — 信号→车辆转译
+            SignalTrainLifecycleTrainSpec spec = new SignalTrainLifecycleTrainSpec(
+                trainNo, linkId, offsetMeters, direction
+            );
+            try {
+                trainManager.applyLifecycleCommand(SignalTrainLifecycleCommand.add(List.of(spec)));
+                log.info("[Runtime] 发车 {} — trainNo={} linkId={} offset={}m direction={}",
+                    trainId, trainNo, linkId, offsetMeters, direction);
+            } catch (Exception e) {
+                log.error("[Runtime] 发车失败 {}: {}", trainId, e.getMessage());
+            }
+        }
+    }
+
+    private static int intFromPayload(Map<String, Object> payload, String key, int fallback) {
+        Object value = payload.get(key);
+        if (value instanceof Number n) return n.intValue();
+        if (value instanceof String s) { try { return Integer.parseInt(s); } catch (NumberFormatException ignored) {} }
+        return fallback;
+    }
+
+    private static double doubleFromPayload(Map<String, Object> payload, String key, double fallback) {
+        Object value = payload.get(key);
+        if (value instanceof Number n) return n.doubleValue();
+        if (value instanceof String s) { try { return Double.parseDouble(s); } catch (NumberFormatException ignored) {} }
+        return fallback;
+    }
+
+    private static String stringFromPayload(Map<String, Object> payload, String key, String fallback) {
+        Object value = payload.get(key);
+        return value != null ? value.toString() : fallback;
     }
 
     private void persistIfDue(TickContext context) {
