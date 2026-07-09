@@ -26,6 +26,13 @@ public record PowerSectionState(
     String maintenanceState,
     String lockoutState,
     String externalDataQuality,
+    double externalVoltage,
+    double externalCurrent,
+    double externalLoadWatts,
+    double voltageDeviation,
+    double voltageDeviationPercent,
+    String voltageComparisonStatus,
+    String externalSupportReason,
     String strayCurrentRiskLevel,
     String strayCurrentRiskReason,
     List<String> affectedTrainIds,
@@ -42,6 +49,10 @@ public record PowerSectionState(
         externalDataQuality = externalDataQuality == null || externalDataQuality.isBlank()
             ? "UNKNOWN"
             : externalDataQuality;
+        voltageComparisonStatus = voltageComparisonStatus == null || voltageComparisonStatus.isBlank()
+            ? "NO_EXTERNAL_DATA"
+            : voltageComparisonStatus;
+        externalSupportReason = externalSupportReason == null ? "" : externalSupportReason;
         strayCurrentRiskLevel = strayCurrentRiskLevel == null || strayCurrentRiskLevel.isBlank()
             ? "NORMAL"
             : strayCurrentRiskLevel;

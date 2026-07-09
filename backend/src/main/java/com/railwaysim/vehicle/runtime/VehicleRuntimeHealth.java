@@ -1,0 +1,21 @@
+package com.railwaysim.vehicle.runtime;
+
+import java.time.Instant;
+
+public record VehicleRuntimeHealth(
+    VehicleRuntimeMode mode,
+    String heartbeatStatus,
+    Instant sourceTimestamp,
+    long latencyMillis,
+    String dataQuality,
+    int instanceCount,
+    String reason
+) {
+    public static VehicleRuntimeHealth local() {
+        return new VehicleRuntimeHealth(VehicleRuntimeMode.LOCAL, "LOCAL", Instant.now(), 0, "GOOD", 0, "LOCAL_RUNTIME");
+    }
+
+    public static VehicleRuntimeHealth fallback(VehicleRuntimeMode mode, String reason) {
+        return new VehicleRuntimeHealth(mode == null ? VehicleRuntimeMode.LOCAL : mode, "FALLBACK", Instant.now(), 0, "FALLBACK", 0, reason);
+    }
+}

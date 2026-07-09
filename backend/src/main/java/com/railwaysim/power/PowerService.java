@@ -68,9 +68,10 @@ public class PowerService {
     }
 
     public synchronized void updateFromVehicleOutputs(List<VehiclePhysicsOutput> outputs) {
+        List<PowerSectionLoadSnapshot> loads = powerConstraintService.loadSnapshots(outputs);
         sections = powerConstraintService.calculateStates(
             outputs,
-            powerIntegrationService.refreshSnapshot(),
+            powerIntegrationService.refreshSnapshot(loads),
             injectedFaultBySection,
             maintenanceLockBySection,
             supplyModeBySection

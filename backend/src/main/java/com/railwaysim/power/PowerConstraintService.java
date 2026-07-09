@@ -28,6 +28,18 @@ public class PowerConstraintService {
         return calculateStates(List.of(), snapshot, Map.of(), Map.of(), Map.of());
     }
 
+    public List<PowerSectionLoadSnapshot> loadSnapshots(List<VehiclePhysicsOutput> outputs) {
+        return aggregateLoads(outputs).entrySet().stream()
+            .map(entry -> new PowerSectionLoadSnapshot(
+                entry.getKey(),
+                entry.getValue().trainIds(),
+                entry.getValue().tractionPowerWatts(),
+                entry.getValue().regenPowerWatts(),
+                entry.getValue().currentAmps()
+            ))
+            .toList();
+    }
+
     public List<PowerSectionState> calculateStates(
         List<VehiclePhysicsOutput> outputs,
         PowerNetworkStateSnapshot snapshot,
@@ -70,6 +82,7 @@ public class PowerConstraintService {
             double netCurrent = Math.max(0, load.currentAmps() - absorbedCurrent);
             double voltageDropPerAmp = powerData.currentToVoltageDrop() + sectionResistance(section);
             double voltage = Math.max(0, substationVoltage - netCurrent * voltageDropPerAmp);
+            ExternalVoltageComparison externalComparison = compareExternalVoltage(voltage, thirdRailState, snapshot);
             String lockoutState = maintenanceLockBySection.getOrDefault(section.id(), section.lockoutState());
             String maintenanceState = maintenanceState(section, maintenanceLockBySection.get(section.id()));
             String status = resolveStatus(
@@ -111,6 +124,13 @@ public class PowerConstraintService {
                 maintenanceState,
                 lockoutState,
                 snapshot.dataQuality(),
+                externalComparison.externalVoltage(),
+                externalComparison.externalCurrent(),
+                externalComparison.externalLoadWatts(),
+                externalComparison.voltageDeviation(),
+                externalComparison.voltageDeviationPercent(),
+                externalComparison.status(),
+                externalComparison.supportReason(),
                 strayState == null ? "NORMAL" : strayState.riskLevel(),
                 strayState == null ? "" : strayState.riskReason(),
                 load.trainIds(),
@@ -119,6 +139,41 @@ public class PowerConstraintService {
             ));
         }
         return states;
+    }
+
+    private ExternalVoltageComparison compareExternalVoltage(
+        double centralVoltage,
+        PowerNetworkStateSnapshot.ThirdRailSectionSnapshot thirdRailState,
+        PowerNetworkStateSnapshot snapshot
+    ) {
+        boolean hasExternalVoltage = thirdRailState != null
+            && thirdRailState.contactRailVoltage() > 0
+            && !"LOCAL".equals(snapshot.heartbeatStatus())
+            && !"FALLBACK".equals(snapshot.dataQuality());
+        if (!hasExternalVoltage) {
+            return new ExternalVoltageComparison(0, 0, 0, 0, 0, "NO_EXTERNAL_DATA", "");
+        }
+
+        double externalVoltage = thirdRailState.contactRailVoltage();
+        double deviation = externalVoltage - centralVoltage;
+        double deviationPercent = centralVoltage <= 1 ? 0 : Math.abs(deviation) / centralVoltage * 100.0;
+        String status;
+        if (deviationPercent <= 5.0) {
+            status = "MATCHED";
+        } else if (deviationPercent <= 10.0) {
+            status = "DEVIATED";
+        } else {
+            status = "DIVERGED";
+        }
+        return new ExternalVoltageComparison(
+            externalVoltage,
+            thirdRailState.tractionCurrentAmps(),
+            thirdRailState.tractionPowerWatts(),
+            deviation,
+            deviationPercent,
+            status,
+            thirdRailState.supportReason()
+        );
     }
 
     public List<PowerConstraint> constraintsForTrains(List<TrainState> trains, List<PowerSectionState> sections) {
@@ -353,5 +408,16 @@ public class PowerConstraintService {
                 mergedTrainIds
             );
         }
+    }
+
+    private record ExternalVoltageComparison(
+        double externalVoltage,
+        double externalCurrent,
+        double externalLoadWatts,
+        double voltageDeviation,
+        double voltageDeviationPercent,
+        String status,
+        String supportReason
+    ) {
     }
 }

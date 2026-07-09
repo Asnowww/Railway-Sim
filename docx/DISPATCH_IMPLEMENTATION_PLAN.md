@@ -1,9 +1,9 @@
 # 运营调度模块代码实现计划
 
-> 文档版本：v1.0  
-> 所属项目：Railway-Sim 上京地铁仿真系统  
-> 模块负责人：运营调度  
-> 设计依据：[DISPATCH_OUTLINE_DESIGN.md](./DISPATCH_OUTLINE_DESIGN.md)、[DISPATCH_DETAILED_DESIGN.md](./DISPATCH_DETAILED_DESIGN.md)  
+> 文档版本：v1.0
+> 所属项目：Railway-Sim 上京地铁仿真系统
+> 模块负责人：运营调度
+> 设计依据：[DISPATCH_OUTLINE_DESIGN.md](./DISPATCH_OUTLINE_DESIGN.md)、[DISPATCH_DETAILED_DESIGN.md](./DISPATCH_DETAILED_DESIGN.md)
 > 当前分支：lq
 
 ---

@@ -3,9 +3,11 @@ package com.railwaysim.simulation;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.railwaysim.power.PowerSectionState;
+import com.railwaysim.signal.MovementAuthority;
 import com.railwaysim.simulation.event.DomainEvent;
 import com.railwaysim.simulation.event.FmuFallbackActivatedEvent;
 import com.railwaysim.simulation.event.FmuStepFailedEvent;
+import com.railwaysim.track.TrackSegmentState;
 import com.railwaysim.train.TrainState;
 import java.sql.Timestamp;
 import java.util.List;
@@ -204,6 +206,51 @@ public class SimulationPersistenceService {
             fallbackActivated,
             Timestamp.from(occurredAt == null ? context.simulatedTime() : occurredAt)
         );
+    }
+
+    // ==================== 信号轨道持久化 ====================
+
+    public void persistTrackOccupancy(TickContext context, List<TrackSegmentState> segments) {
+        try {
+            for (TrackSegmentState seg : segments) {
+                if (seg.occupancy() == com.railwaysim.track.TrackOccupancy.FREE) {
+                    continue; // 只记录非空闲状态
+                }
+                jdbcTemplate.update(
+                    """
+                        INSERT INTO track_occupancy_record (
+                          segment_id, occupancy, recorded_at
+                        ) VALUES (?, ?, ?)
+                        """,
+                    seg.id(),
+                    seg.occupancy().name(),
+                    timestamp(context)
+                );
+            }
+        } catch (DataAccessException ex) {
+            log.warn("Track occupancy persist failed: {}", ex.getMessage());
+        }
+    }
+
+    public void persistSignalStates(TickContext context, List<MovementAuthority> authorities) {
+        try {
+            for (MovementAuthority ma : authorities) {
+                jdbcTemplate.update(
+                    """
+                        INSERT INTO signal_state_record (
+                          train_id, authority_end_meters, speed_limit_mps, reason, recorded_at
+                        ) VALUES (?, ?, ?, ?, ?)
+                        """,
+                    ma.trainId(),
+                    ma.authorityEndMeters(),
+                    ma.speedLimitMetersPerSecond(),
+                    ma.reason(),
+                    timestamp(context)
+                );
+            }
+        } catch (DataAccessException ex) {
+            log.warn("Signal state persist failed: {}", ex.getMessage());
+        }
     }
 
     private String toJson(List<String> values) {

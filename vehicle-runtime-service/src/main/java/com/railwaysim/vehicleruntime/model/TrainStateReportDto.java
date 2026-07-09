@@ -1,0 +1,35 @@
+package com.railwaysim.vehicleruntime.model;
+
+public record TrainStateReportDto(
+    String trainId,
+    String operationMode,
+    boolean doorClosed,
+    String doorState,
+    String tractionState,
+    String brakeState,
+    String currentCollectionStatus,
+    boolean tractionAvailable,
+    boolean brakeAvailable,
+    String selfCheckStatus,
+    int faultLevel,
+    String availableOperationMode,
+    String dataQuality,
+    double loadMassKg,
+    String overloadStatus,
+    int availableTractionCount,
+    int availableBrakeCount,
+    String vehicleProtectionReason,
+    String dynamicsState,
+    String dynamicsConstraintReason,
+    double speedLimitMetersPerSecond,
+    double movementAuthorityDistanceMeters,
+    double stationDistanceMeters,
+    double stoppingDistanceMeters,
+    double tractionCommand,
+    double brakeCommand,
+    boolean emergencyBrakeCommand,
+    double railVoltage,
+    double powerAvailableWatts,
+    String faultCode
+) {
+}
