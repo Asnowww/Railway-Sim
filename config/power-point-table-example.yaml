@@ -6,6 +6,8 @@ points:
     address: SIM:P01:VOLTAGE
     scale: 1.0
     defaultValue: "1500"
+    domainTarget: THIRD_RAIL_SECTION:P01:voltage
+    quality: GOOD
     targetType: THIRD_RAIL_SECTION
     targetId: P01
     targetField: voltage
@@ -17,6 +19,8 @@ points:
     address: SIM:P01:CURRENT
     scale: 1.0
     defaultValue: "0"
+    domainTarget: THIRD_RAIL_SECTION:P01:current
+    quality: GOOD
     targetType: THIRD_RAIL_SECTION
     targetId: P01
     targetField: current
@@ -28,6 +32,8 @@ points:
     address: SIM:ISO-P01-A:STATE
     scale: 1.0
     defaultValue: "CLOSED"
+    domainTarget: ISOLATOR:ISO-P01-A:state
+    quality: GOOD
     targetType: ISOLATOR
     targetId: ISO-P01-A
     targetField: state
@@ -41,6 +47,8 @@ points:
     address: SIM:SS01-DCB:TRIP
     scale: 1.0
     defaultValue: "OPEN"
+    domainTarget: DC_BREAKER:SS01-DCB:state
+    quality: GOOD
     targetType: DC_BREAKER
     targetId: SS01-DCB
     targetField: state
@@ -54,6 +62,8 @@ points:
     address: SIM:SCP-P01:POTENTIAL
     scale: 1.0
     defaultValue: "0"
+    domainTarget: STRAY_CURRENT:SCP-P01:potential
+    quality: GOOD
     targetType: STRAY_CURRENT
     targetId: SCP-P01
     targetField: potential

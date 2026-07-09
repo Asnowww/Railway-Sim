@@ -26,6 +26,13 @@ public class SignalFrameDomainMapper {
     }
 
     public SignalInboundResult applyInbound(byte[] payload) {
+        if (isDatabaseNodeFrame(payload)) {
+            SignalDatabaseNodeFrame frame = frameCodec.decode(payload);
+            String summary = frame.trainContentFrame()
+                ? applyTrainContentOrSummarizeShadow(frame.content())
+                : "signal cab switch frame contentBytes=" + frame.content().length;
+            return new SignalInboundResult(true, summary);
+        }
         if (isLifecyclePacket(payload)) {
             SignalTrainLifecycleCommand command = lifecycleCodec.decode(payload);
             trainManager.applyLifecycleCommand(command);
@@ -34,11 +41,7 @@ public class SignalFrameDomainMapper {
                 "signal lifecycle " + command.action() + " trains=" + command.trains().size()
             );
         }
-        SignalDatabaseNodeFrame frame = frameCodec.decode(payload);
-        String summary = frame.trainContentFrame()
-            ? summarizeSignalToCentralTrainContent(frame.content())
-            : "signal cab switch frame contentBytes=" + frame.content().length;
-        return new SignalInboundResult(true, summary);
+        throw new IllegalArgumentException("Unsupported signal localnet packet");
     }
 
     public byte[] encodeCentralTrainStateFrame(int maxTrains) {
@@ -105,6 +108,33 @@ public class SignalFrameDomainMapper {
             }
         }
         return false;
+    }
+
+    private boolean isDatabaseNodeFrame(byte[] payload) {
+        if (payload == null || payload.length < SignalDatabaseNodeFrameCodec.HEADER_BYTES) {
+            return false;
+        }
+        if (Byte.toUnsignedInt(payload[0]) != SignalDatabaseNodeFrame.HEADER_1) {
+            return false;
+        }
+        int packetType = Byte.toUnsignedInt(payload[1]);
+        if (packetType != SignalDatabaseNodeFrame.TRAIN_CONTENT && packetType != SignalDatabaseNodeFrame.CAB_SWITCH_CONTENT) {
+            return false;
+        }
+        int dataLength = Short.toUnsignedInt(ByteBuffer.wrap(payload, 10, 2).order(ByteOrder.LITTLE_ENDIAN).getShort());
+        return dataLength >= 2 && SignalDatabaseNodeFrameCodec.HEADER_BYTES + dataLength - 2 <= payload.length;
+    }
+
+    private String applyTrainContentOrSummarizeShadow(byte[] content) {
+        if (content.length > 0 && content.length % SignalTrainContentCodec.BYTES_PER_TRAIN == 0) {
+            List<TrainOperationalTelemetry> telemetries = trainContentCodec.decode(
+                content,
+                content.length / SignalTrainContentCodec.BYTES_PER_TRAIN
+            );
+            trainManager.applyOperationalTelemetry(telemetries);
+            return "signal operational telemetry trains=" + telemetries.size();
+        }
+        return summarizeSignalToCentralTrainContent(content);
     }
 
     private String summarizeSignalToCentralTrainContent(byte[] content) {

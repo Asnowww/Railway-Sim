@@ -23,7 +23,7 @@ public class LocalSimPowerPointDriver implements PowerPointDriver {
             .map(definition -> new PowerPointValue(
                 definition.pointId(),
                 values.getOrDefault(definition.pointId(), definition.defaultValue()),
-                "GOOD",
+                definition.quality(),
                 now
             ))
             .toList();
@@ -33,6 +33,6 @@ public class LocalSimPowerPointDriver implements PowerPointDriver {
     public synchronized PowerPointValue write(PowerPointDefinition definition, String value) {
         String nextValue = value == null || value.isBlank() ? definition.desiredState() : value.trim();
         values.put(definition.pointId(), nextValue);
-        return new PowerPointValue(definition.pointId(), nextValue, "GOOD", Instant.now());
+        return new PowerPointValue(definition.pointId(), nextValue, definition.quality(), Instant.now());
     }
 }

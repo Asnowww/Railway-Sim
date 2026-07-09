@@ -15,8 +15,8 @@ class PowerPointDomainMapperTests {
     void mapsReadPointsToSyntheticPowerSnapshot() {
         PowerPointDomainMapper mapper = new PowerPointDomainMapper(null);
         List<PowerPointDefinition> definitions = List.of(
-            new PowerPointDefinition("P01_V", "", "READ", "DOUBLE", "A1", 1, "1500", "THIRD_RAIL_SECTION", "P01", "voltage", "", ""),
-            new PowerPointDefinition("P01_I", "", "READ", "DOUBLE", "A2", 1, "0", "THIRD_RAIL_SECTION", "P01", "current", "", "")
+            new PowerPointDefinition("P01_V", "", "READ", "DOUBLE", "A1", 1, "1500", "THIRD_RAIL_SECTION:P01:voltage", "GOOD", "", "", "", "", ""),
+            new PowerPointDefinition("P01_I", "", "READ", "DOUBLE", "A2", 1, "0", "THIRD_RAIL_SECTION:P01:current", "GOOD", "", "", "", "", "")
         );
         List<PowerPointValue> values = List.of(
             new PowerPointValue("P01_V", "1490", "GOOD", Instant.now()),
@@ -46,6 +46,8 @@ class PowerPointDomainMapperTests {
             "A3",
             1,
             "CLOSED",
+            "ISOLATOR:ISO-P01-A:state",
+            "GOOD",
             "ISOLATOR",
             "ISO-P01-A",
             "state",

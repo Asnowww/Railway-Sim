@@ -186,7 +186,7 @@ POST /api/localnet/adapters/{adapterId}/replay
 
 - `signal-udp` 支持完整 `0xff 0xf0/0xf1` 帧，以及实时 ADD/DELETE/CLEAR 生命周期包。
 - `driver-cab-tcp` 支持 46 字节 PLC 输入包回放。
-- `power-points` 使用文本 `pointId=value`，例如 `ISO_P01_A_STATE=OPEN`。
+- `power-points` 点表支持 YAML/CSV，字段包括 `pointId`、`name`、`direction`、`dataType`、`scale`、`address`、`domainTarget`、`defaultValue`、`quality`；replay 使用文本 `pointId=value`，例如 `ISO_P01_A_STATE=OPEN`。
 
 协议报文审计写入 `protocol_packet_log`，但审计是旁路能力；数据库写入失败不会阻塞现场链路或仿真 tick。
 

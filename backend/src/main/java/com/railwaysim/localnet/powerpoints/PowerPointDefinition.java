@@ -8,6 +8,8 @@ public record PowerPointDefinition(
     String address,
     double scale,
     String defaultValue,
+    String domainTarget,
+    String quality,
     String targetType,
     String targetId,
     String targetField,
@@ -22,9 +24,12 @@ public record PowerPointDefinition(
         address = blankToDefault(address, pointId);
         scale = Double.isFinite(scale) && scale != 0 ? scale : 1.0;
         defaultValue = defaultValue == null ? "0" : defaultValue;
-        targetType = blankToDefault(targetType, "POWER_SECTION").toUpperCase();
-        targetId = blankToDefault(targetId, pointId);
-        targetField = blankToDefault(targetField, "value");
+        String[] parsedTarget = parseDomainTarget(domainTarget);
+        targetType = blankToDefault(targetType, blankToDefault(parsedTarget[0], "POWER_SECTION")).toUpperCase();
+        targetId = blankToDefault(targetId, blankToDefault(parsedTarget[1], pointId));
+        targetField = blankToDefault(targetField, blankToDefault(parsedTarget[2], "value"));
+        domainTarget = blankToDefault(domainTarget, targetType + ":" + targetId + ":" + targetField);
+        quality = blankToDefault(quality, "GOOD").toUpperCase();
         operationType = blankToDefault(operationType, targetField).toUpperCase();
         desiredState = blankToDefault(desiredState, defaultValue).toUpperCase();
     }
@@ -42,5 +47,17 @@ public record PowerPointDefinition(
             return fallback == null || fallback.isBlank() ? "" : fallback.trim();
         }
         return value.trim();
+    }
+
+    private static String[] parseDomainTarget(String domainTarget) {
+        if (domainTarget == null || domainTarget.isBlank()) {
+            return new String[] {"", "", ""};
+        }
+        String[] parts = domainTarget.trim().split(":", 3);
+        return new String[] {
+            parts.length > 0 ? parts[0] : "",
+            parts.length > 1 ? parts[1] : "",
+            parts.length > 2 ? parts[2] : ""
+        };
     }
 }
