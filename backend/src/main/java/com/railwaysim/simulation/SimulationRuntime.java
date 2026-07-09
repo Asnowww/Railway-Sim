@@ -5,6 +5,8 @@ import com.railwaysim.config.SimulationProperties;
 import com.railwaysim.dispatch.DispatchCommand;
 import com.railwaysim.dispatch.DispatchConstraint;
 import com.railwaysim.dispatch.DispatchService;
+import com.railwaysim.dispatch.monitor.StationInfo;
+import com.railwaysim.dispatch.plan.CurrentRunPlan;
 import com.railwaysim.dispatch.integration.DispatchCommandPublisher;
 import com.railwaysim.monitor.MonitorService;
 import com.railwaysim.power.PowerConstraint;
@@ -23,6 +25,8 @@ import com.railwaysim.train.TrainState;
 import com.railwaysim.vehicle.VehiclePhysicsOutput;
 import com.railwaysim.vehicle.external.ExternalTrainDirection;
 import java.time.Instant;
+import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import org.slf4j.Logger;
@@ -52,6 +56,8 @@ public class SimulationRuntime {
     private SimulationStatus status = SimulationStatus.STOPPED;
     private Instant simulatedTime = Instant.now();
     private long lastPushAtMillis;
+    private Instant lastDepartureTime = Instant.now();
+    private int nextServiceNo = 3; // TR-001/TR-002 pre-loaded on reset
 
     public SimulationRuntime(
         TrainManager trainManager,
@@ -118,6 +124,8 @@ public class SimulationRuntime {
         realtimeStateCache.clear();
         eventBus.drain();
         lastEvents = List.of();
+        lastDepartureTime = simulatedTime;
+        nextServiceNo = 3;
         return buildSnapshot();
     }
 
@@ -145,6 +153,9 @@ public class SimulationRuntime {
                 log.warn("[Runtime] 联锁拒绝调度指令 {}: {}", cmd.id(), result.rejectReason());
             }
         }
+
+        // 按时刻表自动发车 — 信号层读调度时刻表，到点自动创建列车
+        autoDispatchTrains(context);
 
         // 发车指令 — 调度→信号→车辆：联锁检查进路→创建列车→列车进场自动建进路
         handleDepartures(dispatchService.drainCommandsOfType("DEPART"));
@@ -178,6 +189,68 @@ public class SimulationRuntime {
             lastPushAtMillis = nowMillis;
         }
         return snapshot;
+    }
+
+    /**
+     * 按调度时刻表自动发车。
+     *
+     * <p>每 tick 检查当前时段发车间隔是否已到：
+     * 上次发车时间 + departureIntervalSec < 当前仿真时间 → 发下一列车。
+     *
+     * <p>这里不依赖调度同学手动发 DEPART 指令——信号层主动读
+     * {@link DispatchService#currentPlan()}，到点就创建列车。
+     * 如果调度层已在 drainCommands 中给出了 DEPART，handleDepartures 也会处理，
+     * 两者互补不重复（autoDispatchTrains 只负责"到点首车"场景）。
+     */
+    private void autoDispatchTrains(TickContext context) {
+        CurrentRunPlan plan = dispatchService.currentPlan();
+        if (plan == null || plan.departureIntervalSec() <= 0) {
+            return;
+        }
+        long intervalMillis = plan.departureIntervalSec() * 1000L;
+        long elapsed = context.simulatedTime().toEpochMilli() - lastDepartureTime.toEpochMilli();
+        if (elapsed < intervalMillis) {
+            return;
+        }
+
+        // 找到起点站
+        List<StationInfo> stations = dispatchService.stations();
+        if (stations.isEmpty()) return;
+        StationInfo origin = stations.stream()
+            .min(Comparator.comparingDouble(StationInfo::positionMeters))
+            .orElse(null);
+        if (origin == null) return;
+
+        // 终点站（最远的）
+        StationInfo terminus = stations.stream()
+            .max(Comparator.comparingDouble(StationInfo::positionMeters))
+            .orElse(null);
+
+        // 构造 DEPART 命令并直接处理
+        Map<String, Object> payload = new java.util.LinkedHashMap<>();
+        payload.put("trainNo", nextServiceNo);
+        payload.put("linkId", 1);
+        payload.put("offsetMeters", 0);
+        payload.put("fromStation", origin.id());
+        if (terminus != null) {
+            payload.put("toStation", terminus.id());
+        }
+        payload.put("direction", "DOWN");
+
+        DispatchCommand departureCmd = new DispatchCommand(
+            "AUTO-DEPART-" + nextServiceNo,
+            "TR-%03d".formatted(nextServiceNo),
+            "DEPART",
+            payload,
+            "AUTO_DEPART_SCHEDULE",
+            "PENDING",
+            context.simulatedTime(),
+            null
+        );
+
+        handleDepartures(List.of(departureCmd));
+        lastDepartureTime = context.simulatedTime();
+        nextServiceNo++;
     }
 
     private String commandDetail(DispatchCommand command) {
