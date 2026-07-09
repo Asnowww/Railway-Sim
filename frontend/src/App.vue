@@ -2,11 +2,13 @@
 // Dependencies: vue>=3.5.13, echarts>=5.6.0
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import * as echarts from 'echarts'
+import topologyTrainUrl from './assets/topology-train.svg'
 
 type LayerKey = 'trains' | 'track' | 'power' | 'signals' | 'passengers'
 type AlarmLevel = 1 | 2 | 3
 type HeatView = 'network' | 'station' | 'carriage'
 type CommandStatus = '已执行' | '待执行' | '异常'
+type TopologyView = 'overview' | 'station' | 'route'
 
 interface TrainMonitorState {
   id: string
@@ -72,6 +74,48 @@ interface LinkState {
   lastPacket: string
 }
 
+interface TopologyNode {
+  id: string
+  label: string
+  type: 'station' | 'switch' | 'junction' | 'depot'
+  x: number
+  y: number
+  importance: number
+  stationName?: string
+}
+
+interface TopologyEdge {
+  id: string
+  source: string
+  target: string
+  segmentId: string
+  lengthMeters: number
+  speedLimitKph: number
+  status: 'FREE' | 'OCCUPIED' | 'FAULT'
+  powerSectionId: string
+  routeIds: string[]
+  detailCount: number
+}
+
+interface TopologyRoute {
+  id: string
+  name: string
+  segmentIds: string[]
+  description: string
+}
+
+interface TopologySignal {
+  id: string
+  edgeId: string
+  ratio: number
+  status: 'green' | 'yellow' | 'red'
+}
+
+interface TopologyTrackPoint {
+  x: number
+  y: number
+}
+
 const layerLabels: Record<LayerKey, string> = {
   trains: '车辆',
   track: '轨道',
@@ -95,6 +139,8 @@ const trainCrowdThreshold = ref(80)
 const stationCrowdThreshold = ref(80)
 const predictionWindowMinutes = ref(15)
 const simulationClock = ref('08:35:24')
+const topologyView = ref<TopologyView>('overview')
+const selectedRouteId = ref('R01')
 
 const stations = ['上京南', '科技园', '人民广场', '金融城', '会展中心', '机场北']
 
@@ -119,6 +165,76 @@ const powerSections = ref<PowerSectionState[]>([
   { id: 'P2', name: '牵引二区', startPercent: 32, widthPercent: 28, status: 'OVERRANGE', affectedTrains: ['T305'] },
   { id: 'P3', name: '牵引三区', startPercent: 60, widthPercent: 35, status: 'LOST', affectedTrains: ['T407', 'T509'] }
 ])
+
+const topologyNodes: TopologyNode[] = [
+  { id: 'SHN', label: '上海南', type: 'station', x: 8, y: 54, importance: 3, stationName: '上海南' },
+  { id: 'TECH', label: '科技园', type: 'station', x: 24, y: 54, importance: 3, stationName: '科技园' },
+  { id: 'RENMIN', label: '人民广场', type: 'station', x: 42, y: 54, importance: 3, stationName: '人民广场' },
+  { id: 'FIN', label: '金融城', type: 'station', x: 58, y: 50, importance: 3, stationName: '金融城' },
+  { id: 'EXPO', label: '会展中心', type: 'station', x: 76, y: 54, importance: 3, stationName: '会展中心' },
+  { id: 'AIR', label: '机场北', type: 'station', x: 92, y: 54, importance: 3, stationName: '机场北' },
+  { id: 'DEPOT_A', label: '车辆段', type: 'depot', x: 12, y: 32, importance: 2 },
+  { id: 'DEPOT_B', label: '试车线', type: 'depot', x: 7, y: 22, importance: 1 },
+  { id: 'TECH_N', label: '科技园北岔', type: 'switch', x: 24, y: 32, importance: 2 },
+  { id: 'RENMIN_N', label: '广场北岔', type: 'switch', x: 42, y: 30, importance: 2 },
+  { id: 'FIN_N', label: '金融城北岔', type: 'switch', x: 58, y: 29, importance: 2 },
+  { id: 'EXPO_N', label: '会展北联络', type: 'junction', x: 76, y: 32, importance: 1 },
+  { id: 'LOOP_W', label: '折返线西', type: 'switch', x: 42, y: 78, importance: 2 },
+  { id: 'LOOP_E', label: '折返线东', type: 'switch', x: 58, y: 78, importance: 2 },
+  { id: 'BRANCH', label: '支线口', type: 'switch', x: 68, y: 70, importance: 1 },
+  { id: 'AIR_LINK', label: '机场联络', type: 'junction', x: 86, y: 78, importance: 1 }
+]
+
+const topologyEdges: TopologyEdge[] = [
+  { id: 'E01', source: 'SHN', target: 'TECH', segmentId: 'SEG-001~048', lengthMeters: 1250, speedLimitKph: 72, status: 'FREE', powerSectionId: 'P1', routeIds: ['R01'], detailCount: 48 },
+  { id: 'E02', source: 'TECH', target: 'RENMIN', segmentId: 'SEG-049~112', lengthMeters: 1560, speedLimitKph: 80, status: 'OCCUPIED', powerSectionId: 'P2', routeIds: ['R01', 'R02'], detailCount: 64 },
+  { id: 'E03', source: 'RENMIN', target: 'FIN', segmentId: 'SEG-113~167', lengthMeters: 1320, speedLimitKph: 35, status: 'FAULT', powerSectionId: 'P2', routeIds: ['R01'], detailCount: 55 },
+  { id: 'E04', source: 'FIN', target: 'EXPO', segmentId: 'SEG-168~229', lengthMeters: 1480, speedLimitKph: 45, status: 'FAULT', powerSectionId: 'P3', routeIds: ['R01'], detailCount: 62 },
+  { id: 'E05', source: 'EXPO', target: 'AIR', segmentId: 'SEG-230~319', lengthMeters: 2050, speedLimitKph: 90, status: 'FREE', powerSectionId: 'P3', routeIds: ['R01'], detailCount: 90 },
+  { id: 'E06', source: 'DEPOT_B', target: 'DEPOT_A', segmentId: 'DEPOT-01', lengthMeters: 420, speedLimitKph: 25, status: 'FREE', powerSectionId: 'P1', routeIds: ['R03'], detailCount: 8 },
+  { id: 'E07', source: 'DEPOT_A', target: 'TECH', segmentId: 'DEPOT-02', lengthMeters: 760, speedLimitKph: 35, status: 'FREE', powerSectionId: 'P1', routeIds: ['R03'], detailCount: 14 },
+  { id: 'E08', source: 'TECH', target: 'TECH_N', segmentId: 'SW-TECH', lengthMeters: 180, speedLimitKph: 35, status: 'FREE', powerSectionId: 'P1', routeIds: ['R02'], detailCount: 4 },
+  { id: 'E09', source: 'TECH_N', target: 'RENMIN_N', segmentId: 'NORTH-01', lengthMeters: 980, speedLimitKph: 60, status: 'FREE', powerSectionId: 'P2', routeIds: ['R02'], detailCount: 26 },
+  { id: 'E10', source: 'RENMIN_N', target: 'FIN_N', segmentId: 'NORTH-02', lengthMeters: 1040, speedLimitKph: 60, status: 'FREE', powerSectionId: 'P2', routeIds: ['R02'], detailCount: 28 },
+  { id: 'E11', source: 'FIN_N', target: 'EXPO_N', segmentId: 'NORTH-03', lengthMeters: 1180, speedLimitKph: 60, status: 'FREE', powerSectionId: 'P3', routeIds: ['R02'], detailCount: 31 },
+  { id: 'E12', source: 'EXPO_N', target: 'EXPO', segmentId: 'SW-EXPO', lengthMeters: 260, speedLimitKph: 35, status: 'FREE', powerSectionId: 'P3', routeIds: ['R02'], detailCount: 5 },
+  { id: 'E13', source: 'RENMIN', target: 'LOOP_W', segmentId: 'LOOP-01', lengthMeters: 520, speedLimitKph: 35, status: 'OCCUPIED', powerSectionId: 'P2', routeIds: ['R03'], detailCount: 11 },
+  { id: 'E14', source: 'LOOP_W', target: 'LOOP_E', segmentId: 'LOOP-02', lengthMeters: 960, speedLimitKph: 45, status: 'FREE', powerSectionId: 'P2', routeIds: ['R03'], detailCount: 20 },
+  { id: 'E15', source: 'LOOP_E', target: 'FIN', segmentId: 'SW-FIN', lengthMeters: 480, speedLimitKph: 35, status: 'FREE', powerSectionId: 'P3', routeIds: ['R03'], detailCount: 8 },
+  { id: 'E16', source: 'LOOP_E', target: 'BRANCH', segmentId: 'BRANCH-01', lengthMeters: 720, speedLimitKph: 45, status: 'FREE', powerSectionId: 'P3', routeIds: ['R03'], detailCount: 16 },
+  { id: 'E17', source: 'BRANCH', target: 'AIR_LINK', segmentId: 'BRANCH-02', lengthMeters: 1250, speedLimitKph: 60, status: 'FREE', powerSectionId: 'P3', routeIds: ['R03'], detailCount: 24 },
+  { id: 'E18', source: 'AIR_LINK', target: 'AIR', segmentId: 'BRANCH-03', lengthMeters: 620, speedLimitKph: 45, status: 'FREE', powerSectionId: 'P3', routeIds: ['R03'], detailCount: 10 }
+]
+
+const topologyRoutes: TopologyRoute[] = [
+  { id: 'R01', name: '正线进路', segmentIds: ['E01', 'E02', 'E03', 'E04', 'E05'], description: '上海南 → 科技园 → 人民广场 → 金融城 → 会展中心 → 机场北' },
+  { id: 'R02', name: '北侧绕行', segmentIds: ['E08', 'E09', 'E10', 'E11', 'E12'], description: '科技园北岔 → 金融城北岔 → 会展北联络' },
+  { id: 'R03', name: '车辆段/折返', segmentIds: ['E06', 'E07', 'E13', 'E14', 'E15', 'E16', 'E17', 'E18'], description: '车辆段出入线、折返线与机场联络线' }
+]
+
+const topologySignals: TopologySignal[] = [
+  { id: 'SIG-TECH', edgeId: 'E01', ratio: 0.82, status: 'green' },
+  { id: 'SIG-RENMIN', edgeId: 'E02', ratio: 0.78, status: 'yellow' },
+  { id: 'SIG-FIN', edgeId: 'E03', ratio: 0.74, status: 'red' },
+  { id: 'SIG-EXPO', edgeId: 'E05', ratio: 0.25, status: 'green' },
+  { id: 'SIG-NORTH', edgeId: 'E11', ratio: 0.15, status: 'red' }
+]
+
+const topologyEdgeByTrackSegment: Record<string, string> = {
+  S1: 'E01',
+  S2: 'E02',
+  S3: 'E03',
+  S4: 'E04',
+  S5: 'E05'
+}
+
+const trainTopologyAnchors: Record<string, { edgeId: string; ratio: number }> = {
+  T101: { edgeId: 'E01', ratio: 0.5 },
+  T203: { edgeId: 'E02', ratio: 0.58 },
+  T305: { edgeId: 'E03', ratio: 0.55 },
+  T407: { edgeId: 'E04', ratio: 0.62 },
+  T509: { edgeId: 'E05', ratio: 0.84 }
+}
 
 const passengerStations = ref<StationPassengerState[]>([
   { name: '上京南', inbound: 816, outbound: 642, waiting: 1320, capacity: 2600, forecastRate: 58 },
@@ -184,6 +300,56 @@ const filteredAlarms = computed(() => {
 
 const selectedStation = computed(() => passengerStations.value.find((station) => station.name === selectedLocation.value) ?? passengerStations.value[0])
 const selectedStationLoadRate = computed(() => Math.round((selectedStation.value.waiting / selectedStation.value.capacity) * 100))
+const selectedTopologyRoute = computed<TopologyRoute>(() => topologyRoutes.find((route) => route.id === selectedRouteId.value) ?? topologyRoutes[0]!)
+const topologyNodeById = computed(() => new Map(topologyNodes.map((node) => [node.id, node])))
+
+const visibleTopologyEdges = computed(() => {
+  if (topologyView.value === 'route') {
+    const routeEdgeIds = new Set(selectedTopologyRoute.value.segmentIds)
+    return topologyEdges.filter((edge) => routeEdgeIds.has(edge.id) || edge.routeIds.includes('R01'))
+  }
+
+  if (topologyView.value === 'station') {
+    return topologyEdges.filter((edge) => {
+      const source = topologyNodeById.value.get(edge.source)
+      const target = topologyNodeById.value.get(edge.target)
+      return [source?.x, target?.x].some((x) => x !== undefined && x >= 22 && x <= 78)
+    })
+  }
+
+  return topologyEdges.filter((edge) => edge.detailCount >= 10 || edge.routeIds.includes('R01'))
+})
+const visibleTopologyEdgeIds = computed(() => new Set(visibleTopologyEdges.value.map((edge) => edge.id)))
+
+const visibleTopologyNodes = computed(() => {
+  const visibleIds = new Set<string>()
+  visibleTopologyEdges.value.forEach((edge) => {
+    visibleIds.add(edge.source)
+    visibleIds.add(edge.target)
+  })
+  return topologyNodes.filter((node) => visibleIds.has(node.id) || node.importance >= 3)
+})
+
+const topologyTrainMarkers = computed(() =>
+  trains.value
+    .map((train) => {
+      const anchor = resolveTrainTopologyAnchor(train)
+      if (!anchor || !visibleTopologyEdgeIds.value.has(anchor.edgeId)) return null
+      return { ...train, ...topologyEdgePoint(anchor.edgeId, anchor.ratio) }
+    })
+    .filter((train): train is TrainMonitorState & { x: number; y: number } => train !== null)
+)
+
+const visibleTopologySignals = computed(() =>
+  topologySignals
+    .map((signal) => {
+      if (!visibleTopologyEdgeIds.value.has(signal.edgeId)) return null
+      return { ...signal, ...topologyEdgePoint(signal.edgeId, signal.ratio) }
+    })
+    .filter((signal): signal is TopologySignal & TopologyTrackPoint => signal !== null)
+)
+
+const collapsedSegmentCount = computed(() => visibleTopologyEdges.value.reduce((sum, edge) => sum + edge.detailCount, 0))
 
 function sanitizeNumericInput(rawValue: number, minimumValue: number, maximumValue: number): number {
   // 安全措施：限制配置输入范围，避免异常输入污染阈值计算和界面渲染。
@@ -204,6 +370,84 @@ function stationHeatClass(station: StationPassengerState): string {
   if (loadRate >= stationCrowdThreshold.value) return 'warning'
   if (loadRate >= 50) return 'busy'
   return 'normal'
+}
+
+function topologyNodeStyle(node: TopologyNode): Record<string, string> {
+  return { left: `${node.x}%`, top: `${node.y}%` }
+}
+
+function topologyEdgeLine(edge: TopologyEdge): Record<string, number> {
+  const source = topologyNodeById.value.get(edge.source)
+  const target = topologyNodeById.value.get(edge.target)
+  return {
+    x1: source?.x ?? 0,
+    y1: source?.y ?? 0,
+    x2: target?.x ?? 0,
+    y2: target?.y ?? 0
+  }
+}
+
+function clampRatio(value: number): number {
+  if (!Number.isFinite(value)) return 0
+  return Math.min(Math.max(value, 0), 1)
+}
+
+function resolveTrainTopologyAnchor(train: TrainMonitorState): { edgeId: string; ratio: number } | null {
+  const trackSegment = trackSegments.value.find((segment) => segment.name === train.section)
+  if (trackSegment) {
+    const edgeId = topologyEdgeByTrackSegment[trackSegment.id]
+    if (edgeId) {
+      const ratio = (train.positionPercent - trackSegment.startPercent) / trackSegment.widthPercent
+      return { edgeId, ratio: clampRatio(ratio) }
+    }
+  }
+
+  return trainTopologyAnchors[train.id] ?? null
+}
+
+function topologyEdgePoint(edgeId: string, ratio: number): TopologyTrackPoint {
+  const edge = topologyEdges.find((item) => item.id === edgeId)
+  if (!edge) return { x: 0, y: 0 }
+
+  const line = topologyEdgeLine(edge)
+  const normalizedRatio = clampRatio(ratio)
+  return {
+    x: line.x1 + (line.x2 - line.x1) * normalizedRatio,
+    y: line.y1 + (line.y2 - line.y1) * normalizedRatio
+  }
+}
+
+function topologyEdgeLabelStyle(edge: TopologyEdge): Record<string, string> {
+  const line = topologyEdgeLine(edge)
+  return {
+    left: `${(line.x1 + line.x2) / 2}%`,
+    top: `${(line.y1 + line.y2) / 2}%`
+  }
+}
+
+function topologyEdgeClass(edge: TopologyEdge): Array<string | Record<string, boolean>> {
+  return [
+    'topology-edge',
+    activeLayers.value.track ? edge.status.toLowerCase() : 'muted',
+    {
+      selected: topologyView.value === 'route' && selectedTopologyRoute.value.segmentIds.includes(edge.id),
+      dimmed: topologyView.value === 'route' && !selectedTopologyRoute.value.segmentIds.includes(edge.id)
+    }
+  ]
+}
+
+function topologyNodeClass(node: TopologyNode): Array<string | Record<string, boolean>> {
+  const station = node.stationName ? passengerStations.value.find((item) => item.name === node.stationName) : null
+  return [
+    'topology-node',
+    `node-${node.type}`,
+    activeLayers.value.passengers && station ? stationHeatClass(station) : 'neutral',
+    { selected: node.stationName === selectedLocation.value }
+  ]
+}
+
+function selectTopologyNode(node: TopologyNode): void {
+  if (node.stationName) selectedLocation.value = node.stationName
 }
 
 function acknowledgeAlarm(alarmId: string): void {
@@ -354,8 +598,20 @@ onBeforeUnmount(() => {
           </div>
         </div>
 
-        <div class="line-map">
-          <div v-if="activeLayers.power" class="power-band">
+        <div class="topology-controls">
+          <div class="segmented">
+            <button type="button" :class="{ active: topologyView === 'overview' }" @click="topologyView = 'overview'">总览</button>
+            <button type="button" :class="{ active: topologyView === 'station' }" @click="topologyView = 'station'">局部</button>
+            <button type="button" :class="{ active: topologyView === 'route' }" @click="topologyView = 'route'">进路</button>
+          </div>
+          <select v-model="selectedRouteId" aria-label="进路选择">
+            <option v-for="route in topologyRoutes" :key="route.id" :value="route.id">{{ route.name }}</option>
+          </select>
+          <span>{{ visibleTopologyNodes.length }} 节点 / {{ visibleTopologyEdges.length }} 聚合边 / {{ collapsedSegmentCount }} Seg</span>
+        </div>
+
+        <div class="line-map topology-map">
+          <div v-if="activeLayers.power" class="power-band topology-power-band">
             <span
               v-for="section in powerSections"
               :key="section.id"
@@ -364,46 +620,57 @@ onBeforeUnmount(() => {
             >{{ section.name }}</span>
           </div>
 
-          <div class="rail-line">
+          <svg class="topology-svg" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+            <line
+              v-for="edge in visibleTopologyEdges"
+              :key="edge.id"
+              v-bind="topologyEdgeLine(edge)"
+              :class="topologyEdgeClass(edge)"
+            />
+          </svg>
+
+          <span
+            v-for="edge in visibleTopologyEdges"
+            :key="`${edge.id}-label`"
+            class="topology-edge-label"
+            :style="topologyEdgeLabelStyle(edge)"
+          >
+            {{ edge.detailCount }} Seg
+          </span>
+
+          <button
+            v-for="node in visibleTopologyNodes"
+            :key="node.id"
+            type="button"
+            :class="topologyNodeClass(node)"
+            :style="topologyNodeStyle(node)"
+            @click="selectTopologyNode(node)"
+          >
+            <span class="node-dot"></span>
+            <span class="node-label">{{ node.label }}</span>
+          </button>
+
+          <div v-if="activeLayers.signals" class="signal-layer">
             <span
-              v-for="segment in trackSegments"
-              :key="segment.id"
-              :class="['track-segment', activeLayers.track ? segment.occupancy.toLowerCase() : 'muted']"
-              :style="{ left: `${segment.startPercent}%`, width: `${segment.widthPercent}%` }"
-              :title="`${segment.name} / 限速 ${segment.speedLimitKph}km/h`"
+              v-for="signal in visibleTopologySignals"
+              :key="signal.id"
+              :class="['topology-signal', signal.status, { blink: signal.status === 'red' }]"
+              :style="{ left: `${signal.x}%`, top: `${signal.y}%` }"
             ></span>
           </div>
 
-          <button
-            v-for="station in passengerStations"
-            :key="station.name"
-            type="button"
-            :class="['station-node', stationHeatClass(station), { selected: selectedLocation === station.name }]"
-            :style="{ left: `${8 + passengerStations.indexOf(station) * 17}%` }"
-            @click="selectedLocation = station.name"
-          >
-            <span>{{ station.name }}</span>
-          </button>
-
           <div v-if="activeLayers.trains" class="train-layer">
             <button
-              v-for="train in trains"
+              v-for="train in topologyTrainMarkers"
               :key="train.id"
               type="button"
-              :class="['train-marker', loadClass(train.loadRate), { fault: train.faultCode }]"
-              :style="{ left: `${train.positionPercent}%` }"
+              :class="['train-marker topology-train', loadClass(train.loadRate), { fault: train.faultCode }]"
+              :style="{ left: `${train.x}%`, top: `${train.y}%` }"
               :title="`${train.serviceNo} ${train.speedKph}km/h 满载率${train.loadRate}%`"
             >
-              {{ train.serviceNo }}
+              <img :src="topologyTrainUrl" alt="" class="train-sprite" aria-hidden="true" />
+              <span class="train-code">{{ train.serviceNo }}</span>
             </button>
-          </div>
-
-          <div v-if="activeLayers.signals" class="signal-layer">
-            <span class="signal green" style="left: 18%"></span>
-            <span class="signal yellow" style="left: 37%"></span>
-            <span class="signal red blink" style="left: 56%"></span>
-            <span class="switch reverse" style="left: 67%">↗</span>
-            <span class="signal green" style="left: 82%"></span>
           </div>
         </div>
 
@@ -414,12 +681,12 @@ onBeforeUnmount(() => {
             <div class="progress"><span :class="stationHeatClass(selectedStation)" :style="{ width: `${Math.min(selectedStationLoadRate, 100)}%` }"></span></div>
           </article>
           <article>
-            <h3>故障影响链</h3>
-            <p>牵引三区失电 → T407/T509 降级 → 会展中心断面运力下降 → 预计影响旅客 2140 人</p>
+            <h3>{{ selectedTopologyRoute.name }}</h3>
+            <p>{{ selectedTopologyRoute.description }}，当前高亮 {{ selectedTopologyRoute.segmentIds.length }} 条聚合边。</p>
           </article>
           <article>
             <h3>调度动作</h3>
-            <p>临时限速 S3 已执行，G203-G305 间隔调整待执行</p>
+            <p>临时限速 SEG-113~167 已执行，G203-G305 间隔调整待执行；牵引三区失电影响会展中心断面。</p>
           </article>
         </div>
       </section>

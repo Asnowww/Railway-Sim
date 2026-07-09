@@ -226,6 +226,23 @@ h3 {
   accent-color: #2563eb;
 }
 
+.topology-controls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: -4px 0 12px;
+  color: #5d6b80;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.topology-controls select {
+  min-width: 118px;
+  padding: 6px 10px;
+  font-size: 12px;
+}
+
 .line-map {
   position: relative;
   min-height: 330px;
@@ -236,6 +253,169 @@ h3 {
     linear-gradient(90deg, rgba(37, 99, 235, 0.08) 1px, transparent 1px),
     linear-gradient(180deg, #f8fbff, #edf4fb);
   background-size: 64px 100%, 100% 100%;
+}
+
+.topology-map {
+  min-height: 390px;
+}
+
+.topology-svg {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+.topology-edge {
+  stroke: #22c55e;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  vector-effect: non-scaling-stroke;
+}
+
+.topology-edge.occupied {
+  stroke: #f59e0b;
+  stroke-width: 2.2;
+}
+
+.topology-edge.fault {
+  stroke: #dc2626;
+  stroke-width: 2.8;
+  animation: blink 1s infinite;
+}
+
+.topology-edge.muted {
+  stroke: #b9c5d4;
+}
+
+.topology-edge.selected {
+  stroke: #2563eb;
+  stroke-width: 3.2;
+}
+
+.topology-edge.dimmed {
+  opacity: 0.24;
+}
+
+.topology-edge-label {
+  position: absolute;
+  z-index: 3;
+  transform: translate(-50%, -50%);
+  padding: 2px 5px;
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  border-radius: 6px;
+  color: #64748b;
+  background: rgba(255, 255, 255, 0.86);
+  font-size: 10px;
+  font-weight: 800;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.topology-node {
+  position: absolute;
+  z-index: 5;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  max-width: 122px;
+  min-height: 24px;
+  padding: 3px 6px 3px 3px;
+  transform: translate(-50%, -50%);
+  border: 1px solid transparent;
+  border-radius: 7px;
+  color: #1f2937;
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: 0 6px 14px rgba(20, 32, 54, 0.1);
+}
+
+.topology-node .node-dot {
+  width: 11px;
+  height: 11px;
+  flex: 0 0 11px;
+  border: 2px solid #0f172a;
+  border-radius: 3px;
+  background: #38bdf8;
+}
+
+.topology-node.node-switch .node-dot {
+  background: #f59e0b;
+  transform: rotate(45deg);
+}
+
+.topology-node.node-depot .node-dot {
+  background: #94a3b8;
+}
+
+.topology-node.node-junction .node-dot {
+  background: #22c55e;
+}
+
+.topology-node .node-label {
+  overflow: hidden;
+  font-size: 11px;
+  font-weight: 900;
+  line-height: 1.15;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.topology-node.normal {
+  border-color: rgba(34, 197, 94, 0.5);
+}
+
+.topology-node.busy {
+  border-color: rgba(132, 204, 22, 0.5);
+}
+
+.topology-node.warning {
+  border-color: rgba(245, 158, 11, 0.58);
+  background: #fff7ed;
+}
+
+.topology-node.danger {
+  border-color: rgba(220, 38, 38, 0.58);
+  background: #fef2f2;
+}
+
+.topology-node.selected {
+  outline: 3px solid rgba(37, 99, 235, 0.22);
+}
+
+.topology-power-band {
+  z-index: 2;
+}
+
+.topology-signal {
+  position: absolute;
+  z-index: 6;
+  width: 14px;
+  height: 14px;
+  transform: translate(-50%, -50%);
+  border: 3px solid #243044;
+  border-radius: 50%;
+}
+
+.topology-signal.green {
+  background: #22c55e;
+}
+
+.topology-signal.yellow {
+  background: #f59e0b;
+}
+
+.topology-signal.red {
+  background: #dc2626;
+}
+
+.topology-train {
+  z-index: 7;
+  height: 28px;
+  min-width: 58px;
+  transform: translate(-50%, -50%);
 }
 
 .power-band,
@@ -357,33 +537,69 @@ h3 {
 .train-marker {
   position: absolute;
   top: 196px;
-  min-width: 62px;
-  height: 30px;
+  width: 86px;
+  min-width: 86px;
+  height: 50px;
+  padding: 0;
   transform: translateX(-50%);
-  border: 2px solid #ffffff;
-  border-radius: 8px;
+  border: 0;
+  border-radius: 0;
   color: #ffffff;
+  background: transparent;
   font-size: 12px;
   font-weight: 900;
-  box-shadow: 0 10px 22px rgba(20, 32, 54, 0.18);
+  box-shadow: none;
+  --train-accent: #2563eb;
 }
 
 .train-marker.normal {
-  background: #2563eb;
+  --train-accent: #2563eb;
 }
 
 .train-marker.busy {
-  background: #65a30d;
+  --train-accent: #16a34a;
 }
 
 .train-marker.warning {
-  background: #f59e0b;
+  --train-accent: #f59e0b;
 }
 
 .train-marker.danger,
 .train-marker.fault {
-  background: #dc2626;
+  --train-accent: #dc2626;
   animation: blink 1s infinite;
+}
+
+.train-sprite {
+  position: absolute;
+  left: 50%;
+  top: 2px;
+  width: 80px;
+  height: auto;
+  transform: translateX(-50%);
+  filter: drop-shadow(0 10px 16px rgba(20, 32, 54, 0.2));
+  pointer-events: none;
+}
+
+.train-code {
+  position: absolute;
+  left: 50%;
+  bottom: 0;
+  min-width: 50px;
+  padding: 3px 8px;
+  transform: translateX(-50%);
+  border: 2px solid #ffffff;
+  border-radius: 999px;
+  color: #ffffff;
+  background: var(--train-accent);
+  box-shadow: 0 8px 16px rgba(20, 32, 54, 0.18);
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.topology-train {
+  z-index: 7;
+  transform: translate(-50%, -50%);
 }
 
 .signal {
