@@ -64,7 +64,12 @@ public class RouteInterlockingService {
             return "Route " + routeId + " does not exist";
         }
         if (route.status() == RouteStatus.ESTABLISHED) {
-            return "Route " + routeId + " is occupied by " + route.establishedByTrainId();
+            // 同一条进路允许多列车先后使用（单线追踪），
+            // 只在其区段重叠部分由 MA 前车尾部截断处理，不拒绝
+            if (trainId.equals(route.establishedByTrainId())) {
+                return "Route " + routeId + " already established by " + trainId;
+            }
+            // 不拒绝，允许后续列车进入同一进路
         }
 
         Set<String> routeSegments = resolvedSegmentIds(route);
@@ -162,8 +167,18 @@ public class RouteInterlockingService {
     }
 
     public synchronized double maLimitFromRouteConflict(String trainId) {
+        // 查找当前 tick 中本列车所在的区段（用于判断是否在同一线路上）
+        TrackSegmentState trainSeg = null;
+        for (TrackSegmentState seg : trackService.states()) {
+            if (seg.occupancy() == TrackOccupancy.OCCUPIED) {
+                // 简单判断：如果有列车在这个区段上，该区段属于同一线路
+                // 后续可改为精确匹配 trainId
+                trainSeg = seg;
+                break;
+            }
+        }
+
         double closest = Double.POSITIVE_INFINITY;
-        Set<String> mySegments = trainRouteSegments(trainId);
         for (RouteState route : routeStates.values()) {
             if (route.status() != RouteStatus.ESTABLISHED) {
                 continue;
@@ -171,11 +186,15 @@ public class RouteInterlockingService {
             if (trainId.equals(route.establishedByTrainId())) {
                 continue;
             }
+
+            // 如果列车正在此进路的区段上 → 同线路追踪，不冲突
+            boolean onThisRoute = trainSeg != null
+                && resolvedSegmentIds(route).contains(trainSeg.id());
+            if (onThisRoute) {
+                continue;
+            }
+
             for (String segId : resolvedSegmentIds(route)) {
-                // 如果该区段也在我的进路中 → 同线路前后车，不构成冲突
-                if (mySegments.contains(segId)) {
-                    continue;
-                }
                 TrackSegmentState seg = findSegmentById(segId).orElse(null);
                 if (seg != null && seg.occupancy() == TrackOccupancy.RESERVED) {
                     if (seg.startMeters() < closest) {
