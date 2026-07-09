@@ -162,6 +162,34 @@ POST /api/signal/vision/udp/send?trainId=TR-001&host=18.32.115.28&port=8302
 
 `PUT /vision-state` 是车辆系统到中央信号模块的打包上报入口，可上报 `speedMetersPerSecond`、`accelerationMetersPerSecondSquared`、`accelerationPercent`、`headPositionMeters`、`headSegmentId`、`directionCode`、`runCondition`、`headlightState`、`operationCode`、`departureCountdownSeconds`。UDP 发送时，本车字段优先使用该缓存，缺失时回退到 `TrainState`；信号机和道岔分别来自 `SignalState` 与 `SwitchState`。
 
+### 机房局域系统协议适配
+
+现场 TCP、UDP 和供电点表链路统一由 `com.railwaysim.localnet` 管理。默认配置全部关闭，只有本地 `application-local.yml` 显式设置 `railway.simulation.localnet.enabled=true` 且具体适配器 `enabled=true` 后才会绑定端口或连接机房设备。
+
+```http
+GET /api/localnet/adapters
+GET /api/localnet/adapters/{adapterId}
+POST /api/localnet/adapters/{adapterId}/replay
+```
+
+适配器：
+
+| adapterId | 协议族 | 说明 |
+|---|---|---|
+| `signal-udp` | `SIGNAL` | 信号系统与中央数据库节点 UDP 报文适配。 |
+| `driver-cab-tcp` | `DRIVER_CAB` | 司机台 PLC、网络屏、信号屏 TCP 适配。 |
+| `power-points` | `POWER_POINTS` | 供电现场点表适配。 |
+
+`GET /api/localnet/adapters` 返回每条链路的 `configured`、`enabled`、`running`、收发计数、错误计数、最近错误和最近报文摘要。该接口只用于联调诊断，不替代业务 REST。
+
+`POST /api/localnet/adapters/{adapterId}/replay` 使用 `application/octet-stream`，不打开真实 socket，只把报文送入同一解析和领域映射路径：
+
+- `signal-udp` 支持完整 `0xff 0xf0/0xf1` 帧，以及实时 ADD/DELETE/CLEAR 生命周期包。
+- `driver-cab-tcp` 支持 46 字节 PLC 输入包回放。
+- `power-points` 使用文本 `pointId=value`，例如 `ISO_P01_A_STATE=OPEN`。
+
+协议报文审计写入 `protocol_packet_log`，但审计是旁路能力；数据库写入失败不会阻塞现场链路或仿真 tick。
+
 ### 获取供电状态
 
 ```http

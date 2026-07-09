@@ -308,7 +308,7 @@ public class DispatchService {
                 }
                 case "EXTEND_DWELL", "SHORTEN_DWELL" -> {
                     int delta = payloadInt(command, "deltaDwellSec", 0);
-                    int targetDwell = adjustedDwellTarget(delta);
+                    int targetDwell = delta < 0 ? properties.getMinDwellSec() : adjustedDwellTarget(delta);
                     if (isDwelling(train)) {
                         if (delta >= 0 && train.dwellElapsedSeconds() < targetDwell) {
                             holdTrain = true;

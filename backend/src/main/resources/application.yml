@@ -60,6 +60,30 @@ railway:
       base-url: http://localhost:9200
       timeout-millis: 300
       auto-bootstrap: true
+    localnet:
+      enabled: false
+      audit-enabled: true
+      recent-packet-limit: 20
+      signal:
+        enabled: false
+        bind-host: 0.0.0.0
+        bind-port: 0
+        remote-host: 127.0.0.1
+        remote-port: 0
+        send-interval-millis: 100
+        max-trains: 20
+        shadow-comparison: true
+      driver-cab:
+        enabled: false
+        reconnect-millis: 1000
+        connections: []
+      power-points:
+        enabled: false
+        point-table-path: ../config/power-point-table-example.yaml
+        driver: LOCAL_SIM
+        http-base-url: http://localhost:9200
+        poll-interval-millis: 500
+        timeout-millis: 300
     external-simulator:
       mode: LOCAL
       max-trains: 20

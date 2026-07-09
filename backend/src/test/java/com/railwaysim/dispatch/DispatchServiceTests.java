@@ -79,7 +79,8 @@ class DispatchServiceTests {
 
     @Test
     void headwayAdjustCommandCanReleaseMinimumDwellForShorterHeadway() {
-        dispatchService.submit(commandWithPayload("TR-1", "HEADWAY_ADJUST", Map.of("targetHeadwaySec", 200)));
+        int shorterHeadway = Math.max(1, dispatchService.currentPlan().departureIntervalSec() - 1);
+        dispatchService.submit(commandWithPayload("TR-1", "HEADWAY_ADJUST", Map.of("targetHeadwaySec", shorterHeadway)));
 
         DispatchConstraint constraint = dispatchService.previewConstraintsForTrains(List.of(dwellingTrain("TR-1", 15))).get(0);
 

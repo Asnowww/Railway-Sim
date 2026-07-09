@@ -1,0 +1,59 @@
+points:
+  - pointId: P01_VOLTAGE
+    name: P01 contact rail voltage
+    direction: READ
+    dataType: DOUBLE
+    address: SIM:P01:VOLTAGE
+    scale: 1.0
+    defaultValue: "1500"
+    targetType: THIRD_RAIL_SECTION
+    targetId: P01
+    targetField: voltage
+
+  - pointId: P01_CURRENT
+    name: P01 traction current
+    direction: READ
+    dataType: DOUBLE
+    address: SIM:P01:CURRENT
+    scale: 1.0
+    defaultValue: "0"
+    targetType: THIRD_RAIL_SECTION
+    targetId: P01
+    targetField: current
+
+  - pointId: ISO_P01_A_STATE
+    name: P01 upstream isolator state
+    direction: BIDIRECTIONAL
+    dataType: BOOLEAN
+    address: SIM:ISO-P01-A:STATE
+    scale: 1.0
+    defaultValue: "CLOSED"
+    targetType: ISOLATOR
+    targetId: ISO-P01-A
+    targetField: state
+    operationType: SET_ISOLATOR
+    desiredState: CLOSED
+
+  - pointId: SS01_DCB_TRIP
+    name: SS01 DC breaker trip command
+    direction: WRITE
+    dataType: BOOLEAN
+    address: SIM:SS01-DCB:TRIP
+    scale: 1.0
+    defaultValue: "OPEN"
+    targetType: DC_BREAKER
+    targetId: SS01-DCB
+    targetField: state
+    operationType: SET_BREAKER
+    desiredState: TRIPPED
+
+  - pointId: SCP_P01_POTENTIAL
+    name: P01 stray current potential
+    direction: READ
+    dataType: DOUBLE
+    address: SIM:SCP-P01:POTENTIAL
+    scale: 1.0
+    defaultValue: "0"
+    targetType: STRAY_CURRENT
+    targetId: SCP-P01
+    targetField: potential
