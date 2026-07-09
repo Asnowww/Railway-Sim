@@ -178,7 +178,7 @@ class SignalServiceTests {
         ss.calculateAuthorities(
             List.of(train),
             ts.constraintsForTrains(List.of(train)),
-            List.of(new DispatchConstraint("TR-1", true, 1.0, 5.0, "STOP"))
+            List.of(new DispatchConstraint("TR-1", true, 1.0, 5.0, false, "STOP"))
         );
 
         // holdTrain=true sets speed → 0 via applyToSpeedLimit
@@ -203,7 +203,7 @@ class SignalServiceTests {
         ss.calculateAuthorities(
             List.of(train),
             ts.constraintsForTrains(List.of(train)),
-            List.of(new DispatchConstraint("TR-1", false, 0.5, null, "HALF_SPEED"))
+            List.of(new DispatchConstraint("TR-1", false, 0.5, null, false, "HALF_SPEED"))
         );
 
         // speed factor 0.5 applied to safeBrakingSpeed
@@ -314,7 +314,8 @@ class SignalServiceTests {
 
     private static OperationalPowerData emptyPowerData() {
         return new OperationalPowerData(
-            1500, 1000, 900, 3000, 3500, 0.02, true, "BRAKE_RESISTOR", List.of()
+            1500, 1000, 900, 3000, 3500, 0.02, true, "BRAKE_RESISTOR",
+            List.of(), List.of(), List.of(), List.of(), List.of(), List.of()
         );
     }
 
