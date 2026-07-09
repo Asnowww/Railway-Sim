@@ -1,5 +1,6 @@
 package com.railwaysim.train;
 
+import com.railwaysim.dispatch.DispatchConstraint;
 import com.railwaysim.infrastructure.StaticInfrastructureCatalog;
 import com.railwaysim.power.PowerConstraint;
 import com.railwaysim.signal.MovementAuthority;
@@ -80,12 +81,15 @@ public class TrainManager {
         TickContext context,
         List<MovementAuthority> authorities,
         List<TrackConstraint> trackConstraints,
+        List<DispatchConstraint> dispatchConstraints,
         List<PowerConstraint> powerConstraints
     ) {
         Map<String, MovementAuthority> authorityByTrain = authorities.stream()
             .collect(Collectors.toMap(MovementAuthority::trainId, Function.identity(), (left, right) -> right));
         Map<String, TrackConstraint> trackByTrain = trackConstraints.stream()
             .collect(Collectors.toMap(TrackConstraint::trainId, Function.identity(), (left, right) -> right));
+        Map<String, DispatchConstraint> dispatchByTrain = dispatchConstraints.stream()
+            .collect(Collectors.toMap(DispatchConstraint::trainId, Function.identity(), (left, right) -> right));
         Map<String, PowerConstraint> powerByTrain = powerConstraints.stream()
             .collect(Collectors.toMap(PowerConstraint::trainId, Function.identity(), (left, right) -> right));
         advanceControlSessions(authorityByTrain, powerByTrain);
@@ -97,6 +101,7 @@ public class TrainManager {
                 context,
                 authorityByTrain.get(train.id()),
                 trackByTrain.get(train.id()),
+                dispatchByTrain.get(train.id()),
                 powerByTrain.get(train.id())
             )).physicsInput())
             .toList();

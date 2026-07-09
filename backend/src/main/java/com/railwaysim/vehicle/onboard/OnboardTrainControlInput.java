@@ -1,5 +1,6 @@
 package com.railwaysim.vehicle.onboard;
 
+import com.railwaysim.dispatch.DispatchConstraint;
 import com.railwaysim.power.PowerConstraint;
 import com.railwaysim.signal.MovementAuthority;
 import com.railwaysim.simulation.TickContext;
@@ -11,6 +12,7 @@ public record OnboardTrainControlInput(
     TickContext context,
     MovementAuthority authority,
     TrackConstraint track,
+    DispatchConstraint dispatch,
     PowerConstraint power
 ) {
     public OnboardTrainControlInput {

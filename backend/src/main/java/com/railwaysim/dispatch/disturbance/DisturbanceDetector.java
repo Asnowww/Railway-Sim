@@ -161,9 +161,9 @@ public class DisturbanceDetector {
             case DWELL_EXTENDED -> profile.dwellDeviationSec() <= properties.getDwellToleranceSec() * recoverFactor;
             case CROWDING -> profile.loadRate() <= properties.getCrowdingLoadRate() * recoverFactor;
             case HEADWAY_SHRINK -> profile.headwayActualSec() != null
-                && profile.headwayActualSec() >= plan.departureIntervalSec() * properties.getHeadwayShrinkRatio() / recoverFactor;
+                && profile.headwayActualSec() >= plan.departureIntervalSec() * properties.getHeadwayShrinkRatio();
             case HEADWAY_EXPAND -> profile.headwayActualSec() != null
-                && profile.headwayActualSec() <= plan.departureIntervalSec() * properties.getHeadwayExpandRatio() * recoverFactor;
+                && profile.headwayActualSec() <= plan.departureIntervalSec() * properties.getHeadwayExpandRatio();
             case DEPARTURE_DELAY -> true;
         };
     }

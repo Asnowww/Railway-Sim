@@ -241,7 +241,7 @@ public class DispatchService {
         }
 
         List<DispatchConstraint> constraints = trains.stream()
-            .map(train -> constraintForTrain(train.id(), commandsByTrain.getOrDefault(train.id(), List.of())))
+            .map(train -> constraintForTrain(train, commandsByTrain.getOrDefault(train.id(), List.of())))
             .toList();
 
         if (consumeQueuedCommands) {
@@ -283,14 +283,15 @@ public class DispatchService {
         commandQueue.enqueue(remaining);
     }
 
-    private DispatchConstraint constraintForTrain(String trainId, List<DispatchCommand> commands) {
+    private DispatchConstraint constraintForTrain(TrainState train, List<DispatchCommand> commands) {
         if (commands.isEmpty()) {
-            return DispatchConstraint.none(trainId);
+            return DispatchConstraint.none(train.id());
         }
 
         boolean holdTrain = false;
         double speedFactor = 1.0;
         Double targetSpeed = null;
+        boolean releaseStationStop = false;
         List<String> reasons = new ArrayList<>();
 
         for (DispatchCommand command : commands) {
@@ -298,6 +299,33 @@ public class DispatchService {
                 case "HOLD", "HOLD_TRAIN" -> {
                     holdTrain = true;
                     reasons.add(reason(command));
+                }
+                case "EXTEND_DWELL", "SHORTEN_DWELL" -> {
+                    int delta = payloadInt(command, "deltaDwellSec", 0);
+                    int targetDwell = adjustedDwellTarget(delta);
+                    if (isDwelling(train)) {
+                        if (delta >= 0 && train.dwellElapsedSeconds() < targetDwell) {
+                            holdTrain = true;
+                        } else if (delta < 0 && train.dwellElapsedSeconds() >= targetDwell) {
+                            releaseStationStop = true;
+                        }
+                    }
+                    reasons.add(reason(command) + "(targetDwell=" + targetDwell + "s)");
+                }
+                case "HEADWAY_ADJUST" -> {
+                    int targetHeadway = payloadInt(command, "targetHeadwaySec", currentPlan.departureIntervalSec());
+                    if (targetHeadway < currentPlan.departureIntervalSec()) {
+                        if (isDwelling(train) && train.dwellElapsedSeconds() >= properties.getMinDwellSec()) {
+                            releaseStationStop = true;
+                        }
+                    } else if (targetHeadway > currentPlan.departureIntervalSec()) {
+                        if (isDwelling(train) && train.dwellElapsedSeconds() < properties.getMaxDwellSec()) {
+                            holdTrain = true;
+                        } else {
+                            speedFactor = Math.min(speedFactor, 0.9);
+                        }
+                    }
+                    reasons.add(reason(command) + "(targetHeadway=" + targetHeadway + "s)");
                 }
                 case "SPEED_FACTOR", "LIMIT_FACTOR" -> {
                     speedFactor = Math.min(speedFactor, payloadDouble(command, "detail", 1.0));
@@ -311,19 +339,36 @@ public class DispatchService {
                     reasons.add(reason(command));
                 }
                 case "SPEED_BIAS" -> {
-                    speedFactor = Math.min(speedFactor, payloadDouble(command, "speedBiasRatio", 1.0));
+                    double ratio = payloadDouble(command, "speedBiasRatio", 1.0);
+                    if (ratio > 1.0 && isDwelling(train) && train.dwellElapsedSeconds() >= properties.getMinDwellSec()) {
+                        releaseStationStop = true;
+                    } else {
+                        speedFactor = Math.min(speedFactor, ratio);
+                    }
                     reasons.add(reason(command));
                 }
                 default -> reasons.add(reason(command));
             }
         }
         return new DispatchConstraint(
-            trainId,
+            train.id(),
             holdTrain,
             Math.max(0, Math.min(1, speedFactor)),
             targetSpeed,
+            releaseStationStop && !holdTrain,
             String.join("; ", reasons)
         );
+    }
+
+    private boolean isDwelling(TrainState train) {
+        return "DWELLING".equals(train.status())
+            || (train.currentStationId() != null && !train.currentStationId().isBlank())
+            || train.dwellElapsedSeconds() > 0;
+    }
+
+    private int adjustedDwellTarget(int deltaSeconds) {
+        int target = currentPlan.defaultDwellTimeSec() + deltaSeconds;
+        return Math.max(properties.getMinDwellSec(), Math.min(properties.getMaxDwellSec(), target));
     }
 
     private String reason(DispatchCommand command) {
@@ -350,6 +395,10 @@ public class DispatchService {
             }
         }
         return fallback;
+    }
+
+    private int payloadInt(DispatchCommand command, String key, int fallback) {
+        return (int) Math.round(payloadDouble(command, key, fallback));
     }
 
     private String payloadString(DispatchCommand command, String key) {

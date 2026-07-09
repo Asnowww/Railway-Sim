@@ -55,10 +55,10 @@ class TrainManagerLifecycleTests {
         assertThat(detaching.controlSessionState()).isEqualTo("SIGNAL_DETACHING");
         assertThat(manager.state("TR-003")).isPresent();
 
-        manager.tickAll(tick(1), List.of(), List.of(), List.of());
+        manager.tickAll(tick(1), List.of(), List.of(), List.of(), List.of());
         assertThat(manager.state("TR-003")).isPresent();
 
-        manager.tickAll(tick(2), List.of(), List.of(), List.of());
+        manager.tickAll(tick(2), List.of(), List.of(), List.of(), List.of());
         assertThat(manager.state("TR-003")).isEmpty();
     }
 
