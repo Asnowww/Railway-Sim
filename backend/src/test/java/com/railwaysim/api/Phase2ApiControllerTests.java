@@ -7,6 +7,11 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.railwaysim.vehicle.external.ExternalTrainDirection;
+import com.railwaysim.vehicle.drivercab.DriverCabDirectionHandleState;
+import com.railwaysim.vehicle.drivercab.DriverCabDoorModeSwitch;
+import com.railwaysim.vehicle.drivercab.DriverCabMasterHandleState;
+import com.railwaysim.vehicle.drivercab.DriverCabPlcCodec;
+import com.railwaysim.vehicle.drivercab.DriverCabPlcInputPacket;
 import com.railwaysim.vehicle.protocol.SignalTrainContentCodec;
 import com.railwaysim.vehicle.protocol.TrainOperationalTelemetry;
 import java.util.List;
@@ -231,5 +236,55 @@ class Phase2ApiControllerTests {
             .andExpect(jsonPath("$[0].serviceBrakeCommand").value(true))
             .andExpect(jsonPath("$[0].emergencyBrakeCommand").value(true))
             .andExpect(jsonPath("$[0].reason").value("NO_MOVEMENT_AUTHORITY"));
+    }
+
+    @Test
+    void driverCabPlcPacketUpdatesSingleTrainCabState() throws Exception {
+        mockMvc.perform(post("/api/simulation/reset"))
+            .andExpect(status().isOk());
+        DriverCabPlcCodec codec = new DriverCabPlcCodec();
+        byte[] inputPayload = codec.encodeInput(new DriverCabPlcInputPacket(
+            true,
+            true,
+            false,
+            true,
+            true,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            DriverCabDoorModeSwitch.MANUAL,
+            false,
+            true,
+            false,
+            true,
+            true,
+            DriverCabDirectionHandleState.FORWARD,
+            DriverCabMasterHandleState.FAST_BRAKE,
+            0,
+            90
+        ));
+
+        mockMvc.perform(post("/api/vehicle/driver-cabs/TR-001/plc-input")
+                .contentType(MediaType.APPLICATION_OCTET_STREAM)
+                .content(inputPayload))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.trainId").value("TR-001"))
+            .andExpect(jsonPath("$.faultCode").value("DRIVER_CAB_EMERGENCY_BRAKE"))
+            .andExpect(jsonPath("$.driverConsoleState.doorModeSwitchState").value("MANUAL"))
+            .andExpect(jsonPath("$.driverConsoleState.atoStartFlag").value(true))
+            .andExpect(jsonPath("$.driverConsoleState.modeDowngradeConfirmFlag").value(true))
+            .andExpect(jsonPath("$.driverConsoleState.masterHandleState").value("FAST_BRAKE"));
+
+        mockMvc.perform(get("/api/vehicle/driver-cabs/TR-001/state"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.doorModeSwitchState").value("MANUAL"))
+            .andExpect(jsonPath("$.brakeNotchPercent").value(90));
+
+        mockMvc.perform(get("/api/vehicle/driver-cabs/TR-001/plc-output"))
+            .andExpect(status().isOk());
     }
 }

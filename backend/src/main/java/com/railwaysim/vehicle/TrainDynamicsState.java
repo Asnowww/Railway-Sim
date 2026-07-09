@@ -7,6 +7,7 @@ public enum TrainDynamicsState {
     MA_BRAKE,
     STATION_STOPPED,
     STATION_BRAKE,
+    DEPARTING_STATION,
     OVERSPEED_BRAKE,
     POWER_DERATED,
     OVERLOAD_DERATED,

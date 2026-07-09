@@ -57,6 +57,7 @@
 | 轨道限速 | `TrackConstraint.speedLimitMetersPerSecond` 进入车辆控制。 |
 | 坡度影响制动距离 | `TrackConstraint.gradient` 进入 `OnboardTrainSubsystem.stoppingDistanceMeters(...)`。 |
 | 进站制动 | `TrackConstraint.stationDistanceMeters` 进入 `STATION_BRAKE/STATION_STOPPED`。 |
+| 离站保护 | 调度/信号释放停站后，车辆端短距离屏蔽本站 `stationDistance`，输出 `DEPARTING_STATION`，避免重复捕获同一站。 |
 | 曲线半径 | `TrackConstraint.curveRadiusMeters` 进入车辆物理输入，当前简单动力学模型暂未深算轮轨耦合。 |
 | 轨道故障 | 轨道系统限制 MA/占用与约束；车辆侧只消费最终约束。 |
 

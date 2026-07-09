@@ -66,6 +66,23 @@ class DispatchServiceTests {
     }
 
     @Test
+    void defaultDwellTargetReleasesDwellingTrainAfterPlannedStop() {
+        int targetDwell = dispatchService.currentPlan().defaultDwellTimeSec();
+
+        DispatchConstraint holding = dispatchService.previewConstraintsForTrains(
+            List.of(dwellingTrain("TR-1", Math.max(0, targetDwell - 1)))
+        ).get(0);
+        DispatchConstraint released = dispatchService.previewConstraintsForTrains(
+            List.of(dwellingTrain("TR-1", targetDwell))
+        ).get(0);
+
+        assertThat(holding.holdTrain()).isTrue();
+        assertThat(holding.releaseStationStop()).isFalse();
+        assertThat(released.holdTrain()).isFalse();
+        assertThat(released.releaseStationStop()).isTrue();
+    }
+
+    @Test
     void shortenDwellCommandReleasesStationStopAfterAdjustedTarget() {
         dispatchService.submit(commandWithPayload("TR-1", "SHORTEN_DWELL", Map.of("deltaDwellSec", -5)));
 
@@ -78,7 +95,8 @@ class DispatchServiceTests {
 
     @Test
     void headwayAdjustCommandCanReleaseMinimumDwellForShorterHeadway() {
-        dispatchService.submit(commandWithPayload("TR-1", "HEADWAY_ADJUST", Map.of("targetHeadwaySec", 200)));
+        int shorterHeadway = Math.max(1, dispatchService.currentPlan().departureIntervalSec() - 1);
+        dispatchService.submit(commandWithPayload("TR-1", "HEADWAY_ADJUST", Map.of("targetHeadwaySec", shorterHeadway)));
 
         DispatchConstraint constraint = dispatchService.previewConstraintsForTrains(List.of(dwellingTrain("TR-1", 15))).get(0);
 

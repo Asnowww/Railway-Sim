@@ -121,9 +121,38 @@ class OnboardTrainSubsystemControlTests {
             new PowerConstraint("TR-001", "P01", 1500, 3_200_000, true)
         );
 
-        assertThat(input.dynamicsState()).isEqualTo("ACCELERATING");
+        assertThat(input.dynamicsState()).isEqualTo("DEPARTING_STATION");
         assertThat(input.stationDistanceMeters()).isGreaterThan(100_000);
         assertThat(input.tractionCommand()).isGreaterThan(0);
+    }
+
+    @Test
+    void releasedStationWindowPreventsSameStationRecaptureDuringDeparture() {
+        OnboardTrainSubsystemManager manager = manager();
+        DispatchConstraint release = new DispatchConstraint("TR-001", false, 1.0, null, true, "SCHEDULE_DWELL_COMPLETE");
+
+        VehiclePhysicsInput releaseTick = control(
+            manager,
+            dwellingTrainState(20),
+            null,
+            new TrackConstraint("TR-001", "SEG-1", 13.33, 0, 1_000, 4),
+            release,
+            new PowerConstraint("TR-001", "P01", 1500, 3_200_000, true)
+        );
+        VehiclePhysicsInput nextTickStillInsideStationWindow = control(
+            manager,
+            departedNearStationState(1_246, 0.25),
+            null,
+            new TrackConstraint("TR-001", "SEG-1", 13.33, 0, 1_000, 4),
+            new PowerConstraint("TR-001", "P01", 1500, 3_200_000, true)
+        );
+
+        assertThat(releaseTick.dynamicsState()).isEqualTo("DEPARTING_STATION");
+        assertThat(releaseTick.stationDistanceMeters()).isGreaterThan(100_000);
+        assertThat(nextTickStillInsideStationWindow.dynamicsState()).isEqualTo("DEPARTING_STATION");
+        assertThat(nextTickStillInsideStationWindow.stationDistanceMeters()).isGreaterThan(100_000);
+        assertThat(nextTickStillInsideStationWindow.tractionCommand()).isGreaterThan(0);
+        assertThat(nextTickStillInsideStationWindow.brakeCommand()).isZero();
     }
 
     @Test
@@ -335,6 +364,64 @@ class OnboardTrainSubsystemControlTests {
             "S02",
             dwellElapsedSeconds,
             null
+        );
+    }
+
+    private TrainState departedNearStationState(double positionMeters, double speedMetersPerSecond) {
+        return new TrainState(
+            "TR-001",
+            "1",
+            "TR-001",
+            "IN_SERVICE",
+            "ATTACHED",
+            "ATTACHED",
+            "TEST",
+            0,
+            "UNKNOWN",
+            positionMeters,
+            speedMetersPerSecond,
+            120,
+            positionMeters,
+            Math.max(0, positionMeters - 120),
+            0.42,
+            VehicleLoadPolicy.loadMassFromRate(0.42),
+            "NORMAL",
+            VehicleLoadPolicy.NOMINAL_TRACTION_UNITS,
+            VehicleLoadPolicy.NOMINAL_BRAKE_UNITS,
+            "NONE",
+            "RUNNING",
+            "ATO",
+            false,
+            "CLOSED_LOCKED",
+            "IDLE",
+            "RELEASED",
+            "NORMAL",
+            true,
+            true,
+            "PASS",
+            0,
+            "NORMAL",
+            "GOOD",
+            "ACCELERATING",
+            "SCHEDULE_DWELL_COMPLETE",
+            13.33,
+            0,
+            1_000,
+            4,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            "OK",
+            null,
+            0,
+            Instant.now().toString()
         );
     }
 }

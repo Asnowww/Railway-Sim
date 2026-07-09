@@ -4,6 +4,9 @@ import com.railwaysim.signal.MovementAuthority;
 import com.railwaysim.signal.SignalService;
 import com.railwaysim.signal.vehicle.SignalVehicleCommand;
 import com.railwaysim.signal.vehicle.VehicleSignalStatus;
+import com.railwaysim.signal.vision.VisionVehicleState;
+import com.railwaysim.signal.vision.VisionVehicleStateRequest;
+import com.railwaysim.signal.vision.VisionVehicleStateStore;
 import com.railwaysim.train.TrainManager;
 import com.railwaysim.train.TrainState;
 import com.railwaysim.vehicle.protocol.SignalTrainContentCodec;
@@ -16,7 +19,9 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.CrossOrigin;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -30,11 +35,17 @@ public class SignalVehicleInterfaceController {
 
     private final TrainManager trainManager;
     private final SignalService signalService;
+    private final VisionVehicleStateStore visionVehicleStateStore;
     private final SignalTrainContentCodec trainContentCodec = new SignalTrainContentCodec();
 
-    public SignalVehicleInterfaceController(TrainManager trainManager, SignalService signalService) {
+    public SignalVehicleInterfaceController(
+        TrainManager trainManager,
+        SignalService signalService,
+        VisionVehicleStateStore visionVehicleStateStore
+    ) {
         this.trainManager = trainManager;
         this.signalService = signalService;
+        this.visionVehicleStateStore = visionVehicleStateStore;
     }
 
     @GetMapping("/statuses")
@@ -57,6 +68,19 @@ public class SignalVehicleInterfaceController {
     public List<VehicleSignalStatus> applyTelemetry(@RequestBody List<TrainOperationalTelemetry> telemetries) {
         applyOperationalTelemetry(telemetries);
         return statuses();
+    }
+
+    @PutMapping("/{trainId}/vision-state")
+    public VisionVehicleState putVisionState(
+        @PathVariable String trainId,
+        @RequestBody VisionVehicleStateRequest request
+    ) {
+        return visionVehicleStateStore.put(trainId, request);
+    }
+
+    @GetMapping("/vision-states")
+    public List<VisionVehicleState> visionStates() {
+        return visionVehicleStateStore.states();
     }
 
     @PostMapping(

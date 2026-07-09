@@ -1,10 +1,15 @@
 package com.railwaysim.train;
 
+import com.railwaysim.infrastructure.OperationalLineData;
 import com.railwaysim.vehicle.TrainStateReport;
 import com.railwaysim.vehicle.VehicleLoadPolicy;
 import com.railwaysim.vehicle.VehiclePhysicsOutput;
+import com.railwaysim.vehicle.drivercab.DriverCabMasterHandleState;
+import com.railwaysim.vehicle.drivercab.DriverCabPlcInputPacket;
+import com.railwaysim.vehicle.drivercab.DriverCabStateSnapshot;
 import com.railwaysim.vehicle.protocol.TrainOperationalTelemetry;
 import java.time.Instant;
+import java.util.List;
 
 public class TrainEntity {
 
@@ -52,18 +57,32 @@ public class TrainEntity {
     private String currentStationId;
     private int dwellElapsedSeconds;
     private String lastDepartureAt;
+    private DriverCabStateSnapshot driverCabState;
+    private final List<OperationalLineData.StationDefinition> stations;
 
     public TrainEntity(String id, String routeId, double positionMeters, double lengthMeters) {
         this(id, routeId, positionMeters, lengthMeters, 0.35);
     }
 
     public TrainEntity(String id, String routeId, double positionMeters, double lengthMeters, double loadRate) {
+        this(id, routeId, positionMeters, lengthMeters, loadRate, null);
+    }
+
+    public TrainEntity(
+        String id,
+        String routeId,
+        double positionMeters,
+        double lengthMeters,
+        double loadRate,
+        OperationalLineData lineData
+    ) {
         this.id = id;
         this.routeId = routeId;
         this.positionMeters = positionMeters;
         this.lengthMeters = lengthMeters;
         this.loadRate = loadRate;
         this.loadMassKg = VehicleLoadPolicy.loadMassFromRate(loadRate);
+        this.stations = lineData == null ? List.of() : lineData.stations();
     }
 
     public void applyPhysicsOutput(VehiclePhysicsOutput output, TrainStateReport report) {
@@ -187,7 +206,8 @@ public class TrainEntity {
             effectiveFaultCode,
             currentStationId,
             dwellElapsedSeconds,
-            lastDepartureAt
+            lastDepartureAt,
+            driverCabState
         );
     }
 
@@ -215,6 +235,77 @@ public class TrainEntity {
             availableOperationMode = "NO_DEPARTURE";
         }
         vehicleFaultSpeedLimitMetersPerSecond = telemetry.faultSpeedLimitMetersPerSecond();
+    }
+
+    public void applyDriverCabInput(DriverCabPlcInputPacket input) {
+        if (input == null) {
+            throw new IllegalArgumentException("driver cab PLC input is required");
+        }
+        driverCabState = DriverCabStateSnapshot.fromInput(input, Instant.now());
+        if (input.openDoorRequested()) {
+            doorState = "OPEN";
+        } else if (input.closeDoorRequested()) {
+            doorState = "CLOSED_LOCKED";
+        }
+
+        if (!input.keySwitchLocked()) {
+            operationMode = "STANDBY";
+            tractionState = "IDLE";
+            brakeState = speedMetersPerSecond > 0.1 ? "SERVICE" : "RELEASED";
+            tractionAvailable = false;
+            selfCheckStatus = "FAIL";
+            faultLevel = Math.max(faultLevel, 2);
+            availableOperationMode = "NO_DEPARTURE";
+            vehicleProtectionReason = "DRIVER_CAB_KEY_OFF";
+            faultCode = "DRIVER_CAB_KEY_OFF";
+            return;
+        }
+
+        if ("DRIVER_CAB_KEY_OFF".equals(faultCode)) {
+            faultCode = "OK";
+            faultLevel = 0;
+            selfCheckStatus = "PASS";
+            availableOperationMode = "NORMAL";
+            tractionAvailable = true;
+            vehicleProtectionReason = "NONE";
+        }
+
+        if (input.emergencyBrakeRequested()) {
+            operationMode = "ATP_BRAKE";
+            brakeState = "EMERGENCY";
+            tractionState = "IDLE";
+            status = "EMERGENCY_BRAKE";
+            faultCode = "DRIVER_CAB_EMERGENCY_BRAKE";
+            faultLevel = Math.max(faultLevel, 3);
+            availableOperationMode = "NO_DEPARTURE";
+            vehicleProtectionReason = "DRIVER_CAB_EMERGENCY_BRAKE";
+            return;
+        }
+
+        if (input.automaticTurnbackFlag()) {
+            operationMode = "AR";
+        } else if (input.atoStartFlag()) {
+            operationMode = "ATO";
+        } else if (input.masterHandleState() != DriverCabMasterHandleState.ZERO) {
+            operationMode = "DEGRADED";
+        }
+
+        switch (input.masterHandleState()) {
+            case TRACTION -> {
+                tractionState = "APPLYING";
+                brakeState = "RELEASED";
+            }
+            case BRAKE -> {
+                tractionState = "IDLE";
+                brakeState = "SERVICE";
+            }
+            default -> {
+                if (!"EMERGENCY".equals(brakeState)) {
+                    tractionState = "IDLE";
+                    brakeState = "RELEASED";
+                }
+            }
+        }
     }
 
     public void injectFault(String faultCode) {
@@ -247,6 +338,18 @@ public class TrainEntity {
     }
 
     private String inferStationId() {
+        if (!stations.isEmpty()) {
+            String nearest = null;
+            double nearestDistance = Double.MAX_VALUE;
+            for (OperationalLineData.StationDefinition station : stations) {
+                double distance = Math.abs(positionMeters - station.centerMeters());
+                if (distance < nearestDistance) {
+                    nearestDistance = distance;
+                    nearest = station.id();
+                }
+            }
+            return nearestDistance <= 30 ? nearest : null;
+        }
         double[] stationPositions = {0, 1250, 2500, 3750, 5000};
         String[] stationIds = {"S01", "S02", "S03", "S04", "S05"};
         String nearest = null;

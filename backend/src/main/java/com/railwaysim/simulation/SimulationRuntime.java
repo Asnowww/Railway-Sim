@@ -5,6 +5,7 @@ import com.railwaysim.config.SimulationProperties;
 import com.railwaysim.dispatch.DispatchCommand;
 import com.railwaysim.dispatch.DispatchConstraint;
 import com.railwaysim.dispatch.DispatchService;
+import com.railwaysim.dispatch.command.CommandStatus;
 import com.railwaysim.dispatch.monitor.StationInfo;
 import com.railwaysim.dispatch.plan.CurrentRunPlan;
 import com.railwaysim.dispatch.integration.DispatchCommandPublisher;
@@ -25,6 +26,7 @@ import com.railwaysim.train.TrainState;
 import com.railwaysim.vehicle.VehiclePhysicsOutput;
 import com.railwaysim.vehicle.external.ExternalTrainDirection;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -167,6 +169,8 @@ public class SimulationRuntime {
             dispatchCommandPublisher.publish(generatedCommands);
         }
 
+        // 保存调度约束快照（消费前），供完成检查使用
+        List<DispatchConstraint> dispatchConstraintsPreview = dispatchService.previewConstraintsForTrains(beforeTrainStates);
         List<DispatchConstraint> dispatchConstraints = dispatchService.constraintsForTrains(beforeTrainStates);
         signalService.calculateAuthorities(beforeTrainStates, trackConstraints, dispatchConstraints);
         List<PowerConstraint> powerConstraints = powerService.constraintsForTrains(beforeTrainStates);
@@ -181,6 +185,7 @@ public class SimulationRuntime {
         powerService.updateFromVehicleOutputs(outputs);
         trackService.updateOccupancy(trainManager.states());
         signalService.recomputeSignalAspects(); // 基于最终区段占用刷新灯色
+        checkDispatchCompletion(dispatchConstraintsPreview); // 信号→调度反馈：指令是否完成
         lastEvents = eventBus.drain();
         persistIfDue(context);
 
@@ -241,6 +246,51 @@ public class SimulationRuntime {
             }
         }
         return command.reason();
+    }
+
+    /**
+     * 信号→调度反馈：检查调度约束是否已完成执行。
+     *
+     * <p>逻辑：列车实际速度已接近目标限速（差值<0.5m/s）→ 对应指令标记 COMPLETED。
+     * 这解决了"调度只看车状态看不出是哪个指令导致的变化"的问题。
+     */
+    private void checkDispatchCompletion(List<DispatchConstraint> constraints) {
+        List<DispatchCommand> completedCommands = new ArrayList<>();
+        List<TrainState> trains = trainManager.states();
+        for (DispatchConstraint constraint : constraints) {
+            if (constraint.reason().contains("NORMAL")) continue;
+            TrainState train = trains.stream()
+                .filter(t -> t.id().equals(constraint.trainId()))
+                .findFirst().orElse(null);
+            if (train == null) continue;
+
+            boolean done = false;
+            if (constraint.holdTrain() && train.zeroSpeed()) {
+                done = true;
+            } else if (constraint.speedFactor() < 1.0 && constraint.speedFactor() > 0) {
+                done = train.speedMetersPerSecond() <= constraint.applyToSpeedLimit(99) + 0.5;
+            } else if (constraint.targetSpeedMetersPerSecond() != null) {
+                done = Math.abs(train.speedMetersPerSecond() - constraint.targetSpeedMetersPerSecond()) < 0.5;
+            }
+
+            if (done) {
+                completedCommands.add(new DispatchCommand(
+                    "COMPLETED-" + train.id(),
+                    train.id(),
+                    "SPEED_BIAS",
+                    Map.of("reason", constraint.reason(),
+                        "actualSpeed", train.speedMetersPerSecond()),
+                    constraint.reason(),
+                    CommandStatus.COMPLETED,
+                    Instant.now(),
+                    Instant.now()
+                ));
+            }
+        }
+        if (!completedCommands.isEmpty()) {
+            dispatchCommandPublisher.publish(completedCommands);
+            log.info("[Runtime] 信号回执：{} 条调度指令已完成", completedCommands.size());
+        }
     }
 
     /**

@@ -45,6 +45,3 @@ uploads/
 
 # Local frontend demo artifacts
 frontend/src/components/power-train/VehicleSelfControlDemo.vue
-frontend/src/api/rest.ts
-frontend/src/api/ws.ts
-frontend/src/types/simulation.ts
