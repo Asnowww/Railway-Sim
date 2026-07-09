@@ -32,7 +32,7 @@ class SignalVehicleInterfaceTests {
     @Test
     void signalCommandProjectsMovementAuthorityWithoutDispatchFields() {
         SignalVehicleCommand command = SignalVehicleCommand.fromAuthority(
-            new MovementAuthority("TR-001", 1_200, 13.33, "前方区段空闲")
+            new MovementAuthority("TR-001", 1_200, 13.33, "前方区段空闲", "SEG-1")
         );
 
         assertThat(command.trainId()).isEqualTo("TR-001");
@@ -61,7 +61,7 @@ class SignalVehicleInterfaceTests {
 
         SignalVehicleCommand command = SignalVehicleCommand.fromAuthority(
             train.state(),
-            new MovementAuthority("TR-001", 1_200, 13.33, "route ready")
+            new MovementAuthority("TR-001", 1_200, 13.33, "route ready", "SEG-1")
         );
 
         assertThat(command.speedLimitMetersPerSecond()).isEqualTo(2.0);
@@ -78,7 +78,7 @@ class SignalVehicleInterfaceTests {
         SignalVehicleCommand missingAuthority = SignalVehicleCommand.fromAuthority(train, null);
         SignalVehicleCommand exhaustedAuthority = SignalVehicleCommand.fromAuthority(
             train,
-            new MovementAuthority("TR-001", 500, 13.33, "MA exhausted")
+            new MovementAuthority("TR-001", 500, 13.33, "MA exhausted", "SEG-1")
         );
 
         assertThat(missingAuthority.tractionCutoff()).isTrue();
@@ -99,7 +99,7 @@ class SignalVehicleInterfaceTests {
 
         SignalVehicleCommand command = SignalVehicleCommand.fromAuthority(
             train,
-            new MovementAuthority("TR-001", 1_200, 13.33, "route ready")
+            new MovementAuthority("TR-001", 1_200, 13.33, "route ready", "SEG-1")
         );
 
         assertThat(command.tractionCutoff()).isTrue();

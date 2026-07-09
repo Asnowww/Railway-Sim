@@ -148,7 +148,8 @@ public class SignalService {
                 reason = "站台停靠";
             }
 
-            nextAuthorities.add(new MovementAuthority(train.id(), authorityEnd, speedLimit, reason));
+            String segId = currentSeg != null ? currentSeg.id() : "?";
+            nextAuthorities.add(new MovementAuthority(train.id(), authorityEnd, speedLimit, reason, segId));
         }
 
         trackService.applyReservations(allReserved);

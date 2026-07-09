@@ -4,7 +4,8 @@ public record MovementAuthority(
     String trainId,
     double authorityEndMeters,
     double speedLimitMetersPerSecond,
-    String reason
+    String reason,
+    String currentSegmentId
 ) {
 }
 
