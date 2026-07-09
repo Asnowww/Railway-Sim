@@ -58,6 +58,7 @@ public class SimulationRuntime {
     private long lastPushAtMillis;
     private Instant lastDepartureTime = Instant.now();
     private int nextServiceNo = 3; // TR-001/TR-002 pre-loaded on reset
+    private final Map<String, Instant> lastStationDepartures = new LinkedHashMap<>();
 
     public SimulationRuntime(
         TrainManager trainManager,
@@ -125,6 +126,7 @@ public class SimulationRuntime {
         eventBus.drain();
         lastEvents = List.of();
         lastDepartureTime = simulatedTime;
+        lastStationDepartures.clear();
         nextServiceNo = 3;
         return buildSnapshot();
     }
@@ -192,65 +194,43 @@ public class SimulationRuntime {
     }
 
     /**
-     * 按调度时刻表自动发车。
-     *
-     * <p>每 tick 检查当前时段发车间隔是否已到：
-     * 上次发车时间 + departureIntervalSec < 当前仿真时间 → 发下一列车。
-     *
-     * <p>这里不依赖调度同学手动发 DEPART 指令——信号层主动读
-     * {@link DispatchService#currentPlan()}，到点就创建列车。
-     * 如果调度层已在 drainCommands 中给出了 DEPART，handleDepartures 也会处理，
-     * 两者互补不重复（autoDispatchTrains 只负责"到点首车"场景）。
+     * Per-station auto dispatch triggered by schedule intervals.
      */
     private void autoDispatchTrains(TickContext context) {
         CurrentRunPlan plan = dispatchService.currentPlan();
-        if (plan == null || plan.departureIntervalSec() <= 0) {
-            return;
-        }
-        long intervalMillis = plan.departureIntervalSec() * 1000L;
-        long elapsed = context.simulatedTime().toEpochMilli() - lastDepartureTime.toEpochMilli();
-        if (elapsed < intervalMillis) {
-            return;
-        }
+        if (plan == null || plan.departureIntervalSec() <= 0) return;
+        long intervalMs = plan.departureIntervalSec() * 1000L;
 
-        // 找到起点站
         List<StationInfo> stations = dispatchService.stations();
         if (stations.isEmpty()) return;
-        StationInfo origin = stations.stream()
-            .min(Comparator.comparingDouble(StationInfo::positionMeters))
-            .orElse(null);
-        if (origin == null) return;
+        Instant now = context.simulatedTime();
 
-        // 终点站（最远的）
-        StationInfo terminus = stations.stream()
-            .max(Comparator.comparingDouble(StationInfo::positionMeters))
-            .orElse(null);
+        for (StationInfo origin : stations) {
+            Instant lastFromStation = lastStationDepartures.getOrDefault(origin.id(), lastDepartureTime);
+            if (lastFromStation.toEpochMilli() + intervalMs > now.toEpochMilli()) continue;
 
-        // 构造 DEPART 命令并直接处理
-        Map<String, Object> payload = new java.util.LinkedHashMap<>();
-        payload.put("trainNo", nextServiceNo);
-        payload.put("linkId", 1);
-        payload.put("offsetMeters", 0);
-        payload.put("fromStation", origin.id());
-        if (terminus != null) {
-            payload.put("toStation", terminus.id());
+            // find furthest station from this origin
+            StationInfo terminus = stations.stream()
+                .max(Comparator.comparingDouble(s -> Math.abs(s.positionMeters() - origin.positionMeters())))
+                .orElse(null);
+
+            Map<String, Object> payload = new LinkedHashMap<>();
+            payload.put("trainNo", nextServiceNo);
+            payload.put("linkId", 1);
+            payload.put("offsetMeters", origin.positionMeters());
+            payload.put("fromStation", origin.id());
+            if (terminus != null) payload.put("toStation", terminus.id());
+            payload.put("direction", "DOWN");
+
+            DispatchCommand cmd = new DispatchCommand("AUTO-DEPART-" + nextServiceNo,
+                "TR-%03d".formatted(nextServiceNo), "DEPART", payload,
+                "AUTO_DEPART_SCHEDULE", "PENDING", now, null);
+
+            handleDepartures(List.of(cmd));
+            lastStationDepartures.put(origin.id(), now);
+            lastDepartureTime = now;
+            nextServiceNo++;
         }
-        payload.put("direction", "DOWN");
-
-        DispatchCommand departureCmd = new DispatchCommand(
-            "AUTO-DEPART-" + nextServiceNo,
-            "TR-%03d".formatted(nextServiceNo),
-            "DEPART",
-            payload,
-            "AUTO_DEPART_SCHEDULE",
-            "PENDING",
-            context.simulatedTime(),
-            null
-        );
-
-        handleDepartures(List.of(departureCmd));
-        lastDepartureTime = context.simulatedTime();
-        nextServiceNo++;
     }
 
     private String commandDetail(DispatchCommand command) {
