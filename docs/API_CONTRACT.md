@@ -117,7 +117,9 @@ POST /api/signal/vehicles/telemetry/content-packet?trainCount=1
 
 `content-packet` 使用 `application/octet-stream` 和 `SignalTrainContentCodec` 小端包：每车 18 字节，包含列车号、速度、累计里程、方向、载重、车辆故障限速、紧急制动、可用牵引单元数和可用制动单元数。
 
-`GET /api/signal/vehicles/commands` 将当前 `MovementAuthority` 和车辆状态投影为 `SignalVehicleCommand`：
+`GET /api/signal/vehicles/statuses` 返回的 `VehicleSignalStatus` 包含 `driverConsoleState`，用于暴露司机台 PLC 侧开关/手柄状态投影：门模式开关、ATO 启动标志、模式升/降级确认、自动折返、方向手柄和主手柄状态。
+
+`GET /api/signal/vehicles/commands` 将当前 `MovementAuthority` 和车辆状态投影为 `SignalVehicleCommand`，同时通过 `cabDisplay` 下发司机台/DMI 显示字段：
 
 | 场景 | 输出 |
 |---|---|
@@ -125,6 +127,68 @@ POST /api/signal/vehicles/telemetry/content-packet?trainCount=1
 | 无 MA 或 MA 耗尽 | 牵引切除、常用制动、紧急制动。 |
 | 未并入车辆控制会话 | 牵引切除、常用制动，不进入紧急制动。 |
 | 车辆故障限速 | 授权速度取 `min(MA限速, vehicleFaultSpeedLimitMetersPerSecond)`。 |
+
+`cabDisplay` 对齐 ATP/ATO -> DMI 和网络屏/信号屏语义，包含 `currentDrivingMode`、`maximumAvailableDrivingMode`、`doorEnable`、`doorControlMode`、`tractionBrakeInfo`、`departureInfo`、`turnbackInfo`、`speedLimitMetersPerSecond`、`emergencyBrake`、`distanceToNextStationMeters`。模式枚举使用 `DTO`、`ATO`、`AR`、`SM`、`RM`；门控模式使用 `AUTOMATIC`、`SEMI_AUTOMATIC`、`MANUAL`。
+
+### 车辆-司机台 PLC 适配接口
+
+该接口属于车辆控制系统内部外设适配：`司机驾驶模拟台 PLC <-> DriverCabAdapter <-> 单车车辆控制子系统`。它不是调度、供电或中央主循环直接控制司机台的接口；信号侧的 MA/模式/门使能只作为车辆控制系统生成 PLC 输出报文的输入之一。
+
+协议模型：
+
+- `DriverCabPlcCodec`：实现司机台 PLC 第 7 章报文内容定义的小端编解码。
+- `PLC -> 上位机`：46 字节，24 字节报文头 + 22 字节数据区，周期 100ms；当前解码钥匙、门模式、ATO 启动、模式升/降级确认、自动折返、方向手柄、主手柄、牵引/制动级位和紧急制动按钮。
+- `上位机 -> PLC`：26 字节，24 字节报文头 + 2 字节数据区；当前编码高断合、制动故障、开门灯、门关好、网络故障、ATO/自动折返可用与激活等指示量。
+
+前期无真实 TCP PLC 时使用 REST 二进制入口联调：
+
+```http
+POST /api/vehicle/driver-cabs/{trainId}/plc-input
+GET /api/vehicle/driver-cabs/{trainId}/state
+GET /api/vehicle/driver-cabs/{trainId}/plc-output
+```
+
+- `plc-input` 使用 `application/octet-stream`，提交 46 字节 PLC 输入报文；后端写入该单车 `DriverCabStateSnapshot`，并按钥匙、门按钮、快制/紧急制动更新本车控制状态。
+- `plc-output` 返回 `application/octet-stream`，生成 26 字节上位机到 PLC 报文；来源为 `TrainState` 与当前 `SignalVehicleCommand.cabDisplay`。
+- 后续接真实设备时，应在车辆控制系统侧新增 TCP 客户端连接 PLC 的 `192.168.100.123:8001/8002/8003`，REST 入口只保留为测试入口。
+
+视景适配接口用于把车辆侧运行态补齐到信号/ATS 视图，再由信号模块按 UDP 包发送给外部视景系统：
+
+```http
+PUT /api/signal/vehicles/{trainId}/vision-state
+GET /api/signal/vehicles/vision-states
+POST /api/signal/vision/udp/send?trainId=TR-001&host=18.32.115.28&port=8302
+```
+
+`PUT /vision-state` 是车辆系统到中央信号模块的打包上报入口，可上报 `speedMetersPerSecond`、`accelerationMetersPerSecondSquared`、`accelerationPercent`、`headPositionMeters`、`headSegmentId`、`directionCode`、`runCondition`、`headlightState`、`operationCode`、`departureCountdownSeconds`。UDP 发送时，本车字段优先使用该缓存，缺失时回退到 `TrainState`；信号机和道岔分别来自 `SignalState` 与 `SwitchState`。
+
+### 机房局域系统协议适配
+
+现场 TCP、UDP 和供电点表链路统一由 `com.railwaysim.localnet` 管理。默认配置全部关闭，只有本地 `application-local.yml` 显式设置 `railway.simulation.localnet.enabled=true` 且具体适配器 `enabled=true` 后才会绑定端口或连接机房设备。
+
+```http
+GET /api/localnet/adapters
+GET /api/localnet/adapters/{adapterId}
+POST /api/localnet/adapters/{adapterId}/replay
+```
+
+适配器：
+
+| adapterId | 协议族 | 说明 |
+|---|---|---|
+| `signal-udp` | `SIGNAL` | 信号系统与中央数据库节点 UDP 报文适配。 |
+| `driver-cab-tcp` | `DRIVER_CAB` | 司机台 PLC、网络屏、信号屏 TCP 适配。 |
+| `power-points` | `POWER_POINTS` | 供电现场点表适配。 |
+
+`GET /api/localnet/adapters` 返回每条链路的 `configured`、`enabled`、`running`、收发计数、错误计数、最近错误和最近报文摘要。该接口只用于联调诊断，不替代业务 REST。
+
+`POST /api/localnet/adapters/{adapterId}/replay` 使用 `application/octet-stream`，不打开真实 socket，只把报文送入同一解析和领域映射路径：
+
+- `signal-udp` 支持完整 `0xff 0xf0/0xf1` 帧，以及实时 ADD/DELETE/CLEAR 生命周期包。
+- `driver-cab-tcp` 支持 46 字节 PLC 输入包回放。
+- `power-points` 点表支持 YAML/CSV，字段包括 `pointId`、`name`、`direction`、`dataType`、`scale`、`address`、`domainTarget`、`defaultValue`、`quality`；replay 使用文本 `pointId=value`，例如 `ISO_P01_A_STATE=OPEN`。
+
+协议报文审计写入 `protocol_packet_log`，但审计是旁路能力；数据库写入失败不会阻塞现场链路或仿真 tick。
 
 ### 获取供电状态
 

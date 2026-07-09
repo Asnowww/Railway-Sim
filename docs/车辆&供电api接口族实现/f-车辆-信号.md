@@ -13,7 +13,9 @@
 | 车辆到信号 | `GET /api/signal/vehicles/statuses` | 信号系统查询车辆侧安全状态投影。 |
 | 车辆到信号 | `POST /api/signal/vehicles/telemetry` | JSON 形式接收车辆控制节点上报的列车运行遥测。 |
 | 车辆到信号 | `POST /api/signal/vehicles/telemetry/content-packet?trainCount=N` | 二进制小端 `SignalTrainContentCodec` 协议包入口。 |
-| 信号到车辆 | `GET /api/signal/vehicles/commands` | 将当前 MA/限速投影为车辆侧可消费的信号命令。 |
+| 车辆到信号/视景适配 | `PUT /api/signal/vehicles/{trainId}/vision-state` | 车辆系统打包上报视景包需要但信号模块不长期持有的本车动态字段。 |
+| 信号到车辆/司机台显示 | `GET /api/signal/vehicles/commands` | 将当前 MA/限速投影为车辆侧可消费的信号命令，并附带 ATP/ATO 到 DMI/司机台显示字段。 |
+| 信号到视景系统 | `POST /api/signal/vision/udp/send` | 按指定列车生成视景 UDP 包并发送到指定 IP/端口。 |
 | 车辆运行时到中央纳管 | `POST /api/trains/runtime-registrations` | 车辆仿真实例启动并唤醒控制队列后，向中央注册状态镜像。 |
 | 信号到中央纳管 | `POST /api/trains/lifecycle` | ADD/DELETE/CLEAR 兼容入口，主要用于下线、清空和旧联调语义。 |
 | 仿真主循环内部 | `SimulationRuntime -> SignalService -> TrainManager.tickAll()` | 每 tick 将 `MovementAuthority` 送入 `OnboardTrainSubsystemManager`。 |
@@ -49,6 +51,20 @@ GET /api/signal/vehicles/statuses
 | `vehicleFaultSpeedLimitMetersPerSecond` | 车辆遥测 | 车辆侧故障限速，信号命令投影时与 MA 限速取最小值。 |
 | `dynamicsState` / `dynamicsConstraintReason` | 车辆控制决策 | 解释车辆为何牵引、惰行、制动或停车。 |
 | `dataQuality` | 适配层 | GOOD、FALLBACK、INVALID。 |
+| `driverConsoleState` | 司机台 PLC 状态投影 | 对齐门模式开关、ATO 启动标志、模式升/降级确认、自动折返、方向手柄和主手柄状态。 |
+
+`driverConsoleState` 当前优先来自车辆控制系统内的 `DriverCabStateSnapshot`；若没有真实司机台 PLC 输入，则由车辆状态派生。字段覆盖司机台 PLC 协议 T19/T20 中本期需要的开关量：
+
+| 字段 | 取值 | 说明 |
+|---|---|---|
+| `doorModeSwitchState` | `SEMI_AUTOMATIC`、`MANUAL`、`AUTOMATIC` | 对齐半自动/手动/自动门模式。 |
+| `atoStartFlag` | boolean | ATO 模式且车辆会话已 `IN_SERVICE` 时置位。 |
+| `modeUpgradeConfirmFlag` / `modeDowngradeConfirmFlag` | boolean | 预留司机台确认输入；当前状态投影默认不主动触发。 |
+| `automaticTurnbackFlag` | boolean | `operationMode=AR` 时置位。 |
+| `directionHandleState` | `ZERO`、`FORWARD`、`BACKWARD` | 当前按列车上下行接入方向投影为前进位。 |
+| `masterHandleState` | `ZERO`、`TRACTION`、`BRAKE`、`FAST_BRAKE` | 按牵引、常用制动、紧急制动状态投影。 |
+
+司机台 PLC 原始报文不属于车辆-信号接口本身，而属于 `司机驾驶模拟台 PLC <-> 车辆控制系统 DriverCabAdapter`。车辆-信号接口只消费车辆控制系统整理后的 `driverConsoleState` 和 `cabDisplay`。
 
 ### 车辆遥测 JSON 入口
 
@@ -96,13 +112,36 @@ Content-Type: application/octet-stream
 | `availableTractionCount` | 1 byte | 可用牵引单元数 |
 | `availableBrakeCount` | 1 byte | 可用制动单元数 |
 
+### 车辆视景状态 PUT 入口
+
+```http
+PUT /api/signal/vehicles/{trainId}/vision-state
+Content-Type: application/json
+```
+
+```json
+{
+  "speedMetersPerSecond": 10.0,
+  "accelerationMetersPerSecondSquared": 0.55,
+  "accelerationPercent": 50,
+  "headPositionMeters": 123.456,
+  "headSegmentId": "SEG-1",
+  "directionCode": 1,
+  "runCondition": "TRACTION",
+  "headlightState": "HIGH",
+  "departureCountdownSeconds": 30
+}
+```
+
+该入口只维护信号/ATS 视景适配缓存，不替代 `TrainManager` 的权威车辆状态。UDP 组包时，缓存字段优先级高于 `TrainState`；缓存缺失时按当前仿真状态回退。`operationCode` 可直接覆盖 1 byte 运行工况字段；未覆盖时按 `TRACTION=0x11`、`BRAKE=0x12`、`COAST=0x13` 派生。
+
 ## 信号到车辆：命令投影
 
 ```http
 GET /api/signal/vehicles/commands
 ```
 
-返回模型为 `SignalVehicleCommand`，由当前 `SignalService.authorities()` 与 `TrainState` 投影生成。
+返回模型为 `SignalVehicleCommand`，由当前 `SignalService.authorities()` 与 `TrainState` 投影生成。除 MA、限速和制动命令外，`cabDisplay` 统一承载 ATP/ATO 到 DMI/司机台显示链路字段，对齐 T13、T24、T25 的显示/控制语义。
 
 | 场景 | 输出行为 |
 |---|---|
@@ -113,7 +152,39 @@ GET /api/signal/vehicles/commands
 | 信号限速为 0 | `tractionCutoff=true`、`serviceBrakeCommand=true`，不越级成为调度命令。 |
 | 车辆故障限速 | `speedLimitMetersPerSecond=min(MA限速, vehicleFaultSpeedLimitMetersPerSecond)`，原因 `VEHICLE_FAULT_SPEED_LIMIT`。 |
 
+`cabDisplay` 字段：
+
+| 字段 | 取值 | 对应语义 |
+|---|---|---|
+| `currentDrivingMode` | `DTO`、`ATO`、`AR`、`SM`、`RM` | 当前驾驶模式/信号屏模式。 |
+| `maximumAvailableDrivingMode` | `DTO`、`ATO`、`AR`、`SM`、`RM` | 最大可用驾驶模式；故障或未并入时降为 `RM`。 |
+| `doorEnable.side` | `NONE`、`LEFT`、`RIGHT`、`BOTH` 等 | 开门使能信息；到站零速窗口内给出门侧。 |
+| `doorEnable.automaticOpenAllowed` / `manualOpenAllowed` | boolean | 自动/手动开门许可。 |
+| `doorControlMode` | `AUTOMATIC`、`SEMI_AUTOMATIC`、`MANUAL` | 对齐 AA/AM/MM 或自动/半自动/手动门控模式。 |
+| `tractionBrakeInfo` | `COASTING`、`TRACTION`、`BRAKING`、`EMERGENCY_BRAKING` | 牵引制动信息。 |
+| `departureInfo` | `HOLD`、`DEPART` | 扣车/发车信息。 |
+| `turnbackInfo` | `INACTIVE`、`AVAILABLE`、`ACTIVE` | 折返可用/激活状态。 |
+| `speedLimitMetersPerSecond` | number | 信号限速或车辆故障限速后的有效限速。 |
+| `emergencyBrake` | boolean | ATP/车辆紧急制动显示。 |
+| `distanceToNextStationMeters` | number | 距下一站距离。 |
+
 主循环内车辆控制并不从调度系统直接拿命令，而是消费 `MovementAuthority` 和信号命令语义。牵引/制动百分比仍由车辆侧 `OnboardTrainSubsystem` 根据 MA、限速、供电、车辆状态和轨道约束综合决策。
+
+## 信号到视景系统：UDP 发送
+
+```http
+POST /api/signal/vision/udp/send?trainId=TR-001&host=18.32.115.28&port=8302
+```
+
+配置默认值位于 `railway.simulation.vision`：
+
+| 配置 | 默认值 | 说明 |
+|---|---|---|
+| `target-host` | `18.32.115.28` | 视景控制机或视景驱动计算机 IP。 |
+| `target-port` | `8302` | 默认目标端口；调用参数 `port` 可覆盖。 |
+| `local-port` | `0` | 默认随机本地端口；调用参数 `localPort` 可覆盖。 |
+
+UDP 包按小端编码，字段顺序为：数据报计数、信号机状态列表、道岔状态列表、本车车速、本车发车表示器、本车运行工况、本车加速度、本车车头位置、本车车头边号、本车方向、他车数量、他车距离列表、他车边号列表、他车方向列表、他车车速列表。信号机顺序优先使用线路数据 `signals` 顺序，道岔顺序优先使用线路数据 `switches` 顺序；他车信息由当前全车状态组成，但由信号/ATS 视景适配层统一发布。
 
 ## 上线/下线场景
 
