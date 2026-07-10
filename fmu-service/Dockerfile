@@ -16,7 +16,9 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     TRAIN_PARAMS_PATH=/config/train_params.yaml \
     FMU_PATH=/app/fmu/TrainTractionBrake.fmu \
-    FMU_MANIFEST_PATH=/app/fmu/fmu-manifest.json
+    FMU_MANIFEST_PATH=/app/fmu/fmu-manifest.json \
+    FMU_MAPPING_PATH=/config/fmu_mapping.yaml \
+    FMU_MANIFEST_SCHEMA_PATH=/app/fmu-manifest.schema.json
 
 WORKDIR /app
 RUN apt-get update \

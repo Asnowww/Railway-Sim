@@ -1,4 +1,5 @@
 import hashlib
+import os
 from pathlib import Path
 import tempfile
 import unittest
@@ -8,8 +9,11 @@ from app.schemas import MODEL_VERSION, StepFleetRequest
 from app.vehicle_parameters import load_vehicle_parameters
 
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
-TRAIN_PARAMS_PATH = PROJECT_ROOT / "config" / "train_params.yaml"
+SERVICE_ROOT = Path(__file__).resolve().parents[1]
+PROJECT_ROOT = SERVICE_ROOT.parent
+TRAIN_PARAMS_PATH = Path(
+    os.environ.get("TRAIN_PARAMS_PATH", PROJECT_ROOT / "config" / "train_params.yaml")
+)
 
 
 class VehicleParameterTests(unittest.TestCase):
@@ -37,18 +41,21 @@ class VehicleParameterTests(unittest.TestCase):
 
     def test_manager_rejects_mismatched_parameter_set(self) -> None:
         manager = FmuManager(load_vehicle_parameters(TRAIN_PARAMS_PATH))
-        request = StepFleetRequest(
-            tick=1,
-            simulation_time_seconds=0.1,
-            step_size_seconds=0.1,
-            model_version=MODEL_VERSION,
-            parameter_set_id="sha256:" + "0" * 64,
-            trace_id="mismatch-test",
-            trains=[],
-        )
+        try:
+            request = StepFleetRequest(
+                tick=1,
+                simulation_time_seconds=0.1,
+                step_size_seconds=0.1,
+                model_version=MODEL_VERSION,
+                parameter_set_id="sha256:" + "0" * 64,
+                trace_id="mismatch-test",
+                trains=[],
+            )
 
-        with self.assertRaises(ParameterSetMismatchError):
-            manager.step_fleet(request)
+            with self.assertRaises(ParameterSetMismatchError):
+                manager.step_fleet(request)
+        finally:
+            manager.close()
 
     def test_unknown_parameter_is_rejected(self) -> None:
         invalid_content = TRAIN_PARAMS_PATH.read_text(encoding="utf-8").replace(

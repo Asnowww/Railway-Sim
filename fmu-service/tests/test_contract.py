@@ -1,4 +1,5 @@
 import json
+import os
 from pathlib import Path
 import unittest
 
@@ -8,8 +9,12 @@ import yaml
 from app.input_mapper import InputMapper
 
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
-CONTRACT_ROOT = PROJECT_ROOT / "fmu-service" / "contracts"
+SERVICE_ROOT = Path(__file__).resolve().parents[1]
+PROJECT_ROOT = SERVICE_ROOT.parent
+CONTRACT_ROOT = SERVICE_ROOT / "contracts"
+FMU_MAPPING_PATH = Path(
+    os.environ.get("FMU_MAPPING_PATH", PROJECT_ROOT / "config" / "fmu_mapping.yaml")
+)
 
 
 def load_json(path: Path) -> dict:
@@ -42,7 +47,7 @@ class FmuContractTests(unittest.TestCase):
 
     def test_mapping_separates_fmi_inputs_metadata_and_power_sides(self) -> None:
         mapping = yaml.safe_load(
-            (PROJECT_ROOT / "config" / "fmu_mapping.yaml").read_text(encoding="utf-8")
+            FMU_MAPPING_PATH.read_text(encoding="utf-8")
         )
 
         self.assertEqual(
