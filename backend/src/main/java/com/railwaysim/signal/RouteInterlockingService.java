@@ -27,6 +27,7 @@ public class RouteInterlockingService {
     private final StaticInfrastructureCatalog infrastructureCatalog;
     private final TrackService trackService;
     private final Map<String, RouteState> routeStates = new LinkedHashMap<>();
+    private final Map<String, String> routeHoldsByTrain = new LinkedHashMap<>();
 
     public RouteInterlockingService(
         StaticInfrastructureCatalog infrastructureCatalog,
@@ -43,6 +44,7 @@ public class RouteInterlockingService {
 
     public synchronized void reset() {
         routeStates.clear();
+        routeHoldsByTrain.clear();
         OperationalLineData lineData = infrastructureCatalog.lineData();
         if (lineData.routes() == null) {
             return;
@@ -67,7 +69,8 @@ public class RouteInterlockingService {
             // 同一条进路允许多列车先后使用（单线追踪），
             // 只在其区段重叠部分由 MA 前车尾部截断处理，不拒绝
             if (trainId.equals(route.establishedByTrainId())) {
-                return "Route " + routeId + " already established by " + trainId;
+                routeHoldsByTrain.remove(trainId);
+                return null;
             }
             // 不拒绝，允许后续列车进入同一进路
         }
@@ -131,8 +134,28 @@ public class RouteInterlockingService {
             trainId,
             route.axleSegmentIds()
         ));
+        routeHoldsByTrain.remove(trainId);
         log.info("[Interlocking] route {} established by train {}; locked switches={}", routeId, trainId, lockedIds);
         return null;
+    }
+
+    public synchronized void holdTrainUntilRouteEstablished(String trainId, String reason) {
+        if (trainId == null || trainId.isBlank()) {
+            return;
+        }
+        routeHoldsByTrain.put(trainId, reason == null || reason.isBlank() ? "ROUTE_NOT_ESTABLISHED" : reason);
+    }
+
+    public synchronized void clearRouteHold(String trainId) {
+        routeHoldsByTrain.remove(trainId);
+    }
+
+    public synchronized boolean isRouteHoldActive(String trainId) {
+        return routeHoldsByTrain.containsKey(trainId);
+    }
+
+    public synchronized String routeHoldReason(String trainId) {
+        return routeHoldsByTrain.getOrDefault(trainId, "ROUTE_NOT_ESTABLISHED");
     }
 
     public synchronized void releaseRoute(String routeId) {
@@ -150,6 +173,7 @@ public class RouteInterlockingService {
     }
 
     public synchronized void releaseAllForTrain(String trainId) {
+        routeHoldsByTrain.remove(trainId);
         List<String> routeIds = routeStates.values().stream()
             .filter(state -> trainId.equals(state.establishedByTrainId()))
             .map(RouteState::routeId)
@@ -256,7 +280,7 @@ public class RouteInterlockingService {
 
     public synchronized RouteDispatchResult applyDispatchCommand(String commandType, String detail, String trainId) {
         return switch (commandType) {
-            case "REROUTE" -> {
+            case "REROUTE", "REQUEST_ROUTE" -> {
                 String routeId = findBestRoute(detail);
                 if (routeId == null) {
                     yield new RouteDispatchResult(false, "No matching route for detail=" + detail);
@@ -266,7 +290,7 @@ public class RouteInterlockingService {
                     ? new RouteDispatchResult(true, null)
                     : new RouteDispatchResult(false, rejection);
             }
-            default -> new RouteDispatchResult(true, null);
+            default -> new RouteDispatchResult(false, "Unsupported route command: " + commandType);
         };
     }
 
@@ -431,7 +455,10 @@ public class RouteInterlockingService {
             return null;
         }
 
-        // ① 直接指定 routeId
+        // ① 直接指定 routeId（纯 ID 或 JSON 字段）
+        if (detail != null && routeStates.containsKey(detail.trim())) {
+            return detail.trim();
+        }
         String directId = parseJsonField(detail, "routeId");
         if (directId != null && routeStates.containsKey(directId)) {
             return directId;

@@ -38,16 +38,61 @@ class DisturbanceDetectorTests {
         assertThat(detector.openEvents()).isEmpty();
     }
 
+    @Test
+    void departureDelayCreatesConfiguredDisturbance() {
+        DisturbanceDetector detector = new DisturbanceDetector(properties);
+
+        List<DisturbanceEvent> created = detector.detect(
+            "RUN-1",
+            Instant.EPOCH,
+            plan,
+            List.of(profile("TR-1", 300, 31))
+        );
+
+        assertThat(created)
+            .extracting(DisturbanceEvent::disturbanceType)
+            .containsExactly(DisturbanceType.DEPARTURE_DELAY);
+        assertThat(detector.openEvents()).hasSize(1);
+    }
+
+    @Test
+    void recoveryMustRemainStableForConfiguredNumberOfTicks() {
+        DispatchProperties recoveryProperties = properties();
+        recoveryProperties.setRecoverTicks(3);
+        DisturbanceDetector detector = new DisturbanceDetector(recoveryProperties);
+
+        detector.detect("RUN-1", Instant.EPOCH, plan, List.of(profile("TR-1", 100)));
+        detector.detect("RUN-1", Instant.EPOCH.plusSeconds(1), plan, List.of(profile("TR-1", 220)));
+        detector.detect("RUN-1", Instant.EPOCH.plusSeconds(2), plan, List.of(profile("TR-1", 100)));
+        detector.detect("RUN-1", Instant.EPOCH.plusSeconds(3), plan, List.of(profile("TR-1", 220)));
+        detector.detect("RUN-1", Instant.EPOCH.plusSeconds(4), plan, List.of(profile("TR-1", 220)));
+
+        assertThat(detector.openEvents()).hasSize(1);
+
+        detector.detect("RUN-1", Instant.EPOCH.plusSeconds(5), plan, List.of(profile("TR-1", 220)));
+
+        assertThat(detector.openEvents()).isEmpty();
+        assertThat(detector.events())
+            .extracting(DisturbanceEvent::status)
+            .containsExactly("RECOVERED");
+    }
+
     private static DispatchProperties properties() {
         DispatchProperties properties = new DispatchProperties();
         properties.setConfirmTicks(1);
+        properties.setRecoverTicks(1);
         properties.setCooldownSec(0);
         return properties;
     }
 
     private static TrainRunProfile profile(String trainId, double headwayActualSec) {
+        return profile(trainId, headwayActualSec, 0);
+    }
+
+    private static TrainRunProfile profile(String trainId, double headwayActualSec, int departureDelaySec) {
         return new TrainRunProfile(
             trainId,
+            "TR-FRONT",
             100,
             0,
             0.35,
@@ -58,6 +103,9 @@ class DisturbanceDetectorTests {
             0,
             headwayActualSec,
             0,
+            "ON_TARGET",
+            "NONE",
+            departureDelaySec,
             null
         );
     }

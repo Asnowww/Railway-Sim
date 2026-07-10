@@ -1,6 +1,7 @@
 package com.railwaysim.signal.vehicle;
 
 import com.railwaysim.train.TrainState;
+import com.railwaysim.vehicle.drivercab.DriverCabStateSnapshot;
 
 public record SignalDriverConsoleState(
     String trainId,
@@ -13,6 +14,19 @@ public record SignalDriverConsoleState(
     MasterHandleState masterHandleState
 ) {
     public static SignalDriverConsoleState from(TrainState train) {
+        DriverCabStateSnapshot driverCabState = train.driverCabState();
+        if (driverCabState != null) {
+            return new SignalDriverConsoleState(
+                train.id(),
+                DoorModeSwitch.valueOf(driverCabState.doorModeSwitchState().name()),
+                driverCabState.atoStartFlag(),
+                driverCabState.modeUpgradeConfirmFlag(),
+                driverCabState.modeDowngradeConfirmFlag(),
+                driverCabState.automaticTurnbackFlag(),
+                DirectionHandleState.valueOf(driverCabState.directionHandleState().name()),
+                MasterHandleState.valueOf(driverCabState.masterHandleState().name())
+            );
+        }
         return new SignalDriverConsoleState(
             train.id(),
             resolveDoorMode(train),

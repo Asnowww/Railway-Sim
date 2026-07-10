@@ -55,6 +55,7 @@ public class TrainEntity {
     private String faultCode = "OK";
     private String injectedFaultCode;
     private String currentStationId;
+    private double dwellElapsedAccumulatorSeconds;
     private int dwellElapsedSeconds;
     private String lastDepartureAt;
     private DriverCabStateSnapshot driverCabState;
@@ -85,7 +86,7 @@ public class TrainEntity {
         this.stations = lineData == null ? List.of() : lineData.stations();
     }
 
-    public void applyPhysicsOutput(VehiclePhysicsOutput output, TrainStateReport report) {
+    public void applyPhysicsOutput(VehiclePhysicsOutput output, TrainStateReport report, double deltaSeconds) {
         positionMeters = Math.max(0, output.newPositionMeters());
         speedMetersPerSecond = Math.max(0, output.newSpeedMetersPerSecond());
         accelerationMetersPerSecondSquared = output.accelerationMetersPerSecondSquared();
@@ -121,7 +122,7 @@ public class TrainEntity {
         movementAuthorityDistanceMeters = report.movementAuthorityDistanceMeters();
         stationDistanceMeters = report.stationDistanceMeters();
         stoppingDistanceMeters = report.stoppingDistanceMeters();
-        updateStationTracking(report);
+        updateStationTracking(report, deltaSeconds);
         status = resolveStatus(report, output);
     }
 
@@ -320,19 +321,21 @@ public class TrainEntity {
         return injectedFaultCode;
     }
 
-    private void updateStationTracking(TrainStateReport report) {
+    private void updateStationTracking(TrainStateReport report, double deltaSeconds) {
         boolean dwelling = "STATION_STOPPED".equals(report.dynamicsState()) && speedMetersPerSecond <= 0.2;
         if (dwelling) {
             if (currentStationId == null) {
                 currentStationId = inferStationId();
             }
-            dwellElapsedSeconds++;
+            dwellElapsedAccumulatorSeconds += Math.max(0, deltaSeconds);
+            dwellElapsedSeconds = (int) Math.floor(dwellElapsedAccumulatorSeconds);
             return;
         }
 
-        if (currentStationId != null) {
+        if (currentStationId != null || dwellElapsedSeconds > 0) {
             lastDepartureAt = Instant.now().toString();
             currentStationId = null;
+            dwellElapsedAccumulatorSeconds = 0;
             dwellElapsedSeconds = 0;
         }
     }

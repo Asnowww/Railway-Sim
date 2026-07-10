@@ -16,6 +16,7 @@ public class DisturbanceDetector {
 
     private final DispatchProperties properties;
     private final Map<String, Integer> consecutiveHits = new HashMap<>();
+    private final Map<String, Integer> consecutiveRecoveries = new HashMap<>();
     private final Map<String, Instant> lastTriggeredAt = new HashMap<>();
     private final Map<String, DisturbanceEvent> openEvents = new HashMap<>();
 
@@ -35,6 +36,8 @@ public class DisturbanceDetector {
                 profile.dwellDeviationSec() > properties.getDwellToleranceSec(), profile.dwellDeviationSec(), created);
             evaluateType(simulationRunId, simulatedAt, profile, DisturbanceType.CROWDING,
                 profile.loadRate() > properties.getCrowdingLoadRate(), profile.loadRate(), created);
+            evaluateType(simulationRunId, simulatedAt, profile, DisturbanceType.DEPARTURE_DELAY,
+                profile.departureDelaySec() > properties.getDepartureDelaySec(), profile.departureDelaySec(), created);
             if (profile.headwayActualSec() != null) {
                 double shrinkThreshold = plan.departureIntervalSec() * properties.getHeadwayShrinkRatio();
                 double expandThreshold = plan.departureIntervalSec() * properties.getHeadwayExpandRatio();
@@ -54,8 +57,13 @@ public class DisturbanceDetector {
             .toList();
     }
 
+    public List<DisturbanceEvent> events() {
+        return List.copyOf(openEvents.values());
+    }
+
     public void reset() {
         consecutiveHits.clear();
+        consecutiveRecoveries.clear();
         lastTriggeredAt.clear();
         openEvents.clear();
     }
@@ -105,7 +113,8 @@ public class DisturbanceDetector {
         if (lastTriggered != null && simulatedAt.getEpochSecond() - lastTriggered.getEpochSecond() < properties.getCooldownSec()) {
             return;
         }
-        if (openEvents.containsKey(key)) {
+        DisturbanceEvent existing = openEvents.get(key);
+        if (existing != null && ("OPEN".equals(existing.status()) || "HANDLED".equals(existing.status()))) {
             return;
         }
         DisturbanceEvent event = new DisturbanceEvent(
@@ -121,6 +130,7 @@ public class DisturbanceDetector {
             null
         );
         openEvents.put(key, event);
+        consecutiveRecoveries.remove(key);
         lastTriggeredAt.put(key, simulatedAt);
         created.add(event);
     }
@@ -137,6 +147,11 @@ public class DisturbanceDetector {
             }
             TrainRunProfile profile = profileByTrain.get(event.trainId());
             if (profile == null || !isRecovered(event.disturbanceType(), profile, plan)) {
+                consecutiveRecoveries.remove(entry.getKey());
+                continue;
+            }
+            int recoveryHits = consecutiveRecoveries.merge(entry.getKey(), 1, Integer::sum);
+            if (recoveryHits < Math.max(1, properties.getRecoverTicks())) {
                 continue;
             }
             DisturbanceEvent resolved = new DisturbanceEvent(
@@ -152,11 +167,12 @@ public class DisturbanceDetector {
                 event.commandId()
             );
             openEvents.put(entry.getKey(), resolved);
+            consecutiveRecoveries.remove(entry.getKey());
         }
     }
 
     private boolean isRecovered(DisturbanceType type, TrainRunProfile profile, CurrentRunPlan plan) {
-        double recoverFactor = 0.3;
+        double recoverFactor = Math.max(0, properties.getRecoverRatio());
         return switch (type) {
             case DWELL_EXTENDED -> profile.dwellDeviationSec() <= properties.getDwellToleranceSec() * recoverFactor;
             case CROWDING -> profile.loadRate() <= properties.getCrowdingLoadRate() * recoverFactor;
@@ -164,7 +180,7 @@ public class DisturbanceDetector {
                 && profile.headwayActualSec() >= plan.departureIntervalSec() * properties.getHeadwayShrinkRatio();
             case HEADWAY_EXPAND -> profile.headwayActualSec() != null
                 && profile.headwayActualSec() <= plan.departureIntervalSec() * properties.getHeadwayExpandRatio();
-            case DEPARTURE_DELAY -> true;
+            case DEPARTURE_DELAY -> profile.departureDelaySec() <= properties.getDepartureDelaySec() * recoverFactor;
         };
     }
 }

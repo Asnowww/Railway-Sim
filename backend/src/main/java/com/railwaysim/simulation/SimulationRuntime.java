@@ -3,6 +3,7 @@ package com.railwaysim.simulation;
 import com.railwaysim.api.SimulationWebSocketHandler;
 import com.railwaysim.config.SimulationProperties;
 import com.railwaysim.dispatch.DispatchCommand;
+import com.railwaysim.dispatch.DispatchCommandFeedback;
 import com.railwaysim.dispatch.DispatchConstraint;
 import com.railwaysim.dispatch.DispatchService;
 import com.railwaysim.dispatch.command.CommandStatus;
@@ -149,13 +150,28 @@ public class SimulationRuntime {
         signalService.calculateAuthorities(beforeTrainStates, trackConstraints, List.of());
         dispatchService.evaluate(context, beforeTrainStates, signalService.authorities());
 
-        // 拦截 REROUTE 调度指令 → 交联锁处理（在约束计算前）
-        List<DispatchCommand> rerouteCmds = dispatchService.drainCommandsOfType("REROUTE");
-        for (DispatchCommand cmd : rerouteCmds) {
+        // 一次性进路指令在约束计算前交给联锁处理。
+        List<DispatchCommand> routeCommands = new ArrayList<>(dispatchService.drainCommandsOfType("REROUTE"));
+        routeCommands.addAll(dispatchService.drainCommandsOfType("REQUEST_ROUTE"));
+        List<DispatchCommandFeedback> routeFeedbacks = new ArrayList<>();
+        for (DispatchCommand cmd : routeCommands) {
             var result = interlockingService.applyDispatchCommand(cmd.commandType(), commandDetail(cmd), cmd.trainId());
             if (!result.accepted()) {
                 log.warn("[Runtime] 联锁拒绝调度指令 {}: {}", cmd.id(), result.rejectReason());
             }
+            routeFeedbacks.add(new DispatchCommandFeedback(
+                cmd.id(),
+                cmd.trainId(),
+                cmd.commandType(),
+                "SIGNAL_INTERLOCKING",
+                result.accepted() ? CommandStatus.EFFECT_CONFIRMED : CommandStatus.SKIPPED,
+                result.accepted() ? "route established" : result.rejectReason(),
+                context.simulatedTime(),
+                Map.of("accepted", result.accepted())
+            ));
+        }
+        if (!routeFeedbacks.isEmpty()) {
+            dispatchService.acceptFeedback(routeFeedbacks);
         }
 
         // 按时刻表自动发车 — 信号层读调度时刻表，到点自动创建列车
@@ -240,6 +256,10 @@ public class SimulationRuntime {
 
     private String commandDetail(DispatchCommand command) {
         if (command.payload() != null) {
+            Object routeId = command.payload().get("routeId");
+            if (routeId != null) {
+                return routeId.toString();
+            }
             Object detail = command.payload().get("detail");
             if (detail != null) {
                 return detail.toString();
@@ -249,16 +269,17 @@ public class SimulationRuntime {
     }
 
     /**
-     * 信号→调度反馈：检查调度约束是否已完成执行。
+     * 信号→调度反馈：检查调度约束是否已作用到信号/车辆链路。
      *
-     * <p>逻辑：列车实际速度已接近目标限速（差值<0.5m/s）→ 对应指令标记 COMPLETED。
-     * 这解决了"调度只看车状态看不出是哪个指令导致的变化"的问题。
+     * <p>只反馈带 sourceCommandIds 的真实调度指令；运行图自动约束只参与控制，不伪造成调度指令。
      */
     private void checkDispatchCompletion(List<DispatchConstraint> constraints) {
-        List<DispatchCommand> completedCommands = new ArrayList<>();
+        List<DispatchCommandFeedback> feedbacks = new ArrayList<>();
         List<TrainState> trains = trainManager.states();
         for (DispatchConstraint constraint : constraints) {
-            if (constraint.reason().contains("NORMAL")) continue;
+            if (constraint.sourceCommandIds().isEmpty()) {
+                continue;
+            }
             TrainState train = trains.stream()
                 .filter(t -> t.id().equals(constraint.trainId()))
                 .findFirst().orElse(null);
@@ -274,22 +295,27 @@ public class SimulationRuntime {
             }
 
             if (done) {
-                completedCommands.add(new DispatchCommand(
-                    "COMPLETED-" + train.id(),
-                    train.id(),
-                    "SPEED_BIAS",
-                    Map.of("reason", constraint.reason(),
-                        "actualSpeed", train.speedMetersPerSecond()),
-                    constraint.reason(),
-                    CommandStatus.COMPLETED,
-                    Instant.now(),
-                    Instant.now()
-                ));
+                for (String commandId : constraint.sourceCommandIds()) {
+                    feedbacks.add(new DispatchCommandFeedback(
+                        commandId,
+                        train.id(),
+                        null,
+                        "SIGNAL_RUNTIME",
+                        CommandStatus.APPLIED,
+                        constraint.reason(),
+                        Instant.now(),
+                        Map.of(
+                            "actualSpeed", train.speedMetersPerSecond(),
+                            "zeroSpeed", train.zeroSpeed(),
+                            "constraintReason", constraint.reason()
+                        )
+                    ));
+                }
             }
         }
-        if (!completedCommands.isEmpty()) {
-            dispatchCommandPublisher.publish(completedCommands);
-            log.info("[Runtime] 信号回执：{} 条调度指令已完成", completedCommands.size());
+        if (!feedbacks.isEmpty()) {
+            dispatchService.acceptFeedback(feedbacks);
+            log.info("[Runtime] 信号回执：{} 条调度指令已作用", feedbacks.size());
         }
     }
 
@@ -345,7 +371,8 @@ public class SimulationRuntime {
                 var result = interlockingService.applyDispatchCommand("REROUTE", routeDetail, trainId);
                 if (!result.accepted()) {
                     log.warn("[Runtime] 联锁拒绝发车 {}: {}", trainId, result.rejectReason());
-                    // 不阻断发车——列车进场后 touchRoutes 仍可自动建进路
+                    // 允许车辆上线接入，但由信号保持零速，直到进路真正建立。
+                    interlockingService.holdTrainUntilRouteEstablished(trainId, result.rejectReason());
                 }
             }
 
@@ -358,6 +385,7 @@ public class SimulationRuntime {
                 log.info("[Runtime] 发车 {} — trainNo={} linkId={} offset={}m direction={}",
                     trainId, trainNo, linkId, offsetMeters, direction);
             } catch (Exception e) {
+                interlockingService.clearRouteHold(trainId);
                 log.error("[Runtime] 发车失败 {}: {}", trainId, e.getMessage());
             }
         }

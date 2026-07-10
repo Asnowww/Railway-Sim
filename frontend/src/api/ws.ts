@@ -1,3 +1,4 @@
+import { getSimulationWebSocketUrl } from './config'
 import type { SimulationSnapshot, SocketMessage } from '../types/simulation'
 
 type SnapshotListener = (snapshot: SimulationSnapshot) => void
@@ -10,9 +11,8 @@ export class SimulationSocket {
     if (this.socket || !window.location.host) {
       return
     }
-    const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws'
     try {
-      this.socket = new WebSocket(`${protocol}://${window.location.host}/ws/simulation`)
+      this.socket = new WebSocket(getSimulationWebSocketUrl())
     } catch {
       this.socket = null
       return

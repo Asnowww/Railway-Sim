@@ -13,6 +13,32 @@ defineProps<{
   snapshot: SimulationSnapshot | null
   dispatch: DispatchSnapshot
 }>()
+
+const trainStatusLabel = (status: string) => {
+  const labels: Record<string, string> = {
+    RUNNING: '运行',
+    DWELLING: '停站',
+    EMERGENCY_BRAKE: '紧急制动',
+    DEGRADED: '降级',
+    FAULT: '故障',
+  }
+  return labels[status] ?? status
+}
+
+const dynamicsReasonLabel = (reason: string) => {
+  const labels: Record<string, string> = {
+    STATION_STOP_WINDOW: '站停窗口',
+    STATION_APPROACH: '进站制动',
+    MA_DISTANCE_LIMIT: '移动授权距离限制',
+    MOVEMENT_AUTHORITY_EXHAUSTED: '移动授权已用尽',
+    SPEED_LIMIT_EXCEEDED: '超过限速',
+    SPEED_MARGIN_AVAILABLE: '可牵引加速',
+    NEAR_TARGET_SPEED: '接近目标速度',
+    TARGET_SPEED_REACHED: '达到目标速度',
+    TRACTION_UNAVAILABLE: '牵引不可用',
+  }
+  return labels[reason] ?? reason
+}
 </script>
 
 <template>
@@ -42,6 +68,9 @@ defineProps<{
             <th>状态</th>
             <th>站点</th>
             <th>停站(s)</th>
+            <th>限速(m/s)</th>
+            <th>MA距离(m)</th>
+            <th>车辆约束</th>
             <th>满载率</th>
           </tr>
         </thead>
@@ -50,9 +79,12 @@ defineProps<{
             <td>{{ train.id }}</td>
             <td>{{ train.positionMeters.toFixed(1) }}</td>
             <td>{{ train.speedMetersPerSecond.toFixed(1) }}</td>
-            <td>{{ train.status }}</td>
+            <td>{{ trainStatusLabel(train.status) }}</td>
             <td>{{ train.currentStationId || '-' }}</td>
             <td>{{ train.dwellElapsedSeconds ?? 0 }}</td>
+            <td>{{ train.speedLimitMetersPerSecond.toFixed(1) }}</td>
+            <td>{{ train.movementAuthorityDistanceMeters.toFixed(1) }}</td>
+            <td>{{ dynamicsReasonLabel(train.dynamicsConstraintReason || '-') }}</td>
             <td>{{ ((train.loadRate ?? 0) * 100).toFixed(0) }}%</td>
           </tr>
         </tbody>
