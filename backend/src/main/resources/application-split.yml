@@ -1,0 +1,6 @@
+railway:
+  simulation:
+    vehicle-runtime:
+      mode: EXTERNAL_HTTP
+    external-power-network:
+      mode: EXTERNAL_HTTP

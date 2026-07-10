@@ -67,6 +67,11 @@ public class PowerService {
         return powerConstraintService.constraintsForTrains(trains, sections);
     }
 
+    /** Prepares the external topology before 9300 requests its first power constraint. */
+    public synchronized void prepareExternalNetwork() {
+        powerIntegrationService.ensureExternalBootstrap();
+    }
+
     public synchronized void updateFromVehicleOutputs(List<VehiclePhysicsOutput> outputs) {
         List<PowerSectionLoadSnapshot> loads = powerConstraintService.loadSnapshots(outputs);
         sections = powerConstraintService.calculateStates(

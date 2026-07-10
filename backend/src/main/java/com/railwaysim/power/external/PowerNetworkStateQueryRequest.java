@@ -1,5 +1,6 @@
 package com.railwaysim.power.external;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import java.time.Instant;
 import java.util.List;
 
@@ -7,8 +8,8 @@ import java.util.List;
  * 中央 fallback 路径向供电仿真提交分区负荷的请求体。
  */
 public record PowerNetworkStateQueryRequest(
-    Instant requestedAt,
-    List<PowerNetworkSectionLoadRequest> sectionLoads
+    @JsonProperty("requestedAt") Instant requestedAt,
+    @JsonProperty("sectionLoads") List<PowerNetworkSectionLoadRequest> sectionLoads
 ) {
     public PowerNetworkStateQueryRequest {
         requestedAt = requestedAt == null ? Instant.now() : requestedAt;

@@ -52,6 +52,28 @@ def main() -> None:
     )
     traction_section = traction["thirdRailSections"][0]
     assert 1450.0 < traction_section["contactRailVoltage"] < 1500.0
+    constraints = central.constraints_for_positions([
+        {"trainId": "TR-001", "positionMeters": 500.0},
+        {"trainId": "TR-002", "positionMeters": 700.0},
+    ])
+    assert {constraint["trainId"] for constraint in constraints} == {"TR-001", "TR-002"}
+    assert {constraint["sectionId"] for constraint in constraints} == {"P01"}
+    assert all(constraint["railVoltage"] == traction_section["contactRailVoltage"] for constraint in constraints)
+    snake_case = central.query_state(
+        {
+            "section_loads": [
+                {
+                    "power_section_id": "P01",
+                    "traction_power_watts": 600_000,
+                    "regen_power_watts": 0,
+                    "current_amps": 400,
+                }
+            ]
+        }
+    )
+    assert snake_case["thirdRailSections"][0]["tractionPowerWatts"] == 600_000
+    cleared = central.query_state({"sectionLoads": []})
+    assert cleared["thirdRailSections"][0]["tractionPowerWatts"] == 0
     regen = central.query_state(
         {
             "sectionLoads": [

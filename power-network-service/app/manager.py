@@ -249,17 +249,74 @@ class PowerNetworkModel:
         }
 
     def query_state(self, payload: dict[str, Any]) -> dict[str, Any]:
-        for load in payload.get("sectionLoads", []):
-            section_id = load.get("powerSectionId") or load.get("sectionId")
+        # The public contract is camelCase.  Accept snake_case as well so a client-level
+        # JSON naming strategy cannot silently turn a valid load update into an empty snapshot.
+        incoming_loads = payload.get("sectionLoads") or payload.get("section_loads") or []
+        # state/query represents one complete control-cycle load snapshot.  Clear sections
+        # that are absent from this request so a train leaving a section cannot leave a stale load behind.
+        self.section_loads = {
+            section_id: SectionLoad(section_id)
+            for section_id in self.section_loads
+        }
+        for load in incoming_loads:
+            section_id = load.get("powerSectionId") or load.get("power_section_id") or load.get("sectionId")
             if not section_id:
                 continue
             self.section_loads[section_id] = SectionLoad(
                 power_section_id=section_id,
-                traction_power_watts=float(load.get("tractionPowerWatts", 0) or 0),
-                regen_power_watts=float(load.get("regenPowerWatts", 0) or 0),
-                current_amps=float(load.get("currentAmps", 0) or 0),
+                traction_power_watts=float(load.get("tractionPowerWatts", load.get("traction_power_watts", 0)) or 0),
+                regen_power_watts=float(load.get("regenPowerWatts", load.get("regen_power_watts", 0)) or 0),
+                current_amps=float(load.get("currentAmps", load.get("current_amps", 0)) or 0),
             )
         return self.snapshot()
+
+    def constraints_for_positions(self, train_positions: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Return the authoritative power constraint for every train position.
+
+        Vehicle simulation consumes this response directly.  The central system only
+        mirrors it for monitoring and does not recalculate traction capability.
+        """
+        self._solve_network()
+        sections = list(self.third_rail_sections.values())
+        if not sections:
+            return []
+        constraints: list[dict[str, Any]] = []
+        for train in train_positions:
+            train_id = train.get("trainId") or train.get("train_id")
+            if not train_id:
+                continue
+            position = float(train.get("positionMeters", train.get("position_meters", 0)) or 0)
+            section = next(
+                (
+                    candidate
+                    for candidate in sections
+                    if candidate.start_meters <= position < candidate.end_meters
+                ),
+                sections[-1],
+            )
+            energized = section.energization_state == "ENERGIZED" and section.contact_rail_voltage > self.cutoff_dc_voltage
+            undervoltage = energized and section.contact_rail_voltage < self.minimum_dc_voltage
+            derating_factor = 0.5 if undervoltage else (1.0 if energized else 0.0)
+            available_power = (
+                section.contact_rail_voltage * self.max_traction_current_amps * derating_factor
+                if energized
+                else 0.0
+            )
+            reason = "UNDERVOLTAGE" if undervoltage else ("NORMAL" if energized else "POWER_UNAVAILABLE")
+            constraints.append(
+                {
+                    "trainId": train_id,
+                    "sectionId": section.power_section_id,
+                    "railVoltage": round(section.contact_rail_voltage, 2),
+                    "powerAvailableWatts": round(available_power, 2),
+                    "energized": energized,
+                    "powerDeratingFactor": derating_factor,
+                    "currentCollectionAvailable": energized,
+                    "regenAvailable": energized and not undervoltage,
+                    "constraintReason": reason,
+                }
+            )
+        return constraints
 
     def topology(self) -> dict[str, Any]:
         return {

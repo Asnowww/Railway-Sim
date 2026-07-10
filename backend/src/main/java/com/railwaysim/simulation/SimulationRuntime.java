@@ -25,6 +25,7 @@ import com.railwaysim.train.TrainManager;
 import com.railwaysim.train.TrainState;
 import com.railwaysim.vehicle.VehiclePhysicsOutput;
 import com.railwaysim.vehicle.external.ExternalTrainDirection;
+import com.railwaysim.vehicle.runtime.VehicleRuntimeIntegrationService;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -53,6 +54,7 @@ public class SimulationRuntime {
     private final RealtimeStateCache realtimeStateCache;
     private final SimulationPersistenceService persistenceService;
     private final RouteInterlockingService interlockingService;
+    private final VehicleRuntimeIntegrationService vehicleRuntimeIntegrationService;
     private List<DomainEvent> lastEvents = List.of();
     private long tick;
     private SimulationStatus status = SimulationStatus.STOPPED;
@@ -75,7 +77,8 @@ public class SimulationRuntime {
         SimpleEventBus eventBus,
         RealtimeStateCache realtimeStateCache,
         SimulationPersistenceService persistenceService,
-        RouteInterlockingService interlockingService
+        RouteInterlockingService interlockingService,
+        VehicleRuntimeIntegrationService vehicleRuntimeIntegrationService
     ) {
         this.trainManager = trainManager;
         this.trackService = trackService;
@@ -90,6 +93,7 @@ public class SimulationRuntime {
         this.realtimeStateCache = realtimeStateCache;
         this.persistenceService = persistenceService;
         this.interlockingService = interlockingService;
+        this.vehicleRuntimeIntegrationService = vehicleRuntimeIntegrationService;
     }
 
     public synchronized SimulationSnapshot snapshot() {
@@ -173,7 +177,14 @@ public class SimulationRuntime {
         List<DispatchConstraint> dispatchConstraintsPreview = dispatchService.previewConstraintsForTrains(beforeTrainStates);
         List<DispatchConstraint> dispatchConstraints = dispatchService.constraintsForTrains(beforeTrainStates);
         signalService.calculateAuthorities(beforeTrainStates, trackConstraints, dispatchConstraints);
-        List<PowerConstraint> powerConstraints = powerService.constraintsForTrains(beforeTrainStates);
+        boolean externalPowerAuthority = vehicleRuntimeIntegrationService.usesExternalPowerAuthority();
+        if (externalPowerAuthority) {
+            // 9200 must be ready before 9300 performs its first authoritative power query.
+            powerService.prepareExternalNetwork();
+        }
+        List<PowerConstraint> powerConstraints = externalPowerAuthority
+            ? List.of()
+            : powerService.constraintsForTrains(beforeTrainStates);
 
         List<VehiclePhysicsOutput> outputs = trainManager.tickAll(
             context,

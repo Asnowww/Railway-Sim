@@ -4,6 +4,7 @@ import com.railwaysim.vehicleruntime.config.VehicleRuntimeProperties;
 import com.railwaysim.vehicleruntime.model.DispatchConstraintSnapshot;
 import com.railwaysim.vehicleruntime.model.MovementAuthoritySnapshot;
 import com.railwaysim.vehicleruntime.model.PowerConstraintSnapshot;
+import com.railwaysim.vehicleruntime.model.PowerNetworkTrainPosition;
 import com.railwaysim.vehicleruntime.model.PowerNetworkSectionLoadRequest;
 import com.railwaysim.vehicleruntime.model.TrackConstraintSnapshot;
 import com.railwaysim.vehicleruntime.model.TrainStateReportDto;
@@ -39,6 +40,7 @@ public class VehicleRuntimeManager {
     private final PowerNetworkLoadClient powerNetworkLoadClient;
     private final CentralTrainRegistrationClient centralTrainRegistrationClient;
     private final Map<String, VehicleRuntimeInstance> instances = new ConcurrentHashMap<>();
+    private final Map<String, PowerConstraintSnapshot> authoritativePowerByTrain = new ConcurrentHashMap<>();
     private final List<VehicleRuntimeEvent> events = new ArrayList<>();
     private volatile VehicleRuntimeHealth latestHealth = new VehicleRuntimeHealth("EXTERNAL_HTTP", "UP", Instant.now(), 0, "GOOD", 0, "READY");
 
@@ -144,7 +146,7 @@ public class VehicleRuntimeManager {
         Map<String, MovementAuthoritySnapshot> authorityByTrain = index(request.movementAuthorities(), MovementAuthoritySnapshot::trainId);
         Map<String, TrackConstraintSnapshot> trackByTrain = index(request.trackConstraints(), TrackConstraintSnapshot::trainId);
         Map<String, DispatchConstraintSnapshot> dispatchByTrain = index(request.dispatchConstraints(), DispatchConstraintSnapshot::trainId);
-        Map<String, PowerConstraintSnapshot> powerByTrain = index(request.powerConstraints(), PowerConstraintSnapshot::trainId);
+        Map<String, PowerConstraintSnapshot> powerByTrain = powerConstraintsForStep(request, trains);
         List<VehiclePhysicsOutputDto> outputs = new ArrayList<>();
         List<TrainStateReportDto> reports = new ArrayList<>();
         List<VehicleRuntimeInstanceState> states = new ArrayList<>();
@@ -168,8 +170,13 @@ public class VehicleRuntimeManager {
         String dataQuality = outputs.size() == trains.size() && reports.size() == trains.size() ? "GOOD" : "DEGRADED";
         String reason = dataQuality.equals("GOOD") ? "OK" : "PARTIAL_STEP";
         try {
-            // 车辆状态变化先转为分区负荷，再由车辆运行时直接推送到供电仿真。
-            powerNetworkLoadClient.pushLoads(toSectionLoads(outputs, powerByTrain));
+            // 车辆状态变化先汇总为同分区负荷，再由权威供电仿真返回下一控制周期的约束。
+            List<PowerConstraintSnapshot> nextConstraints = powerNetworkLoadClient.stepPowerNetwork(
+                toSectionLoads(outputs, powerByTrain),
+                positionsFromOutputs(outputs)
+            );
+            authoritativePowerByTrain.clear();
+            nextConstraints.forEach(constraint -> authoritativePowerByTrain.put(constraint.trainId(), constraint));
         } catch (RuntimeException exception) {
             dataQuality = "DEGRADED";
             reason = "POWER_LOAD_FORWARD_FAILED";
@@ -198,11 +205,38 @@ public class VehicleRuntimeManager {
             .collect(Collectors.toMap(keyFn, Function.identity(), (left, right) -> right));
     }
 
+    private Map<String, PowerConstraintSnapshot> powerConstraintsForStep(
+        VehicleRuntimeStepRequest request,
+        List<TrainStateSnapshot> trains
+    ) {
+        if (!powerNetworkLoadClient.enabled()) {
+            return index(request.powerConstraints(), PowerConstraintSnapshot::trainId);
+        }
+        List<PowerConstraintSnapshot> constraints = powerNetworkLoadClient.queryConstraints(positionsFromTrains(trains));
+        if (!constraints.isEmpty()) {
+            authoritativePowerByTrain.clear();
+            constraints.forEach(constraint -> authoritativePowerByTrain.put(constraint.trainId(), constraint));
+        }
+        return Map.copyOf(authoritativePowerByTrain);
+    }
+
+    private List<PowerNetworkTrainPosition> positionsFromTrains(List<TrainStateSnapshot> trains) {
+        return trains.stream()
+            .map(train -> new PowerNetworkTrainPosition(train.id(), train.positionMeters()))
+            .toList();
+    }
+
+    private List<PowerNetworkTrainPosition> positionsFromOutputs(List<VehiclePhysicsOutputDto> outputs) {
+        return outputs.stream()
+            .map(output -> new PowerNetworkTrainPosition(output.trainId(), output.newPositionMeters()))
+            .toList();
+    }
+
     private List<PowerNetworkSectionLoadRequest> toSectionLoads(
         List<VehiclePhysicsOutputDto> outputs,
         Map<String, PowerConstraintSnapshot> powerByTrain
     ) {
-        // 供电分区来自中央下发的 PowerConstraint，车辆运行时不自行判断供电拓扑。
+        // 权威供电仿真按列车位置返回分区，车辆运行时只消费该结果并汇总同分区负荷。
         Map<String, SectionLoadAccumulator> loads = new ConcurrentHashMap<>();
         for (VehiclePhysicsOutputDto output : outputs) {
             PowerConstraintSnapshot power = powerByTrain.get(output.trainId());

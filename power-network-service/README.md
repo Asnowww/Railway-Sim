@@ -1,7 +1,9 @@
 # External Power Network Service
 
-This service is the external device-level traction power simulator used by the
-central Spring Boot backend.
+This service is the authoritative traction-power simulator.  In split mode it
+is the only component that calculates a train's section, contact-rail voltage,
+available traction power and power-protection constraint.  The central Spring
+Boot service keeps dispatch, signal and control orchestration only.
 
 Current scope:
 
@@ -18,7 +20,9 @@ Run the service:
 
 ```bash
 cd power-network-service
-python3 -m app.http_server
+python3 -m venv .venv
+.venv/bin/python -m pip install -r requirements.txt
+.venv/bin/python -m app.http_server
 ```
 
 Endpoints:
@@ -30,14 +34,17 @@ GET  /power-network/topology
 GET  /power-network/events
 POST /power-network/bootstrap
 POST /power-network/state/query
+POST /power-network/constraints/query
+POST /power-network/step
 POST /power-network/operations
 ```
 
-`POST /power-network/state/query` accepts load snapshots. In authoritative
-`EXTERNAL_HTTP` vehicle-runtime mode, these snapshots are pushed by
-`vehicle-runtime-service:9300`; in `LOCAL`, `DUAL_SHADOW`, or fallback mode they
-are pushed by the central backend
-`PowerIntegrationService`.
+`POST /power-network/step` is the split-mode closed-loop endpoint.  It accepts
+the complete fleet load snapshot and the post-step train positions, then returns
+the next control-cycle `powerConstraints`. `vehicle-runtime-service:9300` is
+the sole writer. `POST /power-network/constraints/query` provides the initial
+constraint before the first vehicle step.  `state/query` remains for local
+fallback and compatibility.
 
 ```json
 {
@@ -59,6 +66,4 @@ cd power-network-service
 python3 -m app.self_test
 ```
 
-Logic not fully tested: long-running three-service linkage
-(`backend + vehicle-runtime-service + power-network-service`), real PSCADA
-point-table mapping, and physical power-flow validation are still pending.
+The FastAPI OpenAPI interface is available at `http://127.0.0.1:9200/docs`.

@@ -205,7 +205,7 @@ GET /api/power/stray-current
 GET /api/power/external-health
 ```
 
-这些接口是其他模块访问中央供电控制模块的统一入口。外部供电仿真系统由中央 `PowerIntegrationService` 管控；在 `EXTERNAL_HTTP` 权威车辆运行时健康且 `forwardPowerLoads=true` 时，`vehicle-runtime-service` 可作为仿真层把分区负荷推送到供电仿真，但综合监控、车辆、调度、维修/能耗等中央业务模块不得直接访问外部供电仿真服务。
+这些接口是中央对前端提供的只读供电镜像。`split` 模式下，外部 FastAPI 供电仿真是分区电压、可用功率和保护约束的唯一权威；中央不再计算或下发 `PowerConstraint` 给 9300，只读取并转发快照给前端/告警。
 
 `PowerSectionState` 在分区电压、电流、负荷、保护和检修状态之外，已扩展：
 
@@ -215,7 +215,7 @@ GET /api/power/external-health
 | `isolatorStatus` | 供电分区边界隔离开关汇总状态。 |
 | `substationAvailability` | 关联牵引变电所可用性。 |
 | `externalDataQuality` | 供电设备级状态来源质量，外部供电仿真失联时为 `FALLBACK`。 |
-| `externalVoltage` | 外部供电仿真返回的接触轨电压；`voltage` 仍表示中央本地计算电压。 |
+| `externalVoltage` | 外部供电仿真返回的权威接触轨电压；`voltage` 是中央镜像模型值，仅用于兼容展示。 |
 | `externalCurrent` | 外部供电仿真返回的区段牵引电流。 |
 | `externalLoadWatts` | 外部供电仿真返回的区段牵引负荷。 |
 | `voltageDeviation` | 外部电压减中央电压，单位 V。 |
@@ -330,16 +330,16 @@ GET  /vehicle-runtime/events
 }
 ```
 
-`POST /vehicle-runtime/step-fleet` 请求包含 `tick`、`deltaSeconds`、`requestedAt`、`trains[]`、`movementAuthorities[]`、`trackConstraints[]`、`powerConstraints[]`。外部服务按每车实例的控制队列和仿真队列同步返回 `trainOutputs[]`、`trainReports[]`、`instanceStates[]`。
+`POST /vehicle-runtime/step-fleet` 请求包含 `tick`、`deltaSeconds`、`requestedAt`、`trains[]`、`movementAuthorities[]`、`trackConstraints[]`、`dispatchConstraints[]`。`split` 模式忽略中央传入的 `powerConstraints[]`：9300 自行向 9200 请求权威供电约束。外部服务按每车实例的控制队列和仿真队列同步返回 `trainOutputs[]`、`trainReports[]`、`instanceStates[]`。
 
 `POST /vehicle-runtime/bootstrap` 还会携带供电仿真联动配置：
 
 | 字段 | 含义 |
 |---|---|
 | `powerNetworkBaseUrl` | 中央配置的外部供电仿真地址，默认 `http://localhost:9200`。 |
-| `forwardPowerLoads` | 是否由外部车辆运行时把列车牵引/再生负荷推送到 `/power-network/state/query`。 |
+| `forwardPowerLoads` | 是否启用 9300 -> 9200 的权威供电闭环。启用时使用 `/constraints/query` 与 `/step`。 |
 
-当 `vehicle-runtime-service` 处于 `EXTERNAL_HTTP` 权威模式、健康且 `forwardPowerLoads=true` 时，供电负荷写入链路为 `vehicle-runtime-service:9300 -> power-network-service:9200`；中央 `PowerIntegrationService` 只调用 `/power-network/state` 拉取供电状态。`LOCAL`、`DUAL_SHADOW`、外部车辆运行时不可用或降级时，中央恢复原路径：`PowerIntegrationService.refreshSnapshot(sectionLoads) -> POST /power-network/state/query`。
+当 `vehicle-runtime-service` 处于 `EXTERNAL_HTTP` 模式且 `forwardPowerLoads=true` 时，闭环为：`9300 -> POST 9200/constraints/query -> 车辆控制/动力学 -> POST 9200/step -> 下一周期供电约束`。中央 `PowerIntegrationService` 只调用 `GET 9200/power-network/state` 拉取镜像，绝不补写负荷。`LOCAL`、`DUAL_SHADOW`、外部车辆运行时不可用或降级时，中央保留兼容路径 `PowerIntegrationService.refreshSnapshot(sectionLoads) -> POST /power-network/state/query`。
 
 中央新增监控入口：
 

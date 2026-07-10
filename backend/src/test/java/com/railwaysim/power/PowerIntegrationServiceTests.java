@@ -94,6 +94,31 @@ class PowerIntegrationServiceTests {
         }
     }
 
+    @Test
+    void externalHttpRefreshNeverRewritesLoadsWhenExternalVehiclePowerAuthorityIsConfigured() throws Exception {
+        AtomicReference<String> queryBody = new AtomicReference<>("");
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/power-network/bootstrap", exchange -> send(exchange, 200, "{\"accepted\":true}"));
+        server.createContext("/power-network/state", exchange -> send(exchange, 200, externalSnapshotWithoutLoads()));
+        server.createContext("/power-network/state/query", exchange -> {
+            queryBody.set(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
+            send(exchange, 200, externalSnapshot());
+        });
+        server.start();
+        try {
+            PowerIntegrationService integrationService = integrationService(server, true);
+
+            PowerNetworkStateSnapshot snapshot = integrationService.refreshSnapshot(List.of(
+                new PowerSectionLoadSnapshot("P01", List.of("TR-001"), 900_000, 0, 1_200)
+            ));
+
+            assertThat(queryBody.get()).isEmpty();
+            assertThat(snapshot.thirdRailSections().get(0).tractionPowerWatts()).isZero();
+        } finally {
+            server.stop(0);
+        }
+    }
+
     private PowerIntegrationService integrationService(HttpServer server) {
         return integrationService(server, false);
     }
@@ -178,5 +203,11 @@ class PowerIntegrationServiceTests {
               "events": []
             }
             """;
+    }
+
+    private static String externalSnapshotWithoutLoads() {
+        return externalSnapshot()
+            .replace("\"tractionCurrentAmps\": 1200.0", "\"tractionCurrentAmps\": 0.0")
+            .replace("\"tractionPowerWatts\": 900000.0", "\"tractionPowerWatts\": 0.0");
     }
 }

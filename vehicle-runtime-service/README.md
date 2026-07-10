@@ -2,7 +2,7 @@
 
 `vehicle-runtime-service` 是外部车辆侧运行时，默认监听 `9300`。推荐上线流程由车辆仿真系统调用 `POST /vehicle-runtime/trains/launch` 发起：先创建本车 `VehicleRuntimeInstance`，再唤醒 `VehicleControlQueue`，最后向中央 `/api/trains/runtime-registrations` 注册状态镜像。中央系统仍通过 HTTP 在后续 tick 中同步调用它，外部服务内部按每辆车维护一对队列：控制队列负责把 MA、轨道约束、供电约束转换为牵引/制动输入，仿真队列负责推进车辆纵向动力学。
 
-供电仿真联动：中央 bootstrap 会下发 `powerNetworkBaseUrl` 和 `forwardPowerLoads`。只有中央车辆运行时模式为 `EXTERNAL_HTTP` 且供电仿真启用时，`forwardPowerLoads` 才应为 `true`；本服务会在 `step-fleet` 后把各供电分区的牵引功率、再生功率和取流电流推送到 `power-network-service` 的 `/power-network/state/query`，形成“车辆运行状态变化 -> 电网负荷变化”的网络链路。`DUAL_SHADOW` 只做影子计算，不写供电负荷。
+供电仿真联动：在 `split` 配置中，中央不再下发 `PowerConstraint`。本服务在每次 `step-fleet` 前通过 `9200 /power-network/constraints/query` 取得列车当前位置的供电约束；完成全车物理步进后，把同分区合并的牵引/再生负荷和列车新位置提交到 `9200 /power-network/step`，取得下一周期约束。9200 是唯一供电权威，9300 是唯一列车负荷写入方；中央仅下发 MA、轨道和调度约束并镜像状态。
 
 接口：
 
@@ -40,7 +40,7 @@ curl -X POST http://127.0.0.1:9300/vehicle-runtime/trains/launch \
 
 ```bash
 cd vehicle-runtime-service
-mvn spring-boot:run
+mvn spring-boot:run -Dspring-boot.run.arguments="--spring.profiles.active=split"
 ```
 
 测试：

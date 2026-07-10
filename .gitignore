@@ -43,6 +43,10 @@ uploads/
 轨交多系统平台接口协议汇总20260630.docx
 
 # Local frontend demo artifacts
+frontend/demo.html
+frontend/src/demo-main.ts
+power-network-service/.venv/
+__pycache__/
 frontend/src/api/rest.ts
 frontend/src/api/ws.ts
 frontend/src/components/power-train/VehicleSelfControlDemo.vue

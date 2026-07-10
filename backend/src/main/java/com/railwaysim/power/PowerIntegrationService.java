@@ -15,6 +15,9 @@ import com.railwaysim.vehicle.runtime.VehiclePowerLoadForwardingOwner;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -25,6 +28,8 @@ import org.springframework.web.client.RestClient;
 public class PowerIntegrationService {
 
     private static final Logger log = LoggerFactory.getLogger(PowerIntegrationService.class);
+    private static final double POWER_SYNC_TOLERANCE_WATTS = 1_000.0;
+    private static final double CURRENT_SYNC_TOLERANCE_AMPS = 1.0;
 
     private final ExternalPowerNetworkProperties properties;
     private final PowerTopologyService powerTopologyService;
@@ -55,7 +60,7 @@ public class PowerIntegrationService {
     }
 
     /**
-     * 按当前写入权同步供电快照：车辆运行时负责推负荷时只读状态，否则由中央提交负荷。
+     * 按当前写入权同步供电快照：车辆运行时优先推负荷；若独立供电脚本未反映该负荷，中央按同一快照补写。
      */
     public synchronized PowerNetworkStateSnapshot refreshSnapshot(List<PowerSectionLoadSnapshot> loads) {
         if (properties.getMode() == ExternalPowerNetworkMode.LOCAL) {
@@ -64,27 +69,14 @@ public class PowerIntegrationService {
             return latestSnapshot;
         }
         try {
-            if (properties.isAutoBootstrap() && !bootstrapped) {
-                // 首次外部刷新必须先下发中央生成的虚拟电网拓扑，否则外部只会返回空遥测。
-                var bootstrapRequest = powerTopologyService.buildBootstrapRequest();
-                log.info(
-                    "Bootstrapping external power network: mode={}, baseUrl={}, lineId={}, topologySegments={}, sectionBindings={}, loads={}",
-                    properties.getMode(),
-                    properties.getBaseUrl(),
-                    bootstrapRequest.lineId(),
-                    bootstrapRequest.topologySegments().size(),
-                    bootstrapRequest.sectionBindings().size(),
-                    loads == null ? 0 : loads.size()
-                );
-                externalClient.bootstrap(bootstrapRequest);
-                bootstrapped = true;
-                log.info("External power network bootstrap completed");
-            }
+            ensureExternalBootstrap();
             Instant startedAt = Instant.now();
-            // 外部车辆运行时已把牵引/再生负荷推到供电仿真时，中央只拉取供电状态，避免重复注入负荷。
-            latestSnapshot = vehiclePowerLoadForwardingOwner.ownsPowerLoadForwarding()
-                ? externalClient.currentState()
-                : externalClient.queryState(new PowerNetworkStateQueryRequest(toExternalLoads(loads)));
+            if (vehiclePowerLoadForwardingOwner.isConfiguredPowerLoadForwardingOwner()) {
+                // 拆分模式下 9300 是唯一负荷写入方，9200 是唯一供电约束计算方；中央只读快照。
+                latestSnapshot = externalClient.currentState();
+            } else {
+                latestSnapshot = externalClient.queryState(new PowerNetworkStateQueryRequest(toExternalLoads(loads)));
+            }
             health = new ExternalPowerNetworkHealth(
                 properties.getMode(),
                 latestSnapshot.heartbeatStatus(),
@@ -100,6 +92,25 @@ public class PowerIntegrationService {
         }
     }
 
+    /** Bootstrap only establishes topology; it never writes vehicle load. */
+    public synchronized void ensureExternalBootstrap() {
+        if (properties.getMode() == ExternalPowerNetworkMode.LOCAL || !properties.isAutoBootstrap() || bootstrapped) {
+            return;
+        }
+        var bootstrapRequest = powerTopologyService.buildBootstrapRequest();
+        log.info(
+            "Bootstrapping external power network: mode={}, baseUrl={}, lineId={}, topologySegments={}, sectionBindings={}",
+            properties.getMode(),
+            properties.getBaseUrl(),
+            bootstrapRequest.lineId(),
+            bootstrapRequest.topologySegments().size(),
+            bootstrapRequest.sectionBindings().size()
+        );
+        externalClient.bootstrap(bootstrapRequest);
+        bootstrapped = true;
+        log.info("External power network bootstrap completed");
+    }
+
     private List<PowerNetworkSectionLoadRequest> toExternalLoads(List<PowerSectionLoadSnapshot> loads) {
         return loads == null
             ? List.of()
@@ -112,6 +123,34 @@ public class PowerIntegrationService {
                     load.currentAmps()
                 ))
                 .toList();
+    }
+
+    private boolean externalLoadsOutOfSync(
+        List<PowerSectionLoadSnapshot> loads,
+        PowerNetworkStateSnapshot externalSnapshot
+    ) {
+        if (loads == null || loads.isEmpty()) {
+            return false;
+        }
+        Map<String, PowerNetworkStateSnapshot.ThirdRailSectionSnapshot> externalByPowerSection = externalSnapshot
+            .thirdRailSections()
+            .stream()
+            .collect(Collectors.toMap(
+                PowerNetworkStateSnapshot.ThirdRailSectionSnapshot::powerSectionId,
+                Function.identity(),
+                (left, right) -> left
+            ));
+        return loads.stream().anyMatch(load -> {
+            PowerNetworkStateSnapshot.ThirdRailSectionSnapshot external = externalByPowerSection.get(load.powerSectionId());
+            return external == null
+                || materiallyDifferent(load.tractionPowerWatts(), external.tractionPowerWatts(), POWER_SYNC_TOLERANCE_WATTS)
+                || materiallyDifferent(load.regenPowerWatts(), external.regenPowerWatts(), POWER_SYNC_TOLERANCE_WATTS)
+                || materiallyDifferent(load.currentAmps(), external.tractionCurrentAmps(), CURRENT_SYNC_TOLERANCE_AMPS);
+        });
+    }
+
+    private boolean materiallyDifferent(double expected, double actual, double absoluteTolerance) {
+        return Math.abs(expected - actual) > Math.max(absoluteTolerance, Math.abs(expected) * 0.05);
     }
 
     public synchronized PowerNetworkOperationResult operate(PowerNetworkOperationRequest request) {

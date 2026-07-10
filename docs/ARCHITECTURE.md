@@ -45,9 +45,11 @@ SimulationRuntime.tick()
 → TrackService.updateOccupancy()
 → TrackService.constraintsForTrains()
 → SignalService.calculateAuthorities()
-→ PowerService.constraintsForTrains()
 → DispatchService.constraintsForTrains()
-→ EXTERNAL_HTTP: vehicle-runtime-service /vehicle-runtime/step-fleet
+→ split/EXTERNAL_HTTP: vehicle-runtime-service /vehicle-runtime/step-fleet
+   → power-network-service /constraints/query
+   → vehicle control + dynamics
+   → power-network-service /step
 → fallback: OnboardTrainSubsystemManager + VehiclePhysicsClient.stepFleet()
 → TrainManager.apply vehicle physics output
 → TrackService.updateOccupancy()
@@ -106,19 +108,19 @@ YAML 存仿真静态配置：
 
 车辆和供电链路通过内部事件总线发布运行状态变化，包括 `VehiclePhysicsUpdated`、`TractionPowerChanged`、`BrakeForceChanged`、`RegenerativePowerGenerated`、`ThirdRailVoltageChanged`、`PowerLimitTriggered`、`FmuStepFailed` 和 `FmuFallbackActivated`。监控层只消费事件和状态快照生成告警，不直接参与车辆物理计算。
 
-新增 `vehicle-runtime-service` 作为外部车辆运行时，端口 `9300`。列车上线推荐先由车辆仿真系统调用 `POST /vehicle-runtime/trains/launch`，创建车辆仿真实例、唤醒本车控制队列，再向中央 `/api/trains/runtime-registrations` 注册状态镜像。中央在每个 tick 将列车状态、MA、轨道约束和供电约束同步发送给外部服务，外部服务按每车一对控制/仿真队列返回 `VehiclePhysicsOutput` 和 `TrainStateReport`。仅 `EXTERNAL_HTTP` 权威外部服务健康且供电仿真启用时，车辆运行时把牵引/再生负荷推送到 `power-network-service:9200`，中央供电控制随后只拉取供电状态；`DUAL_SHADOW` 不写供电负荷，外部车辆服务失败时中央立即回退本地 `OnboardTrainSubsystemManager + VehiclePhysicsClient` 链路，并把车辆运行时健康状态标记为 `FALLBACK`。
+新增 `vehicle-runtime-service` 作为外部车辆运行时，端口 `9300`。列车上线推荐先由车辆仿真系统调用 `POST /vehicle-runtime/trains/launch`，创建车辆仿真实例、唤醒本车控制队列，再向中央 `/api/trains/runtime-registrations` 注册状态镜像。`split` 模式下中央每 tick 只同步列车状态、MA、轨道和调度约束；不再计算或下发供电约束。9300 在控制前向独立 FastAPI 供电仿真 `power-network-service:9200` 请求当前位置的电压/可用功率约束，完成全车步进后聚合同分区负荷并提交给 9200；9200 返回下一控制周期的约束。中央只镜像 9200 快照用于前端和告警，绝不补写车辆负荷。外部车辆服务失败时中央立即回退本地链路，并标记车辆运行时健康状态为 `FALLBACK`。
 
 ```text
 vehicle-runtime-service:9300
   -> POST /vehicle-runtime/trains/launch
   -> POST backend /api/trains/runtime-registrations
-中央系统
+中央系统（调度/信号/控制编排）
   -> TrainManager.tickAll()
   -> vehicle-runtime-service:9300
+       -> GET/POST power-network-service:9200/constraints/query
        -> VehicleControlQueue + VehicleSimulationQueue
-       -> POST power-network-service:9200/power-network/state/query
-  -> PowerIntegrationService
-       -> GET power-network-service:9200/power-network/state
+       -> POST power-network-service:9200/step（唯一负荷写入）
+  -> PowerIntegrationService: GET 9200/state（只读镜像）
   -> REST/WebSocket 快照
 ```
 

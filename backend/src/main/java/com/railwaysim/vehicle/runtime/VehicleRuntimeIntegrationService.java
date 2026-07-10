@@ -138,6 +138,17 @@ public class VehicleRuntimeIntegrationService implements VehiclePowerLoadForward
             && "GOOD".equals(latestHealth.dataQuality());
     }
 
+    @Override
+    public boolean isConfiguredPowerLoadForwardingOwner() {
+        return properties.getMode() == VehicleRuntimeMode.EXTERNAL_HTTP
+            && externalPowerNetworkProperties.getMode() == ExternalPowerNetworkMode.EXTERNAL_HTTP;
+    }
+
+    /** In split mode 8080 sends only signal/track/dispatch control; 9300 obtains power from 9200. */
+    public boolean usesExternalPowerAuthority() {
+        return isConfiguredPowerLoadForwardingOwner();
+    }
+
     private VehicleRuntimeStepResult externalOrFallback(
         TickContext context,
         List<TrainState> trains,
