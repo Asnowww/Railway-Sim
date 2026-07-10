@@ -88,6 +88,8 @@ class ThirdRailState:
     traction_power_watts: float = 0.0
     regen_power_watts: float = 0.0
     absorbed_regen_watts: float = 0.0
+    unabsorbed_regen_watts: float = 0.0
+    regen_budget_watts: float = 0.0
     support_reason: str = "normal double-end supply"
 
 
@@ -112,6 +114,7 @@ class StrayMonitorState:
 @dataclass
 class SectionLoad:
     power_section_id: str
+    train_ids: list[str] = field(default_factory=list)
     traction_power_watts: float = 0.0
     regen_power_watts: float = 0.0
     current_amps: float = 0.0
@@ -135,6 +138,8 @@ class PowerNetworkModel:
     section_loads: dict[str, SectionLoad] = field(default_factory=dict)
     events: list[dict[str, Any]] = field(default_factory=list)
     source_timestamp: str = field(default_factory=now_iso)
+    last_step_tick: int | None = None
+    last_step_response: dict[str, Any] | None = None
 
     def __post_init__(self) -> None:
         if not self.substations:
@@ -148,6 +153,8 @@ class PowerNetworkModel:
         self.minimum_dc_voltage = positive_float(payload.get("minimumVoltage"), MINIMUM_DC_VOLTAGE)
         self.cutoff_dc_voltage = positive_float(payload.get("cutoffVoltage"), self.minimum_dc_voltage * 0.9)
         self.max_traction_current_amps = positive_float(payload.get("maxTractionCurrentAmps"), 2_000.0)
+        self.last_step_tick = None
+        self.last_step_response = None
         self.topology_segments = [
             {
                 "id": segment.get("id", ""),
@@ -264,11 +271,30 @@ class PowerNetworkModel:
                 continue
             self.section_loads[section_id] = SectionLoad(
                 power_section_id=section_id,
+                train_ids=list(load.get("trainIds", load.get("train_ids", [])) or []),
                 traction_power_watts=float(load.get("tractionPowerWatts", load.get("traction_power_watts", 0)) or 0),
                 regen_power_watts=float(load.get("regenPowerWatts", load.get("regen_power_watts", 0)) or 0),
                 current_amps=float(load.get("currentAmps", load.get("current_amps", 0)) or 0),
             )
         return self.snapshot()
+
+    def step(
+        self,
+        tick: int,
+        payload: dict[str, Any],
+        train_positions: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        """Atomically apply T(n) fleet loads and return constraints consumed at T(n+1)."""
+        if self.last_step_tick is not None:
+            if tick == self.last_step_tick:
+                return dict(self.last_step_response or {})
+            if tick < self.last_step_tick:
+                raise ValueError(f"POWER_TICK_OUT_OF_ORDER:{tick}<{self.last_step_tick}")
+        snapshot = self.query_state(payload)
+        response = {**snapshot, "tick": tick, "powerConstraints": self.constraints_for_positions(train_positions)}
+        self.last_step_tick = tick
+        self.last_step_response = response
+        return dict(response)
 
     def constraints_for_positions(self, train_positions: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """Return the authoritative power constraint for every train position.
@@ -280,7 +306,7 @@ class PowerNetworkModel:
         sections = list(self.third_rail_sections.values())
         if not sections:
             return []
-        constraints: list[dict[str, Any]] = []
+        assignments: list[tuple[dict[str, Any], ThirdRailState]] = []
         for train in train_positions:
             train_id = train.get("trainId") or train.get("train_id")
             if not train_id:
@@ -294,12 +320,25 @@ class PowerNetworkModel:
                 ),
                 sections[-1],
             )
+            assignments.append((train, section))
+        train_count_by_section: dict[str, int] = {}
+        for _, section in assignments:
+            train_count_by_section[section.power_section_id] = train_count_by_section.get(section.power_section_id, 0) + 1
+
+        constraints: list[dict[str, Any]] = []
+        for train, section in assignments:
+            train_id = train.get("trainId") or train.get("train_id")
             energized = section.energization_state == "ENERGIZED" and section.contact_rail_voltage > self.cutoff_dc_voltage
             undervoltage = energized and section.contact_rail_voltage < self.minimum_dc_voltage
             derating_factor = 0.5 if undervoltage else (1.0 if energized else 0.0)
             available_power = (
                 section.contact_rail_voltage * self.max_traction_current_amps * derating_factor
                 if energized
+                else 0.0
+            )
+            regen_budget = (
+                section.regen_budget_watts / max(1, train_count_by_section[section.power_section_id])
+                if energized and not undervoltage
                 else 0.0
             )
             reason = "UNDERVOLTAGE" if undervoltage else ("NORMAL" if energized else "POWER_UNAVAILABLE")
@@ -309,13 +348,11 @@ class PowerNetworkModel:
                     "sectionId": section.power_section_id,
                     "railVoltage": round(section.contact_rail_voltage, 2),
                     "powerAvailableWatts": round(available_power, 2),
-                    # WP0 freezes the numeric contract. WP6 replaces this zero
-                    # placeholder with a section-level regenerative budget.
-                    "regenPowerAvailableWatts": 0.0,
+                    "regenPowerAvailableWatts": round(regen_budget, 2),
                     "energized": energized,
                     "powerDeratingFactor": derating_factor,
                     "currentCollectionAvailable": energized,
-                    "regenAvailable": energized and not undervoltage,
+                    "regenAvailable": regen_budget > 0,
                     "constraintReason": reason,
                 }
             )
@@ -400,6 +437,8 @@ class PowerNetworkModel:
         section.traction_power_watts = load.traction_power_watts
         section.regen_power_watts = load.regen_power_watts
         section.absorbed_regen_watts = min(load.traction_power_watts, load.regen_power_watts)
+        section.unabsorbed_regen_watts = max(0.0, load.regen_power_watts - section.absorbed_regen_watts)
+        section.regen_budget_watts = 0.0
         section.traction_current_amps = self._effective_current(load)
         if open_isolator:
             section.energization_state = "DEENERGIZED"
@@ -439,6 +478,10 @@ class PowerNetworkModel:
                 "WARNING",
                 f"contact rail voltage {section.contact_rail_voltage:.1f}V",
             )
+        else:
+            # Rectifiers are not modelled as reversible in the first version. Regeneration
+            # can therefore be absorbed only by simultaneous traction in the same section.
+            section.regen_budget_watts = max(0.0, section.traction_power_watts)
 
     def _solve_medium_voltage_flows(self) -> None:
         loads_by_bus: dict[str, float] = {bus_id: 0.0 for bus_id in self.buses}
@@ -701,6 +744,8 @@ class PowerNetworkModel:
             "tractionPowerWatts": round(section.traction_power_watts, 2),
             "regenPowerWatts": round(section.regen_power_watts, 2),
             "absorbedRegenWatts": round(section.absorbed_regen_watts, 2),
+            "unabsorbedRegenWatts": round(section.unabsorbed_regen_watts, 2),
+            "regenBudgetWatts": round(section.regen_budget_watts, 2),
             "supportReason": section.support_reason,
         }
 

@@ -14,6 +14,10 @@ public class VehicleRuntimeProperties {
     private double defaultSpeedLimitMetersPerSecond = 22.2;
     private double safetyGapMeters = 120;
     private long instanceLeaseMillis = 1000;
+    private VehiclePhysicsMode physicsMode = VehiclePhysicsMode.JAVA_FALLBACK;
+    private String fmuBaseUrl = "http://localhost:9000";
+    private long fmuTimeoutMillis = 80;
+    private String fmuModelVersion = "TrainTractionBrake/1.0.0";
     private boolean forwardPowerLoads;
     private String powerNetworkBaseUrl = "http://localhost:9200";
     private long powerNetworkTimeoutMillis = 300;
@@ -70,6 +74,42 @@ public class VehicleRuntimeProperties {
 
     public void setInstanceLeaseMillis(long instanceLeaseMillis) {
         this.instanceLeaseMillis = Math.max(1, instanceLeaseMillis);
+    }
+
+    public VehiclePhysicsMode getPhysicsMode() {
+        return physicsMode;
+    }
+
+    public void setPhysicsMode(VehiclePhysicsMode physicsMode) {
+        this.physicsMode = physicsMode == null ? VehiclePhysicsMode.JAVA_FALLBACK : physicsMode;
+    }
+
+    public String getFmuBaseUrl() {
+        return fmuBaseUrl;
+    }
+
+    public void setFmuBaseUrl(String fmuBaseUrl) {
+        this.fmuBaseUrl = fmuBaseUrl == null || fmuBaseUrl.isBlank()
+            ? "http://localhost:9000"
+            : fmuBaseUrl;
+    }
+
+    public long getFmuTimeoutMillis() {
+        return fmuTimeoutMillis;
+    }
+
+    public void setFmuTimeoutMillis(long fmuTimeoutMillis) {
+        this.fmuTimeoutMillis = Math.max(1, fmuTimeoutMillis);
+    }
+
+    public String getFmuModelVersion() {
+        return fmuModelVersion;
+    }
+
+    public void setFmuModelVersion(String fmuModelVersion) {
+        this.fmuModelVersion = fmuModelVersion == null || fmuModelVersion.isBlank()
+            ? "TrainTractionBrake/1.0.0"
+            : fmuModelVersion;
     }
 
     public boolean isForwardPowerLoads() {

@@ -307,6 +307,10 @@ class FmuManager:
                         f"FMU instance already exists for train {train.train_id}",
                     )
                 continue
+            if instance is None and command == "RESYNC":
+                # 9300 uses RESYNC after a 9000 process restart. The authoritative
+                # position, speed and energy in that request are sufficient to rebuild.
+                continue
             if instance is None:
                 raise FmuProtocolError(
                     409,

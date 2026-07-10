@@ -13,7 +13,6 @@ import com.railwaysim.vehicleruntime.model.VehiclePhysicsOutputDto;
 import com.railwaysim.vehicleruntime.model.VehicleRuntimeInstanceState;
 import java.time.Duration;
 import java.time.Instant;
-import java.util.Optional;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
@@ -23,7 +22,6 @@ final class VehicleRuntimeInstance {
 
     private final String trainId;
     private final VehicleControlQueue controlQueue;
-    private final VehicleSimulationQueue simulationQueue;
     private final VehicleLoadPolicy loadPolicy;
     private final VehicleParameters vehicleParameters;
     private final AtomicBoolean inFlight = new AtomicBoolean();
@@ -45,7 +43,6 @@ final class VehicleRuntimeInstance {
         this.vehicleParameters = vehicleParameters;
         this.loadPolicy = new VehicleLoadPolicy(vehicleParameters);
         this.controlQueue = new VehicleControlQueue(properties, loadPolicy, vehicleParameters);
-        this.simulationQueue = new VehicleSimulationQueue(properties, vehicleParameters);
     }
 
     void launch() {
@@ -58,7 +55,7 @@ final class VehicleRuntimeInstance {
         updatedAt = Instant.now();
     }
 
-    StepResult step(
+    PreparedStep prepare(
         long tick,
         double deltaSeconds,
         TrainStateSnapshot train,
@@ -70,34 +67,55 @@ final class VehicleRuntimeInstance {
         Instant startedAt = Instant.now();
         if (!inFlight.compareAndSet(false, true)) {
             // 同车上一 tick 未完成时直接拒绝，避免队列积压导致中央状态倒挂。
-            return rejectWithoutFault("INSTANCE_BUSY", startedAt);
+            rejectWithoutFault("INSTANCE_BUSY", startedAt);
+            return null;
         }
         try {
             if (tick <= lastTick) {
                 // 重放同一 tick 是幂等/重试场景，不改变车辆生命周期和数据质量。
-                return rejectWithoutFault("STALE_OR_DUPLICATE_TICK", startedAt);
+                rejectWithoutFault("STALE_OR_DUPLICATE_TICK", startedAt);
+                inFlight.set(false);
+                return null;
             }
             controlQueueStatus = "RUNNING";
             VehiclePhysicsInputDto input = controlQueue.control(tick, deltaSeconds, train, authority, track, dispatch, power);
             controlQueueStatus = "DONE";
-            simulationQueueStatus = "RUNNING";
-            VehiclePhysicsOutputDto output = simulationQueue.step(tick, input);
-            simulationQueueStatus = "DONE";
-            TrainStateReportDto report = buildReport(train, input, output);
-            lastTick = tick;
-            lifecycleState = "RUNNING";
-            dataQuality = "GOOD";
-            reason = "OK";
-            latencyMillis = Duration.between(startedAt, Instant.now()).toMillis();
-            updatedAt = Instant.now();
-            return new StepResult(Optional.of(output), Optional.of(report), state());
+            simulationQueueStatus = "PREPARED";
+            return new PreparedStep(tick, train, input, startedAt);
         } catch (VehicleRuntimeQueue.QueueRejectedException exception) {
-            return reject(exception.getMessage(), startedAt);
+            reject(exception.getMessage(), startedAt);
+            inFlight.set(false);
+            return null;
         } catch (RuntimeException exception) {
-            return reject(exception.getClass().getSimpleName(), startedAt);
+            reject(exception.getClass().getSimpleName(), startedAt);
+            inFlight.set(false);
+            return null;
+        }
+    }
+
+    StepResult apply(PreparedStep prepared, VehiclePhysicsOutputDto output, String stepReason) {
+        try {
+            simulationQueueStatus = "DONE";
+            TrainStateReportDto report = buildReport(prepared.train(), prepared.input(), output);
+            lastTick = prepared.tick();
+            lifecycleState = "RUNNING";
+            dataQuality = "GOOD".equals(output.dataQuality()) && "OK".equals(stepReason) ? "GOOD" : "DEGRADED";
+            reason = stepReason;
+            latencyMillis = Duration.between(prepared.startedAt(), Instant.now()).toMillis();
+            updatedAt = Instant.now();
+            return new StepResult(output, report, state());
         } finally {
             inFlight.set(false);
         }
+    }
+
+    void markSimulationRunning() {
+        simulationQueueStatus = "RUNNING";
+    }
+
+    void abort(String abortReason, PreparedStep prepared) {
+        reject(abortReason, prepared.startedAt());
+        inFlight.set(false);
     }
 
     VehicleRuntimeInstanceState state() {
@@ -114,7 +132,7 @@ final class VehicleRuntimeInstance {
         );
     }
 
-    private StepResult reject(String rejectReason, Instant startedAt) {
+    private void reject(String rejectReason, Instant startedAt) {
         lifecycleState = "FAULT";
         dataQuality = "INVALID";
         reason = rejectReason;
@@ -122,16 +140,14 @@ final class VehicleRuntimeInstance {
         simulationQueueStatus = "REJECTED";
         latencyMillis = Duration.between(startedAt, Instant.now()).toMillis();
         updatedAt = Instant.now();
-        return new StepResult(Optional.empty(), Optional.empty(), state());
     }
 
-    private StepResult rejectWithoutFault(String rejectReason, Instant startedAt) {
+    private void rejectWithoutFault(String rejectReason, Instant startedAt) {
         reason = rejectReason;
         controlQueueStatus = "REJECTED";
         simulationQueueStatus = "REJECTED";
         latencyMillis = Duration.between(startedAt, Instant.now()).toMillis();
         updatedAt = Instant.now();
-        return new StepResult(Optional.empty(), Optional.empty(), state());
     }
 
     private TrainStateReportDto buildReport(
@@ -267,10 +283,9 @@ final class VehicleRuntimeInstance {
             : train.vehicleProtectionReason();
     }
 
-    record StepResult(
-        Optional<VehiclePhysicsOutputDto> output,
-        Optional<TrainStateReportDto> report,
-        VehicleRuntimeInstanceState state
-    ) {
+    record PreparedStep(long tick, TrainStateSnapshot train, VehiclePhysicsInputDto input, Instant startedAt) {
+    }
+
+    record StepResult(VehiclePhysicsOutputDto output, TrainStateReportDto report, VehicleRuntimeInstanceState state) {
     }
 }

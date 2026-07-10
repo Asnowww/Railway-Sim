@@ -53,6 +53,9 @@ public class PowerNetworkLoadClient {
      * next control-cycle constraints after all trains in the fleet were merged.
      */
     public List<PowerConstraintSnapshot> stepPowerNetwork(
+        long tick,
+        double simulationTimeSeconds,
+        double stepSizeSeconds,
         List<PowerNetworkSectionLoadRequest> loads,
         List<PowerNetworkTrainPosition> trainPositions
     ) {
@@ -64,7 +67,7 @@ public class PowerNetworkLoadClient {
             .uri("/power-network/step")
             .contentType(MediaType.APPLICATION_JSON)
             .accept(MediaType.APPLICATION_JSON)
-            .body(new PowerNetworkStepRequest(loads, trainPositions))
+            .body(new PowerNetworkStepRequest(tick, simulationTimeSeconds, stepSizeSeconds, loads, trainPositions))
             .retrieve()
             .body(PowerNetworkStepResponse.class);
         return response == null ? List.of() : response.powerConstraints();

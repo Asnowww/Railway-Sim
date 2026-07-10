@@ -225,6 +225,24 @@ def test_reset_resync_delete_and_reset_all(manager: FmuManager) -> None:
     assert manager.health()["instanceCount"] == 0
 
 
+def test_resync_rebuilds_unknown_instance_after_service_restart(manager: FmuManager) -> None:
+    resync = train_input(
+        "RESTARTED",
+        "RESYNC",
+        position_meters=1200.0,
+        speed_meters_per_second=6.0,
+        previous_energy_consumed_kwh=8.0,
+        previous_energy_regenerated_kwh=2.0,
+    )
+
+    output = manager.step_fleet(fleet_request(manager, 10, 12.0, [resync])).train_outputs[0]
+
+    assert output.new_position_meters >= 1200.0
+    assert output.energy_consumed_kwh >= 8.0
+    assert output.energy_regenerated_kwh >= 2.0
+    assert manager.health()["instanceCount"] == 1
+
+
 def test_single_instance_failure_is_isolated_and_requires_resync(
     manager: FmuManager,
 ) -> None:

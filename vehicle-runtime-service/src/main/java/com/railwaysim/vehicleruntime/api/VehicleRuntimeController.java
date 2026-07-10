@@ -88,6 +88,21 @@ public class VehicleRuntimeController {
         return manager.stepFleet(request);
     }
 
+    @PostMapping("/physics/instances/{trainId}/reset")
+    public void resetPhysics(@PathVariable String trainId) {
+        manager.resetPhysics(trainId);
+    }
+
+    @PostMapping("/physics/instances/{trainId}/resync")
+    public void resyncPhysics(@PathVariable String trainId) {
+        manager.resyncPhysics(trainId);
+    }
+
+    @PostMapping("/physics/instances/resync-all")
+    public void resyncAllPhysics() {
+        manager.resyncAllPhysics();
+    }
+
     @GetMapping("/events")
     public List<VehicleRuntimeEvent> events() {
         return manager.events();

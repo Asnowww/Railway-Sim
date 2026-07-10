@@ -1,2 +1,3 @@
 vehicle-runtime:
+  physics-mode: FMU_HTTP
   forward-power-loads: true

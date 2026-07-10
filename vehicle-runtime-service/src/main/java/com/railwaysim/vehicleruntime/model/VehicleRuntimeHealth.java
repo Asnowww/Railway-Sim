@@ -9,6 +9,11 @@ public record VehicleRuntimeHealth(
     long latencyMillis,
     String dataQuality,
     int instanceCount,
-    String reason
+    String reason,
+    String physicsMode,
+    String fmuModelVersion,
+    String parameterSetId,
+    long fmuBatchLatencyMillis,
+    int fallbackTrainCount
 ) {
 }

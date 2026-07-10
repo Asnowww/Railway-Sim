@@ -166,7 +166,9 @@ final class VehicleControlQueue {
             return new DynamicsDecision(
                 TrainDynamicsState.POWER_DERATED,
                 nullTo(power.constraintReason(), "POWER_DERATED"),
-                tractionCommand * clamp(power.powerDeratingFactor(), 0, 1) * tractionCapacityFactor,
+                // 9200 already expresses the grid limit in powerAvailableWatts. Keep the
+                // state label here, but let the physics power limit apply the derating once.
+                tractionCommand * tractionCapacityFactor,
                 0,
                 false,
                 stoppingDistance

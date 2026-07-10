@@ -53,11 +53,14 @@ class VehicleRuntimeManagerTests {
         try {
             VehicleRuntimeProperties properties = new VehicleRuntimeProperties();
             properties.setCentralBaseUrl("http://127.0.0.1:" + server.getAddress().getPort());
+            VehicleParameters parameters = parameters(properties);
             VehicleRuntimeManager manager = new VehicleRuntimeManager(
                 properties,
-                parameters(properties),
+                parameters,
                 new PowerNetworkLoadClient(properties, RestClient.builder()),
-                new CentralTrainRegistrationClient(properties, RestClient.builder())
+                new CentralTrainRegistrationClient(properties, RestClient.builder()),
+                new FmuHttpVehiclePhysicsExecutor(properties, RestClient.builder()),
+                new JavaFallbackVehiclePhysicsExecutor(properties, parameters)
             );
 
             var response = manager.launch(new VehicleRuntimeLaunchRequest(
@@ -131,6 +134,27 @@ class VehicleRuntimeManagerTests {
     }
 
     @Test
+    void duplicateTrainIdInOneFleetBatchIsRejectedBeforeAnyPhysicsStep() {
+        VehicleRuntimeManager manager = manager();
+        TrainStateSnapshot duplicate = train("TR-DUP", 100, 0);
+        VehicleRuntimeStepRequest invalid = new VehicleRuntimeStepRequest(
+            1,
+            0.1,
+            Instant.parse("2026-07-09T00:00:00Z"),
+            List.of(duplicate, duplicate),
+            List.of(),
+            List.of(),
+            List.of(),
+            List.of()
+        );
+
+        assertThatThrownBy(() -> manager.stepFleet(invalid))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("duplicate trainId");
+        assertThat(manager.instances()).isEmpty();
+    }
+
+    @Test
     void registerRejectsPathAndBodyTrainIdMismatch() {
         VehicleRuntimeController controller = new VehicleRuntimeController(manager());
 
@@ -180,18 +204,26 @@ class VehicleRuntimeManagerTests {
             VehicleRuntimeProperties properties = new VehicleRuntimeProperties();
             properties.setForwardPowerLoads(true);
             properties.setPowerNetworkBaseUrl("http://127.0.0.1:" + server.getAddress().getPort());
+            VehicleParameters parameters = parameters(properties);
             VehicleRuntimeManager manager = new VehicleRuntimeManager(
                 properties,
-                parameters(properties),
+                parameters,
                 new PowerNetworkLoadClient(properties, RestClient.builder()),
-                new CentralTrainRegistrationClient(properties, RestClient.builder())
+                new CentralTrainRegistrationClient(properties, RestClient.builder()),
+                new FmuHttpVehiclePhysicsExecutor(properties, RestClient.builder()),
+                new JavaFallbackVehiclePhysicsExecutor(properties, parameters)
             );
 
             manager.stepFleet(request(1, train("TR-101", 100, 0), energized()));
 
             assertThat(payload.get()).contains("\"sectionLoads\"");
+            assertThat(payload.get()).contains("\"tick\":1");
+            assertThat(payload.get()).contains("\"simulationTimeSeconds\":0.1");
+            assertThat(payload.get()).contains("\"stepSizeSeconds\":0.1");
             assertThat(payload.get()).contains("\"powerSectionId\":\"P01\"");
             assertThat(payload.get()).contains("\"trainIds\":[\"TR-101\"]");
+            assertThat(payload.get()).doesNotContain("mechanicalTractionPowerWatts");
+            assertThat(payload.get()).doesNotContain("mechanicalRegenPowerWatts");
         } finally {
             server.stop(0);
         }
@@ -200,11 +232,14 @@ class VehicleRuntimeManagerTests {
     private VehicleRuntimeManager manager() {
         VehicleRuntimeProperties properties = new VehicleRuntimeProperties();
         properties.setQueueCapacity(1);
+        VehicleParameters parameters = parameters(properties);
         return new VehicleRuntimeManager(
             properties,
-            parameters(properties),
+            parameters,
             new PowerNetworkLoadClient(properties, RestClient.builder()),
-            new CentralTrainRegistrationClient(properties, RestClient.builder())
+            new CentralTrainRegistrationClient(properties, RestClient.builder()),
+            new FmuHttpVehiclePhysicsExecutor(properties, RestClient.builder()),
+            new JavaFallbackVehiclePhysicsExecutor(properties, parameters)
         );
     }
 
@@ -215,7 +250,7 @@ class VehicleRuntimeManagerTests {
     private VehicleRuntimeStepRequest request(long tick, TrainStateSnapshot train, PowerConstraintSnapshot power) {
         return new VehicleRuntimeStepRequest(
             tick,
-            0.2,
+            0.1,
             Instant.parse("2026-07-09T00:00:00Z"),
             List.of(train),
             List.of(new MovementAuthoritySnapshot(train.id(), 2_000, 22.2, "NORMAL")),

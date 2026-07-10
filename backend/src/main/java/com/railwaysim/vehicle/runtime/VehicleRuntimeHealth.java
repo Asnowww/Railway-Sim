@@ -1,7 +1,9 @@
 package com.railwaysim.vehicle.runtime;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import java.time.Instant;
 
+@JsonIgnoreProperties(ignoreUnknown = true)
 public record VehicleRuntimeHealth(
     VehicleRuntimeMode mode,
     String heartbeatStatus,
