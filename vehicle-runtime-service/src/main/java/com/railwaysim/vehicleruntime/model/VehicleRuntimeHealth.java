@@ -14,6 +14,10 @@ public record VehicleRuntimeHealth(
     String fmuModelVersion,
     String parameterSetId,
     long fmuBatchLatencyMillis,
-    int fallbackTrainCount
+    int fallbackTrainCount,
+    long totalFleetTickCount,
+    long missedDeadlineCount,
+    long fallbackEventCount,
+    long fmiErrorCount
 ) {
 }

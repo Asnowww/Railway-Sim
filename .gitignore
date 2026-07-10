@@ -34,6 +34,9 @@ backend/config/application-local.yml
 backend/src/main/resources/static/
 backend/src/main/resources/config/dispatch-plan-demo.yaml
 config/application-local.yml
+deploy/server.env
+deploy/*.local.env
+deploy/*.local/
 
 # Runtime data
 data/

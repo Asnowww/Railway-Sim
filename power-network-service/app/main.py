@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from threading import RLock
 from typing import Annotated, Any
 
@@ -7,6 +8,7 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
 from .manager import PowerNetworkModel
+from .config_loader import load_power_config
 
 
 class SectionLoadPayload(BaseModel):
@@ -50,7 +52,12 @@ app = FastAPI(
     version="1.0.0",
     description="供电仿真权威服务：计算分区负荷、电压、电流与车辆供电约束。",
 )
+power_config_source = os.environ.get("POWER_NETWORK_CONFIG_PATH", "").strip()
+power_config_sha256 = ""
 model = PowerNetworkModel()
+if power_config_source:
+    bootstrap_payload, power_config_sha256 = load_power_config(power_config_source)
+    model.bootstrap(bootstrap_payload)
 model_lock = RLock()
 
 
@@ -72,8 +79,15 @@ def root() -> dict[str, str]:
 
 
 @app.get("/health")
-def health() -> dict[str, str]:
-    return {"status": "UP", "role": "AUTHORITATIVE_POWER_SIMULATOR"}
+def health() -> dict[str, Any]:
+    return {
+        "status": "UP",
+        "role": "AUTHORITATIVE_POWER_SIMULATOR",
+        "configSource": power_config_source or "BUILT_IN_REFERENCE",
+        "configSha256": power_config_sha256,
+        "nominalVoltage": model.nominal_dc_voltage,
+        "powerSectionCount": len(model.third_rail_sections),
+    }
 
 
 @app.get("/power-network/state")

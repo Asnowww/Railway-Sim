@@ -55,6 +55,8 @@ class VehicleRuntimeFmuBatchTests {
             assertThat(requestCount).hasValue(1);
             assertThat(requestBody.get().path("trains")).hasSize(20);
             assertThat(requestBody.get().path("trains").get(0).path("lifecycleCommand").asText()).isEqualTo("INIT");
+            assertThat(requestBody.get().path("stepSizeSeconds").asDouble()).isEqualTo(0.1);
+            assertThat(requestBody.get().path("trains").get(0).has("deltaSeconds")).isFalse();
             assertThat(response.trainOutputs()).hasSize(20);
             assertThat(response.trainReports()).hasSize(20);
             assertThat(response.dataQuality()).isEqualTo("GOOD");
@@ -89,6 +91,7 @@ class VehicleRuntimeFmuBatchTests {
             assertThat(requests.get(1).path("trains")).hasSize(1);
             assertThat(requests.get(1).path("trains").get(0).path("trainId").asText()).isEqualTo("TR-GOOD");
             assertThat(manager.health().fallbackTrainCount()).isEqualTo(1);
+            assertThat(manager.health().fmiErrorCount()).isEqualTo(1);
 
             manager.resyncPhysics("TR-BAD");
             VehicleRuntimeStepResponse third = manager.stepFleet(request(3, updateFrom(second, trains)));
@@ -129,6 +132,8 @@ class VehicleRuntimeFmuBatchTests {
             assertThat(manager.health().dataQuality()).isEqualTo("DEGRADED");
             assertThat(manager.health().fallbackTrainCount()).isEqualTo(2);
             assertThat(manager.health().reason()).isEqualTo("PHYSICS_FALLBACK_ACTIVE");
+            assertThat(manager.health().totalFleetTickCount()).isEqualTo(1);
+            assertThat(manager.health().fallbackEventCount()).isEqualTo(2);
         } finally {
             server.stop(0);
         }

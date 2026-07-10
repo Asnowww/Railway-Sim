@@ -41,6 +41,8 @@ import org.springframework.stereotype.Service;
 @Service
 public class VehicleRuntimeManager {
 
+    private static final long FLEET_DEADLINE_MILLIS = 100;
+
     private final VehicleRuntimeProperties properties;
     private final VehicleParameters vehicleParameters;
     private final PowerNetworkLoadClient powerNetworkLoadClient;
@@ -52,6 +54,10 @@ public class VehicleRuntimeManager {
     private final Map<String, PowerConstraintSnapshot> authoritativePowerByTrain = new ConcurrentHashMap<>();
     private final List<VehicleRuntimeEvent> events = new ArrayList<>();
     private volatile VehicleRuntimeHealth latestHealth;
+    private long totalFleetTickCount;
+    private long missedDeadlineCount;
+    private long fallbackEventCount;
+    private long fmiErrorCount;
 
     public VehicleRuntimeManager(
         VehicleRuntimeProperties properties,
@@ -83,7 +89,11 @@ public class VehicleRuntimeManager {
             properties.getFmuModelVersion(),
             vehicleParameters.parameterSetId(),
             latestHealth.fmuBatchLatencyMillis(),
-            fallbackTrainCount()
+            fallbackTrainCount(),
+            totalFleetTickCount,
+            missedDeadlineCount,
+            fallbackEventCount,
+            fmiErrorCount
         );
     }
 
@@ -224,6 +234,7 @@ public class VehicleRuntimeManager {
             throw new IllegalArgumentException("deltaSeconds must equal 0.1");
         }
         Instant startedAt = Instant.now();
+        totalFleetTickCount++;
         List<TrainStateSnapshot> trains = request.trains() == null ? List.of() : request.trains();
         java.util.Set<String> trainIds = new java.util.HashSet<>();
         for (TrainStateSnapshot train : trains) {
@@ -289,6 +300,8 @@ public class VehicleRuntimeManager {
                         localInputs.put(trainId, preparedByTrain.get(trainId).input());
                         fallbackReasonByTrain.put(trainId, "FMU_TRAIN_FALLBACK:" + error.faultCode());
                         fmuSessions.put(trainId, FmuInstanceSessionState.FALLBACK);
+                        fallbackEventCount++;
+                        fmiErrorCount++;
                         recordEvent(trainId, "FMU_TRAIN_FALLBACK", error.faultCode() + ":" + error.message());
                     });
                 } catch (RuntimeException exception) {
@@ -298,6 +311,8 @@ public class VehicleRuntimeManager {
                         fallbackReasonByTrain.put(trainId, "FMU_BATCH_FALLBACK");
                         fmuSessions.put(trainId, FmuInstanceSessionState.FALLBACK);
                     });
+                    fallbackEventCount += remoteInputs.size();
+                    fmiErrorCount++;
                     recordEvent("runtime", "FMU_BATCH_FALLBACK", summarize(exception));
                 }
             }
@@ -361,6 +376,9 @@ public class VehicleRuntimeManager {
             recordEvent("power-network", "POWER_LOAD_FORWARD_FAILED", summarize(exception));
         }
         long latency = Duration.between(startedAt, Instant.now()).toMillis();
+        if (latency > FLEET_DEADLINE_MILLIS) {
+            missedDeadlineCount++;
+        }
         latestHealth = healthSnapshot("UP", latency, dataQuality, reason, fmuBatchLatencyMillis);
         return new VehicleRuntimeStepResponse(request.tick(), Instant.now(), dataQuality, outputs, reports, states);
     }
@@ -469,7 +487,11 @@ public class VehicleRuntimeManager {
             properties.getFmuModelVersion(),
             vehicleParameters.parameterSetId(),
             fmuBatchLatencyMillis,
-            fallbackTrainCount()
+            fallbackTrainCount(),
+            totalFleetTickCount,
+            missedDeadlineCount,
+            fallbackEventCount,
+            fmiErrorCount
         );
     }
 
