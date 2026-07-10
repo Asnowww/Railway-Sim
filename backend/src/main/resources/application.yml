@@ -31,7 +31,7 @@ railway:
     line-data-source: file
     line-id: "1"
     line-data-auto-import: false
-    line-data-path: ../config/line-branch-demo.yaml
+    line-data-path: ../database/线路数据(1).xls
     power-config-path: ../config/power_third_rail.yaml
     fmu-step-millis: 100
     track-step-millis: 100
