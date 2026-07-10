@@ -44,9 +44,10 @@ class Phase2ApiControllerTests {
 
         mockMvc.perform(get("/api/power/sections"))
             .andExpect(status().isOk())
-            .andExpect(jsonPath("$", hasSize(2)))
+            .andExpect(jsonPath("$", hasSize(5)))
             .andExpect(jsonPath("$[0].substationId").value("SS01"))
-            .andExpect(jsonPath("$[0].feederId").value("F01"));
+            .andExpect(jsonPath("$[0].feederId").value("F01"))
+            .andExpect(jsonPath("$[4].id").value("P05"));
 
         mockMvc.perform(get("/api/energy/trains"))
             .andExpect(status().isOk())
@@ -55,7 +56,8 @@ class Phase2ApiControllerTests {
 
         mockMvc.perform(get("/api/energy/power-sections"))
             .andExpect(status().isOk())
-            .andExpect(jsonPath("$.sections", hasSize(2)));
+            .andExpect(jsonPath("$.sections", hasSize(5)))
+            .andExpect(jsonPath("$.sections[4].sectionId").value("P05"));
 
         mockMvc.perform(get("/api/vehicle/maintenance-states"))
             .andExpect(status().isOk())
