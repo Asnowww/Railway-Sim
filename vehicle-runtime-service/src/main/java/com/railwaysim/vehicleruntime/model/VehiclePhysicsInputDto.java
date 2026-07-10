@@ -2,6 +2,8 @@ package com.railwaysim.vehicleruntime.model;
 
 public record VehiclePhysicsInputDto(
     String trainId,
+    String lifecycleCommand,
+    String sectionId,
     double positionMeters,
     double speedMetersPerSecond,
     double trainMassKg,
@@ -14,6 +16,8 @@ public record VehiclePhysicsInputDto(
     double curveRadiusMeters,
     double railVoltage,
     double powerAvailableWatts,
+    double regenPowerAvailableWatts,
+    boolean currentCollectionAvailable,
     boolean doorClosed,
     double adhesionCoefficient,
     double previousEnergyConsumedKwh,

@@ -5,6 +5,7 @@ from typing import Any
 from .fmu_manager import FmuManager
 from .input_mapper import InputMapper
 from .output_mapper import OutputMapper
+from .schemas import MODEL_VERSION
 
 
 class FmuHttpHandler(BaseHTTPRequestHandler):
@@ -14,22 +15,24 @@ class FmuHttpHandler(BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:
         if self.path == "/health":
-            self._write_json({"status": "UP"})
+            self._write_json({"status": "UP", "modelVersion": MODEL_VERSION})
             return
-        self.send_error(404, "Not found")
+        self._write_error(404, "NOT_FOUND", "resource not found", "")
 
     def do_POST(self) -> None:
         if self.path not in {"/step-fleet", "/api/fleet/step"}:
-            self.send_error(404, "Not found")
+            self._write_error(404, "NOT_FOUND", "resource not found", "")
             return
 
+        trace_id = ""
         try:
             payload = self._read_json()
+            trace_id = str(payload.get("traceId", payload.get("trace_id", "")))
             request = self.input_mapper.from_payload(payload)
             response = self.manager.step_fleet(request)
             self._write_json(self.output_mapper.to_payload(response))
         except (KeyError, TypeError, ValueError) as exc:
-            self.send_error(400, f"Invalid request: {exc}")
+            self._write_error(400, "INVALID_REQUEST", f"invalid request: {exc}", trace_id)
 
     def _read_json(self) -> dict[str, Any]:
         content_length = int(self.headers.get("Content-Length", "0"))
@@ -55,13 +58,30 @@ class FmuHttpHandler(BaseHTTPRequestHandler):
             self.rfile.readline()
         return b"".join(chunks)
 
-    def _write_json(self, payload: dict[str, Any]) -> None:
+    def _write_json(self, payload: dict[str, Any], status: int = 200) -> None:
         body = json.dumps(payload).encode("utf-8")
-        self.send_response(200)
+        self.send_response(status)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
+
+    def _write_error(
+        self,
+        status: int,
+        error_code: str,
+        message: str,
+        trace_id: str,
+    ) -> None:
+        self._write_json(
+            {
+                "status": status,
+                "errorCode": error_code,
+                "message": message,
+                "traceId": trace_id,
+            },
+            status=status,
+        )
 
     def log_message(self, format: str, *args: Any) -> None:
         return

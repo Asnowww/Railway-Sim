@@ -309,6 +309,9 @@ class PowerNetworkModel:
                     "sectionId": section.power_section_id,
                     "railVoltage": round(section.contact_rail_voltage, 2),
                     "powerAvailableWatts": round(available_power, 2),
+                    # WP0 freezes the numeric contract. WP6 replaces this zero
+                    # placeholder with a section-level regenerative budget.
+                    "regenPowerAvailableWatts": 0.0,
                     "energized": energized,
                     "powerDeratingFactor": derating_factor,
                     "currentCollectionAvailable": energized,

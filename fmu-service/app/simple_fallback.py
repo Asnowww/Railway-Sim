@@ -51,8 +51,12 @@ class SimpleFallbackModel:
             traction_force_newtons=traction_force,
             brake_force_newtons=brake_force,
             regen_brake_force_newtons=regen_brake_force,
+            mechanical_traction_power_watts=traction_power * self.traction_efficiency,
             traction_power_watts=traction_power,
             rail_current_amps=rail_current,
+            mechanical_regen_power_watts=(
+                regen_power / self.regen_efficiency if self.regen_efficiency > 0 else 0.0
+            ),
             regen_power_watts=regen_power,
             energy_consumed_kwh=train.previous_energy_consumed_kwh + traction_power * dt / 3_600_000.0,
             energy_regenerated_kwh=train.previous_energy_regenerated_kwh + regen_power * dt / 3_600_000.0,

@@ -8,10 +8,15 @@ class FleetStepper:
 
     def step(self, request: StepFleetRequest) -> StepFleetResponse:
         return StepFleetResponse(
+            tick=request.tick,
+            model_version=request.model_version,
+            parameter_set_id=request.parameter_set_id,
+            trace_id=request.trace_id,
             train_outputs=[
                 self._instance_for(train.train_id).step(train)
                 for train in request.trains
-            ]
+            ],
+            train_errors=[],
         )
 
     def _instance_for(self, train_id: str) -> TrainFMUInstance:

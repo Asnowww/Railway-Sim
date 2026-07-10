@@ -1,0 +1,37 @@
+{
+  "tick": 12001,
+  "simulationTimeSeconds": 1200.1,
+  "stepSizeSeconds": 0.1,
+  "modelVersion": "TrainTractionBrake/1.0.0",
+  "parameterSetId": "sha256:1991e67803cbd88cb107989d850c859c329912ef32dcc741c5854d03b2200a58",
+  "traceId": "vehicle-tick-12001",
+  "trains": [
+    {
+      "trainId": "TR-001",
+      "lifecycleCommand": "STEP",
+      "sectionId": "P-001",
+      "positionMeters": 1250.0,
+      "speedMetersPerSecond": 15.0,
+      "trainMassKg": 236000.0,
+      "tractionCommand": 0.8,
+      "brakeCommand": 0.0,
+      "emergencyBrakeCommand": false,
+      "doorClosed": true,
+      "gradient": 0.01,
+      "curveRadiusMeters": 1000.0,
+      "railVoltage": 1420.0,
+      "powerAvailableWatts": 3700000.0,
+      "regenPowerAvailableWatts": 0.0,
+      "currentCollectionAvailable": true,
+      "adhesionCoefficient": 0.9,
+      "previousEnergyConsumedKwh": 12.5,
+      "previousEnergyRegeneratedKwh": 1.2,
+      "speedLimitMetersPerSecond": 22.2,
+      "movementAuthorityDistanceMeters": 700.0,
+      "stationDistanceMeters": 900.0,
+      "stoppingDistanceMeters": 140.0,
+      "dynamicsState": "TRACTION",
+      "dynamicsConstraintReason": "NONE"
+    }
+  ]
+}

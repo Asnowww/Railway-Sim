@@ -67,6 +67,8 @@ final class VehicleControlQueue {
 
         return new VehiclePhysicsInputDto(
             train.id(),
+            "STEP",
+            power == null ? "" : nullTo(power.sectionId(), ""),
             train.positionMeters(),
             train.speedMetersPerSecond(),
             VehicleLoadPolicy.totalMassKg(loadMassKg),
@@ -79,6 +81,10 @@ final class VehicleControlQueue {
             track == null ? 1_000 : track.curveRadiusMeters(),
             power == null ? 1500 : power.railVoltage(),
             power == null ? 3_200_000 : power.powerAvailableWatts(),
+            power == null || power.regenPowerAvailableWatts() == null
+                ? 0
+                : Math.max(0, power.regenPowerAvailableWatts()),
+            power == null || power.currentCollectionAvailable(),
             doorClosed,
             DEFAULT_ADHESION,
             train.energyConsumedKwh(),

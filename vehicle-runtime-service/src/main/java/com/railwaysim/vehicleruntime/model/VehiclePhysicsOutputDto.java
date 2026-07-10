@@ -8,11 +8,16 @@ public record VehiclePhysicsOutputDto(
     double tractionForceNewtons,
     double brakeForceNewtons,
     double regenBrakeForceNewtons,
+    double mechanicalTractionPowerWatts,
     double tractionPowerWatts,
     double railCurrentAmps,
+    double mechanicalRegenPowerWatts,
     double regenPowerWatts,
     double energyConsumedKwh,
     double energyRegeneratedKwh,
-    String faultCode
+    String faultCode,
+    String instanceState,
+    String dataQuality,
+    String fmiStatus
 ) {
 }

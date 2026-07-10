@@ -4,11 +4,17 @@ from .schemas import StepFleetRequest, VehiclePhysicsInput
 
 def main() -> None:
     request = StepFleetRequest(
-        sim_time="1970-01-01T00:00:00Z",
-        delta_seconds=0.1,
+        tick=1,
+        simulation_time_seconds=0.1,
+        step_size_seconds=0.1,
+        model_version="TrainTractionBrake/1.0.0",
+        parameter_set_id="",
+        trace_id="self-test-1",
         trains=[
             VehiclePhysicsInput(
                 train_id="TR-TEST",
+                lifecycle_command="INIT",
+                section_id="P-TEST",
                 position_meters=100.0,
                 speed_meters_per_second=0.0,
                 train_mass_kg=220_000.0,
@@ -21,6 +27,8 @@ def main() -> None:
                 curve_radius_meters=1000.0,
                 rail_voltage=1500.0,
                 power_available_watts=3_000_000.0,
+                regen_power_available_watts=0.0,
+                current_collection_available=True,
                 door_closed=True,
                 adhesion_coefficient=0.9,
                 previous_energy_consumed_kwh=0.0,

@@ -67,12 +67,17 @@ final class VehicleSimulationQueue {
             tractionForce,
             brakeForce,
             regenBrakeForce,
+            tractionPower * TRACTION_EFFICIENCY,
             tractionPower,
             railCurrent,
+            REGEN_EFFICIENCY > 0 ? regenPower / REGEN_EFFICIENCY : 0,
             regenPower,
             input.previousEnergyConsumedKwh() + tractionPower * dt / 3_600_000,
             input.previousEnergyRegeneratedKwh() + regenPower * dt / 3_600_000,
-            resolveFaultCode(input)
+            resolveFaultCode(input),
+            "ACTIVE",
+            "GOOD",
+            "OK"
         );
     }
 

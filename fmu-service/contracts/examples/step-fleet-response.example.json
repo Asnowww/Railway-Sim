@@ -1,0 +1,29 @@
+{
+  "tick": 12001,
+  "modelVersion": "TrainTractionBrake/1.0.0",
+  "parameterSetId": "sha256:1991e67803cbd88cb107989d850c859c329912ef32dcc741c5854d03b2200a58",
+  "traceId": "vehicle-tick-12001",
+  "trainOutputs": [
+    {
+      "trainId": "TR-001",
+      "newPositionMeters": 1251.505,
+      "newSpeedMetersPerSecond": 15.1,
+      "accelerationMetersPerSecondSquared": 1.0,
+      "tractionForceNewtons": 210000.0,
+      "brakeForceNewtons": 0.0,
+      "regenBrakeForceNewtons": 0.0,
+      "mechanicalTractionPowerWatts": 3150000.0,
+      "tractionPowerWatts": 3579545.45,
+      "railCurrentAmps": 2520.81,
+      "mechanicalRegenPowerWatts": 0.0,
+      "regenPowerWatts": 0.0,
+      "energyConsumedKwh": 12.5994318,
+      "energyRegeneratedKwh": 1.2,
+      "faultCode": "OK",
+      "instanceState": "ACTIVE",
+      "dataQuality": "GOOD",
+      "fmiStatus": "OK"
+    }
+  ],
+  "trainErrors": []
+}
