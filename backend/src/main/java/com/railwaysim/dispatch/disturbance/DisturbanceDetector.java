@@ -16,6 +16,7 @@ public class DisturbanceDetector {
 
     private final DispatchProperties properties;
     private final Map<String, Integer> consecutiveHits = new HashMap<>();
+    private final Map<String, Integer> consecutiveRecoveries = new HashMap<>();
     private final Map<String, Instant> lastTriggeredAt = new HashMap<>();
     private final Map<String, DisturbanceEvent> openEvents = new HashMap<>();
 
@@ -62,6 +63,7 @@ public class DisturbanceDetector {
 
     public void reset() {
         consecutiveHits.clear();
+        consecutiveRecoveries.clear();
         lastTriggeredAt.clear();
         openEvents.clear();
     }
@@ -128,6 +130,7 @@ public class DisturbanceDetector {
             null
         );
         openEvents.put(key, event);
+        consecutiveRecoveries.remove(key);
         lastTriggeredAt.put(key, simulatedAt);
         created.add(event);
     }
@@ -144,6 +147,11 @@ public class DisturbanceDetector {
             }
             TrainRunProfile profile = profileByTrain.get(event.trainId());
             if (profile == null || !isRecovered(event.disturbanceType(), profile, plan)) {
+                consecutiveRecoveries.remove(entry.getKey());
+                continue;
+            }
+            int recoveryHits = consecutiveRecoveries.merge(entry.getKey(), 1, Integer::sum);
+            if (recoveryHits < Math.max(1, properties.getRecoverTicks())) {
                 continue;
             }
             DisturbanceEvent resolved = new DisturbanceEvent(
@@ -159,11 +167,12 @@ public class DisturbanceDetector {
                 event.commandId()
             );
             openEvents.put(entry.getKey(), resolved);
+            consecutiveRecoveries.remove(entry.getKey());
         }
     }
 
     private boolean isRecovered(DisturbanceType type, TrainRunProfile profile, CurrentRunPlan plan) {
-        double recoverFactor = 0.3;
+        double recoverFactor = Math.max(0, properties.getRecoverRatio());
         return switch (type) {
             case DWELL_EXTENDED -> profile.dwellDeviationSec() <= properties.getDwellToleranceSec() * recoverFactor;
             case CROWDING -> profile.loadRate() <= properties.getCrowdingLoadRate() * recoverFactor;

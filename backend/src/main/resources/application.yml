@@ -112,6 +112,8 @@ railway:
     headway-expand-ratio: 1.5
     crowding-load-rate: 0.8
     confirm-ticks: 3
+    recover-ticks: 5
+    recover-ratio: 0.3
     cooldown-sec: 60
     evaluate-interval-ms: 1000
     arrival-threshold-meters: 5

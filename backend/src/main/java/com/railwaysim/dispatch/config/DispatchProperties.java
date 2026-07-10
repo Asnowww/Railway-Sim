@@ -13,6 +13,8 @@ public class DispatchProperties {
     private double headwayExpandRatio = 1.5;
     private double crowdingLoadRate = 0.8;
     private int confirmTicks = 3;
+    private int recoverTicks = 5;
+    private double recoverRatio = 0.3;
     private int cooldownSec = 60;
     private long evaluateIntervalMs = 1000;
     private double arrivalThresholdMeters = 5.0;
@@ -84,6 +86,22 @@ public class DispatchProperties {
 
     public void setConfirmTicks(int confirmTicks) {
         this.confirmTicks = confirmTicks;
+    }
+
+    public int getRecoverTicks() {
+        return recoverTicks;
+    }
+
+    public void setRecoverTicks(int recoverTicks) {
+        this.recoverTicks = recoverTicks;
+    }
+
+    public double getRecoverRatio() {
+        return recoverRatio;
+    }
+
+    public void setRecoverRatio(double recoverRatio) {
+        this.recoverRatio = recoverRatio;
     }
 
     public int getCooldownSec() {

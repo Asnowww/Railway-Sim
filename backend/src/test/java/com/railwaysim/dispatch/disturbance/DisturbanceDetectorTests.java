@@ -55,9 +55,32 @@ class DisturbanceDetectorTests {
         assertThat(detector.openEvents()).hasSize(1);
     }
 
+    @Test
+    void recoveryMustRemainStableForConfiguredNumberOfTicks() {
+        DispatchProperties recoveryProperties = properties();
+        recoveryProperties.setRecoverTicks(3);
+        DisturbanceDetector detector = new DisturbanceDetector(recoveryProperties);
+
+        detector.detect("RUN-1", Instant.EPOCH, plan, List.of(profile("TR-1", 100)));
+        detector.detect("RUN-1", Instant.EPOCH.plusSeconds(1), plan, List.of(profile("TR-1", 220)));
+        detector.detect("RUN-1", Instant.EPOCH.plusSeconds(2), plan, List.of(profile("TR-1", 100)));
+        detector.detect("RUN-1", Instant.EPOCH.plusSeconds(3), plan, List.of(profile("TR-1", 220)));
+        detector.detect("RUN-1", Instant.EPOCH.plusSeconds(4), plan, List.of(profile("TR-1", 220)));
+
+        assertThat(detector.openEvents()).hasSize(1);
+
+        detector.detect("RUN-1", Instant.EPOCH.plusSeconds(5), plan, List.of(profile("TR-1", 220)));
+
+        assertThat(detector.openEvents()).isEmpty();
+        assertThat(detector.events())
+            .extracting(DisturbanceEvent::status)
+            .containsExactly("RECOVERED");
+    }
+
     private static DispatchProperties properties() {
         DispatchProperties properties = new DispatchProperties();
         properties.setConfirmTicks(1);
+        properties.setRecoverTicks(1);
         properties.setCooldownSec(0);
         return properties;
     }
