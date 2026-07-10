@@ -63,6 +63,35 @@ class Phase2ApiControllerTests {
     }
 
     @Test
+    void requestRouteCommandRunsThroughDispatchQueueAndInterlockingFeedback() throws Exception {
+        mockMvc.perform(post("/api/simulation/reset"))
+            .andExpect(status().isOk());
+
+        mockMvc.perform(post("/api/dispatch/commands")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "trainId": "TR-001",
+                      "commandType": "REQUEST_ROUTE",
+                      "routeId": "R_D1"
+                    }
+                    """))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.status").value("PENDING"));
+
+        mockMvc.perform(post("/api/simulation/tick"))
+            .andExpect(status().isOk());
+
+        mockMvc.perform(get("/api/dispatch/commands"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$", hasSize(1)))
+            .andExpect(jsonPath("$[0].commandType").value("REQUEST_ROUTE"))
+            .andExpect(jsonPath("$[0].status").value("EFFECT_CONFIRMED"))
+            .andExpect(jsonPath("$[0].payload.lastFeedbackSource").value("SIGNAL_INTERLOCKING"))
+            .andExpect(jsonPath("$[0].payload.lastFeedbackDetails.accepted").value(true));
+    }
+
+    @Test
     void faultMutationApisRequireConfirmationAndUpdateState() throws Exception {
         mockMvc.perform(post("/api/power/sections/P01/faults")
                 .contentType(MediaType.APPLICATION_JSON)

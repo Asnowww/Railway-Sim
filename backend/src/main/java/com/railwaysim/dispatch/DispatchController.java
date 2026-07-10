@@ -77,9 +77,14 @@ public class DispatchController {
 
     @PostMapping("/commands")
     public DispatchCommand submit(@Valid @RequestBody ManualCommandRequest request) {
-        Map<String, Object> payload = new HashMap<>();
+        Map<String, Object> payload = request.payload() == null
+            ? new HashMap<>()
+            : new HashMap<>(request.payload());
         if (request.detail() != null && !request.detail().isBlank()) {
             payload.put("detail", request.detail());
+        }
+        if (request.routeId() != null && !request.routeId().isBlank()) {
+            payload.put("routeId", request.routeId());
         }
         if (request.targetHeadwaySec() != null) {
             payload.put("targetHeadwaySec", request.targetHeadwaySec());
@@ -144,7 +149,9 @@ public class DispatchController {
         String detail,
         Integer targetHeadwaySec,
         Double speedBiasRatio,
-        Integer deltaDwellSec
+        Integer deltaDwellSec,
+        String routeId,
+        Map<String, Object> payload
     ) {
     }
 

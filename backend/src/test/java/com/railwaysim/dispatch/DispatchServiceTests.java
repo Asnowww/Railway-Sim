@@ -71,6 +71,18 @@ class DispatchServiceTests {
     }
 
     @Test
+    void submittedRequestRouteCommandIsQueuedForInterlocking() {
+        dispatchService.submit(commandWithPayload("TR-1", "REQUEST_ROUTE", Map.of("routeId", "R_BRANCH")));
+
+        dispatchService.constraintsForTrains(List.of(train("TR-1")));
+
+        assertThat(dispatchService.drainCommandsOfType("REQUEST_ROUTE"))
+            .extracting(DispatchCommand::id)
+            .containsExactly("DC-test-REQUEST_ROUTE");
+        assertThat(dispatchService.pendingCommands()).isEmpty();
+    }
+
+    @Test
     void extendDwellCommandHoldsDwellingTrainUntilAdjustedTarget() {
         dispatchService.submit(commandWithPayload("TR-1", "EXTEND_DWELL", Map.of("deltaDwellSec", 10)));
 

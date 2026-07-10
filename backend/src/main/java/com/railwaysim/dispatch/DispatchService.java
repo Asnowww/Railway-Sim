@@ -117,7 +117,7 @@ public class DispatchService {
         );
         manualCommands.add(stored);
         commandRecordStore.save(stored);
-        if ("REROUTE".equals(stored.commandType())) {
+        if ("REROUTE".equals(stored.commandType()) || "REQUEST_ROUTE".equals(stored.commandType())) {
             commandQueue.enqueue(List.of(stored));
         }
         refreshSnapshot();
@@ -586,6 +586,7 @@ public class DispatchService {
         if (consumeQueuedCommands) {
             List<DispatchCommand> consumed = commandQueue.peekPending().stream()
                 .filter(command -> !"REROUTE".equals(command.commandType()))
+                .filter(command -> !"REQUEST_ROUTE".equals(command.commandType()))
                 .toList();
             if (!consumed.isEmpty()) {
                 drainQueuedCommands(consumed);

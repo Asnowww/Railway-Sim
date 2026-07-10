@@ -457,7 +457,10 @@ GET /api/dispatch/commands
 | status | 说明 |
 |---|---|
 | `PENDING` | 等待执行。 |
+| `SENT` | 已进入信号或车辆执行链路。 |
 | `APPLIED` | 已应用。 |
+| `EFFECT_CONFIRMED` | 执行结果已由信号、联锁或车辆状态确认。 |
+| `TIMEOUT` | 在规定时间内未确认执行效果。 |
 | `EXPIRED` | 已过期。 |
 | `SKIPPED` | 被安全校验跳过。 |
 | `CANCELLED` | 被撤销。 |
@@ -488,6 +491,20 @@ Content-Type: application/json
 }
 ```
 
+结构化进路请求：
+
+```json
+{
+  "trainId": "TR-001",
+  "commandType": "REQUEST_ROUTE",
+  "routeId": "R-main-down"
+}
+```
+
+也可将进路字段放入 `payload`；`routeId` 顶层字段优先覆盖同名 payload。`REQUEST_ROUTE` 和
+`REROUTE` 是一次性联锁命令，联锁接受后状态转为 `EFFECT_CONFIRMED`，拒绝时转为
+`SKIPPED`，拒绝原因写入 `payload.lastFeedbackReason`。
+
 响应：
 
 ```json
@@ -512,6 +529,8 @@ Content-Type: application/json
 | `HOLD` / `HOLD_TRAIN` | 任意说明文本 | 调度服务记录扣车意图，由信号模块折算为 MA/限速或后续 `SignalVehicleCommand` |
 | `SPEED_LIMIT` / `TEMP_SPEED_LIMIT` | 速度上限，单位 m/s | 由信号模块与轨道限速、安全距离共同计算后下发给车辆 |
 | `SPEED_FACTOR` / `LIMIT_FACTOR` | 0-1 比例 | 由信号模块折算速度授权，不由车辆直接消费 |
+| `REQUEST_ROUTE` | `routeId` 或 `payload.routeId` | 请求联锁建立指定进路，并记录接受或拒绝反馈 |
+| `REROUTE` | `routeId`、JSON `detail` 或进路说明 | 请求联锁改路；保留旧 detail 格式兼容 |
 
 ## 外部车辆运行时服务接口
 

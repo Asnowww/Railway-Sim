@@ -23,6 +23,8 @@ export const dispatchApi = {
     targetHeadwaySec?: number
     speedBiasRatio?: number
     deltaDwellSec?: number
+    routeId?: string
+    payload?: Record<string, unknown>
   }) =>
     request<DispatchCommandView>('/dispatch/commands', {
       method: 'POST',

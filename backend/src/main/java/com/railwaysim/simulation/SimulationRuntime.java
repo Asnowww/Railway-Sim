@@ -150,15 +150,16 @@ public class SimulationRuntime {
         signalService.calculateAuthorities(beforeTrainStates, trackConstraints, List.of());
         dispatchService.evaluate(context, beforeTrainStates, signalService.authorities());
 
-        // 拦截 REROUTE 调度指令 → 交联锁处理（在约束计算前）
-        List<DispatchCommand> rerouteCmds = dispatchService.drainCommandsOfType("REROUTE");
-        List<DispatchCommandFeedback> rerouteFeedbacks = new ArrayList<>();
-        for (DispatchCommand cmd : rerouteCmds) {
+        // 一次性进路指令在约束计算前交给联锁处理。
+        List<DispatchCommand> routeCommands = new ArrayList<>(dispatchService.drainCommandsOfType("REROUTE"));
+        routeCommands.addAll(dispatchService.drainCommandsOfType("REQUEST_ROUTE"));
+        List<DispatchCommandFeedback> routeFeedbacks = new ArrayList<>();
+        for (DispatchCommand cmd : routeCommands) {
             var result = interlockingService.applyDispatchCommand(cmd.commandType(), commandDetail(cmd), cmd.trainId());
             if (!result.accepted()) {
                 log.warn("[Runtime] 联锁拒绝调度指令 {}: {}", cmd.id(), result.rejectReason());
             }
-            rerouteFeedbacks.add(new DispatchCommandFeedback(
+            routeFeedbacks.add(new DispatchCommandFeedback(
                 cmd.id(),
                 cmd.trainId(),
                 cmd.commandType(),
@@ -169,8 +170,8 @@ public class SimulationRuntime {
                 Map.of("accepted", result.accepted())
             ));
         }
-        if (!rerouteFeedbacks.isEmpty()) {
-            dispatchService.acceptFeedback(rerouteFeedbacks);
+        if (!routeFeedbacks.isEmpty()) {
+            dispatchService.acceptFeedback(routeFeedbacks);
         }
 
         // 按时刻表自动发车 — 信号层读调度时刻表，到点自动创建列车
@@ -255,6 +256,10 @@ public class SimulationRuntime {
 
     private String commandDetail(DispatchCommand command) {
         if (command.payload() != null) {
+            Object routeId = command.payload().get("routeId");
+            if (routeId != null) {
+                return routeId.toString();
+            }
             Object detail = command.payload().get("detail");
             if (detail != null) {
                 return detail.toString();
