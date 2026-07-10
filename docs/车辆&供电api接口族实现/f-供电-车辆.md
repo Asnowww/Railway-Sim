@@ -33,7 +33,7 @@ TrainState.positionMeters
   -> PowerConstraintService.calculateStates()
 ```
 
-`PowerIntegrationService` 在供电模块内部同步变电所、隔离开关、接触轨和杂散电流风险状态。`LOCAL`、`DUAL_SHADOW` 或外部车辆运行时失联时，中央会把 `powerSectionId/trainIds/tractionPowerWatts/regenPowerWatts/currentAmps` 聚合为 `sectionLoads`，通过 `/power-network/state/query` 发送给外部供电仿真系统；只有 `EXTERNAL_HTTP` 权威车辆运行时健康且 `forwardPowerLoads=true` 时，这个写入动作才由 `vehicle-runtime-service` 完成，中央只通过 `/power-network/state` 拉取电压、电流、负荷和风险结果。车辆控制侧仍只消费 `PowerConstraint`，不直接操作供电设备。
+`PowerIntegrationService` 在供电模块内部同步变电所、隔离开关、接触轨和杂散电流风险状态。非拆分部署的`LOCAL`、`DUAL_SHADOW`模式会把`powerSectionId/trainIds/tractionPowerWatts/regenPowerWatts/currentAmps`聚合为`sectionLoads`，通过`/power-network/state/query`发送给外部供电仿真；拆分部署的`EXTERNAL_HTTP + forwardPowerLoads=true`固定由`vehicle-runtime-service`通过`/power-network/step`完成写入，中央只通过`/power-network/state`拉取电压、电流、负荷和风险结果。该所有权不随FMU降级动态切换，避免8080与9300双写。车辆控制侧仍只消费`PowerConstraint`，不直接操作供电设备。
 
 ## 外部车辆仿真适配
 

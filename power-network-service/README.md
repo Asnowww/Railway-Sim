@@ -15,6 +15,8 @@ Current scope:
 - Execute simple switch, breaker, and maintenance operations
 - Solve simplified medium-voltage feeder current, bus voltage drop, DC contact
   rail voltage, single-end/cross-feed support mode, and stray-current risk
+- Derive section regenerative-absorption budgets from simultaneous traction,
+  split the budget across trains, and expose absorbed/unabsorbed regeneration
 
 Run the service:
 
@@ -22,7 +24,7 @@ Run the service:
 cd power-network-service
 python3 -m venv .venv
 .venv/bin/python -m pip install -r requirements.txt
-.venv/bin/python -m app.http_server
+.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 9200
 ```
 
 Endpoints:
@@ -44,17 +46,26 @@ the complete fleet load snapshot and the post-step train positions, then returns
 the next control-cycle `powerConstraints`. `vehicle-runtime-service:9300` is
 the sole writer. `POST /power-network/constraints/query` provides the initial
 constraint before the first vehicle step.  `state/query` remains for local
-fallback and compatibility.
+fallback and compatibility. The step endpoint is idempotent for the same
+`tick`; an older tick returns HTTP 409.
 
 ```json
 {
+  "tick": 10,
+  "simulationTimeSeconds": 1.0,
+  "stepSizeSeconds": 0.1,
   "sectionLoads": [
     {
       "powerSectionId": "P-CJG-W",
+      "trainIds": ["TR-001", "TR-002"],
       "tractionPowerWatts": 1200000,
       "regenPowerWatts": 0,
       "currentAmps": 1600
     }
+  ],
+  "trainPositions": [
+    {"trainId": "TR-001", "positionMeters": 600.0},
+    {"trainId": "TR-002", "positionMeters": 900.0}
   ]
 }
 ```
@@ -64,6 +75,7 @@ Run the local self-test:
 ```bash
 cd power-network-service
 python3 -m app.self_test
+PYTHONPATH=. .venv/bin/python -m unittest discover -s tests -v
 ```
 
 The FastAPI OpenAPI interface is available at `http://127.0.0.1:9200/docs`.

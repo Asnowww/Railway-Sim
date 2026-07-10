@@ -73,7 +73,7 @@
 5. 两辆同供电段列车通过 9200 发生可测的物理耦合。
 6. WP8 中的接口、物理、性能、降级和回归验收全部通过。
 
-未满足上述条件前，只能表述为“已具备 Java fallback、FMU 接口草案和车电闭环底座”。
+当前第1～5项已经完成；第6项仍待WP8，因此可表述为“生产车辆循环已形成真实FMU车电闭环”，但不能提前表述为“整个集成项目已完成最终验收”。
 
 ## 2. 已核验的当前基线
 
@@ -82,9 +82,9 @@
 | 服务 | 当前实现 | 当前状态 | 本计划目标 |
 |---|---|---|---|
 | 8080 中央系统 | 调度、信号、轨道、MA、状态镜像；可调用 9300 | **[已完成]** | 保持中央只负责信号和控制编排，不直接驱动车辆 FMU，不成为供电权威。 |
-| 9300 车辆运行服务 | Spring Boot；`VehicleControlQueue` 生成控制指令；`VehicleSimulationQueue` 执行 Java 简化模型；逐车执行后汇总供电负荷 | **[已完成底座]** | 改为三阶段批处理，通过一个 9000 请求完成全车物理步，并保留 Java fallback。 |
-| 9000 FMU 服务 | FastAPI + FMPy；启动时校验并解包一次真实FMU；按`trainId`维护持久`FMU2Slave`，支持完整生命周期、批次预检和错误隔离 | **[已完成WP4，尚未接入9300]** | WP5由9300在每个tick发起一次批量调用；9000继续只负责车辆物理执行。 |
-| 9200 供电仿真 | FastAPI；按分区聚合牵引/再生负荷，计算网压与`powerAvailableWatts`；已冻结并输出`regenPowerAvailableWatts`字段 | **[已完成接口底座]** | WP6实现真实再生预算，保持受流功率和回馈功率为电网侧口径。 |
+| 9300 车辆运行服务 | Spring Boot；全车Prepare后一次调用9000，统一Apply并写入9200；按车维持FMU/Java粘滞降级状态 | **[已完成WP5]** | WP7补充容器编排和跨进程故障演示，WP8执行长稳验收。 |
+| 9000 FMU 服务 | FastAPI + FMPy；启动时校验并解包一次真实FMU；按`trainId`维护持久`FMU2Slave`，支持完整生命周期、批次预检、错误隔离及重启后RESYNC重建 | **[已完成WP4并接入9300]** | 继续只负责车辆物理执行，不承接控制或供电职责。 |
+| 9200 供电仿真 | FastAPI；按分区聚合电网侧牵引/再生负荷，计算网压、`powerAvailableWatts`、再生预算和未吸收回馈 | **[已完成WP6]** | WP7纳入统一健康与启动顺序，WP8执行连续闭环验收。 |
 | 演示前端 | 消费中央快照中的现有车辆、供电字段 | **[不在范围]** | 不修改`App.vue`；通过向后兼容字段保证页面继续工作。 |
 
 ### 2.2 当前能力与缺口
@@ -97,11 +97,11 @@
 | Modelica 一维车辆模型 | `fmu-service/modelica/TrainTractionBrake.mo` | **[已完成WP2]** | 已实现内部位置/速度/能量状态及牵引、制动、再生、阻力、坡道、黏着和欠压保护。 |
 | FMU 映射契约 | `config/fmu_mapping.yaml` | **[已完成接口冻结]** | WP0已完成分组、生命周期和功率口径；WP2按该契约回补Modelica变量。 |
 | 真实 `.fmu` | 固定OpenModelica镜像可生成FMI 2.0 Co-Simulation制品，生成目录不入Git | **[已完成WP3]** | WP7部署时由镜像构建阶段生成并携带清单。 |
-| FMPy 依赖和实例 | `fmpy==0.3.30`，9000启动时完成制品和41个映射变量校验 | **[已完成WP4]** | WP5接入9300批量调用。 |
+| FMPy 依赖和实例 | `fmpy==0.3.30`，9000启动时完成制品和41个映射变量校验 | **[已完成WP4并由WP5接入]** | WP8执行跨进程长稳和恢复验收。 |
 | 一份 FMU、多实例 | 一份已解包FMU、每车一个独立持久`FMU2Slave`；100步隔离测试通过 | **[已完成WP4]** | WP8扩大车数和持续时间验收。 |
-| 9300 批量 FMU 调用 | `VehicleRuntimeManager` 当前在循环内同时完成控制和物理计算 | **[待实施]** | WP5。 |
-| 供电牵引闭环 | 9300 查询 9200、提交分区负荷、缓存下一周期约束 | **[已完成底座]** | WP6 用真实 FMU 的电功率完善闭环。 |
-| 再生吸收能力约束 | 三服务DTO已有`regenPowerAvailableWatts`，9200当前输出0占位 | **[已完成接口，待实现物理预算]** | WP6实现瓦特级预算计算和多车分配。 |
+| 9300 批量 FMU 调用 | `VehicleRuntimeManager`已拆成Prepare、单次Execute和统一Apply；20车单tick只产生一次9000请求 | **[已完成WP5]** | WP8执行20车连续运行和截止时间验收。 |
+| 供电牵引闭环 | 9300在`T(n)`查询9200、执行真实FMU并提交分区电网侧负荷，`T(n+1)`消费新约束 | **[已完成WP6]** | WP8执行跨服务长稳与曲线留档。 |
+| 再生吸收能力约束 | 9200按同段牵引负荷生成预算、按车辆数等分，并记录已吸收/未吸收回馈 | **[已完成WP6]** | 后续可扩展可逆变电所或储能，但不改变接口。 |
 
 ### 2.3 已确认差异的处理状态
 
@@ -111,7 +111,7 @@
 4. WP2已按机械侧/电网侧分别实现四个功率字段；`3.2 MW`只作为电机侧机械功率上限。
 5. WP4正常STEP只写每步控制和供电输入，不覆盖FMU内部位置、速度和累计能量；RESET/RESYNC才重建状态。
 6. `trainMassKg`保持每步输入，以承接9300上下客后的实时总质量变化。
-7. 9200的真实再生预算和9300到9000的生产批量调用仍分别由WP6、WP5实施，不在WP2～WP4内提前宣称完成。
+7. WP5～WP6已完成9300到9000的生产批量调用及9200真实再生预算；代码提交为`dec7a2b`，证据见分计划03验收记录。
 
 ## 3. 冻结的架构与职责边界
 
@@ -861,6 +861,8 @@ curl -fsS http://127.0.0.1:9000/fmu/metadata
 
 ### WP5：9300批量FMU物理执行器
 
+**状态：[已完成]；提交：`dec7a2b`；验收记录：`docs/真实FMU集成实施计划/验收记录/03-WP5-WP6验收记录.md`。**
+
 **前置条件**
 
 - WP4通过。
@@ -885,7 +887,7 @@ curl -fsS http://127.0.0.1:9000/fmu/metadata
 
 ```bash
 mvn -f vehicle-runtime-service/pom.xml test
-mvn -f backend/pom.xml test
+mvn -f backend/pom.xml -Dtest=VehicleRuntimeIntegrationServiceTests,PowerIntegrationServiceTests,PowerNetworkStateSnapshotTests test
 ```
 
 **回滚**
@@ -899,6 +901,8 @@ mvn -f backend/pom.xml test
 - **[验收]** 9000断开时9300在超时内完成Java fallback且整体健康为`DEGRADED`。
 
 ### WP6：9200再生能力与多车车电闭环
+
+**状态：[已完成]；提交：`dec7a2b`；验收记录：`docs/真实FMU集成实施计划/验收记录/03-WP5-WP6验收记录.md`。**
 
 **前置条件**
 
@@ -922,7 +926,7 @@ mvn -f backend/pom.xml test
 
 ```bash
 PYTHONPATH=power-network-service python -m app.self_test
-PYTHONPATH=power-network-service pytest -q power-network-service/tests
+PYTHONPATH=power-network-service power-network-service/.venv/bin/python -m unittest discover -s power-network-service/tests -v
 mvn -f vehicle-runtime-service/pom.xml test
 ./scripts/test-fmu-power-closed-loop.sh
 ```
@@ -1134,6 +1138,7 @@ docker compose down
 - **[已完成]** 8080/9300/9200的拆分边界、9300车辆状态机、Java车辆物理fallback、供电查询与下一周期回写底座、100 ms中央周期。
 - **[已完成]** WP0接口冻结、WP1 YAML真实参数统一、跨服务参数SHA-256校验和机械/电功率字段拆分。
 - **[已完成]** WP2一维纵向Modelica模型、WP3固定工具链FMU制品和WP4真实FMPy多实例9000服务。
-- **[待实施]** WP5的9300批量物理执行器、WP6再生功率预算与多车闭环，以及WP7～WP8编排、恢复和系统验收。
+- **[已完成]** WP5的9300批量物理执行器、逐车/整批降级恢复，以及WP6再生功率预算、同段耦合和异段隔离。
+- **[待实施]** WP7容器编排与系统级故障策略，以及WP8持续运行、性能和最终回归验收。
 
-因此，当前可以宣称“真实车辆FMU及独立9000执行服务已经完成并通过验收”，但在WP5完成前仍不能宣称“9300生产车辆循环已经接入真实FMU”，在WP6完成前也不能宣称“真实FMU与供电仿真已经形成多车闭环”。
+因此，当前可以宣称“9300生产车辆循环已经接入真实FMU，且与9200形成100 ms显式多车车电闭环”。按照第1.2节的严格完成定义，仍需WP7编排和WP8系统级性能、长稳及故障恢复验收后，才能宣称整个真实FMU集成项目最终完成。
