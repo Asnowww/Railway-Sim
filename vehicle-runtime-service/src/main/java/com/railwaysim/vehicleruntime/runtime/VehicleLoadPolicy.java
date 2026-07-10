@@ -5,8 +5,9 @@ package com.railwaysim.vehicleruntime.runtime;
  */
 final class VehicleLoadPolicy {
 
-    static final double EMPTY_MASS_KG = 180_000;
-    static final double CRUSH_LOAD_MASS_KG = 70_000;
+    // 与 config/train_params.yaml 保持一致，9300 是传递总质量给 FMU 的唯一车辆侧口径。
+    static final double EMPTY_MASS_KG = 198_000;
+    static final double CRUSH_LOAD_MASS_KG = 72_000;
     static final int NOMINAL_TRACTION_UNITS = 4;
     static final int NOMINAL_BRAKE_UNITS = 4;
 

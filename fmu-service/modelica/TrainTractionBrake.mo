@@ -1,8 +1,6 @@
 within ;
 package RailwaySimVehicle
   model TrainTractionBrake
-    parameter Real emptyMassKg = 198000;
-    parameter Real maxLoadMassKg = 72000;
     parameter Real maxTractionForceN = 240000;
     parameter Real maxServiceBrakeForceN = 220000;
     parameter Real maxEmergencyBrakeForceN = 300000;
@@ -16,7 +14,7 @@ package RailwaySimVehicle
     parameter Real davisC = 3.2;
     parameter Real g = 9.81;
 
-    input Real loadRate(min = 0, max = 1);
+    input Real trainMassKg(min = 1, unit = "kg");
     input Real tractionCmd(min = 0, max = 1);
     input Real brakeCmd(min = 0, max = 1);
     input Real emergencyBrakeCmd(min = 0, max = 1);
@@ -51,7 +49,8 @@ package RailwaySimVehicle
     Real gradientForce;
     Real netForce;
   equation
-    massKg = emptyMassKg + maxLoadMassKg * loadRate;
+    // 9300 已按 VehicleLoadPolicy 计算总质量，FMU 不再重复叠加空车/载荷质量。
+    massKg = trainMassKg;
     powerLimitFactor = if railVoltage <= cutoffRailVoltageV or powerAvailable <= 0 then 0 else min(1, powerAvailable / maxTractionPowerW);
     speedGuard = if speed > speedLimit or maDistance <= 0 then 0 else 1;
 
