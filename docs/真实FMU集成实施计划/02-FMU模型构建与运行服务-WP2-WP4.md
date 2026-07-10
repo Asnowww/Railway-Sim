@@ -90,7 +90,7 @@ docker run --rm --platform linux/amd64 --entrypoint python \
 
 ## 4. WP4：9000真实FMPy服务
 
-**状态：[已完成]；提交：`1da5c00`。**
+**状态：[已完成]；提交：`1da5c00`、`3d141b5`。**
 
 ### 4.1 固定环境
 
@@ -138,4 +138,4 @@ curl -fsS http://127.0.0.1:9000/fmu/metadata
 |---|---|---|---|---|
 | WP2 | `cf43b4c` | `TrainTractionBrake/1.0.0` | `docs/真实FMU集成实施计划/验收记录/02-WP2-WP4验收记录.md` | 通过 |
 | WP3 | `2281c06`、`89bd127` | 运行镜像`sha256:5b8c9ca70bf3ecd8e9bbd11a3262c8d413523a671bf4cc2cf6e40bf7ef5b635b` | 同上 | 通过 |
-| WP4 | `1da5c00` | `TrainTractionBrake/1.0.0` | 同上 | 通过 |
+| WP4 | `1da5c00`、`3d141b5` | `TrainTractionBrake/1.0.0` | 同上 | 通过 |

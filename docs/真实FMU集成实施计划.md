@@ -812,7 +812,7 @@ docker run --rm --platform linux/amd64 railway-sim-fmu:build \
 
 ### WP4：9000真实FMPy执行服务
 
-**状态：[已完成]；提交：`1da5c00`；验收记录：`docs/真实FMU集成实施计划/验收记录/02-WP2-WP4验收记录.md`。**
+**状态：[已完成]；提交：`1da5c00`、`3d141b5`；验收记录：`docs/真实FMU集成实施计划/验收记录/02-WP2-WP4验收记录.md`。**
 
 **前置条件**
 
