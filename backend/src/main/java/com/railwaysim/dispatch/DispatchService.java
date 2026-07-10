@@ -14,6 +14,9 @@ import com.railwaysim.dispatch.monitor.TrainRunMonitor;
 import com.railwaysim.dispatch.monitor.TrainRunProfile;
 import com.railwaysim.dispatch.plan.CurrentRunPlan;
 import com.railwaysim.dispatch.plan.OperationPlanLoader;
+import com.railwaysim.dispatch.route.RouteDispatchDecision;
+import com.railwaysim.dispatch.route.RouteDispatchRecordStore;
+import com.railwaysim.dispatch.route.RouteReservation;
 import com.railwaysim.dispatch.strategy.StrategySelector;
 import com.railwaysim.signal.MovementAuthority;
 import com.railwaysim.simulation.TickContext;
@@ -47,6 +50,7 @@ public class DispatchService {
     private final DisturbanceRecordStore disturbanceRecordStore;
     private final CommandRecordStore commandRecordStore;
     private final InMemoryStationRecordStore stationRecordStore;
+    private final RouteDispatchRecordStore routeDispatchRecordStore;
     private final List<DispatchCommand> manualCommands = new CopyOnWriteArrayList<>();
 
     private String simulationRunId = UUID.randomUUID().toString();
@@ -68,7 +72,8 @@ public class DispatchService {
         CommandQueue commandQueue,
         DisturbanceRecordStore disturbanceRecordStore,
         CommandRecordStore commandRecordStore,
-        InMemoryStationRecordStore stationRecordStore
+        InMemoryStationRecordStore stationRecordStore,
+        RouteDispatchRecordStore routeDispatchRecordStore
     ) {
         this.planLoader = planLoader;
         this.properties = properties;
@@ -80,6 +85,7 @@ public class DispatchService {
         this.disturbanceRecordStore = disturbanceRecordStore;
         this.commandRecordStore = commandRecordStore;
         this.stationRecordStore = stationRecordStore;
+        this.routeDispatchRecordStore = routeDispatchRecordStore;
         this.currentPlan = planLoader.resolve(Instant.now());
         this.latestSnapshot = buildSnapshot(currentPlan, latestProfiles, List.of(), List.of());
     }
@@ -94,6 +100,7 @@ public class DispatchService {
         lastConstraintLogByTrain.clear();
         manualCommands.clear();
         commandQueue.clear();
+        routeDispatchRecordStore.clear();
         disturbanceDetector.reset();
         trainRunMonitor.reset(simulationStart);
         stationRecordStore.clear();
@@ -121,10 +128,14 @@ public class DispatchService {
             command.createdAt(),
             command.appliedAt()
         );
+        if (RouteDispatchRecordStore.isRouteCommand(stored)) {
+            stored = commandValidator.validate(List.of(stored), List.of()).get(0);
+            stored = routeDispatchRecordStore.trackSubmittedRouteCommand(simulationRunId, stored);
+        }
         manualCommands.add(stored);
         commandRecordStore.save(stored);
         log.info("[DispatchLoop] manual command accepted {}", commandSummary(stored));
-        if ("REROUTE".equals(stored.commandType()) || "REQUEST_ROUTE".equals(stored.commandType())) {
+        if (RouteDispatchRecordStore.isRouteCommand(stored) && CommandStatus.PENDING.equals(stored.status())) {
             commandQueue.enqueue(List.of(stored));
             log.info("[DispatchLoop] route command queued {}", commandSummary(stored));
         }
@@ -163,6 +174,7 @@ public class DispatchService {
         for (DispatchCommand command : sentCommands) {
             if (CommandStatus.SKIPPED.equals(command.status())) {
                 commandRecordStore.save(command);
+                routeDispatchRecordStore.markCommandSent(command);
                 updated.add(command);
                 log.info("[DispatchLoop] command skipped before send {}", commandSummary(command));
                 continue;
@@ -182,6 +194,7 @@ public class DispatchService {
                 command.appliedAt()
             );
             commandRecordStore.update(sent);
+            routeDispatchRecordStore.markCommandSent(sent);
             replaceManualCommand(sent);
             updated.add(sent);
             log.info("[DispatchLoop] command sent {}", commandSummary(sent));
@@ -226,6 +239,7 @@ public class DispatchService {
             }
             DispatchCommand progressed = commandWithFeedback(current, nextStatus, feedback);
             commandRecordStore.update(progressed);
+            routeDispatchRecordStore.updateFromFeedback(progressed, feedback);
             replaceManualCommand(progressed);
             commandById.put(progressed.id(), progressed);
             updated.add(progressed);
@@ -254,6 +268,7 @@ public class DispatchService {
             }
             DispatchCommand cancelled = commandWithStatus(command, CommandStatus.CANCELLED, Instant.now());
             commandRecordStore.update(cancelled);
+            routeDispatchRecordStore.cancelCommand(cancelled, cancelled.appliedAt() == null ? Instant.now() : cancelled.appliedAt());
             replaceManualCommand(cancelled);
             activeCommands = mergeActiveCommands(List.of(cancelled));
             log.info("[DispatchLoop] command cancelled {}", commandSummary(cancelled));
@@ -1067,6 +1082,16 @@ public class DispatchService {
             .toList();
         boolean interventionActive = !disturbanceViews.isEmpty() || commandViews.stream()
             .anyMatch(command -> isActiveCommandStatus(command.status()));
+        List<DispatchSnapshot.RouteDecisionView> routeDecisionViews =
+            routeDispatchRecordStore.visibleDecisions(simulationRunId, 12).stream()
+                .map(this::routeDecisionView)
+                .toList();
+        List<DispatchSnapshot.RouteReservationView> routeReservationViews =
+            routeDispatchRecordStore.visibleReservations(simulationRunId, 12).stream()
+                .map(this::routeReservationView)
+                .toList();
+        boolean routeDispatchActive = routeDecisionViews.stream()
+            .anyMatch(decision -> isActiveRouteDecisionStatus(decision.status()));
         return new DispatchSnapshot(
             plan.periodType(),
             plan.planId(),
@@ -1075,7 +1100,35 @@ public class DispatchService {
             interventionActive,
             trainViews,
             disturbanceViews,
-            commandViews
+            commandViews,
+            routeDispatchActive,
+            routeDecisionViews,
+            routeReservationViews
+        );
+    }
+
+    private DispatchSnapshot.RouteDecisionView routeDecisionView(RouteDispatchDecision decision) {
+        return new DispatchSnapshot.RouteDecisionView(
+            decision.decisionId(),
+            decision.selectedTrainId(),
+            decision.selectedRouteId(),
+            decision.waitingTrainIds(),
+            decision.status(),
+            decision.routeCommandId(),
+            decision.reason(),
+            decision.rejectReason()
+        );
+    }
+
+    private DispatchSnapshot.RouteReservationView routeReservationView(RouteReservation reservation) {
+        return new DispatchSnapshot.RouteReservationView(
+            reservation.reservationId(),
+            reservation.trainId(),
+            reservation.routeId(),
+            reservation.decisionId(),
+            reservation.state(),
+            reservation.commandId(),
+            reservation.rejectReason()
         );
     }
 
@@ -1103,6 +1156,10 @@ public class DispatchService {
         return CommandStatus.PENDING.equals(status)
             || CommandStatus.SENT.equals(status)
             || CommandStatus.APPLIED.equals(status);
+    }
+
+    private boolean isActiveRouteDecisionStatus(String status) {
+        return "REQUESTED".equals(status) || "ACCEPTED".equals(status);
     }
 
     private List<DispatchCommand> visibleCommandHistory() {

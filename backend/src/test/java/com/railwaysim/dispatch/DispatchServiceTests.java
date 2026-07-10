@@ -13,6 +13,9 @@ import com.railwaysim.dispatch.monitor.InMemoryStationRecordStore;
 import com.railwaysim.dispatch.monitor.TrainRunMonitor;
 import com.railwaysim.dispatch.plan.OperationPlanLoader;
 import com.railwaysim.dispatch.plan.PlannedScheduleCalculator;
+import com.railwaysim.dispatch.route.RouteDecisionStatus;
+import com.railwaysim.dispatch.route.RouteDispatchRecordStore;
+import com.railwaysim.dispatch.route.RouteReservationState;
 import com.railwaysim.dispatch.strategy.StrategySelector;
 import com.railwaysim.signal.MovementAuthority;
 import com.railwaysim.simulation.TickContext;
@@ -80,6 +83,62 @@ class DispatchServiceTests {
             .extracting(DispatchCommand::id)
             .containsExactly("DC-test-REQUEST_ROUTE");
         assertThat(dispatchService.pendingCommands()).isEmpty();
+    }
+
+    @Test
+    void submittedRequestRouteCommandCreatesRouteDecisionAndReservation() {
+        dispatchService.submit(commandWithPayload("TR-1", "REQUEST_ROUTE", Map.of("routeId", "R_BRANCH")));
+
+        DispatchSnapshot snapshot = dispatchService.snapshot();
+
+        assertThat(snapshot.routeDispatchActive()).isTrue();
+        assertThat(snapshot.routeDecisions())
+            .extracting(DispatchSnapshot.RouteDecisionView::selectedRouteId)
+            .containsExactly("R_BRANCH");
+        assertThat(snapshot.routeDecisions())
+            .extracting(DispatchSnapshot.RouteDecisionView::status)
+            .containsExactly(RouteDecisionStatus.REQUESTED);
+        assertThat(snapshot.routeReservations())
+            .extracting(DispatchSnapshot.RouteReservationView::state)
+            .containsExactly(RouteReservationState.REQUESTED);
+    }
+
+    @Test
+    void routeInterlockingFeedbackAcceptsRouteReservation() {
+        dispatchService.submit(commandWithPayload("TR-1", "REQUEST_ROUTE", Map.of("routeId", "R_BRANCH")));
+
+        dispatchService.acceptFeedback(List.of(new DispatchCommandFeedback(
+            "DC-test-REQUEST_ROUTE",
+            "TR-1",
+            "REQUEST_ROUTE",
+            "SIGNAL_INTERLOCKING",
+            CommandStatus.EFFECT_CONFIRMED,
+            "route established",
+            Instant.parse("2026-07-09T00:00:00Z"),
+            Map.of("accepted", true)
+        )));
+
+        assertThat(dispatchService.snapshot().routeDecisions())
+            .extracting(DispatchSnapshot.RouteDecisionView::status)
+            .containsExactly(RouteDecisionStatus.ACCEPTED);
+        assertThat(dispatchService.snapshot().routeReservations())
+            .extracting(DispatchSnapshot.RouteReservationView::state)
+            .containsExactly(RouteReservationState.ACCEPTED);
+    }
+
+    @Test
+    void invalidRouteCommandIsRejectedBeforeInterlockingQueue() {
+        dispatchService.submit(commandWithPayload("TR-1", "REQUEST_ROUTE", Map.of()));
+
+        assertThat(dispatchService.pendingCommands()).isEmpty();
+        assertThat(dispatchService.commands())
+            .extracting(DispatchCommand::status)
+            .containsExactly(CommandStatus.SKIPPED);
+        assertThat(dispatchService.snapshot().routeDecisions())
+            .extracting(DispatchSnapshot.RouteDecisionView::status)
+            .containsExactly(RouteDecisionStatus.REJECTED);
+        assertThat(dispatchService.snapshot().routeDecisions().get(0).rejectReason())
+            .contains("route command requires routeId or detail");
     }
 
     @Test
@@ -662,7 +721,8 @@ class DispatchServiceTests {
                 new CommandQueue(),
                 new InMemoryDisturbanceRecordStore(),
                 new InMemoryCommandRecordStore(),
-                stationStore
+                stationStore,
+                new RouteDispatchRecordStore()
             );
         } catch (IOException ex) {
             throw new IllegalStateException("failed to load dispatch test plan", ex);
