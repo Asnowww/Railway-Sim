@@ -30,6 +30,11 @@ public record DispatchSnapshot(
         String stationId,
         String disturbanceType,
         double deviationValue,
+        String headwayDirection,
+        Double targetHeadwaySec,
+        Double actualHeadwaySec,
+        Double toleranceSec,
+        Double violationSec,
         String status
     ) {
     }

@@ -3,6 +3,9 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import * as echarts from 'echarts'
 import topologyTrainUrl from './assets/topology-train.svg'
+import { simulationApi } from './api/rest'
+import { simulationSocket } from './api/ws'
+import type { SimulationSnapshot } from './types/simulation'
 import DispatchLoopDebugView from './views/dispatch/DispatchLoopDebugView.vue'
 
 type ActivePage = 'monitor' | 'dispatchLoop'
@@ -144,6 +147,10 @@ const simulationClock = ref('08:35:24')
 const topologyView = ref<TopologyView>('overview')
 const selectedRouteId = ref('R01')
 const activePage = ref<ActivePage>('monitor')
+const backendConnected = ref(false)
+const backendErrorMessage = ref('')
+const backendTick = ref(0)
+const backendStatus = ref('STOPPED')
 
 const stations = ['上京南', '科技园', '人民广场', '金融城', '会展中心', '机场北']
 
@@ -514,7 +521,7 @@ function updateThresholds(): void {
   if (predictionWindowMinutes.value !== normalizedPredictionWindow) predictionWindowMinutes.value = normalizedPredictionWindow
 }
 
-function applyBackendSnapshot(snapshot: BackendSimulationSnapshot): void {
+function applyBackendSnapshot(snapshot: SimulationSnapshot): void {
   backendConnected.value = true
   backendErrorMessage.value = ''
   backendTick.value = snapshot.tick

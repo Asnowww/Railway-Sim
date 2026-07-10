@@ -237,7 +237,7 @@ class DispatchServiceTests {
     }
 
     @Test
-    void repeatedFeedbackRefreshesTrackingDetailsWithoutDuplicatingCommand() {
+    void repeatedAppliedFeedbackIsIgnoredAfterFirstObservation() {
         dispatchService.submit(commandWithPayload("TR-1", "SPEED_LIMIT", Map.of("detail", "8")));
 
         dispatchService.acceptFeedback(List.of(new DispatchCommandFeedback(
@@ -263,8 +263,8 @@ class DispatchServiceTests {
 
         assertThat(dispatchService.commands()).hasSize(1);
         assertThat(dispatchService.commands().get(0).payload())
-            .containsEntry("lastFeedbackReason", "second observation")
-            .containsEntry("lastFeedbackAt", "2026-07-09T00:00:01Z");
+            .containsEntry("lastFeedbackReason", "first observation")
+            .containsEntry("lastFeedbackAt", "2026-07-09T00:00:00Z");
     }
 
     @Test
@@ -384,6 +384,49 @@ class DispatchServiceTests {
             .containsExactly(CommandStatus.APPLIED);
     }
 
+    @Test
+    void appliedHeadwayAdjustTimesOutWhenHeadwayCannotBeConfirmed() {
+        Instant now = Instant.parse("2026-07-09T00:00:00Z");
+        DispatchCommand command = new DispatchCommand(
+            "DC-headway-adjust",
+            "TR-1",
+            "HEADWAY_ADJUST",
+            Map.of("targetHeadwaySec", dispatchService.currentPlan().departureIntervalSec() + 240),
+            "test",
+            CommandStatus.PENDING,
+            now,
+            null
+        );
+        dispatchService.markCommandsSent(List.of(command));
+        dispatchService.acceptFeedback(List.of(new DispatchCommandFeedback(
+            "DC-headway-adjust",
+            "TR-1",
+            "HEADWAY_ADJUST",
+            "SIGNAL_RUNTIME",
+            CommandStatus.APPLIED,
+            "headway hold observed",
+            now,
+            Map.of("zeroSpeed", true)
+        )));
+
+        dispatchService.evaluate(
+            tick(1, now.plusSeconds(dispatchServiceTimeoutSec() + 1L)),
+            List.of(dwellingTrain("TR-1", 60)),
+            List.of(authority("TR-1"))
+        );
+
+        assertThat(dispatchService.commands())
+            .filteredOn(commandView -> commandView.id().equals("DC-headway-adjust"))
+            .extracting(DispatchCommand::status)
+            .containsExactly(CommandStatus.TIMEOUT);
+        assertThat(dispatchService.snapshot().activeCommands())
+            .filteredOn(commandView -> commandView.id().equals("DC-headway-adjust"))
+            .extracting(DispatchSnapshot.CommandView::status)
+            .containsExactly(CommandStatus.TIMEOUT);
+        assertThat(dispatchService.previewConstraintsForTrains(List.of(dwellingTrain("TR-1", 60))).get(0).sourceCommandIds())
+            .isEmpty();
+    }
+
     private static DispatchCommand command(String trainId, String type, String detail) {
         Map<String, Object> payload = detail == null ? Map.of() : Map.of("detail", detail);
         return commandWithPayload(trainId, type, payload);
@@ -419,6 +462,10 @@ class DispatchServiceTests {
 
     private static TickContext tick(long tick, Instant simulatedTime) {
         return new TickContext(tick, 1000, 1.0, simulatedTime);
+    }
+
+    private static int dispatchServiceTimeoutSec() {
+        return new DispatchProperties().getCommandEffectTimeoutSec();
     }
 
     private static TrainState dwellingTrain(String id, int dwellElapsedSeconds) {

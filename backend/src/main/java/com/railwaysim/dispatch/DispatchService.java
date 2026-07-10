@@ -28,10 +28,14 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CopyOnWriteArrayList;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 @Service
 public class DispatchService {
+
+    private static final Logger log = LoggerFactory.getLogger(DispatchService.class);
 
     private final OperationPlanLoader planLoader;
     private final DispatchProperties properties;
@@ -52,6 +56,7 @@ public class DispatchService {
     private List<TrainRunProfile> latestProfiles = List.of();
     private List<DispatchCommand> activeCommands = List.of();
     private DispatchSnapshot latestSnapshot = DispatchSnapshot.empty();
+    private final Map<String, String> lastConstraintLogByTrain = new HashMap<>();
 
     public DispatchService(
         OperationPlanLoader planLoader,
@@ -86,6 +91,7 @@ public class DispatchService {
         currentPlan = planLoader.resolve(simulationStart);
         latestProfiles = List.of();
         activeCommands = List.of();
+        lastConstraintLogByTrain.clear();
         manualCommands.clear();
         commandQueue.clear();
         disturbanceDetector.reset();
@@ -117,8 +123,10 @@ public class DispatchService {
         );
         manualCommands.add(stored);
         commandRecordStore.save(stored);
+        log.info("[DispatchLoop] manual command accepted {}", commandSummary(stored));
         if ("REROUTE".equals(stored.commandType()) || "REQUEST_ROUTE".equals(stored.commandType())) {
             commandQueue.enqueue(List.of(stored));
+            log.info("[DispatchLoop] route command queued {}", commandSummary(stored));
         }
         refreshSnapshot();
     }
@@ -156,6 +164,7 @@ public class DispatchService {
             if (CommandStatus.SKIPPED.equals(command.status())) {
                 commandRecordStore.save(command);
                 updated.add(command);
+                log.info("[DispatchLoop] command skipped before send {}", commandSummary(command));
                 continue;
             }
             Map<String, Object> payload = command.payload() == null
@@ -175,6 +184,7 @@ public class DispatchService {
             commandRecordStore.update(sent);
             replaceManualCommand(sent);
             updated.add(sent);
+            log.info("[DispatchLoop] command sent {}", commandSummary(sent));
             Object disturbanceId = payload.get("disturbanceId");
             if (disturbanceId != null) {
                 disturbanceDetector.attachCommand(disturbanceId.toString(), command.id());
@@ -219,6 +229,14 @@ public class DispatchService {
             replaceManualCommand(progressed);
             commandById.put(progressed.id(), progressed);
             updated.add(progressed);
+            log.info(
+                "[DispatchLoop] feedback accepted command={} source={} feedback={} nextStatus={} reason={}",
+                progressed.id(),
+                feedback.feedbackSource(),
+                feedback.feedbackStatus(),
+                progressed.status(),
+                feedback.reason()
+            );
         }
         if (!updated.isEmpty()) {
             activeCommands = mergeActiveCommands(updated);
@@ -238,6 +256,7 @@ public class DispatchService {
             commandRecordStore.update(cancelled);
             replaceManualCommand(cancelled);
             activeCommands = mergeActiveCommands(List.of(cancelled));
+            log.info("[DispatchLoop] command cancelled {}", commandSummary(cancelled));
             refreshSnapshot();
             return;
         }
@@ -264,6 +283,7 @@ public class DispatchService {
         );
         for (DisturbanceEvent event : created) {
             disturbanceRecordStore.save(event);
+            logDisturbanceCreated(event);
         }
         syncDisturbanceRecords();
         progressActiveCommands(context.simulatedTime(), trains, authorities, latestProfiles);
@@ -278,6 +298,8 @@ public class DispatchService {
             currentPlan
         );
         List<DispatchCommand> validated = commandValidator.validate(generated, authorities);
+        logCommandBatch("generated", generated);
+        logCommandBatch("validated", validated);
         commandQueue.enqueue(validated);
         for (DispatchCommand command : validated) {
             commandRecordStore.save(command);
@@ -325,6 +347,13 @@ public class DispatchService {
             if (!progressed.equals(command)) {
                 commandRecordStore.update(progressed);
                 replaceManualCommand(progressed);
+                log.info(
+                    "[DispatchLoop] command progressed {} -> {} {} {}",
+                    command.status(),
+                    progressed.status(),
+                    commandSummary(progressed),
+                    commandProgressDetail(progressed, profileByTrain.get(progressed.trainId()), simulatedAt)
+                );
             }
             updated.add(progressed);
         }
@@ -424,6 +453,26 @@ public class DispatchService {
         return Math.abs(profile.headwayActualSec() - targetHeadway) <= tolerance;
     }
 
+    private String commandProgressDetail(DispatchCommand command, TrainRunProfile profile, Instant simulatedAt) {
+        if (!"HEADWAY_ADJUST".equals(command.commandType())) {
+            return "";
+        }
+        int targetHeadway = payloadInt(command, "targetHeadwaySec", currentPlan.departureIntervalSec());
+        int tolerance = Math.max(5, currentPlan.departureIntervalSec() / 10);
+        Double actual = profile == null ? null : profile.headwayActualSec();
+        String violation = actual == null
+            ? "unknown"
+            : Math.round(Math.max(0, Math.abs(actual - targetHeadway) - tolerance)) + "s";
+        long elapsedSec = simulatedAt.getEpochSecond() - (
+            command.appliedAt() == null ? command.createdAt() : command.appliedAt()
+        ).getEpochSecond();
+        return "headway actual=" + (actual == null ? "-" : Math.round(actual) + "s")
+            + " target=" + targetHeadway + "s"
+            + " tolerance=" + tolerance + "s"
+            + " violation=" + violation
+            + " observedFor=" + elapsedSec + "s";
+    }
+
     private boolean shouldReleaseForShorterHeadway(DispatchCommand command, TrainState train) {
         int targetHeadway = payloadInt(command, "targetHeadwaySec", currentPlan.departureIntervalSec());
         return targetHeadway < currentPlan.departureIntervalSec()
@@ -459,10 +508,10 @@ public class DispatchService {
     }
 
     private boolean isTimedOut(DispatchCommand command, Instant simulatedAt) {
-        if (CommandStatus.APPLIED.equals(command.status())) {
-            return false;
-        }
-        long elapsedSec = simulatedAt.getEpochSecond() - command.createdAt().getEpochSecond();
+        Instant start = CommandStatus.APPLIED.equals(command.status()) && command.appliedAt() != null
+            ? command.appliedAt()
+            : command.createdAt();
+        long elapsedSec = simulatedAt.getEpochSecond() - start.getEpochSecond();
         return elapsedSec >= properties.getCommandEffectTimeoutSec();
     }
 
@@ -472,6 +521,12 @@ public class DispatchService {
     }
 
     private DispatchCommand commandWithStatus(DispatchCommand command, String status, Instant appliedAt) {
+        Instant nextAppliedAt = command.appliedAt();
+        if (nextAppliedAt == null && (CommandStatus.APPLIED.equals(status)
+            || CommandStatus.EFFECT_CONFIRMED.equals(status)
+            || CommandStatus.COMPLETED.equals(status))) {
+            nextAppliedAt = appliedAt;
+        }
         return new DispatchCommand(
             command.id(),
             command.trainId(),
@@ -480,7 +535,7 @@ public class DispatchService {
             command.reason(),
             status,
             command.createdAt(),
-            appliedAt
+            nextAppliedAt
         );
     }
 
@@ -538,6 +593,7 @@ public class DispatchService {
     private boolean shouldRecordFeedback(String currentStatus, String feedbackStatus) {
         return isEffectTrackedStatus(currentStatus)
             && (CommandStatus.APPLIED.equals(feedbackStatus)
+            && !CommandStatus.APPLIED.equals(currentStatus)
             || CommandStatus.EFFECT_CONFIRMED.equals(feedbackStatus)
             || CommandStatus.COMPLETED.equals(feedbackStatus)
             || CommandStatus.SKIPPED.equals(feedbackStatus)
@@ -744,9 +800,10 @@ public class DispatchService {
             }
         }
         if (commands.isEmpty() && reasons.isEmpty()) {
+            lastConstraintLogByTrain.remove(train.id());
             return DispatchConstraint.none(train.id());
         }
-        return new DispatchConstraint(
+        DispatchConstraint constraint = new DispatchConstraint(
             train.id(),
             holdTrain,
             Math.max(0, Math.min(1, speedFactor)),
@@ -755,6 +812,50 @@ public class DispatchService {
             reasons.isEmpty() ? "NORMAL" : String.join("; ", reasons),
             sourceCommandIds
         );
+        if (!sourceCommandIds.isEmpty()) {
+            if (shouldLogConstraint(constraint)) {
+                log.info(
+                    "[DispatchLoop] constraint train={} hold={} speedFactor={} targetSpeed={} releaseStationStop={} commands={} reason={}",
+                    constraint.trainId(),
+                    constraint.holdTrain(),
+                    String.format("%.2f", constraint.speedFactor()),
+                    constraint.targetSpeedMetersPerSecond(),
+                    constraint.releaseStationStop(),
+                    constraint.sourceCommandIds(),
+                    constraint.reason()
+                );
+            }
+        } else {
+            lastConstraintLogByTrain.remove(train.id());
+            if (constraint.holdTrain() || constraint.releaseStationStop() || constraint.targetSpeedMetersPerSecond() != null) {
+                log.debug(
+                    "[DispatchLoop] automatic constraint train={} hold={} speedFactor={} targetSpeed={} releaseStationStop={} reason={}",
+                    constraint.trainId(),
+                    constraint.holdTrain(),
+                    String.format("%.2f", constraint.speedFactor()),
+                    constraint.targetSpeedMetersPerSecond(),
+                    constraint.releaseStationStop(),
+                    constraint.reason()
+                );
+            }
+        }
+        return constraint;
+    }
+
+    private boolean shouldLogConstraint(DispatchConstraint constraint) {
+        String key = constraint.holdTrain()
+            + "|"
+            + String.format("%.2f", constraint.speedFactor())
+            + "|"
+            + constraint.targetSpeedMetersPerSecond()
+            + "|"
+            + constraint.releaseStationStop()
+            + "|"
+            + constraint.sourceCommandIds()
+            + "|"
+            + constraint.reason();
+        String previous = lastConstraintLogByTrain.put(constraint.trainId(), key);
+        return !key.equals(previous);
     }
 
     private Map<String, AutomaticRegulation> automaticHeadwayRegulations(List<TrainState> trains) {
@@ -853,6 +954,55 @@ public class DispatchService {
         return value == null ? null : value.toString();
     }
 
+    private void logCommandBatch(String phase, List<DispatchCommand> commands) {
+        if (commands == null || commands.isEmpty()) {
+            return;
+        }
+        for (DispatchCommand command : commands) {
+            log.info("[DispatchLoop] command {} {}", phase, commandSummary(command));
+        }
+    }
+
+    private void logDisturbanceCreated(DisturbanceEvent event) {
+        if ("HEADWAY_VIOLATION".equals(event.disturbanceType().name())) {
+            log.info(
+                "[DispatchLoop] headway violation created id={} train={} direction={} actual={}s target={}s tolerance={}s violation={}s",
+                event.id(),
+                event.trainId(),
+                event.headwayDirection(),
+                formatSeconds(event.actualHeadwaySec()),
+                formatSeconds(event.targetHeadwaySec()),
+                formatSeconds(event.toleranceSec()),
+                formatSeconds(event.violationSec())
+            );
+            return;
+        }
+        log.info(
+            "[DispatchLoop] disturbance created id={} train={} type={} station={} deviation={}",
+            event.id(),
+            event.trainId(),
+            event.disturbanceType(),
+            event.stationId(),
+            event.deviationValue()
+        );
+    }
+
+    private String formatSeconds(Double value) {
+        return value == null ? "-" : String.format("%.0f", value);
+    }
+
+    private String commandSummary(DispatchCommand command) {
+        if (command == null) {
+            return "null";
+        }
+        return "id=" + command.id()
+            + " train=" + command.trainId()
+            + " type=" + command.commandType()
+            + " status=" + command.status()
+            + " reason=" + command.reason()
+            + " payload=" + command.payload();
+    }
+
     private boolean shouldEvaluate(Instant simulatedTime) {
         if (lastEvaluatedAt.equals(Instant.EPOCH)) {
             return true;
@@ -898,6 +1048,11 @@ public class DispatchService {
                 event.stationId(),
                 event.disturbanceType().name(),
                 event.deviationValue(),
+                event.headwayDirection(),
+                event.targetHeadwaySec(),
+                event.actualHeadwaySec(),
+                event.toleranceSec(),
+                event.violationSec(),
                 event.status()
             ))
             .toList();

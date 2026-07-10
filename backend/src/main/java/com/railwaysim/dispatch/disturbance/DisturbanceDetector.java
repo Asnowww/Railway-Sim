@@ -39,12 +39,7 @@ public class DisturbanceDetector {
             evaluateType(simulationRunId, simulatedAt, profile, DisturbanceType.DEPARTURE_DELAY,
                 profile.departureDelaySec() > properties.getDepartureDelaySec(), profile.departureDelaySec(), created);
             if (profile.headwayActualSec() != null) {
-                double shrinkThreshold = plan.departureIntervalSec() * properties.getHeadwayShrinkRatio();
-                double expandThreshold = plan.departureIntervalSec() * properties.getHeadwayExpandRatio();
-                evaluateType(simulationRunId, simulatedAt, profile, DisturbanceType.HEADWAY_SHRINK,
-                    profile.headwayActualSec() < shrinkThreshold, profile.headwayActualSec(), created);
-                evaluateType(simulationRunId, simulatedAt, profile, DisturbanceType.HEADWAY_EXPAND,
-                    profile.headwayActualSec() > expandThreshold, profile.headwayActualSec(), created);
+                evaluateHeadwayViolation(simulationRunId, simulatedAt, plan, profile, created);
             }
         }
         resolveRecovered(plan, profiles, simulatedAt);
@@ -84,7 +79,12 @@ public class DisturbanceDetector {
                 "HANDLED",
                 event.recordedAt(),
                 event.resolvedAt(),
-                commandId
+                commandId,
+                event.headwayDirection(),
+                event.targetHeadwaySec(),
+                event.actualHeadwaySec(),
+                event.toleranceSec(),
+                event.violationSec()
             );
             openEvents.put(entry.getKey(), handled);
             return;
@@ -135,6 +135,98 @@ public class DisturbanceDetector {
         created.add(event);
     }
 
+    private void evaluateHeadwayViolation(
+        String simulationRunId,
+        Instant simulatedAt,
+        CurrentRunPlan plan,
+        TrainRunProfile profile,
+        List<DisturbanceEvent> created
+    ) {
+        double actual = profile.headwayActualSec();
+        double target = plan.departureIntervalSec();
+        double shrinkThreshold = target * properties.getHeadwayShrinkRatio();
+        double expandThreshold = target * properties.getHeadwayExpandRatio();
+
+        if (actual < shrinkThreshold) {
+            evaluateHeadwayViolation(
+                simulationRunId,
+                simulatedAt,
+                profile,
+                "TOO_SHORT",
+                target,
+                actual,
+                target - shrinkThreshold,
+                shrinkThreshold - actual,
+                created
+            );
+            return;
+        }
+        if (actual > expandThreshold) {
+            evaluateHeadwayViolation(
+                simulationRunId,
+                simulatedAt,
+                profile,
+                "TOO_LONG",
+                target,
+                actual,
+                expandThreshold - target,
+                actual - expandThreshold,
+                created
+            );
+            return;
+        }
+
+        consecutiveHits.remove(headwayViolationKey(profile));
+    }
+
+    private void evaluateHeadwayViolation(
+        String simulationRunId,
+        Instant simulatedAt,
+        TrainRunProfile profile,
+        String direction,
+        double targetHeadwaySec,
+        double actualHeadwaySec,
+        double toleranceSec,
+        double violationSec,
+        List<DisturbanceEvent> created
+    ) {
+        String key = headwayViolationKey(profile);
+        int hits = consecutiveHits.merge(key, 1, Integer::sum);
+        if (hits < properties.getConfirmTicks()) {
+            return;
+        }
+        Instant lastTriggered = lastTriggeredAt.get(key);
+        if (lastTriggered != null && simulatedAt.getEpochSecond() - lastTriggered.getEpochSecond() < properties.getCooldownSec()) {
+            return;
+        }
+        DisturbanceEvent existing = openEvents.get(key);
+        if (existing != null && ("OPEN".equals(existing.status()) || "HANDLED".equals(existing.status()))) {
+            return;
+        }
+
+        DisturbanceEvent event = new DisturbanceEvent(
+            "DIST-" + UUID.randomUUID().toString().substring(0, 8),
+            simulationRunId,
+            profile.trainId(),
+            profile.currentStationId(),
+            DisturbanceType.HEADWAY_VIOLATION,
+            Math.max(0, violationSec),
+            "OPEN",
+            simulatedAt,
+            null,
+            null,
+            direction,
+            targetHeadwaySec,
+            actualHeadwaySec,
+            toleranceSec,
+            Math.max(0, violationSec)
+        );
+        openEvents.put(key, event);
+        consecutiveRecoveries.remove(key);
+        lastTriggeredAt.put(key, simulatedAt);
+        created.add(event);
+    }
+
     private void resolveRecovered(CurrentRunPlan plan, List<TrainRunProfile> profiles, Instant simulatedAt) {
         Map<String, TrainRunProfile> profileByTrain = new HashMap<>();
         for (TrainRunProfile profile : profiles) {
@@ -164,7 +256,12 @@ public class DisturbanceDetector {
                 "RECOVERED",
                 event.recordedAt(),
                 simulatedAt,
-                event.commandId()
+                event.commandId(),
+                event.headwayDirection(),
+                event.targetHeadwaySec(),
+                event.actualHeadwaySec(),
+                event.toleranceSec(),
+                event.violationSec()
             );
             openEvents.put(entry.getKey(), resolved);
             consecutiveRecoveries.remove(entry.getKey());
@@ -176,11 +273,18 @@ public class DisturbanceDetector {
         return switch (type) {
             case DWELL_EXTENDED -> profile.dwellDeviationSec() <= properties.getDwellToleranceSec() * recoverFactor;
             case CROWDING -> profile.loadRate() <= properties.getCrowdingLoadRate() * recoverFactor;
+            case HEADWAY_VIOLATION -> profile.headwayActualSec() != null
+                && profile.headwayActualSec() >= plan.departureIntervalSec() * properties.getHeadwayShrinkRatio()
+                && profile.headwayActualSec() <= plan.departureIntervalSec() * properties.getHeadwayExpandRatio();
             case HEADWAY_SHRINK -> profile.headwayActualSec() != null
                 && profile.headwayActualSec() >= plan.departureIntervalSec() * properties.getHeadwayShrinkRatio();
             case HEADWAY_EXPAND -> profile.headwayActualSec() != null
                 && profile.headwayActualSec() <= plan.departureIntervalSec() * properties.getHeadwayExpandRatio();
             case DEPARTURE_DELAY -> profile.departureDelaySec() <= properties.getDepartureDelaySec() * recoverFactor;
         };
+    }
+
+    private String headwayViolationKey(TrainRunProfile profile) {
+        return profile.trainId() + ":" + DisturbanceType.HEADWAY_VIOLATION.name();
     }
 }
