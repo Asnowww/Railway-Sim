@@ -17,6 +17,7 @@ public record TrainRunProfile(
     int headwayDeviationSec,
     String headwayState,
     String headwayAction,
+    int departureDelaySec,
     Instant lastDepartureAt
 ) {
 }

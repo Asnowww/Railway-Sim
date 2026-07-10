@@ -6,6 +6,7 @@ export interface DispatchTrainProfile {
   headwayState: string
   headwayAction: string
   dwellDeviationSeconds: number
+  departureDelaySeconds: number
 }
 
 export interface DispatchDisturbance {

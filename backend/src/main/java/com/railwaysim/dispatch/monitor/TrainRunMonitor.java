@@ -20,6 +20,7 @@ public class TrainRunMonitor {
     private final PlannedScheduleCalculator scheduleCalculator;
     private final StationRecordStore stationRecordStore;
     private final Map<String, String> dwellingStationByTrain = new HashMap<>();
+    private final Map<String, Integer> latestDepartureDelayByTrain = new HashMap<>();
     private Instant simulationStart = Instant.now();
 
     public TrainRunMonitor(
@@ -35,6 +36,7 @@ public class TrainRunMonitor {
     public void reset(Instant simulationStart) {
         this.simulationStart = simulationStart;
         dwellingStationByTrain.clear();
+        latestDepartureDelayByTrain.clear();
     }
 
     public List<TrainRunProfile> update(
@@ -81,6 +83,7 @@ public class TrainRunMonitor {
                 headwayDeviation,
                 headwayObservation.state(),
                 headwayObservation.action(),
+                latestDepartureDelayByTrain.getOrDefault(train.id(), 0),
                 lastDeparture
             ));
             frontTrainId = train.id();
@@ -169,6 +172,7 @@ public class TrainRunMonitor {
                 plannedDeparture,
                 delay
             ));
+            latestDepartureDelayByTrain.put(train.id(), delay);
             dwellingStationByTrain.remove(train.id());
         }
     }

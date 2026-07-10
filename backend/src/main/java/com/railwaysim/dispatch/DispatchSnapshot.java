@@ -19,7 +19,8 @@ public record DispatchSnapshot(
         int headwayDeviationSeconds,
         String headwayState,
         String headwayAction,
-        int dwellDeviationSeconds
+        int dwellDeviationSeconds,
+        int departureDelaySeconds
     ) {
     }
 

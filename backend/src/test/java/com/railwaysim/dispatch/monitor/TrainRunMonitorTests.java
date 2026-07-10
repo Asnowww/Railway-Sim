@@ -53,7 +53,49 @@ class TrainRunMonitorTests {
         assertThat(rearTrain.headwayState()).isEqualTo("ON_TARGET");
     }
 
+    @Test
+    void departureEventUpdatesLatestDepartureDelayInRunProfile() throws IOException {
+        DispatchProperties properties = new DispatchProperties();
+        OperationPlanLoader planLoader = new OperationPlanLoader(properties, new DefaultResourceLoader());
+        planLoader.load();
+        InMemoryStationRecordStore stationStore = new InMemoryStationRecordStore();
+        TrainRunMonitor monitor = new TrainRunMonitor(
+            planLoader,
+            new PlannedScheduleCalculator(properties),
+            stationStore
+        );
+        Instant simulationStart = Instant.parse("2026-07-09T09:00:00Z");
+        CurrentRunPlan plan = new CurrentRunPlan("PLAN-1", "LINE-1", "FLAT", 300, 25, simulationStart);
+        monitor.reset(simulationStart);
+
+        monitor.update("RUN-1", simulationStart, plan, List.of(
+            trainState("TR-001", 0, 0, "DWELLING", "S01", 10, null)
+        ));
+        List<TrainRunProfile> profiles = monitor.update("RUN-1", simulationStart.plusSeconds(60), plan, List.of(
+            trainState("TR-001", 10, 4, "RUNNING", null, 0, simulationStart.plusSeconds(60).toString())
+        ));
+
+        TrainStationEvent departure = stationStore.list("RUN-1").stream()
+            .filter(event -> event.eventType() == TrainStationEvent.EventType.DEPARTURE)
+            .findFirst()
+            .orElseThrow();
+        assertThat(departure.delaySec()).isEqualTo(35);
+        assertThat(profiles.get(0).departureDelaySec()).isEqualTo(departure.delaySec());
+    }
+
     private static TrainState train(String id, double positionMeters, String lastDepartureAt) {
+        return trainState(id, positionMeters, 8, "RUNNING", null, 0, lastDepartureAt);
+    }
+
+    private static TrainState trainState(
+        String id,
+        double positionMeters,
+        double speedMetersPerSecond,
+        String status,
+        String currentStationId,
+        int dwellElapsedSeconds,
+        String lastDepartureAt
+    ) {
         return new TrainState(
             id,
             "test-line",
@@ -65,7 +107,7 @@ class TrainRunMonitorTests {
             0,
             "UNKNOWN",
             positionMeters,
-            8,
+            speedMetersPerSecond,
             20,
             positionMeters,
             Math.max(0, positionMeters - 20),
@@ -75,7 +117,7 @@ class TrainRunMonitorTests {
             6,
             6,
             "NONE",
-            "RUNNING",
+            status,
             "ATO",
             false,
             "CLOSED_LOCKED",
@@ -105,8 +147,8 @@ class TrainRunMonitorTests {
             0,
             0,
             "OK",
-            null,
-            0,
+            currentStationId,
+            dwellElapsedSeconds,
             lastDepartureAt
         );
     }

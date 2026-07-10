@@ -38,6 +38,23 @@ class DisturbanceDetectorTests {
         assertThat(detector.openEvents()).isEmpty();
     }
 
+    @Test
+    void departureDelayCreatesConfiguredDisturbance() {
+        DisturbanceDetector detector = new DisturbanceDetector(properties);
+
+        List<DisturbanceEvent> created = detector.detect(
+            "RUN-1",
+            Instant.EPOCH,
+            plan,
+            List.of(profile("TR-1", 300, 31))
+        );
+
+        assertThat(created)
+            .extracting(DisturbanceEvent::disturbanceType)
+            .containsExactly(DisturbanceType.DEPARTURE_DELAY);
+        assertThat(detector.openEvents()).hasSize(1);
+    }
+
     private static DispatchProperties properties() {
         DispatchProperties properties = new DispatchProperties();
         properties.setConfirmTicks(1);
@@ -46,6 +63,10 @@ class DisturbanceDetectorTests {
     }
 
     private static TrainRunProfile profile(String trainId, double headwayActualSec) {
+        return profile(trainId, headwayActualSec, 0);
+    }
+
+    private static TrainRunProfile profile(String trainId, double headwayActualSec, int departureDelaySec) {
         return new TrainRunProfile(
             trainId,
             "TR-FRONT",
@@ -61,6 +82,7 @@ class DisturbanceDetectorTests {
             0,
             "ON_TARGET",
             "NONE",
+            departureDelaySec,
             null
         );
     }

@@ -91,6 +91,7 @@ class StrategySelectorTests {
             0,
             "WAITING_DEPARTURE_DATA",
             "OBSERVE",
+            0,
             null
         );
     }

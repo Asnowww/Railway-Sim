@@ -364,7 +364,8 @@ GET /api/dispatch/status
       "trainId": "TR-001",
       "headwayActualSeconds": null,
       "headwayDeviationSeconds": 0,
-      "dwellDeviationSeconds": 0
+      "dwellDeviationSeconds": 0,
+      "departureDelaySeconds": 0
     }
   ],
   "openDisturbances": [],
@@ -379,6 +380,7 @@ GET /api/dispatch/status
 | `defaultDwellSeconds` | number | 当前默认停站时间。 |
 | `interventionActive` | boolean | 是否存在开放扰动或活跃调度命令。 |
 | `trainProfiles` | array | 列车运行偏差摘要。 |
+| `trainProfiles[].departureDelaySeconds` | number | 最近一次实际发车相对计划发车的偏差，正值表示延误。 |
 | `openDisturbances` | array | 当前开放或已处理但未恢复的扰动。 |
 | `activeCommands` | array | 当前 `PENDING` 或 `APPLIED` 的命令摘要。 |
 

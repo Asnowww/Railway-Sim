@@ -884,7 +884,8 @@ public class DispatchService {
                 profile.headwayDeviationSec(),
                 profile.headwayState(),
                 profile.headwayAction(),
-                profile.dwellDeviationSec()
+                profile.dwellDeviationSec(),
+                profile.departureDelaySec()
             ))
             .toList();
         List<DispatchSnapshot.DisturbanceView> disturbanceViews = disturbances.stream()
