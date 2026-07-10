@@ -822,8 +822,16 @@ select {
 }
 
 .trend-chart {
+  position: relative;
   width: 100%;
-  height: 250px;
+  max-width: 100%;
+  min-width: 0;
+  height: clamp(180px, 18vw, 250px);
+  overflow: hidden;
+}
+
+.trend-chart canvas {
+  max-width: 100% !important;
 }
 
 .train-table,
