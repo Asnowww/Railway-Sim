@@ -9,9 +9,6 @@ RUN mkdir -p /workspace/fmu-service/build \
 
 FROM python:3.12-slim@sha256:423ed6ab25b1921a477529254bfeeabf5855151dc2c3141699a1bfc852199fbf AS runtime-base
 
-ARG SOURCE_COMMIT=unknown
-ARG OPENMODELICA_DIGEST=sha256:80fbff1a66fb6a6ade64a158415a45e022363249982c9f3ade07df2a369a357e
-
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     TRAIN_PARAMS_PATH=/config/train_params.yaml \
@@ -36,6 +33,8 @@ COPY config/train_params.yaml /config/train_params.yaml
 COPY config/fmu_mapping.yaml /config/fmu_mapping.yaml
 COPY --from=fmu-builder /workspace/fmu-service/build/TrainTractionBrake.fmu /app/fmu/TrainTractionBrake.fmu
 
+ARG SOURCE_COMMIT=unknown
+ARG OPENMODELICA_DIGEST=sha256:80fbff1a66fb6a6ade64a158415a45e022363249982c9f3ade07df2a369a357e
 RUN python /app/scripts/generate_fmu_manifest.py \
       --fmu /app/fmu/TrainTractionBrake.fmu \
       --parameter-file /config/train_params.yaml \
