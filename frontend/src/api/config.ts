@@ -1,15 +1,18 @@
+const explicitApiBaseUrl = import.meta.env.VITE_API_BASE_URL as string | undefined
 const explicitBackendOrigin = import.meta.env.VITE_BACKEND_ORIGIN as string | undefined
 
-function resolveBackendOrigin(): string {
-  if (explicitBackendOrigin) return explicitBackendOrigin.replace(/\/$/, '')
+function trimTrailingSlash(url: string): string {
+  return url.replace(/\/$/, '')
+}
 
-  const hostName = window.location.hostname
-  if (hostName === '98.142.241.155') return 'http://98.142.241.155:18080'
+function resolveBackendOrigin(): string {
+  if (explicitBackendOrigin) return trimTrailingSlash(explicitBackendOrigin)
+  if (explicitApiBaseUrl) return trimTrailingSlash(explicitApiBaseUrl).replace(/\/api$/, '')
 
   return ''
 }
 
-export const apiBaseUrl = `${resolveBackendOrigin()}/api`
+export const apiBaseUrl = explicitApiBaseUrl ? trimTrailingSlash(explicitApiBaseUrl) : `${resolveBackendOrigin()}/api`
 
 export function getSimulationWebSocketUrl(): string {
   const backendOrigin = resolveBackendOrigin()

@@ -27,6 +27,7 @@ export function useSimulation() {
   const autoRunning = ref(false)
 
   let autoTimer: ReturnType<typeof setInterval> | null = null
+  let unsubscribeSnapshot: (() => void) | null = null
 
   function applySnapshot(payload: SimulationSnapshot) {
     snapshot.value = payload
@@ -56,7 +57,7 @@ export function useSimulation() {
       backendReady.value = false
       errorMessage.value =
         error instanceof Error
-          ? `${error.message}（请确认后端已启动：http://localhost:8080）`
+          ? `${error.message}（请确认后端地址配置正确且服务已启动）`
           : '操作失败'
     }
   }
@@ -83,18 +84,20 @@ export function useSimulation() {
     } catch (error) {
       errorMessage.value =
         error instanceof Error
-          ? `${error.message}（请用 pnpm dev 启动前端，并确保后端 mvn spring-boot:run 已运行）`
+          ? `${error.message}（请确认 VITE_API_BASE_URL 或 Vite 代理已指向可用后端）`
           : '初始化失败'
     }
 
     simulationSocket.connect()
-    simulationSocket.subscribe(applySnapshot)
+    unsubscribeSnapshot = simulationSocket.subscribe(applySnapshot)
   })
 
   onBeforeUnmount(() => {
     if (autoTimer) {
       clearInterval(autoTimer)
     }
+    unsubscribeSnapshot?.()
+    unsubscribeSnapshot = null
     simulationSocket.disconnect()
   })
 
