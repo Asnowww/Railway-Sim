@@ -36,6 +36,10 @@ def init_payload(train_id: str = "API-TRAIN") -> dict:
 def test_fastapi_health_metadata_validation_and_step_contract() -> None:
     response_schema = load_json(ROOT / "contracts" / "step-fleet-response.schema.json")
     with TestClient(app) as client:
+        paths = client.get("/openapi.json").json()["paths"]
+        assert "/instances/{trainId}" in paths
+        assert "/instances/{trainId}/reset" in paths
+
         health = client.get("/health")
         assert health.status_code == 200
         assert health.json()["status"] == "UP"

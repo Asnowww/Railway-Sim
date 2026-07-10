@@ -155,14 +155,14 @@ def step_fleet(
     return step_fleet_response_to_dict(response)
 
 
-@app.delete("/instances/{train_id}")
-def delete_instance(train_id: str, request: Request) -> dict[str, Any]:
-    return _manager(request).delete_instance(train_id)
+@app.delete("/instances/{trainId}")
+def delete_instance(trainId: str, request: Request) -> dict[str, Any]:
+    return _manager(request).delete_instance(trainId)
 
 
-@app.post("/instances/{train_id}/reset")
+@app.post("/instances/{trainId}/reset")
 def reset_instance(
-    train_id: str,
+    trainId: str,
     payload: StepFleetRequestPayload,
     request: Request,
 ) -> dict[str, Any]:
@@ -173,7 +173,7 @@ def reset_instance(
             "instance reset requires exactly one train in the fleet request",
         )
     train = payload.trains[0]
-    if train.train_id != train_id:
+    if train.train_id != trainId:
         raise FmuProtocolError(
             400,
             "INVALID_REQUEST",
