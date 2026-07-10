@@ -58,6 +58,18 @@ class RouteInterlockingServiceTests {
     }
 
     @Test
+    void establishingRouteClearsPendingDepartureHold() {
+        Fixture fixture = fixture(lineDataWithDirectRoute());
+        fixture.interlocking.init();
+        fixture.interlocking.holdTrainUntilRouteEstablished("TR-1", "route conflict");
+
+        String rejection = fixture.interlocking.establishRoute("R_BRANCH", "TR-1");
+
+        assertThat(rejection).isNull();
+        assertThat(fixture.interlocking.isRouteHoldActive("TR-1")).isFalse();
+    }
+
+    @Test
     void movementAuthorityReservesAlongEstablishedDivergingRoute() {
         Fixture fixture = fixture(lineDataWithDirectRoute());
         fixture.interlocking.init();

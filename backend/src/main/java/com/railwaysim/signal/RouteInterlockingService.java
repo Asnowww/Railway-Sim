@@ -27,6 +27,7 @@ public class RouteInterlockingService {
     private final StaticInfrastructureCatalog infrastructureCatalog;
     private final TrackService trackService;
     private final Map<String, RouteState> routeStates = new LinkedHashMap<>();
+    private final Map<String, String> routeHoldsByTrain = new LinkedHashMap<>();
 
     public RouteInterlockingService(
         StaticInfrastructureCatalog infrastructureCatalog,
@@ -43,6 +44,7 @@ public class RouteInterlockingService {
 
     public synchronized void reset() {
         routeStates.clear();
+        routeHoldsByTrain.clear();
         OperationalLineData lineData = infrastructureCatalog.lineData();
         if (lineData.routes() == null) {
             return;
@@ -131,8 +133,28 @@ public class RouteInterlockingService {
             trainId,
             route.axleSegmentIds()
         ));
+        routeHoldsByTrain.remove(trainId);
         log.info("[Interlocking] route {} established by train {}; locked switches={}", routeId, trainId, lockedIds);
         return null;
+    }
+
+    public synchronized void holdTrainUntilRouteEstablished(String trainId, String reason) {
+        if (trainId == null || trainId.isBlank()) {
+            return;
+        }
+        routeHoldsByTrain.put(trainId, reason == null || reason.isBlank() ? "ROUTE_NOT_ESTABLISHED" : reason);
+    }
+
+    public synchronized void clearRouteHold(String trainId) {
+        routeHoldsByTrain.remove(trainId);
+    }
+
+    public synchronized boolean isRouteHoldActive(String trainId) {
+        return routeHoldsByTrain.containsKey(trainId);
+    }
+
+    public synchronized String routeHoldReason(String trainId) {
+        return routeHoldsByTrain.getOrDefault(trainId, "ROUTE_NOT_ESTABLISHED");
     }
 
     public synchronized void releaseRoute(String routeId) {
@@ -150,6 +172,7 @@ public class RouteInterlockingService {
     }
 
     public synchronized void releaseAllForTrain(String trainId) {
+        routeHoldsByTrain.remove(trainId);
         List<String> routeIds = routeStates.values().stream()
             .filter(state -> trainId.equals(state.establishedByTrainId()))
             .map(RouteState::routeId)

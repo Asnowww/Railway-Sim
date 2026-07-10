@@ -366,7 +366,8 @@ public class SimulationRuntime {
                 var result = interlockingService.applyDispatchCommand("REROUTE", routeDetail, trainId);
                 if (!result.accepted()) {
                     log.warn("[Runtime] 联锁拒绝发车 {}: {}", trainId, result.rejectReason());
-                    // 不阻断发车——列车进场后 touchRoutes 仍可自动建进路
+                    // 允许车辆上线接入，但由信号保持零速，直到进路真正建立。
+                    interlockingService.holdTrainUntilRouteEstablished(trainId, result.rejectReason());
                 }
             }
 
@@ -379,6 +380,7 @@ public class SimulationRuntime {
                 log.info("[Runtime] 发车 {} — trainNo={} linkId={} offset={}m direction={}",
                     trainId, trainNo, linkId, offsetMeters, direction);
             } catch (Exception e) {
+                interlockingService.clearRouteHold(trainId);
                 log.error("[Runtime] 发车失败 {}: {}", trainId, e.getMessage());
             }
         }

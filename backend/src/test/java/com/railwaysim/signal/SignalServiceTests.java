@@ -39,6 +39,25 @@ class SignalServiceTests {
     }
 
     @Test
+    void rejectedDepartureRouteHoldsTrainAtZeroSpeedUntilRouteIsEstablished() {
+        Fixture f = fixture(straightLine(4000));
+        TrainState train = train("TR-1", 100);
+        f.trackService.updateOccupancy(List.of(train));
+        f.interlockingService.holdTrainUntilRouteEstablished("TR-1", "route conflict");
+
+        f.signalService.calculateAuthorities(
+            List.of(train),
+            f.trackService.constraintsForTrains(List.of(train)),
+            List.of()
+        );
+
+        MovementAuthority ma = f.signalService.authorities().get(0);
+        assertThat(ma.authorityEndMeters()).isEqualTo(train.positionMeters());
+        assertThat(ma.speedLimitMetersPerSecond()).isZero();
+        assertThat(ma.reason()).contains("等待进路建立", "route conflict");
+    }
+
+    @Test
     void twoTrains_frontMaTruncatedByRearTail() {
         Fixture f = fixture(straightLine(4000));
         SimulationProperties props = new SimulationProperties();
@@ -317,7 +336,7 @@ class SignalServiceTests {
         trackService.reset();
         RouteInterlockingService interlocking = new RouteInterlockingService(catalog, trackService);
         SignalService signalService = new SignalService(properties, catalog, trackService, interlocking);
-        return new Fixture(trackService, signalService, catalog);
+        return new Fixture(trackService, signalService, interlocking, catalog);
     }
 
     /** 简单直线: 0→1000→2000→3000→4000, 4段 */
@@ -422,6 +441,7 @@ class SignalServiceTests {
     private record Fixture(
         TrackService trackService,
         SignalService signalService,
+        RouteInterlockingService interlockingService,
         StaticInfrastructureCatalog catalog
     ) {
     }

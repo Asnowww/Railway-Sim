@@ -111,7 +111,10 @@ public class SignalService {
 
             double lineEndLimit = lineLengthMeters;
             double faultLimit = trackService.nextFaultPosition(trainHead) - effectiveSafetyGap;
-            double interlockingLimit = interlockingService.maLimitFromRouteConflict(train.id());
+            boolean waitingForRoute = interlockingService.isRouteHoldActive(train.id());
+            double interlockingLimit = waitingForRoute
+                ? trainHead
+                : interlockingService.maLimitFromRouteConflict(train.id());
 
             // ---- 停站控制：MA终点收到站台位置前，等停站时间到才延伸 ----
             Map<String, Double> stationLimits = resolveStationDwell(train);
@@ -153,6 +156,9 @@ public class SignalService {
                 int dwellElapsedSec = stationLimits.getOrDefault("dwellElapsedSec", 0.0).intValue();
                 int dwellTargetSec = stationLimits.getOrDefault("dwellTargetSec", (double) DEFAULT_DWELL_SECONDS).intValue();
                 reason = "站台停靠(" + dwellElapsedSec + "/" + dwellTargetSec + "s)";
+            }
+            if (waitingForRoute) {
+                reason = "等待进路建立(" + interlockingService.routeHoldReason(train.id()) + ")";
             }
 
             String segId = currentSeg != null ? currentSeg.id() : "?";
