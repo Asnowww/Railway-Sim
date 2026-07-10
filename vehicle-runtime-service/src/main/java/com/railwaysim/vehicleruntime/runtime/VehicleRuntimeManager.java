@@ -1,6 +1,7 @@
 package com.railwaysim.vehicleruntime.runtime;
 
 import com.railwaysim.vehicleruntime.config.VehicleRuntimeProperties;
+import com.railwaysim.vehicleruntime.config.VehicleParameters;
 import com.railwaysim.vehicleruntime.model.DispatchConstraintSnapshot;
 import com.railwaysim.vehicleruntime.model.MovementAuthoritySnapshot;
 import com.railwaysim.vehicleruntime.model.PowerConstraintSnapshot;
@@ -17,6 +18,7 @@ import com.railwaysim.vehicleruntime.model.VehicleRuntimeBootstrapRequest;
 import com.railwaysim.vehicleruntime.model.VehicleRuntimeEvent;
 import com.railwaysim.vehicleruntime.model.VehicleRuntimeHealth;
 import com.railwaysim.vehicleruntime.model.VehicleRuntimeInstanceState;
+import com.railwaysim.vehicleruntime.model.VehicleParameterMetadata;
 import com.railwaysim.vehicleruntime.model.VehicleRuntimeStepRequest;
 import com.railwaysim.vehicleruntime.model.VehicleRuntimeStepResponse;
 import java.time.Duration;
@@ -37,21 +39,25 @@ import org.springframework.stereotype.Service;
 public class VehicleRuntimeManager {
 
     private final VehicleRuntimeProperties properties;
+    private final VehicleParameters vehicleParameters;
     private final PowerNetworkLoadClient powerNetworkLoadClient;
     private final CentralTrainRegistrationClient centralTrainRegistrationClient;
     private final Map<String, VehicleRuntimeInstance> instances = new ConcurrentHashMap<>();
     private final Map<String, PowerConstraintSnapshot> authoritativePowerByTrain = new ConcurrentHashMap<>();
     private final List<VehicleRuntimeEvent> events = new ArrayList<>();
-    private volatile VehicleRuntimeHealth latestHealth = new VehicleRuntimeHealth("EXTERNAL_HTTP", "UP", Instant.now(), 0, "GOOD", 0, "READY");
+    private volatile VehicleRuntimeHealth latestHealth;
 
     public VehicleRuntimeManager(
         VehicleRuntimeProperties properties,
+        VehicleParameters vehicleParameters,
         PowerNetworkLoadClient powerNetworkLoadClient,
         CentralTrainRegistrationClient centralTrainRegistrationClient
     ) {
         this.properties = properties;
+        this.vehicleParameters = vehicleParameters;
         this.powerNetworkLoadClient = powerNetworkLoadClient;
         this.centralTrainRegistrationClient = centralTrainRegistrationClient;
+        this.latestHealth = new VehicleRuntimeHealth("EXTERNAL_HTTP", "UP", Instant.now(), 0, "GOOD", 0, "READY");
     }
 
     public VehicleRuntimeHealth health() {
@@ -63,6 +69,17 @@ public class VehicleRuntimeManager {
             latestHealth.dataQuality(),
             instances.size(),
             latestHealth.reason()
+        );
+    }
+
+    public VehicleParameterMetadata parameterMetadata() {
+        return new VehicleParameterMetadata(
+            vehicleParameters.parameterSetId(),
+            vehicleParameters.sourcePath().toString(),
+            vehicleParameters.trainType(),
+            vehicleParameters.emptyMassKg(),
+            vehicleParameters.maxLoadMassKg(),
+            vehicleParameters.traction().maxPowerWatts()
         );
     }
 
@@ -84,7 +101,10 @@ public class VehicleRuntimeManager {
         if (trainId == null || trainId.isBlank()) {
             throw new IllegalArgumentException("trainId is required");
         }
-        VehicleRuntimeInstance instance = instances.computeIfAbsent(trainId, id -> new VehicleRuntimeInstance(id, properties));
+        VehicleRuntimeInstance instance = instances.computeIfAbsent(
+            trainId,
+            id -> new VehicleRuntimeInstance(id, properties, vehicleParameters)
+        );
         instance.launch();
         recordEvent(trainId, "REGISTER", "vehicle runtime instance registered");
         return instance.state();
@@ -95,7 +115,10 @@ public class VehicleRuntimeManager {
             throw new IllegalArgumentException("trainId or trainNo is required");
         }
         String trainId = request.normalizedTrainId();
-        VehicleRuntimeInstance instance = instances.computeIfAbsent(trainId, id -> new VehicleRuntimeInstance(id, properties));
+        VehicleRuntimeInstance instance = instances.computeIfAbsent(
+            trainId,
+            id -> new VehicleRuntimeInstance(id, properties, vehicleParameters)
+        );
         // 启动顺序固定：先创建车辆仿真实例，再唤醒本车控制实例，最后向中央登记镜像。
         instance.launch();
         recordEvent(trainId, "LAUNCH", "vehicle simulation instance launched and control instance awakened");
@@ -152,7 +175,10 @@ public class VehicleRuntimeManager {
         List<VehicleRuntimeInstanceState> states = new ArrayList<>();
 
         for (TrainStateSnapshot train : trains) {
-            VehicleRuntimeInstance instance = instances.computeIfAbsent(train.id(), id -> new VehicleRuntimeInstance(id, properties));
+            VehicleRuntimeInstance instance = instances.computeIfAbsent(
+                train.id(),
+                id -> new VehicleRuntimeInstance(id, properties, vehicleParameters)
+            );
             VehicleRuntimeInstance.StepResult result = instance.step(
                 request.tick(),
                 request.deltaSeconds(),

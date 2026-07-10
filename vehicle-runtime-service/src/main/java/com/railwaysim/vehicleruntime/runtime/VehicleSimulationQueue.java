@@ -1,32 +1,22 @@
 package com.railwaysim.vehicleruntime.runtime;
 
+import com.railwaysim.vehicleruntime.config.VehicleParameters;
 import com.railwaysim.vehicleruntime.config.VehicleRuntimeProperties;
 import com.railwaysim.vehicleruntime.model.VehiclePhysicsInputDto;
 import com.railwaysim.vehicleruntime.model.VehiclePhysicsOutputDto;
 
-/**
- * 仿真队列负责推进车辆纵向动力学，首期移植中央 Java fallback 模型。
- */
+/** Java fallback solver backed by the same YAML calibration that initializes the future FMU. */
 final class VehicleSimulationQueue {
 
     private static final double GRAVITY = 9.81;
-    private static final double MAX_TRACTION_POWER_WATTS = 3_200_000;
-    private static final double MAX_TRACTION_FORCE_NEWTONS = 240_000;
-    private static final double MAX_SERVICE_BRAKE_FORCE_NEWTONS = 220_000;
-    private static final double MAX_EMERGENCY_BRAKE_FORCE_NEWTONS = 300_000;
-    private static final double TRACTION_EFFICIENCY = 0.88;
-    private static final double REGEN_EFFICIENCY = 0.35;
-    private static final double REGEN_BRAKE_RATIO = 0.45;
-    private static final double DAVIS_A = 1_800;
-    private static final double DAVIS_B = 45;
-    private static final double DAVIS_C = 3.2;
-    private static final double MINIMUM_VOLTAGE = 1_000;
-    private static final double CUTOFF_VOLTAGE = 900;
+    private static final double SPEED_FLOOR_METERS_PER_SECOND = 0.5;
 
     private final VehicleRuntimeQueue queue;
+    private final VehicleParameters parameters;
 
-    VehicleSimulationQueue(VehicleRuntimeProperties properties) {
+    VehicleSimulationQueue(VehicleRuntimeProperties properties, VehicleParameters parameters) {
         this.queue = new VehicleRuntimeQueue(properties.getQueueCapacity());
+        this.parameters = parameters;
     }
 
     VehiclePhysicsOutputDto step(long tick, VehiclePhysicsInputDto input) {
@@ -37,27 +27,58 @@ final class VehicleSimulationQueue {
         double dt = Math.max(input.deltaSeconds(), 0.001);
         double speed = Math.max(input.speedMetersPerSecond(), 0);
         double mass = Math.max(input.trainMassKg(), 1);
-        double powerFactor = input.railVoltage() <= 0 || input.powerAvailableWatts() <= 0
-            ? 0
-            : clamp(input.powerAvailableWatts() / MAX_TRACTION_POWER_WATTS, 0, 1);
-        double adhesionFactor = clamp(input.adhesionCoefficient(), 0.2, 1.0);
+        double tractionEfficiency = parameters.traction().efficiency();
+        boolean tractionPowerAvailable = input.currentCollectionAvailable()
+            && input.railVoltage() > parameters.power().cutoffVoltage()
+            && input.powerAvailableWatts() > 0;
+        double gridPowerAvailable = tractionPowerAvailable ? input.powerAvailableWatts() : 0;
+        double mechanicalPowerLimit = Math.min(
+            parameters.traction().maxPowerWatts(),
+            gridPowerAvailable * tractionEfficiency
+        );
+        double commandForce = parameters.traction().maxTractionForceNewtons()
+            * clamp(input.tractionCommand(), 0, 1);
+        double powerLimitedForce = mechanicalPowerLimit / Math.max(speed, SPEED_FLOOR_METERS_PER_SECOND);
+        double adhesionLimitedForce = clamp(input.adhesionCoefficient(), 0.2, 1.0) * mass * GRAVITY;
+        double tractionForce = input.doorClosed() && !input.emergencyBrakeCommand()
+            ? Math.min(commandForce, Math.min(powerLimitedForce, adhesionLimitedForce))
+            : 0;
 
-        double tractionForce = MAX_TRACTION_FORCE_NEWTONS * clamp(input.tractionCommand(), 0, 1) * powerFactor * adhesionFactor;
         double brakeForce = input.emergencyBrakeCommand()
-            ? MAX_EMERGENCY_BRAKE_FORCE_NEWTONS
-            : MAX_SERVICE_BRAKE_FORCE_NEWTONS * clamp(input.brakeCommand(), 0, 1);
-
-        double resistanceForce = DAVIS_A + DAVIS_B * speed + DAVIS_C * speed * speed;
+            ? parameters.brake().maxEmergencyBrakeForceNewtons()
+            : parameters.brake().maxServiceBrakeForceNewtons() * clamp(input.brakeCommand(), 0, 1);
+        double resistanceForce = parameters.resistance().davisA()
+            + parameters.resistance().davisB() * speed
+            + parameters.resistance().davisC() * speed * speed;
         double gradientForce = mass * GRAVITY * input.gradient();
         double acceleration = clamp((tractionForce - brakeForce - resistanceForce - gradientForce) / mass, -1.3, 1.0);
         double newSpeed = Math.max(0, speed + acceleration * dt);
-        double newPosition = input.positionMeters() + (speed + newSpeed) * 0.5 * dt;
-        double tractionPower = tractionForce <= 0
+        double meanSpeed = (speed + newSpeed) * 0.5;
+        double newPosition = input.positionMeters() + meanSpeed * dt;
+
+        double mechanicalTractionPower = Math.min(mechanicalPowerLimit, tractionForce * meanSpeed);
+        double tractionPower = mechanicalTractionPower <= 0
             ? 0
-            : Math.min(tractionForce * Math.max(newSpeed, 0.1) / TRACTION_EFFICIENCY, input.powerAvailableWatts());
+            : Math.min(gridPowerAvailable, mechanicalTractionPower / tractionEfficiency);
         double railCurrent = input.railVoltage() > 1 ? tractionPower / input.railVoltage() : 0;
-        double regenBrakeForce = brakeForce > 0 && speed > 0 ? brakeForce * REGEN_BRAKE_RATIO : 0;
-        double regenPower = input.railVoltage() > CUTOFF_VOLTAGE ? regenBrakeForce * speed * REGEN_EFFICIENCY : 0;
+
+        double regenCandidateForce = brakeForce > 0 && speed > 0
+            ? brakeForce * parameters.brake().regenBrakeRatio()
+            : 0;
+        double regenCandidateMechanicalPower = regenCandidateForce * speed;
+        double regenGridMechanicalLimit = input.regenPowerAvailableWatts() > 0
+            ? input.regenPowerAvailableWatts() / parameters.brake().regenEfficiency()
+            : 0;
+        double mechanicalRegenPower = Math.min(
+            Math.min(regenCandidateMechanicalPower, parameters.traction().maxPowerWatts()),
+            regenGridMechanicalLimit
+        );
+        double regenBrakeForce = mechanicalRegenPower <= 0
+            ? 0
+            : Math.min(regenCandidateForce, mechanicalRegenPower / Math.max(speed, SPEED_FLOOR_METERS_PER_SECOND));
+        mechanicalRegenPower = regenBrakeForce * speed;
+        double regenPower = mechanicalRegenPower * parameters.brake().regenEfficiency();
+        String faultCode = resolveFaultCode(input);
 
         return new VehiclePhysicsOutputDto(
             input.trainId(),
@@ -67,16 +88,16 @@ final class VehicleSimulationQueue {
             tractionForce,
             brakeForce,
             regenBrakeForce,
-            tractionPower * TRACTION_EFFICIENCY,
+            mechanicalTractionPower,
             tractionPower,
             railCurrent,
-            REGEN_EFFICIENCY > 0 ? regenPower / REGEN_EFFICIENCY : 0,
+            mechanicalRegenPower,
             regenPower,
             input.previousEnergyConsumedKwh() + tractionPower * dt / 3_600_000,
             input.previousEnergyRegeneratedKwh() + regenPower * dt / 3_600_000,
-            resolveFaultCode(input),
+            faultCode,
             "ACTIVE",
-            "GOOD",
+            "OK".equals(faultCode) ? "GOOD" : "DEGRADED",
             "OK"
         );
     }
@@ -88,10 +109,12 @@ final class VehicleSimulationQueue {
         if (input.emergencyBrakeCommand()) {
             return "ATP_BRAKE";
         }
-        if (input.railVoltage() <= CUTOFF_VOLTAGE || input.powerAvailableWatts() <= 0) {
+        if (!input.currentCollectionAvailable()
+            || input.railVoltage() <= parameters.power().cutoffVoltage()
+            || input.powerAvailableWatts() <= 0) {
             return "CURRENT_COLLECTION_LOST";
         }
-        if (input.railVoltage() < MINIMUM_VOLTAGE) {
+        if (input.railVoltage() < parameters.power().minVoltage()) {
             return "LOW_VOLTAGE";
         }
         return "OK";

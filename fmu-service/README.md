@@ -44,8 +44,16 @@ Endpoints:
 
 ```text
 GET  /health
+GET  /parameters
+GET  /fmu/metadata
 POST /step-fleet
 ```
+
+The service loads `config/train_params.yaml` (or `TRAIN_PARAMS_PATH`) at startup,
+validates the complete parameter structure, and exposes the raw-file SHA-256 as
+`parameterSetId`. A request that supplies a different `parameterSetId` is rejected
+with HTTP 409. Requests without the field remain accepted only for the legacy
+prototype adapter and are normalized to the loaded parameter set in the response.
 
 `/api/fleet/step` is kept as a compatibility alias for early adapter
 experiments; the Spring Boot adapter uses `/step-fleet`.

@@ -1,11 +1,11 @@
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
+import os
 from typing import Any
 
-from .fmu_manager import FmuManager
+from .fmu_manager import FmuManager, ParameterSetMismatchError
 from .input_mapper import InputMapper
 from .output_mapper import OutputMapper
-from .schemas import MODEL_VERSION
 
 
 class FmuHttpHandler(BaseHTTPRequestHandler):
@@ -15,7 +15,10 @@ class FmuHttpHandler(BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:
         if self.path == "/health":
-            self._write_json({"status": "UP", "modelVersion": MODEL_VERSION})
+            self._write_json({"status": "UP", **self.manager.metadata()})
+            return
+        if self.path in {"/parameters", "/fmu/metadata"}:
+            self._write_json(self.manager.metadata())
             return
         self._write_error(404, "NOT_FOUND", "resource not found", "")
 
@@ -31,6 +34,13 @@ class FmuHttpHandler(BaseHTTPRequestHandler):
             request = self.input_mapper.from_payload(payload)
             response = self.manager.step_fleet(request)
             self._write_json(self.output_mapper.to_payload(response))
+        except ParameterSetMismatchError as exc:
+            self._write_error(
+                409,
+                "FMU_PARAMETER_SET_MISMATCH",
+                str(exc),
+                trace_id,
+            )
         except (KeyError, TypeError, ValueError) as exc:
             self._write_error(400, "INVALID_REQUEST", f"invalid request: {exc}", trace_id)
 
@@ -88,8 +98,10 @@ class FmuHttpHandler(BaseHTTPRequestHandler):
 
 
 def main() -> None:
-    server = ThreadingHTTPServer(("127.0.0.1", 9000), FmuHttpHandler)
-    print("FMU vehicle physics service listening on http://127.0.0.1:9000")
+    host = os.environ.get("FMU_SERVICE_HOST", "127.0.0.1")
+    port = int(os.environ.get("FMU_SERVICE_PORT", "9000"))
+    server = ThreadingHTTPServer((host, port), FmuHttpHandler)
+    print(f"FMU vehicle physics service listening on http://{host}:{port}")
     server.serve_forever()
 
 

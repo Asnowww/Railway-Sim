@@ -37,12 +37,14 @@ def main() -> None:
             )
         ],
     )
-    response = FmuManager().step_fleet(request)
+    manager = FmuManager()
+    response = manager.step_fleet(request)
     assert len(response.train_outputs) == 1
     output = response.train_outputs[0]
     assert output.train_id == "TR-TEST"
     assert output.new_position_meters >= 100.0
     assert output.fault_code == "OK"
+    assert response.parameter_set_id == manager.parameter_set_id
 
 
 if __name__ == "__main__":

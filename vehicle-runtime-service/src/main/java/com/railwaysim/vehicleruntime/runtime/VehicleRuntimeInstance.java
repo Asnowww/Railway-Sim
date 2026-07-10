@@ -1,6 +1,7 @@
 package com.railwaysim.vehicleruntime.runtime;
 
 import com.railwaysim.vehicleruntime.config.VehicleRuntimeProperties;
+import com.railwaysim.vehicleruntime.config.VehicleParameters;
 import com.railwaysim.vehicleruntime.model.DispatchConstraintSnapshot;
 import com.railwaysim.vehicleruntime.model.MovementAuthoritySnapshot;
 import com.railwaysim.vehicleruntime.model.PowerConstraintSnapshot;
@@ -23,6 +24,8 @@ final class VehicleRuntimeInstance {
     private final String trainId;
     private final VehicleControlQueue controlQueue;
     private final VehicleSimulationQueue simulationQueue;
+    private final VehicleLoadPolicy loadPolicy;
+    private final VehicleParameters vehicleParameters;
     private final AtomicBoolean inFlight = new AtomicBoolean();
     private volatile long lastTick = -1;
     private volatile String lifecycleState = "READY";
@@ -33,10 +36,16 @@ final class VehicleRuntimeInstance {
     private volatile String reason = "READY";
     private volatile Instant updatedAt = Instant.now();
 
-    VehicleRuntimeInstance(String trainId, VehicleRuntimeProperties properties) {
+    VehicleRuntimeInstance(
+        String trainId,
+        VehicleRuntimeProperties properties,
+        VehicleParameters vehicleParameters
+    ) {
         this.trainId = trainId;
-        this.controlQueue = new VehicleControlQueue(properties);
-        this.simulationQueue = new VehicleSimulationQueue(properties);
+        this.vehicleParameters = vehicleParameters;
+        this.loadPolicy = new VehicleLoadPolicy(vehicleParameters);
+        this.controlQueue = new VehicleControlQueue(properties, loadPolicy, vehicleParameters);
+        this.simulationQueue = new VehicleSimulationQueue(properties, vehicleParameters);
     }
 
     void launch() {
@@ -130,10 +139,10 @@ final class VehicleRuntimeInstance {
         VehiclePhysicsInputDto input,
         VehiclePhysicsOutputDto output
     ) {
-        double loadMassKg = VehicleLoadPolicy.loadMassKg(train.loadMassKg(), train.loadRate());
-        String overloadStatus = VehicleLoadPolicy.overloadStatus(loadMassKg);
-        int availableTractionCount = VehicleLoadPolicy.normalizeUnitCount(train.availableTractionCount(), VehicleLoadPolicy.NOMINAL_TRACTION_UNITS);
-        int availableBrakeCount = VehicleLoadPolicy.normalizeUnitCount(train.availableBrakeCount(), VehicleLoadPolicy.NOMINAL_BRAKE_UNITS);
+        double loadMassKg = loadPolicy.loadMassKg(train.loadMassKg(), train.loadRate());
+        String overloadStatus = loadPolicy.overloadStatus(loadMassKg);
+        int availableTractionCount = loadPolicy.normalizeUnitCount(train.availableTractionCount(), VehicleLoadPolicy.NOMINAL_TRACTION_UNITS);
+        int availableBrakeCount = loadPolicy.normalizeUnitCount(train.availableBrakeCount(), VehicleLoadPolicy.NOMINAL_BRAKE_UNITS);
         return new TrainStateReportDto(
             input.trainId(),
             resolveOperationMode(input),
@@ -185,7 +194,10 @@ final class VehicleRuntimeInstance {
         if (input.tractionCommand() <= 0 || output.tractionForceNewtons() <= 0) {
             return "IDLE";
         }
-        if ("POWER_DERATED".equals(input.dynamicsState()) || "OVERLOAD_DERATED".equals(input.dynamicsState()) || input.powerAvailableWatts() < 3_200_000) {
+        if ("POWER_DERATED".equals(input.dynamicsState())
+            || "OVERLOAD_DERATED".equals(input.dynamicsState())
+            || input.powerAvailableWatts() * vehicleParameters.traction().efficiency()
+                < vehicleParameters.traction().maxPowerWatts()) {
             return "DERATED";
         }
         return "APPLYING";
@@ -205,7 +217,7 @@ final class VehicleRuntimeInstance {
         if ("CURRENT_COLLECTION_LOST".equals(output.faultCode()) || input.railVoltage() <= 0 || input.powerAvailableWatts() <= 0) {
             return "LOST";
         }
-        if ("LOW_VOLTAGE".equals(output.faultCode()) || input.railVoltage() < 1000) {
+        if ("LOW_VOLTAGE".equals(output.faultCode()) || input.railVoltage() < vehicleParameters.power().minVoltage()) {
             return "LOW_VOLTAGE";
         }
         return "NORMAL";
@@ -246,7 +258,7 @@ final class VehicleRuntimeInstance {
     }
 
     private String resolveVehicleProtectionReason(TrainStateSnapshot train, String overloadStatus) {
-        String overloadReason = VehicleLoadPolicy.vehicleProtectionReason(overloadStatus);
+        String overloadReason = loadPolicy.vehicleProtectionReason(overloadStatus);
         if (!"NONE".equals(overloadReason)) {
             return overloadReason;
         }

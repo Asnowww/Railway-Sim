@@ -1,6 +1,7 @@
 package com.railwaysim.vehicleruntime.runtime;
 
 import com.railwaysim.vehicleruntime.config.VehicleRuntimeProperties;
+import com.railwaysim.vehicleruntime.config.VehicleParameters;
 import com.railwaysim.vehicleruntime.model.DispatchConstraintSnapshot;
 import com.railwaysim.vehicleruntime.model.MovementAuthoritySnapshot;
 import com.railwaysim.vehicleruntime.model.PowerConstraintSnapshot;
@@ -21,10 +22,18 @@ final class VehicleControlQueue {
 
     private final VehicleRuntimeQueue queue;
     private final VehicleRuntimeProperties properties;
+    private final VehicleLoadPolicy loadPolicy;
+    private final VehicleParameters vehicleParameters;
 
-    VehicleControlQueue(VehicleRuntimeProperties properties) {
+    VehicleControlQueue(
+        VehicleRuntimeProperties properties,
+        VehicleLoadPolicy loadPolicy,
+        VehicleParameters vehicleParameters
+    ) {
         this.queue = new VehicleRuntimeQueue(properties.getQueueCapacity());
         this.properties = properties;
+        this.loadPolicy = loadPolicy;
+        this.vehicleParameters = vehicleParameters;
     }
 
     VehiclePhysicsInputDto control(
@@ -54,7 +63,7 @@ final class VehicleControlQueue {
         if (shouldReleaseStationStop(train, dispatch)) {
             stationDistance = NO_STATION_DISTANCE_METERS;
         }
-        double loadMassKg = VehicleLoadPolicy.loadMassKg(train.loadMassKg(), train.loadRate());
+        double loadMassKg = loadPolicy.loadMassKg(train.loadMassKg(), train.loadRate());
         DynamicsDecision decision = decideDynamicsState(
             train,
             speedLimit,
@@ -71,7 +80,7 @@ final class VehicleControlQueue {
             power == null ? "" : nullTo(power.sectionId(), ""),
             train.positionMeters(),
             train.speedMetersPerSecond(),
-            VehicleLoadPolicy.totalMassKg(loadMassKg),
+            loadPolicy.totalMassKg(loadMassKg),
             decision.tractionCommand(),
             decision.brakeCommand(),
             decision.emergencyBrake(),
@@ -79,8 +88,8 @@ final class VehicleControlQueue {
             maDistance,
             track == null ? 0 : track.gradient(),
             track == null ? 1_000 : track.curveRadiusMeters(),
-            power == null ? 1500 : power.railVoltage(),
-            power == null ? 3_200_000 : power.powerAvailableWatts(),
+            power == null ? vehicleParameters.power().nominalVoltage() : power.railVoltage(),
+            power == null ? vehicleParameters.fullMechanicalPowerGridDemandWatts() : power.powerAvailableWatts(),
             power == null || power.regenPowerAvailableWatts() == null
                 ? 0
                 : Math.max(0, power.regenPowerAvailableWatts()),
@@ -107,10 +116,10 @@ final class VehicleControlQueue {
         PowerConstraintSnapshot power
     ) {
         double speed = train.speedMetersPerSecond();
-        double loadMassKg = VehicleLoadPolicy.loadMassKg(train.loadMassKg(), train.loadRate());
-        double brakingFactor = VehicleLoadPolicy.brakingDecelerationFactor(loadMassKg, train.availableBrakeCount());
+        double loadMassKg = loadPolicy.loadMassKg(train.loadMassKg(), train.loadRate());
+        double brakingFactor = loadPolicy.brakingDecelerationFactor(loadMassKg, train.availableBrakeCount());
         double stoppingDistance = stoppingDistanceMeters(speed, track == null ? 0 : track.gradient(), brakingFactor);
-        double tractionCapacityFactor = VehicleLoadPolicy.tractionCommandFactor(loadMassKg, train.availableTractionCount());
+        double tractionCapacityFactor = loadPolicy.tractionCommandFactor(loadMassKg, train.availableTractionCount());
 
         if (!"IN_SERVICE".equals(nullTo(train.controlSessionState(), "IN_SERVICE"))) {
             return brakeDecision(TrainDynamicsState.SELF_CHECK_BLOCKED, "CONTROL_SESSION_" + train.controlSessionState(), speed, stoppingDistance, false);
@@ -166,7 +175,7 @@ final class VehicleControlQueue {
         if (tractionCapacityFactor < 0.95 && tractionCommand > 0) {
             return new DynamicsDecision(
                 TrainDynamicsState.OVERLOAD_DERATED,
-                VehicleLoadPolicy.overloaded(VehicleLoadPolicy.overloadStatus(loadMassKg)) ? "OVERLOAD_TRACTION_LIMIT" : "TRACTION_UNIT_DERATED",
+                loadPolicy.overloaded(loadPolicy.overloadStatus(loadMassKg)) ? "OVERLOAD_TRACTION_LIMIT" : "TRACTION_UNIT_DERATED",
                 tractionCommand * tractionCapacityFactor,
                 0,
                 false,

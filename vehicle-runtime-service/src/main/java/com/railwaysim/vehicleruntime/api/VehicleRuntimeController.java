@@ -9,6 +9,7 @@ import com.railwaysim.vehicleruntime.model.VehicleRuntimeLaunchRequest;
 import com.railwaysim.vehicleruntime.model.VehicleRuntimeLaunchResponse;
 import com.railwaysim.vehicleruntime.model.VehicleRuntimeStepRequest;
 import com.railwaysim.vehicleruntime.model.VehicleRuntimeStepResponse;
+import com.railwaysim.vehicleruntime.model.VehicleParameterMetadata;
 import com.railwaysim.vehicleruntime.runtime.VehicleRuntimeManager;
 import java.util.List;
 import org.springframework.http.HttpStatus;
@@ -38,6 +39,11 @@ public class VehicleRuntimeController {
     @GetMapping("/health")
     public VehicleRuntimeHealth health() {
         return manager.health();
+    }
+
+    @GetMapping("/parameters")
+    public VehicleParameterMetadata parameters() {
+        return manager.parameterMetadata();
     }
 
     @PostMapping("/bootstrap")

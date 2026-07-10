@@ -2,9 +2,12 @@ package com.railwaysim.vehicleruntime.runtime;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.within;
 
 import com.railwaysim.vehicleruntime.api.VehicleRuntimeController;
 import com.railwaysim.vehicleruntime.config.VehicleRuntimeProperties;
+import com.railwaysim.vehicleruntime.config.VehicleParameters;
+import com.railwaysim.vehicleruntime.config.VehicleParametersLoader;
 import com.railwaysim.vehicleruntime.model.MovementAuthoritySnapshot;
 import com.railwaysim.vehicleruntime.model.PowerConstraintSnapshot;
 import com.railwaysim.vehicleruntime.model.TrackConstraintSnapshot;
@@ -52,6 +55,7 @@ class VehicleRuntimeManagerTests {
             properties.setCentralBaseUrl("http://127.0.0.1:" + server.getAddress().getPort());
             VehicleRuntimeManager manager = new VehicleRuntimeManager(
                 properties,
+                parameters(properties),
                 new PowerNetworkLoadClient(properties, RestClient.builder()),
                 new CentralTrainRegistrationClient(properties, RestClient.builder())
             );
@@ -90,9 +94,22 @@ class VehicleRuntimeManagerTests {
                 assertThat(output.newPositionMeters()).isGreaterThan(100);
                 assertThat(output.tractionPowerWatts()).isGreaterThan(0);
                 assertThat(output.railCurrentAmps()).isGreaterThan(0);
+                assertThat(output.mechanicalTractionPowerWatts()).isLessThanOrEqualTo(3_200_000);
+                assertThat(output.mechanicalTractionPowerWatts())
+                    .isCloseTo(output.tractionPowerWatts() * 0.88, within(0.001));
             });
         assertThat(response.trainReports()).singleElement()
             .satisfies(report -> assertThat(report.dynamicsState()).isIn("ACCELERATING", "CRUISING", "COASTING"));
+    }
+
+    @Test
+    void parameterMetadataExposesCanonicalYamlCalibration() {
+        var metadata = manager().parameterMetadata();
+
+        assertThat(metadata.parameterSetId()).matches("sha256:[0-9a-f]{64}");
+        assertThat(metadata.emptyMassKg()).isEqualTo(198_000);
+        assertThat(metadata.maxLoadMassKg()).isEqualTo(72_000);
+        assertThat(metadata.maxMechanicalTractionPowerWatts()).isEqualTo(3_200_000);
     }
 
     @Test
@@ -165,6 +182,7 @@ class VehicleRuntimeManagerTests {
             properties.setPowerNetworkBaseUrl("http://127.0.0.1:" + server.getAddress().getPort());
             VehicleRuntimeManager manager = new VehicleRuntimeManager(
                 properties,
+                parameters(properties),
                 new PowerNetworkLoadClient(properties, RestClient.builder()),
                 new CentralTrainRegistrationClient(properties, RestClient.builder())
             );
@@ -184,9 +202,14 @@ class VehicleRuntimeManagerTests {
         properties.setQueueCapacity(1);
         return new VehicleRuntimeManager(
             properties,
+            parameters(properties),
             new PowerNetworkLoadClient(properties, RestClient.builder()),
             new CentralTrainRegistrationClient(properties, RestClient.builder())
         );
+    }
+
+    private VehicleParameters parameters(VehicleRuntimeProperties properties) {
+        return VehicleParametersLoader.load(properties.getTrainParamsPath());
     }
 
     private VehicleRuntimeStepRequest request(long tick, TrainStateSnapshot train, PowerConstraintSnapshot power) {

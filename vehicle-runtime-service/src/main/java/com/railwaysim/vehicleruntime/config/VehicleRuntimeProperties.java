@@ -8,6 +8,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 @ConfigurationProperties(prefix = "vehicle-runtime")
 public class VehicleRuntimeProperties {
 
+    private String trainParamsPath = "config/train_params.yaml";
     private int queueCapacity = 1;
     private double defaultLineLengthMeters = 5000;
     private double defaultSpeedLimitMetersPerSecond = 22.2;
@@ -18,6 +19,16 @@ public class VehicleRuntimeProperties {
     private long powerNetworkTimeoutMillis = 300;
     private String centralBaseUrl = "http://localhost:8080";
     private long centralTimeoutMillis = 300;
+
+    public String getTrainParamsPath() {
+        return trainParamsPath;
+    }
+
+    public void setTrainParamsPath(String trainParamsPath) {
+        this.trainParamsPath = trainParamsPath == null || trainParamsPath.isBlank()
+            ? "config/train_params.yaml"
+            : trainParamsPath;
+    }
 
     public int getQueueCapacity() {
         return queueCapacity;

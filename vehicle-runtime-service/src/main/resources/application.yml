@@ -6,6 +6,7 @@ spring:
     name: vehicle-runtime-service
 
 vehicle-runtime:
+  train-params-path: config/train_params.yaml
   queue-capacity: 1
   default-line-length-meters: 5000
   default-speed-limit-meters-per-second: 22.2

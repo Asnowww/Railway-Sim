@@ -3,7 +3,7 @@
   "simulationTimeSeconds": 1200.1,
   "stepSizeSeconds": 0.1,
   "modelVersion": "TrainTractionBrake/1.0.0",
-  "parameterSetId": "sha256:1991e67803cbd88cb107989d850c859c329912ef32dcc741c5854d03b2200a58",
+  "parameterSetId": "sha256:1e9876fadddf765471ab6e57da39de909b2074ccd9687089bc5f2680f90e6994",
   "traceId": "vehicle-tick-12001",
   "trains": [
     {
