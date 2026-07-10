@@ -117,6 +117,9 @@ public class DispatchService {
         );
         manualCommands.add(stored);
         commandRecordStore.save(stored);
+        if ("REROUTE".equals(stored.commandType())) {
+            commandQueue.enqueue(List.of(stored));
+        }
         refreshSnapshot();
     }
 

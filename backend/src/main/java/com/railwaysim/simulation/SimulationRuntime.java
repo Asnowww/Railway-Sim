@@ -152,11 +152,25 @@ public class SimulationRuntime {
 
         // 拦截 REROUTE 调度指令 → 交联锁处理（在约束计算前）
         List<DispatchCommand> rerouteCmds = dispatchService.drainCommandsOfType("REROUTE");
+        List<DispatchCommandFeedback> rerouteFeedbacks = new ArrayList<>();
         for (DispatchCommand cmd : rerouteCmds) {
             var result = interlockingService.applyDispatchCommand(cmd.commandType(), commandDetail(cmd), cmd.trainId());
             if (!result.accepted()) {
                 log.warn("[Runtime] 联锁拒绝调度指令 {}: {}", cmd.id(), result.rejectReason());
             }
+            rerouteFeedbacks.add(new DispatchCommandFeedback(
+                cmd.id(),
+                cmd.trainId(),
+                cmd.commandType(),
+                "SIGNAL_INTERLOCKING",
+                result.accepted() ? CommandStatus.EFFECT_CONFIRMED : CommandStatus.SKIPPED,
+                result.accepted() ? "route established" : result.rejectReason(),
+                context.simulatedTime(),
+                Map.of("accepted", result.accepted())
+            ));
+        }
+        if (!rerouteFeedbacks.isEmpty()) {
+            dispatchService.acceptFeedback(rerouteFeedbacks);
         }
 
         // 按时刻表自动发车 — 信号层读调度时刻表，到点自动创建列车
