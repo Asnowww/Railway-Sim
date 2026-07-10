@@ -3,10 +3,9 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import * as echarts from 'echarts'
 import topologyTrainUrl from './assets/topology-train.svg'
-import { simulationApi } from './api/rest'
-import { simulationSocket } from './api/ws'
-import type { SimulationSnapshot as BackendSimulationSnapshot } from './types/simulation'
+import DispatchLoopDebugView from './views/dispatch/DispatchLoopDebugView.vue'
 
+type ActivePage = 'monitor' | 'dispatchLoop'
 type LayerKey = 'trains' | 'track' | 'power' | 'signals' | 'passengers'
 type AlarmLevel = 1 | 2 | 3
 type HeatView = 'network' | 'station' | 'carriage'
@@ -144,10 +143,7 @@ const predictionWindowMinutes = ref(15)
 const simulationClock = ref('08:35:24')
 const topologyView = ref<TopologyView>('overview')
 const selectedRouteId = ref('R01')
-const backendConnected = ref(false)
-const backendErrorMessage = ref('')
-const backendTick = ref(0)
-const backendStatus = ref('STOPPED')
+const activePage = ref<ActivePage>('monitor')
 
 const stations = ['上京南', '科技园', '人民广场', '金融城', '会展中心', '机场北']
 
@@ -672,7 +668,8 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <main class="monitor-shell">
+  <DispatchLoopDebugView v-if="activePage === 'dispatchLoop'" @back="activePage = 'monitor'" />
+  <main v-else class="monitor-shell">
     <header class="topbar">
       <section>
         <p class="eyebrow">Railway-Sim 综合监控中心</p>
@@ -686,6 +683,9 @@ onBeforeUnmount(() => {
         <span>{{ simulationClock }}</span>
         <button type="button" :class="['sound-button', { off: !soundEnabled }]" @click="soundEnabled = !soundEnabled">
           {{ soundEnabled ? '声警开启' : '声警关闭' }}
+        </button>
+        <button type="button" class="debug-entry-button" @click="activePage = 'dispatchLoop'">
+          调度闭环
         </button>
       </section>
     </header>
@@ -1036,5 +1036,22 @@ code {
   padding: 2px 6px;
   border-radius: 4px;
   font-size: 12px;
+}
+
+.debug-entry-button {
+  border: 1px solid #2563eb;
+  border-radius: 8px;
+  background: #2563eb;
+  color: #fff;
+  min-height: 34px;
+  padding: 7px 12px;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.debug-entry-button:hover {
+  background: #1d4ed8;
+  border-color: #1d4ed8;
 }
 </style>

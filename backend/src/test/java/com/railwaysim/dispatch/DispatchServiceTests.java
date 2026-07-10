@@ -14,6 +14,8 @@ import com.railwaysim.dispatch.monitor.TrainRunMonitor;
 import com.railwaysim.dispatch.plan.OperationPlanLoader;
 import com.railwaysim.dispatch.plan.PlannedScheduleCalculator;
 import com.railwaysim.dispatch.strategy.StrategySelector;
+import com.railwaysim.signal.MovementAuthority;
+import com.railwaysim.simulation.TickContext;
 import com.railwaysim.train.TrainEntity;
 import com.railwaysim.train.TrainState;
 import java.io.IOException;
@@ -28,7 +30,7 @@ class DispatchServiceTests {
     private final DispatchService dispatchService = dispatchService();
 
     @Test
-    void holdCommandConsumesOnceAndForcesZeroSpeedLimit() {
+    void submittedHoldCommandForcesZeroSpeedLimit() {
         dispatchService.submit(command("TR-1", "HOLD", null));
 
         List<DispatchConstraint> constraints = dispatchService.constraintsForTrains(List.of(train("TR-1")));
@@ -37,7 +39,6 @@ class DispatchServiceTests {
         DispatchConstraint constraint = constraints.get(0);
         assertThat(constraint.holdTrain()).isTrue();
         assertThat(constraint.applyToSpeedLimit(20)).isZero();
-        assertThat(dispatchService.pendingCommands()).isEmpty();
     }
 
     @Test
@@ -47,12 +48,38 @@ class DispatchServiceTests {
         List<DispatchConstraint> preview = dispatchService.previewConstraintsForTrains(List.of(train("TR-1")));
 
         assertThat(preview.get(0).targetSpeedMetersPerSecond()).isEqualTo(8);
+        assertThat(preview.get(0).sourceCommandIds()).containsExactly("DC-test-SPEED_LIMIT");
         assertThat(dispatchService.pendingCommands()).isEmpty();
         assertThat(dispatchService.commands()).hasSize(1);
 
         List<DispatchConstraint> applied = dispatchService.constraintsForTrains(List.of(train("TR-1")));
 
         assertThat(applied.get(0).targetSpeedMetersPerSecond()).isEqualTo(8);
+    }
+
+    @Test
+    void submittedRerouteCommandIsQueuedForInterlocking() {
+        dispatchService.submit(command("TR-1", "REROUTE", "R_BRANCH"));
+
+        assertThat(dispatchService.pendingCommands())
+            .extracting(DispatchCommand::commandType)
+            .containsExactly("REROUTE");
+        assertThat(dispatchService.drainCommandsOfType("REROUTE"))
+            .extracting(DispatchCommand::id)
+            .containsExactly("DC-test-REROUTE");
+        assertThat(dispatchService.pendingCommands()).isEmpty();
+    }
+
+    @Test
+    void submittedRequestRouteCommandIsQueuedForInterlocking() {
+        dispatchService.submit(commandWithPayload("TR-1", "REQUEST_ROUTE", Map.of("routeId", "R_BRANCH")));
+
+        dispatchService.constraintsForTrains(List.of(train("TR-1")));
+
+        assertThat(dispatchService.drainCommandsOfType("REQUEST_ROUTE"))
+            .extracting(DispatchCommand::id)
+            .containsExactly("DC-test-REQUEST_ROUTE");
+        assertThat(dispatchService.pendingCommands()).isEmpty();
     }
 
     @Test
@@ -79,15 +106,18 @@ class DispatchServiceTests {
 
         assertThat(holding.holdTrain()).isTrue();
         assertThat(holding.releaseStationStop()).isFalse();
+        assertThat(holding.sourceCommandIds()).isEmpty();
         assertThat(released.holdTrain()).isFalse();
         assertThat(released.releaseStationStop()).isTrue();
+        assertThat(released.sourceCommandIds()).isEmpty();
     }
 
     @Test
     void shortenDwellCommandReleasesStationStopAfterAdjustedTarget() {
         dispatchService.submit(commandWithPayload("TR-1", "SHORTEN_DWELL", Map.of("deltaDwellSec", -5)));
+        int targetDwell = Math.max(15, dispatchService.currentPlan().defaultDwellTimeSec() - 5);
 
-        DispatchConstraint constraint = dispatchService.previewConstraintsForTrains(List.of(dwellingTrain("TR-1", 20))).get(0);
+        DispatchConstraint constraint = dispatchService.previewConstraintsForTrains(List.of(dwellingTrain("TR-1", targetDwell))).get(0);
 
         assertThat(constraint.holdTrain()).isFalse();
         assertThat(constraint.releaseStationStop()).isTrue();
@@ -95,13 +125,263 @@ class DispatchServiceTests {
     }
 
     @Test
+    void scheduledDwellCompletionReleasesStationStopWithoutInterventionCommand() {
+        int targetDwell = dispatchService.currentPlan().defaultDwellTimeSec();
+
+        DispatchConstraint constraint = dispatchService.previewConstraintsForTrains(List.of(dwellingTrain("TR-1", targetDwell))).get(0);
+
+        assertThat(constraint.holdTrain()).isFalse();
+        assertThat(constraint.releaseStationStop()).isTrue();
+        assertThat(constraint.reason()).contains("SCHEDULED_DWELL_COMPLETE");
+    }
+
+    @Test
+    void scheduledDwellCompletionDoesNotOverrideHoldCommand() {
+        dispatchService.submit(commandWithPayload("TR-1", "EXTEND_DWELL", Map.of("deltaDwellSec", 10)));
+        int targetDwell = dispatchService.currentPlan().defaultDwellTimeSec();
+
+        DispatchConstraint constraint = dispatchService.previewConstraintsForTrains(List.of(dwellingTrain("TR-1", targetDwell))).get(0);
+
+        assertThat(constraint.holdTrain()).isTrue();
+        assertThat(constraint.releaseStationStop()).isFalse();
+    }
+
+    @Test
+    void stationDwellCompletionDoesNotReleaseTrainIntoCloseFrontTrain() {
+        int targetDwell = dispatchService.currentPlan().defaultDwellTimeSec();
+
+        List<DispatchConstraint> constraints = dispatchService.previewConstraintsForTrains(List.of(
+            dwellingTrainAt("TR-1", 1000, targetDwell),
+            dwellingTrainAt("TR-2", 1245, 10)
+        ));
+
+        DispatchConstraint rear = constraintFor(constraints, "TR-1");
+        assertThat(rear.holdTrain()).isTrue();
+        assertThat(rear.releaseStationStop()).isFalse();
+        assertThat(rear.reason()).contains("STATION_HOLD_FOR_HEADWAY");
+    }
+
+    @Test
+    void runningTrainApproachingStoppedFrontTrainGetsSpeedRegulationBeforeMaExhaustion() {
+        List<DispatchConstraint> constraints = dispatchService.previewConstraintsForTrains(List.of(
+            runningTrainAt("TR-1", 1000, 8),
+            dwellingTrainAt("TR-2", 1245, 10)
+        ));
+
+        DispatchConstraint rear = constraintFor(constraints, "TR-1");
+        assertThat(rear.holdTrain()).isFalse();
+        assertThat(rear.targetSpeedMetersPerSecond()).isNotNull();
+        assertThat(rear.applyToSpeedLimit(20)).isLessThan(20);
+        assertThat(rear.reason()).contains("APPROACH_CONTROL_FOR_HEADWAY");
+    }
+
+    @Test
     void headwayAdjustCommandCanReleaseMinimumDwellForShorterHeadway() {
-        int shorterHeadway = Math.max(1, dispatchService.currentPlan().departureIntervalSec() - 1);
-        dispatchService.submit(commandWithPayload("TR-1", "HEADWAY_ADJUST", Map.of("targetHeadwaySec", shorterHeadway)));
+        dispatchService.submit(commandWithPayload(
+            "TR-1",
+            "HEADWAY_ADJUST",
+            Map.of("targetHeadwaySec", dispatchService.currentPlan().departureIntervalSec() - 1)
+        ));
 
         DispatchConstraint constraint = dispatchService.previewConstraintsForTrains(List.of(dwellingTrain("TR-1", 15))).get(0);
 
         assertThat(constraint.releaseStationStop()).isTrue();
+    }
+
+    @Test
+    void runningTrainWithStaleDwellSecondsDoesNotTriggerDwellDisturbance() {
+        Instant now = Instant.parse("2026-07-09T00:00:00Z");
+
+        for (int i = 0; i < 3; i++) {
+            dispatchService.evaluate(
+                tick(i + 1, now.plusSeconds(i)),
+                List.of(runningTrainWithStaleDwell("TR-1", 120)),
+                List.of(authority("TR-1"))
+            );
+        }
+
+        assertThat(dispatchService.snapshot().openDisturbances()).isEmpty();
+        assertThat(dispatchService.snapshot().activeCommands()).isEmpty();
+    }
+
+    @Test
+    void publishedCommandIsSentBeforeVehicleStateConfirmsApplication() {
+        dispatchService.markCommandsSent(List.of(commandWithPayload("TR-1", "SHORTEN_DWELL", Map.of("deltaDwellSec", -5))));
+
+        assertThat(dispatchService.snapshot().activeCommands())
+            .extracting(DispatchSnapshot.CommandView::status)
+            .containsExactly(CommandStatus.SENT);
+    }
+
+    @Test
+    void structuredFeedbackUpdatesOriginalCommandWithoutCreatingSyntheticCommand() {
+        dispatchService.submit(commandWithPayload("TR-1", "SPEED_LIMIT", Map.of("detail", "8")));
+
+        dispatchService.acceptFeedback(List.of(new DispatchCommandFeedback(
+            "DC-test-SPEED_LIMIT",
+            "TR-1",
+            "SPEED_LIMIT",
+            "SIGNAL_RUNTIME",
+            CommandStatus.APPLIED,
+            "target speed observed",
+            Instant.parse("2026-07-09T00:00:00Z"),
+            Map.of("actualSpeed", 7.8)
+        )));
+
+        assertThat(dispatchService.commands()).hasSize(1);
+        assertThat(dispatchService.commands().get(0).id()).isEqualTo("DC-test-SPEED_LIMIT");
+        assertThat(dispatchService.commands().get(0).status()).isEqualTo(CommandStatus.APPLIED);
+        assertThat(dispatchService.commands().get(0).payload())
+            .containsEntry("lastFeedbackSource", "SIGNAL_RUNTIME")
+            .containsEntry("lastFeedbackStatus", CommandStatus.APPLIED);
+    }
+
+    @Test
+    void repeatedFeedbackRefreshesTrackingDetailsWithoutDuplicatingCommand() {
+        dispatchService.submit(commandWithPayload("TR-1", "SPEED_LIMIT", Map.of("detail", "8")));
+
+        dispatchService.acceptFeedback(List.of(new DispatchCommandFeedback(
+            "DC-test-SPEED_LIMIT",
+            "TR-1",
+            "SPEED_LIMIT",
+            "SIGNAL_RUNTIME",
+            CommandStatus.APPLIED,
+            "first observation",
+            Instant.parse("2026-07-09T00:00:00Z"),
+            Map.of("actualSpeed", 7.8)
+        )));
+        dispatchService.acceptFeedback(List.of(new DispatchCommandFeedback(
+            "DC-test-SPEED_LIMIT",
+            "TR-1",
+            "SPEED_LIMIT",
+            "SIGNAL_RUNTIME",
+            CommandStatus.APPLIED,
+            "second observation",
+            Instant.parse("2026-07-09T00:00:01Z"),
+            Map.of("actualSpeed", 7.4)
+        )));
+
+        assertThat(dispatchService.commands()).hasSize(1);
+        assertThat(dispatchService.commands().get(0).payload())
+            .containsEntry("lastFeedbackReason", "second observation")
+            .containsEntry("lastFeedbackAt", "2026-07-09T00:00:01Z");
+    }
+
+    @Test
+    void effectConfirmedManualCommandStopsProducingControlConstraint() {
+        dispatchService.submit(commandWithPayload("TR-1", "SPEED_LIMIT", Map.of("detail", "8")));
+
+        dispatchService.acceptFeedback(List.of(new DispatchCommandFeedback(
+            "DC-test-SPEED_LIMIT",
+            "TR-1",
+            "SPEED_LIMIT",
+            "SIGNAL_RUNTIME",
+            CommandStatus.EFFECT_CONFIRMED,
+            "effect confirmed",
+            Instant.parse("2026-07-09T00:00:00Z"),
+            Map.of("actualSpeed", 7.8)
+        )));
+
+        DispatchConstraint constraint = dispatchService.previewConstraintsForTrains(List.of(train("TR-1"))).get(0);
+        assertThat(constraint.targetSpeedMetersPerSecond()).isNull();
+        assertThat(constraint.sourceCommandIds()).isEmpty();
+    }
+
+    @Test
+    void appliedManualSpeedLimitExitsControlAfterEffectConfirmation() {
+        Instant now = Instant.parse("2026-07-09T00:00:00Z");
+        dispatchService.submit(commandWithPayload("TR-1", "SPEED_LIMIT", Map.of("detail", "8")));
+
+        dispatchService.acceptFeedback(List.of(new DispatchCommandFeedback(
+            "DC-test-SPEED_LIMIT",
+            "TR-1",
+            "SPEED_LIMIT",
+            "SIGNAL_RUNTIME",
+            CommandStatus.APPLIED,
+            "speed limit observed",
+            now,
+            Map.of("actualSpeed", 7.8)
+        )));
+        dispatchService.evaluate(
+            tick(1, now.plusSeconds(1)),
+            List.of(train("TR-1")),
+            List.of(new MovementAuthority("TR-1", 500, 8, "TEST", "SEG-TEST"))
+        );
+
+        DispatchConstraint constraint = dispatchService.previewConstraintsForTrains(List.of(train("TR-1"))).get(0);
+        assertThat(dispatchService.commands().get(0).status()).isEqualTo(CommandStatus.EFFECT_CONFIRMED);
+        assertThat(constraint.targetSpeedMetersPerSecond()).isNull();
+        assertThat(constraint.sourceCommandIds()).isEmpty();
+    }
+
+    @Test
+    void manualSpeedLimitRequiresExplicitCancellation() {
+        Instant now = Instant.parse("2026-07-09T00:00:00Z");
+        DispatchCommand command = new DispatchCommand(
+            "DC-manual-limit",
+            "TR-1",
+            "SPEED_LIMIT",
+            Map.of("detail", "8"),
+            "MANUAL",
+            CommandStatus.PENDING,
+            now,
+            null
+        );
+        dispatchService.submit(command);
+
+        dispatchService.acceptFeedback(List.of(new DispatchCommandFeedback(
+            "DC-manual-limit",
+            "TR-1",
+            "SPEED_LIMIT",
+            "SIGNAL_RUNTIME",
+            CommandStatus.APPLIED,
+            "speed limit observed",
+            now,
+            Map.of("actualSpeed", 7.8)
+        )));
+        dispatchService.evaluate(
+            tick(1, now.plusSeconds(1)),
+            List.of(train("TR-1")),
+            List.of(new MovementAuthority("TR-1", 500, 8, "TEST", "SEG-TEST"))
+        );
+
+        DispatchConstraint activeConstraint = dispatchService.previewConstraintsForTrains(List.of(train("TR-1"))).get(0);
+        assertThat(dispatchService.commands().get(0).status()).isEqualTo(CommandStatus.APPLIED);
+        assertThat(activeConstraint.targetSpeedMetersPerSecond()).isEqualTo(8);
+        assertThat(activeConstraint.sourceCommandIds()).containsExactly("DC-manual-limit");
+
+        dispatchService.cancelCommand("DC-manual-limit");
+
+        DispatchConstraint cancelledConstraint = dispatchService.previewConstraintsForTrains(List.of(train("TR-1"))).get(0);
+        assertThat(dispatchService.commands().get(0).status()).isEqualTo(CommandStatus.CANCELLED);
+        assertThat(cancelledConstraint.targetSpeedMetersPerSecond()).isNull();
+        assertThat(cancelledConstraint.sourceCommandIds()).isEmpty();
+    }
+
+    @Test
+    void shortenDwellCommandStaysAppliedUntilDisturbanceRecoveryConfirmsEffect() {
+        Instant now = Instant.parse("2026-07-09T00:00:00Z");
+        dispatchService.markCommandsSent(List.of(commandWithPayload("TR-1", "SHORTEN_DWELL", Map.of("deltaDwellSec", -5))));
+
+        dispatchService.evaluate(
+            tick(1, now),
+            List.of(dwellingTrain("TR-1", 60)),
+            List.of(authority("TR-1"))
+        );
+
+        assertThat(dispatchService.snapshot().activeCommands())
+            .extracting(DispatchSnapshot.CommandView::status)
+            .containsExactly(CommandStatus.APPLIED);
+
+        dispatchService.evaluate(
+            tick(2, now.plusSeconds(2)),
+            List.of(train("TR-1")),
+            List.of(authority("TR-1"))
+        );
+
+        assertThat(dispatchService.snapshot().activeCommands())
+            .extracting(DispatchSnapshot.CommandView::status)
+            .containsExactly(CommandStatus.APPLIED);
     }
 
     private static DispatchCommand command(String trainId, String type, String detail) {
@@ -126,7 +406,26 @@ class DispatchServiceTests {
         return new TrainEntity(id, "test-line", 50, 20).state();
     }
 
+    private static DispatchConstraint constraintFor(List<DispatchConstraint> constraints, String trainId) {
+        return constraints.stream()
+            .filter(constraint -> constraint.trainId().equals(trainId))
+            .findFirst()
+            .orElseThrow();
+    }
+
+    private static MovementAuthority authority(String trainId) {
+        return new MovementAuthority(trainId, 500, 15, "TEST", "SEG-TEST");
+    }
+
+    private static TickContext tick(long tick, Instant simulatedTime) {
+        return new TickContext(tick, 1000, 1.0, simulatedTime);
+    }
+
     private static TrainState dwellingTrain(String id, int dwellElapsedSeconds) {
+        return dwellingTrainAt(id, 50, dwellElapsedSeconds);
+    }
+
+    private static TrainState dwellingTrainAt(String id, double positionMeters, int dwellElapsedSeconds) {
         return new TrainState(
             id,
             "test-line",
@@ -137,11 +436,11 @@ class DispatchServiceTests {
             "TEST",
             0,
             "UNKNOWN",
-            50,
+            positionMeters,
             0,
             20,
-            50,
-            30,
+            positionMeters,
+            Math.max(0, positionMeters - 20),
             0.35,
             25_200,
             "NORMAL",
@@ -179,6 +478,122 @@ class DispatchServiceTests {
             0,
             "OK",
             "S01",
+            dwellElapsedSeconds,
+            null
+        );
+    }
+
+    private static TrainState runningTrainAt(String id, double positionMeters, double speedMetersPerSecond) {
+        return new TrainState(
+            id,
+            "test-line",
+            id,
+            "IN_SERVICE",
+            "ATTACHED",
+            "ATTACHED",
+            "TEST",
+            0,
+            "UNKNOWN",
+            positionMeters,
+            speedMetersPerSecond,
+            20,
+            positionMeters,
+            Math.max(0, positionMeters - 20),
+            0.35,
+            25_200,
+            "NORMAL",
+            6,
+            6,
+            "NONE",
+            "RUNNING",
+            "ATO",
+            false,
+            "CLOSED_LOCKED",
+            "APPLYING",
+            "RELEASED",
+            "NORMAL",
+            true,
+            true,
+            "PASS",
+            0,
+            "NORMAL",
+            "GOOD",
+            "ACCELERATING",
+            "SPEED_MARGIN_AVAILABLE",
+            15,
+            0,
+            300,
+            1_000_000,
+            100,
+            0.3,
+            20_000,
+            0,
+            0,
+            100,
+            50_000,
+            0,
+            0,
+            0,
+            "OK",
+            null,
+            0,
+            null
+        );
+    }
+
+    private static TrainState runningTrainWithStaleDwell(String id, int dwellElapsedSeconds) {
+        return new TrainState(
+            id,
+            "test-line",
+            id,
+            "IN_SERVICE",
+            "ATTACHED",
+            "ATTACHED",
+            "TEST",
+            0,
+            "UNKNOWN",
+            50,
+            8,
+            20,
+            50,
+            30,
+            0.35,
+            25_200,
+            "NORMAL",
+            6,
+            6,
+            "NONE",
+            "RUNNING",
+            "ATO",
+            false,
+            "CLOSED_LOCKED",
+            "APPLYING",
+            "RELEASED",
+            "NORMAL",
+            true,
+            true,
+            "PASS",
+            0,
+            "NORMAL",
+            "GOOD",
+            "ACCELERATING",
+            "SPEED_MARGIN_AVAILABLE",
+            15,
+            0,
+            300,
+            1_000_000,
+            100,
+            0.3,
+            20_000,
+            0,
+            0,
+            100,
+            50_000,
+            0,
+            0,
+            0,
+            "OK",
+            null,
             dwellElapsedSeconds,
             null
         );

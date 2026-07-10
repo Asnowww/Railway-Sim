@@ -270,7 +270,7 @@ POST /api/trains/{trainId}/faults/clear
 - `/api/power/operations` 是中央供电控制模块的设备级操作入口，用于隔离开关、变电所设备、排流柜等仿真操作；调用方仍是中央 REST，不直接访问外部供电仿真系统。
 - 调度策略只消费状态和影响范围，不由供电/车辆故障接口直接下发扣车或折返。
 
-### 调度命令
+### 调度模块
 
 ```http
 GET /api/dispatch/plan
@@ -278,9 +278,212 @@ GET /api/dispatch/plan/current
 GET /api/dispatch/status
 GET /api/dispatch/disturbances
 GET /api/dispatch/commands
+POST /api/dispatch/commands
 GET /api/dispatch/station-records
+```
 
-提交调度命令：
+调度模块位于综合层，读取车辆运行状态和信号授权状态，生成运营调度意图。调度不直接生成牵引/制动命令；扣车、限速和速度比例类调度约束由信号模块折算为 MA/限速后再进入车辆控制链路。
+
+#### 查询运行计划
+
+```http
+GET /api/dispatch/plan
+```
+
+响应：
+
+```json
+{
+  "planId": "RP-demo-001",
+  "lineId": "demo-line-1",
+  "periods": [
+    {
+      "periodType": "PEAK",
+      "start": "07:00",
+      "end": "09:00",
+      "departureIntervalSec": 180,
+      "defaultDwellTimeSec": 30
+    },
+    {
+      "periodType": "FLAT",
+      "start": "09:00",
+      "end": "17:00",
+      "departureIntervalSec": 300,
+      "defaultDwellTimeSec": 25
+    }
+  ]
+}
+```
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `planId` | string | 运行计划 ID。 |
+| `lineId` | string | 线路 ID。 |
+| `periods` | array | 分时段运行计划。 |
+| `periodType` | string | `PEAK`、`FLAT`、`OFF_PEAK`。 |
+| `start` / `end` | string | 时段起止，格式 `HH:mm`。跨午夜时 `start > end`。 |
+| `departureIntervalSec` | number | 目标发车间隔，单位秒。 |
+| `defaultDwellTimeSec` | number | 默认停站时间，单位秒。 |
+
+#### 查询当前生效计划
+
+```http
+GET /api/dispatch/plan/current
+```
+
+响应：
+
+```json
+{
+  "planId": "RP-demo-001",
+  "lineId": "demo-line-1",
+  "periodType": "FLAT",
+  "departureIntervalSec": 300,
+  "defaultDwellTimeSec": 25,
+  "resolvedAt": "2026-07-08T13:00:00Z"
+}
+```
+
+#### 查询调度状态快照
+
+```http
+GET /api/dispatch/status
+```
+
+响应结构与 WebSocket `payload.dispatch` 一致：
+
+```json
+{
+  "runMode": "FLAT",
+  "planId": "RP-demo-001",
+  "targetHeadwaySeconds": 300,
+  "defaultDwellSeconds": 25,
+  "interventionActive": false,
+  "trainProfiles": [
+    {
+      "trainId": "TR-001",
+      "headwayActualSeconds": null,
+      "headwayDeviationSeconds": 0,
+      "dwellDeviationSeconds": 0,
+      "departureDelaySeconds": 0
+    }
+  ],
+  "openDisturbances": [],
+  "activeCommands": []
+}
+```
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `runMode` | string | 当前运行模式。 |
+| `targetHeadwaySeconds` | number | 当前目标行车间隔。 |
+| `defaultDwellSeconds` | number | 当前默认停站时间。 |
+| `interventionActive` | boolean | 是否存在开放扰动或活跃调度命令。 |
+| `trainProfiles` | array | 列车运行偏差摘要。 |
+| `trainProfiles[].departureDelaySeconds` | number | 最近一次实际发车相对计划发车的偏差，正值表示延误。 |
+| `openDisturbances` | array | 当前开放或已处理但未恢复的扰动。 |
+| `activeCommands` | array | 当前 `PENDING` 或 `APPLIED` 的命令摘要。 |
+
+#### 查询扰动列表
+
+```http
+GET /api/dispatch/disturbances
+```
+
+响应：
+
+```json
+[
+  {
+    "id": "DIST-a1b2c3d4",
+    "simulationRunId": "run-001",
+    "trainId": "TR-002",
+    "stationId": "S02",
+    "disturbanceType": "DWELL_EXTENDED",
+    "deviationValue": 18.0,
+    "status": "OPEN",
+    "recordedAt": "2026-07-08T13:00:00Z",
+    "resolvedAt": null,
+    "commandId": null
+  }
+]
+```
+
+扰动类型：
+
+| disturbanceType | 说明 |
+|---|---|
+| `DWELL_EXTENDED` | 停站超时。 |
+| `DEPARTURE_DELAY` | 发车延误。 |
+| `HEADWAY_SHRINK` | 行车间隔过小。 |
+| `HEADWAY_EXPAND` | 行车间隔过大。 |
+| `CROWDING` | 客流拥挤。 |
+
+扰动状态：
+
+| status | 说明 |
+|---|---|
+| `OPEN` | 已识别，待处理。 |
+| `HANDLED` | 已关联调度命令。 |
+| `RECOVERED` | 偏差已恢复。 |
+
+#### 查询调度命令
+
+```http
+GET /api/dispatch/commands
+```
+
+响应：
+
+```json
+[
+  {
+    "id": "CMD-a1b2c3d4",
+    "trainId": "TR-003",
+    "commandType": "SHORTEN_DWELL",
+    "payload": {
+      "deltaDwellSec": -5,
+      "simulationRunId": "run-001",
+      "disturbanceId": "DIST-a1b2c3d4"
+    },
+    "reason": "DWELL_EXTENDED",
+    "status": "PENDING",
+    "createdAt": "2026-07-08T13:00:00Z",
+    "appliedAt": null
+  }
+]
+```
+
+命令状态：
+
+| status | 说明 |
+|---|---|
+| `PENDING` | 等待执行。 |
+| `SENT` | 已进入信号或车辆执行链路。 |
+| `APPLIED` | 已应用。 |
+| `EFFECT_CONFIRMED` | 执行结果已由信号、联锁或车辆状态确认。 |
+| `TIMEOUT` | 在规定时间内未确认执行效果。 |
+| `EXPIRED` | 已过期。 |
+| `SKIPPED` | 被安全校验跳过。 |
+| `CANCELLED` | 被撤销。 |
+
+自动策略命令：
+
+| commandType | payload | 说明 |
+|---|---|---|
+| `EXTEND_DWELL` | `{ "deltaDwellSec": 5 }` | 延长停站。 |
+| `SHORTEN_DWELL` | `{ "deltaDwellSec": -5 }` | 缩短停站。 |
+| `SPEED_BIAS` | `{ "speedBiasRatio": 1.05 }` | 区间运行速度比例建议。 |
+| `HEADWAY_ADJUST` | `{ "targetHeadwaySec": 153 }` | 目标间隔调整建议，不重构运行图。 |
+
+#### 提交人工调度命令
+
+```http
+POST /api/dispatch/commands
+Content-Type: application/json
+```
+
+请求：
 
 ```json
 {
@@ -290,13 +493,46 @@ GET /api/dispatch/station-records
 }
 ```
 
-当前车辆链路支持的调度命令：
+结构化进路请求：
+
+```json
+{
+  "trainId": "TR-001",
+  "commandType": "REQUEST_ROUTE",
+  "routeId": "R-main-down"
+}
+```
+
+也可将进路字段放入 `payload`；`routeId` 顶层字段优先覆盖同名 payload。`REQUEST_ROUTE` 和
+`REROUTE` 是一次性联锁命令，联锁接受后状态转为 `EFFECT_CONFIRMED`，拒绝时转为
+`SKIPPED`，拒绝原因写入 `payload.lastFeedbackReason`。
+
+响应：
+
+```json
+{
+  "id": "DC-550e8400-e29b-41d4-a716-446655440000",
+  "trainId": "TR-001",
+  "commandType": "SPEED_LIMIT",
+  "payload": {
+    "detail": "8.0"
+  },
+  "reason": "MANUAL",
+  "status": "PENDING",
+  "createdAt": "2026-07-08T13:00:00Z",
+  "appliedAt": null
+}
+```
+
+人工命令：
 
 | commandType | detail | 作用 |
 |---|---|---|
 | `HOLD` / `HOLD_TRAIN` | 任意说明文本 | 调度服务记录扣车意图，由信号模块折算为 MA/限速或后续 `SignalVehicleCommand` |
 | `SPEED_LIMIT` / `TEMP_SPEED_LIMIT` | 速度上限，单位 m/s | 由信号模块与轨道限速、安全距离共同计算后下发给车辆 |
 | `SPEED_FACTOR` / `LIMIT_FACTOR` | 0-1 比例 | 由信号模块折算速度授权，不由车辆直接消费 |
+| `REQUEST_ROUTE` | `routeId` 或 `payload.routeId` | 请求联锁建立指定进路，并记录接受或拒绝反馈 |
+| `REROUTE` | `routeId`、JSON `detail` 或进路说明 | 请求联锁改路；保留旧 detail 格式兼容 |
 
 ## 外部车辆运行时服务接口
 
@@ -350,6 +586,41 @@ GET /api/vehicle/runtime-health
 该接口返回外部车辆运行时健康状态和实例队列状态。`/api/simulation/snapshot` 与 WebSocket 快照同步携带 `vehicleRuntime` 字段。
 
 实现状态：首期已完成 HTTP 同步批量步进、实例队列、中央 fallback、供电负荷转发单元测试和中央供电写入权切换测试；尚未进行 `9300 + 9200 + backend` 长时间联动、真实多车压力、真实 FMU/RT-LAB 逻辑验收。
+
+#### 查询到发记录
+
+```http
+GET /api/dispatch/station-records
+```
+
+响应：
+
+```json
+[
+  {
+    "simulationRunId": "run-001",
+    "trainId": "TR-001",
+    "lineId": "demo-line-1",
+    "stationId": "S02",
+    "eventType": "ARRIVAL",
+    "simulatedAt": "2026-07-08T13:00:00Z",
+    "plannedTime": "2026-07-08T12:59:45Z",
+    "delaySec": 15
+  }
+]
+```
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `eventType` | string | `ARRIVAL` 或 `DEPARTURE`。 |
+| `plannedTime` | string/null | 计划到达或计划发车时间。 |
+| `delaySec` | number | 实际事件时刻相对计划时刻的偏差，单位秒。 |
+
+当前实现说明：
+
+- 调度历史记录当前使用内存仓储，后端重启后会清空；后续可替换为 JDBC/MySQL 存储。
+- 自动调度命令中的停站调整类命令已进入调度命令模型，但车辆侧完整执行闭环仍需与车辆模块继续联调。
+- 调度约束不会绕过信号模块；最终速度授权仍由 `SignalService.calculateAuthorities(...)` 综合轨道、联锁、MA 和调度约束计算。
 
 ## 内部 FMU 服务接口
 
@@ -416,17 +687,6 @@ POST http://localhost:9000/step-fleet
     }
   ]
 }
-```
-
-### 调度模块
-
-```http
-GET /api/dispatch/plan
-GET /api/dispatch/plan/current
-GET /api/dispatch/status
-GET /api/dispatch/disturbances
-GET /api/dispatch/commands
-GET /api/dispatch/station-records
 ```
 
 ## 外部车辆仿真协议适配

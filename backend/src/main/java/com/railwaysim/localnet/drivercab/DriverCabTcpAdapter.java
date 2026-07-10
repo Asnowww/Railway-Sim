@@ -181,16 +181,22 @@ public class DriverCabTcpAdapter implements LocalNetAdapter {
         InputStream input = socket.getInputStream();
         OutputStream output = socket.getOutputStream();
         byte[] buffer = new byte[DriverCabPlcCodec.PLC_TO_UPPER_BYTES];
+        int offset = 0;
         while (running.get() && !socket.isClosed()) {
             try {
-                int bytes = readAtMost(input, buffer);
-                if (bytes == DriverCabPlcCodec.PLC_TO_UPPER_BYTES) {
+                int read = input.read(buffer, offset, buffer.length - offset);
+                if (read < 0) {
+                    break;
+                }
+                offset += read;
+                if (offset == DriverCabPlcCodec.PLC_TO_UPPER_BYTES) {
                     DriverCabPlcInputPacket packet = driverCabAdapter.decodePlcInput(buffer);
                     TrainState updated = driverCabAdapter.applyPlcInput(config.trainId(), packet);
-                    record(PacketDirection.INBOUND, bytes, "PLC input applied train=" + updated.id(), "OK", "");
+                    record(PacketDirection.INBOUND, offset, "PLC input applied train=" + updated.id(), "OK", "");
+                    offset = 0;
                 }
             } catch (SocketTimeoutException ignored) {
-                // Periodic write still happens below.
+                // Keep any partial frame in buffer; periodic write still happens below.
             }
             Optional<byte[]> response = plcOutput(config.trainId());
             if (response.isPresent()) {
@@ -229,21 +235,6 @@ public class DriverCabTcpAdapter implements LocalNetAdapter {
     private Map<String, MovementAuthority> authorityByTrain() {
         return signalService.authorities().stream()
             .collect(Collectors.toMap(MovementAuthority::trainId, Function.identity(), (left, right) -> right));
-    }
-
-    private int readAtMost(InputStream input, byte[] buffer) throws IOException {
-        int offset = 0;
-        while (offset < buffer.length) {
-            int read = input.read(buffer, offset, buffer.length - offset);
-            if (read < 0) {
-                break;
-            }
-            offset += read;
-            if (input.available() == 0) {
-                break;
-            }
-        }
-        return offset;
     }
 
     private List<DriverCabConnectionConfig> connections() {

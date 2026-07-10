@@ -58,7 +58,13 @@ public class StrategySelector {
         List<TrainRunProfile> ordered,
         Map<String, TrainRunProfile> profileByTrain
     ) {
-        if (event.disturbanceType() == DisturbanceType.CROWDING || event.disturbanceType() == DisturbanceType.DEPARTURE_DELAY) {
+        if (
+            event.disturbanceType() == DisturbanceType.DWELL_EXTENDED
+                || event.disturbanceType() == DisturbanceType.CROWDING
+                || event.disturbanceType() == DisturbanceType.DEPARTURE_DELAY
+                || event.disturbanceType() == DisturbanceType.HEADWAY_SHRINK
+                || event.disturbanceType() == DisturbanceType.HEADWAY_EXPAND
+        ) {
             return profileByTrain.get(event.trainId());
         }
         TrainRunProfile source = profileByTrain.get(event.trainId());

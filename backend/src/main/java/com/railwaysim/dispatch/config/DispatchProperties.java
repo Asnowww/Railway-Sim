@@ -13,6 +13,8 @@ public class DispatchProperties {
     private double headwayExpandRatio = 1.5;
     private double crowdingLoadRate = 0.8;
     private int confirmTicks = 3;
+    private int recoverTicks = 5;
+    private double recoverRatio = 0.3;
     private int cooldownSec = 60;
     private long evaluateIntervalMs = 1000;
     private double arrivalThresholdMeters = 5.0;
@@ -20,6 +22,7 @@ public class DispatchProperties {
     private double baseCruiseSpeedMps = 15.0;
     private int minDwellSec = 15;
     private int maxDwellSec = 60;
+    private int commandEffectTimeoutSec = 180;
 
     public String getPlanLocation() {
         return planLocation;
@@ -85,6 +88,22 @@ public class DispatchProperties {
         this.confirmTicks = confirmTicks;
     }
 
+    public int getRecoverTicks() {
+        return recoverTicks;
+    }
+
+    public void setRecoverTicks(int recoverTicks) {
+        this.recoverTicks = recoverTicks;
+    }
+
+    public double getRecoverRatio() {
+        return recoverRatio;
+    }
+
+    public void setRecoverRatio(double recoverRatio) {
+        this.recoverRatio = recoverRatio;
+    }
+
     public int getCooldownSec() {
         return cooldownSec;
     }
@@ -139,5 +158,13 @@ public class DispatchProperties {
 
     public void setMaxDwellSec(int maxDwellSec) {
         this.maxDwellSec = maxDwellSec;
+    }
+
+    public int getCommandEffectTimeoutSec() {
+        return commandEffectTimeoutSec;
+    }
+
+    public void setCommandEffectTimeoutSec(int commandEffectTimeoutSec) {
+        this.commandEffectTimeoutSec = commandEffectTimeoutSec;
     }
 }

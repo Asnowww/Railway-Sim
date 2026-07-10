@@ -39,6 +39,25 @@ class SignalServiceTests {
     }
 
     @Test
+    void rejectedDepartureRouteHoldsTrainAtZeroSpeedUntilRouteIsEstablished() {
+        Fixture f = fixture(straightLine(4000));
+        TrainState train = train("TR-1", 100);
+        f.trackService.updateOccupancy(List.of(train));
+        f.interlockingService.holdTrainUntilRouteEstablished("TR-1", "route conflict");
+
+        f.signalService.calculateAuthorities(
+            List.of(train),
+            f.trackService.constraintsForTrains(List.of(train)),
+            List.of()
+        );
+
+        MovementAuthority ma = f.signalService.authorities().get(0);
+        assertThat(ma.authorityEndMeters()).isEqualTo(train.positionMeters());
+        assertThat(ma.speedLimitMetersPerSecond()).isZero();
+        assertThat(ma.reason()).contains("等待进路建立", "route conflict");
+    }
+
+    @Test
     void twoTrains_frontMaTruncatedByRearTail() {
         Fixture f = fixture(straightLine(4000));
         SimulationProperties props = new SimulationProperties();
@@ -119,6 +138,56 @@ class SignalServiceTests {
         MovementAuthority ma = ss.authorities().get(0);
         assertThat(ma.speedLimitMetersPerSecond()).isLessThanOrEqualTo(22.2);
         assertThat(ma.speedLimitMetersPerSecond()).isGreaterThan(0);
+    }
+
+    @Test
+    void passedStationDoesNotClampMaToCurrentPosition() {
+        Fixture f = fixture(stationLine());
+        TrainState rear = train("TR-1", 100);
+        TrainState front = train("TR-2", 2600);
+        f.trackService.updateOccupancy(List.of(rear, front));
+
+        f.signalService.calculateAuthorities(
+            List.of(rear, front),
+            f.trackService.constraintsForTrains(List.of(rear, front)),
+            List.of()
+        );
+
+        MovementAuthority rearMa = authorityFor(f.signalService.authorities(), "TR-1");
+        MovementAuthority frontMa = authorityFor(f.signalService.authorities(), "TR-2");
+        assertThat(rearMa.authorityEndMeters()).isGreaterThan(rear.positionMeters());
+        assertThat(frontMa.authorityEndMeters()).isGreaterThan(front.positionMeters());
+        assertThat(rearMa.speedLimitMetersPerSecond()).isGreaterThan(0);
+        assertThat(frontMa.speedLimitMetersPerSecond()).isGreaterThan(0);
+    }
+
+    @Test
+    void completedStationDwellRemainsReleasedUntilTrainDepartsWindow() {
+        Fixture f = fixture(stationLine());
+        TrainState train = train("TR-1", 1250);
+        f.trackService.updateOccupancy(List.of(train));
+
+        for (int i = 0; i < 125; i++) {
+            f.signalService.calculateAuthorities(
+                List.of(train),
+                f.trackService.constraintsForTrains(List.of(train)),
+                List.of()
+            );
+        }
+
+        MovementAuthority releasedMa = authorityFor(f.signalService.authorities(), "TR-1");
+        assertThat(releasedMa.authorityEndMeters()).isGreaterThan(train.positionMeters());
+        assertThat(releasedMa.speedLimitMetersPerSecond()).isGreaterThan(0);
+
+        f.signalService.calculateAuthorities(
+            List.of(train),
+            f.trackService.constraintsForTrains(List.of(train)),
+            List.of()
+        );
+
+        MovementAuthority nextTickMa = authorityFor(f.signalService.authorities(), "TR-1");
+        assertThat(nextTickMa.authorityEndMeters()).isGreaterThan(train.positionMeters());
+        assertThat(nextTickMa.speedLimitMetersPerSecond()).isGreaterThan(0);
     }
 
     // ==================== 信号灯色 ====================
@@ -267,7 +336,7 @@ class SignalServiceTests {
         trackService.reset();
         RouteInterlockingService interlocking = new RouteInterlockingService(catalog, trackService);
         SignalService signalService = new SignalService(properties, catalog, trackService, interlocking);
-        return new Fixture(trackService, signalService, catalog);
+        return new Fixture(trackService, signalService, interlocking, catalog);
     }
 
     /** 简单直线: 0→1000→2000→3000→4000, 4段 */
@@ -302,6 +371,29 @@ class SignalServiceTests {
         );
     }
 
+    /** 5km 直线，站点在 0/1250/2500/3750/5000，用于验证站停窗口不会选中车头后方站点。 */
+    private static OperationalLineData stationLine() {
+        return new OperationalLineData(
+            "station-line", "Station Test",
+            List.of(),
+            List.of(
+                seg("T01", 1, 0, 1250, List.of("T02"), "N1", "N2", "main", 20),
+                seg("T02", 2, 1250, 2500, List.of("T03"), "N2", "N3", "main", 22),
+                seg("T03", 3, 2500, 3750, List.of("T04"), "N3", "N4", "main", 22),
+                seg("T04", 4, 3750, 5000, List.of(), "N4", "N5", "main", 20)
+            ),
+            List.of(), List.of(), List.of(),
+            List.of(
+                station("S01", "S01", 0),
+                station("S02", "S02", 1250),
+                station("S03", "S03", 2500),
+                station("S04", "S04", 3750),
+                station("S05", "S05", 5000)
+            ),
+            List.of(), List.of(), List.of(), List.of()
+        );
+    }
+
     private static OperationalLineData.TrackSegmentDefinition seg(
         String id, int rawId, double start, double end,
         List<String> forward, String from, String to, String track, double speed
@@ -310,6 +402,10 @@ class SignalServiceTests {
             id, rawId, start, end, end - start, speed,
             0, 0, 0, 0, forward, List.of(), from, to, track
         );
+    }
+
+    private static OperationalLineData.StationDefinition station(String id, String name, double positionMeters) {
+        return new OperationalLineData.StationDefinition(id, name, positionMeters, List.of());
     }
 
     private static OperationalPowerData emptyPowerData() {
@@ -336,9 +432,16 @@ class SignalServiceTests {
             .findFirst().orElseThrow();
     }
 
+    private static MovementAuthority authorityFor(List<MovementAuthority> authorities, String trainId) {
+        return authorities.stream()
+            .filter(authority -> authority.trainId().equals(trainId))
+            .findFirst().orElseThrow();
+    }
+
     private record Fixture(
         TrackService trackService,
         SignalService signalService,
+        RouteInterlockingService interlockingService,
         StaticInfrastructureCatalog catalog
     ) {
     }

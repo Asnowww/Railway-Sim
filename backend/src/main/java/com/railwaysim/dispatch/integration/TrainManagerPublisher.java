@@ -16,6 +16,6 @@ public class TrainManagerPublisher implements DispatchCommandPublisher {
 
     @Override
     public void publish(List<DispatchCommand> commands) {
-        dispatchService.markCommandsApplied(commands);
+        dispatchService.markCommandsSent(commands);
     }
 }

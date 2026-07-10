@@ -1,6 +1,7 @@
 package com.railwaysim.infrastructure;
 
 import com.railwaysim.config.SimulationProperties;
+import com.railwaysim.config.ConfigPathResolver;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.Locale;
@@ -94,7 +95,7 @@ public class StaticInfrastructureCatalog {
             }
             if (simulationProperties.isLineDataAutoImport()) {
                 databaseLineDataImporter.importWorkbook(
-                    Path.of(simulationProperties.getLineDataPath()),
+                    ConfigPathResolver.resolve(simulationProperties.getLineDataPath()),
                     simulationProperties.getDefaultSpeedLimitMetersPerSecond()
                 );
             } else if (!databaseLineDataImporter.hasLine(simulationProperties.getLineId())) {
@@ -112,7 +113,7 @@ public class StaticInfrastructureCatalog {
         SpreadsheetLineDataLoader spreadsheetLineDataLoader,
         YamlLineDataLoader yamlLineDataLoader
     ) throws IOException {
-        Path lineDataPath = Path.of(simulationProperties.getLineDataPath());
+        Path lineDataPath = ConfigPathResolver.resolve(simulationProperties.getLineDataPath());
         String fileName = lineDataPath.getFileName().toString().toLowerCase();
         if (fileName.endsWith(".xls") || fileName.endsWith(".xlsx")) {
             return spreadsheetLineDataLoader.load(lineDataPath, simulationProperties.getDefaultSpeedLimitMetersPerSecond());
@@ -128,6 +129,6 @@ public class StaticInfrastructureCatalog {
         PowerConfigLoader powerConfigLoader,
         double lineLengthMeters
     ) throws IOException {
-        return powerConfigLoader.load(Path.of(simulationProperties.getPowerConfigPath()), lineLengthMeters);
+        return powerConfigLoader.load(ConfigPathResolver.resolve(simulationProperties.getPowerConfigPath()), lineLengthMeters);
     }
 }

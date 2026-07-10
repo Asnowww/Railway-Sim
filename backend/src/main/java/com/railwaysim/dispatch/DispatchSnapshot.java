@@ -14,9 +14,13 @@ public record DispatchSnapshot(
 ) {
     public record TrainProfileView(
         String trainId,
+        String frontTrainId,
         Double headwayActualSeconds,
         int headwayDeviationSeconds,
-        int dwellDeviationSeconds
+        String headwayState,
+        String headwayAction,
+        int dwellDeviationSeconds,
+        int departureDelaySeconds
     ) {
     }
 

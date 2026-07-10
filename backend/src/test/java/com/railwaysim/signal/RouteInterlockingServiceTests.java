@@ -58,6 +58,66 @@ class RouteInterlockingServiceTests {
     }
 
     @Test
+    void establishingRouteClearsPendingDepartureHold() {
+        Fixture fixture = fixture(lineDataWithDirectRoute());
+        fixture.interlocking.init();
+        fixture.interlocking.holdTrainUntilRouteEstablished("TR-1", "route conflict");
+
+        String rejection = fixture.interlocking.establishRoute("R_BRANCH", "TR-1");
+
+        assertThat(rejection).isNull();
+        assertThat(fixture.interlocking.isRouteHoldActive("TR-1")).isFalse();
+    }
+
+    @Test
+    void requestRouteCommandEstablishesExactRouteId() {
+        Fixture fixture = fixture(lineDataWithDirectRoute());
+        fixture.interlocking.init();
+
+        RouteInterlockingService.RouteDispatchResult result = fixture.interlocking.applyDispatchCommand(
+            "REQUEST_ROUTE",
+            "R_BRANCH",
+            "TR-1"
+        );
+
+        assertThat(result.accepted()).isTrue();
+        assertThat(fixture.interlocking.state("R_BRANCH").status()).isEqualTo(RouteStatus.ESTABLISHED);
+    }
+
+    @Test
+    void repeatedRequestByOwningTrainIsIdempotent() {
+        Fixture fixture = fixture(lineDataWithDirectRoute());
+        fixture.interlocking.init();
+        assertThat(fixture.interlocking.establishRoute("R_BRANCH", "TR-1")).isNull();
+
+        RouteInterlockingService.RouteDispatchResult repeated = fixture.interlocking.applyDispatchCommand(
+            "REQUEST_ROUTE",
+            "R_BRANCH",
+            "TR-1"
+        );
+
+        assertThat(repeated.accepted()).isTrue();
+        assertThat(fixture.interlocking.state("R_BRANCH").status()).isEqualTo(RouteStatus.ESTABLISHED);
+        assertThat(fixture.interlocking.state("R_BRANCH").establishedByTrainId()).isEqualTo("TR-1");
+    }
+
+    @Test
+    void unsupportedRouteCommandIsRejectedInsteadOfSilentlyAccepted() {
+        Fixture fixture = fixture(lineDataWithDirectRoute());
+        fixture.interlocking.init();
+
+        RouteInterlockingService.RouteDispatchResult result = fixture.interlocking.applyDispatchCommand(
+            "UNKNOWN_ROUTE_COMMAND",
+            "R_BRANCH",
+            "TR-1"
+        );
+
+        assertThat(result.accepted()).isFalse();
+        assertThat(result.rejectReason()).contains("Unsupported route command");
+        assertThat(fixture.interlocking.state("R_BRANCH").status()).isEqualTo(RouteStatus.AVAILABLE);
+    }
+
+    @Test
     void movementAuthorityReservesAlongEstablishedDivergingRoute() {
         Fixture fixture = fixture(lineDataWithDirectRoute());
         fixture.interlocking.init();
