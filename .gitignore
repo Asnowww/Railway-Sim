@@ -48,6 +48,7 @@ frontend/demo.html
 frontend/src/demo-main.ts
 power-network-service/.venv/
 fmu-service/.venv/
+fmu-service/build/
 __pycache__/
 frontend/src/api/rest.ts
 frontend/src/api/ws.ts

@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://railwaysim.local/contracts/fmu-manifest.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "modelVersion",
+    "modelName",
+    "modelIdentifier",
+    "fmiVersion",
+    "fmiType",
+    "fmuSha256",
+    "parameterSetId",
+    "parameterSchemaVersion",
+    "openModelicaImageDigest",
+    "generationTool",
+    "targetPlatform",
+    "sourceCommit",
+    "builtAt"
+  ],
+  "properties": {
+    "modelVersion": {"type": "string", "minLength": 1},
+    "modelName": {"type": "string", "minLength": 1},
+    "modelIdentifier": {"type": "string", "minLength": 1},
+    "fmiVersion": {"const": "2.0"},
+    "fmiType": {"const": "CoSimulation"},
+    "fmuSha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "parameterSetId": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "parameterSchemaVersion": {"const": "1"},
+    "openModelicaImageDigest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "generationTool": {"type": "string", "minLength": 1},
+    "targetPlatform": {"const": "linux/amd64"},
+    "sourceCommit": {"type": "string", "minLength": 1},
+    "builtAt": {"type": "string", "format": "date-time"}
+  }
+}
