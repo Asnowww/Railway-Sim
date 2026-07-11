@@ -364,7 +364,7 @@ class DispatchServiceTests {
         dispatchService.evaluate(
             tick(1, now.plusSeconds(1)),
             List.of(train("TR-1")),
-            List.of(new MovementAuthority("TR-1", 500, 8, "TEST", "SEG-TEST"))
+            List.of(new MovementAuthority("TR-1", 500, 8, "TEST", "SEG-TEST", "SEG-END", "NORMAL"))
         );
 
         DispatchConstraint constraint = dispatchService.previewConstraintsForTrains(List.of(train("TR-1"))).get(0);
@@ -401,7 +401,7 @@ class DispatchServiceTests {
         dispatchService.evaluate(
             tick(1, now.plusSeconds(1)),
             List.of(train("TR-1")),
-            List.of(new MovementAuthority("TR-1", 500, 8, "TEST", "SEG-TEST"))
+            List.of(new MovementAuthority("TR-1", 500, 8, "TEST", "SEG-TEST", "SEG-END", "NORMAL"))
         );
 
         DispatchConstraint activeConstraint = dispatchService.previewConstraintsForTrains(List.of(train("TR-1"))).get(0);
@@ -516,7 +516,7 @@ class DispatchServiceTests {
     }
 
     private static MovementAuthority authority(String trainId) {
-        return new MovementAuthority(trainId, 500, 15, "TEST", "SEG-TEST");
+        return new MovementAuthority(trainId, 500, 15, "TEST", "SEG-TEST", "SEG-END", "NORMAL");
     }
 
     private static TickContext tick(long tick, Instant simulatedTime) {

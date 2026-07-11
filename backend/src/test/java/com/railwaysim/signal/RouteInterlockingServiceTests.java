@@ -38,7 +38,7 @@ class RouteInterlockingServiceTests {
 
         fixture.interlocking.touchRoutes(List.of(train("TR-1", 50)));
 
-        assertThat(fixture.interlocking.state("R_AXLE").status()).isEqualTo(RouteStatus.ESTABLISHED);
+        assertThat(fixture.interlocking.state("R_AXLE").status()).isEqualTo(RouteStatus.LOCKED);
         assertThat(fixture.interlocking.establishedSegmentPathForTrain("TR-1"))
             .containsExactly("SEG-1", "SEG-3");
     }
@@ -81,7 +81,7 @@ class RouteInterlockingServiceTests {
         );
 
         assertThat(result.accepted()).isTrue();
-        assertThat(fixture.interlocking.state("R_BRANCH").status()).isEqualTo(RouteStatus.ESTABLISHED);
+        assertThat(fixture.interlocking.state("R_BRANCH").status()).isEqualTo(RouteStatus.LOCKED);
     }
 
     @Test
@@ -97,7 +97,7 @@ class RouteInterlockingServiceTests {
         );
 
         assertThat(repeated.accepted()).isTrue();
-        assertThat(fixture.interlocking.state("R_BRANCH").status()).isEqualTo(RouteStatus.ESTABLISHED);
+        assertThat(fixture.interlocking.state("R_BRANCH").status()).isEqualTo(RouteStatus.LOCKED);
         assertThat(fixture.interlocking.state("R_BRANCH").establishedByTrainId()).isEqualTo("TR-1");
     }
 
@@ -167,7 +167,7 @@ class RouteInterlockingServiceTests {
         TrackService trackService = new TrackService(catalog, properties);
         trackService.reset();
         RouteInterlockingService interlocking = new RouteInterlockingService(catalog, trackService);
-        SignalService signalService = new SignalService(properties, catalog, trackService, interlocking);
+        SignalService signalService = new SignalService(properties, catalog, trackService, interlocking, null);
         return new Fixture(trackService, interlocking, signalService);
     }
 

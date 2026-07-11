@@ -27,6 +27,7 @@ public record SignalDriverConsoleState(
                 MasterHandleState.valueOf(driverCabState.masterHandleState().name())
             );
         }
+        // 从未收到司机台 PLC 输入时，从运行状态推导默认值
         return new SignalDriverConsoleState(
             train.id(),
             resolveDoorMode(train),

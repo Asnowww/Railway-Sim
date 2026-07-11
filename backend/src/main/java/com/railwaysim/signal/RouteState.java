@@ -18,10 +18,6 @@ public record RouteState(
     String establishedByTrainId,
     Set<String> axleSegmentIds
 ) {
-    public RouteState withEstablished(String trainId) {
-        return new RouteState(routeId, RouteStatus.ESTABLISHED, lockedSwitchIds, trainId, axleSegmentIds);
-    }
-
     public RouteState withReleased() {
         return new RouteState(routeId, RouteStatus.AVAILABLE, Set.of(), null, axleSegmentIds);
     }

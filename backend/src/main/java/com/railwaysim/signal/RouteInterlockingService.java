@@ -65,7 +65,7 @@ public class RouteInterlockingService {
         if (route == null) {
             return "Route " + routeId + " does not exist";
         }
-        if (route.status() == RouteStatus.ESTABLISHED) {
+        if (route.status() == RouteStatus.LOCKED) {
             // 同一条进路允许多列车先后使用（单线追踪），
             // 只在其区段重叠部分由 MA 前车尾部截断处理，不拒绝
             if (trainId.equals(route.establishedByTrainId())) {
@@ -81,10 +81,39 @@ public class RouteInterlockingService {
         }
 
         for (RouteState existing : routeStates.values()) {
-            if (existing.status() == RouteStatus.ESTABLISHED
+            if (existing.status() == RouteStatus.LOCKED
                 && intersects(routeSegments, resolvedSegmentIds(existing))) {
                 routeStates.put(routeId, route.withConflicted());
                 return "Route " + routeId + " conflicts with established route " + existing.routeId();
+            }
+        }
+
+        // ---- 区段占用/故障检查（不在计划中的区段禁止建进路） ----
+        for (String segId : routeSegments) {
+            TrackSegmentState seg = findSegmentById(segId).orElse(null);
+            if (seg == null) continue;
+            if (seg.occupancy() == TrackOccupancy.FAULT) {
+                return "TRACK_FAULT:" + segId + " is in fault state";
+            }
+            if (seg.occupancy() == TrackOccupancy.OCCUPIED) {
+                // 只拒绝被"其他列车"占用的区段；同车追踪场景由 MA 前车尾部截断处理
+                // 只检查已锁定的进路（LOCKED），忽略 AVAILABLE/RELEASED 等空闲进路
+                boolean occupiedByOthers = false;
+                for (RouteState existing : routeStates.values()) {
+                    if (existing.status() != RouteStatus.LOCKED) {
+                        continue; // 只关心已锁定的进路
+                    }
+                    if (trainId.equals(existing.establishedByTrainId())) {
+                        continue; // 自己的进路不管
+                    }
+                    if (resolvedSegmentIds(existing).contains(segId)) {
+                        occupiedByOthers = true;
+                        break;
+                    }
+                }
+                if (occupiedByOthers) {
+                    return "TRACK_OCCUPIED:" + segId + " is occupied by another route";
+                }
             }
         }
 
@@ -129,7 +158,7 @@ public class RouteInterlockingService {
 
         routeStates.put(routeId, new RouteState(
             routeId,
-            RouteStatus.ESTABLISHED,
+            RouteStatus.LOCKED,
             lockedIds,
             trainId,
             route.axleSegmentIds()
@@ -143,7 +172,7 @@ public class RouteInterlockingService {
         if (trainId == null || trainId.isBlank()) {
             return;
         }
-        routeHoldsByTrain.put(trainId, reason == null || reason.isBlank() ? "ROUTE_NOT_ESTABLISHED" : reason);
+        routeHoldsByTrain.put(trainId, reason == null || reason.isBlank() ? "ROUTE_NOT_LOCKED" : reason);
     }
 
     public synchronized void clearRouteHold(String trainId) {
@@ -155,12 +184,12 @@ public class RouteInterlockingService {
     }
 
     public synchronized String routeHoldReason(String trainId) {
-        return routeHoldsByTrain.getOrDefault(trainId, "ROUTE_NOT_ESTABLISHED");
+        return routeHoldsByTrain.getOrDefault(trainId, "ROUTE_NOT_LOCKED");
     }
 
     public synchronized void releaseRoute(String routeId) {
         RouteState route = routeStates.get(routeId);
-        if (route == null || route.status() != RouteStatus.ESTABLISHED) {
+        if (route == null || route.status() != RouteStatus.LOCKED) {
             return;
         }
 
@@ -204,7 +233,7 @@ public class RouteInterlockingService {
 
         double closest = Double.POSITIVE_INFINITY;
         for (RouteState route : routeStates.values()) {
-            if (route.status() != RouteStatus.ESTABLISHED) {
+            if (route.status() != RouteStatus.LOCKED) {
                 continue;
             }
             if (trainId.equals(route.establishedByTrainId())) {
@@ -230,19 +259,9 @@ public class RouteInterlockingService {
         return closest;
     }
 
-    private Set<String> trainRouteSegments(String trainId) {
-        for (RouteState route : routeStates.values()) {
-            if (route.status() == RouteStatus.ESTABLISHED
-                && trainId.equals(route.establishedByTrainId())) {
-                return resolvedSegmentIds(route);
-            }
-        }
-        return Set.of();
-    }
-
     public synchronized List<String> establishedSegmentPathForTrain(String trainId) {
         return routeStates.values().stream()
-            .filter(route -> route.status() == RouteStatus.ESTABLISHED)
+            .filter(route -> route.status() == RouteStatus.LOCKED)
             .filter(route -> trainId.equals(route.establishedByTrainId()))
             .findFirst()
             .map(route -> List.copyOf(resolvedSegmentIds(route)))
@@ -267,7 +286,7 @@ public class RouteInterlockingService {
         }
 
         for (RouteState route : List.copyOf(routeStates.values())) {
-            if (route.status() != RouteStatus.ESTABLISHED) {
+            if (route.status() != RouteStatus.LOCKED) {
                 continue;
             }
             if (!anyTrainInRoute(trains, route)) {
@@ -322,7 +341,7 @@ public class RouteInterlockingService {
 
     private void restoreResolvedConflicts() {
         List<RouteState> established = routeStates.values().stream()
-            .filter(route -> route.status() == RouteStatus.ESTABLISHED)
+            .filter(route -> route.status() == RouteStatus.LOCKED)
             .toList();
         for (RouteState route : List.copyOf(routeStates.values())) {
             if (route.status() != RouteStatus.CONFLICTED) {
