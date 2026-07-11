@@ -1,11 +1,15 @@
 package com.railwaysim.api;
 
+import com.railwaysim.api.dto.SignalTrackFaultRequest;
 import com.railwaysim.signal.RouteInterlockingService;
 import com.railwaysim.signal.SignalTrackFaultType;
 import com.railwaysim.track.TrackService;
-import java.util.LinkedHashMap;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotBlank;
 import java.util.List;
 import java.util.Map;
+import org.springframework.http.HttpStatus;
+import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.CrossOrigin;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -14,6 +18,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.server.ResponseStatusException;
 
 /**
  * 信号轨道专用调试/演示接口（WP-05 + WP-07 收口）。
@@ -24,6 +29,7 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @RequestMapping("/api/signal-track")
 @CrossOrigin
+@Validated
 public class SignalTrackController {
 
     private final TrackService trackService;
@@ -51,45 +57,68 @@ public class SignalTrackController {
 
     /** POST /api/signal-track/faults — 注入故障（WP-05） */
     @PostMapping("/faults")
-    public Map<String, Object> injectFault(@RequestBody Map<String, Object> body) {
-        String sourceId = (String) body.getOrDefault("sourceId", "");
-        String faultType = (String) body.getOrDefault("faultType", "TRACK_CIRCUIT_OCCUPIED");
-        String operator = (String) body.getOrDefault("operator", "system");
-        String reason = (String) body.getOrDefault("reason", "");
-        String traceId = (String) body.getOrDefault("traceId", "");
-
-        trackService.injectFault(sourceId);
-        SignalTrackFaultType type;
-        try { type = SignalTrackFaultType.valueOf(faultType); }
-        catch (IllegalArgumentException e) { type = SignalTrackFaultType.TRACK_CIRCUIT_OCCUPIED; }
-
-        Map<String, Object> result = new LinkedHashMap<>();
-        result.put("accepted", true);
-        result.put("sourceId", sourceId);
-        result.put("faultType", type.name());
-        result.put("operator", operator);
-        result.put("reason", reason);
-        result.put("traceId", traceId);
-        return result;
+    public FaultMutationResponse injectFault(@Valid @RequestBody SignalTrackFaultRequest request) {
+        requireSegment(request.sourceId());
+        boolean changed = trackService.injectFault(request.sourceId());
+        return new FaultMutationResponse(
+            true,
+            changed,
+            !changed,
+            "INJECT",
+            request.sourceId(),
+            request.faultType(),
+            request.normalizedOperator(),
+            request.normalizedReason(),
+            request.normalizedTraceId()
+        );
     }
 
-    /** POST /api/signal-track/faults/{faultId}/clear */
-    @PostMapping("/faults/{faultId}/clear")
-    public Map<String, Object> clearFault(@PathVariable String faultId,
-                                          @RequestParam(defaultValue = "system") String operator,
-                                          @RequestParam(defaultValue = "") String traceId) {
-        trackService.clearFault(faultId);
-        Map<String, Object> result = new LinkedHashMap<>();
-        result.put("accepted", true);
-        result.put("faultId", faultId);
-        result.put("operator", operator);
-        result.put("traceId", traceId);
-        return result;
+    /** POST /api/signal-track/faults/{segmentId}/clear */
+    @PostMapping("/faults/{segmentId}/clear")
+    public FaultMutationResponse clearFault(
+        @PathVariable @NotBlank String segmentId,
+        @RequestParam(defaultValue = "system") String operator,
+        @RequestParam(defaultValue = "") String reason,
+        @RequestParam(defaultValue = "") String traceId
+    ) {
+        requireSegment(segmentId);
+        boolean changed = trackService.clearFault(segmentId);
+        return new FaultMutationResponse(
+            true,
+            changed,
+            !changed,
+            "CLEAR",
+            segmentId,
+            null,
+            operator == null || operator.isBlank() ? "system" : operator,
+            reason == null ? "" : reason,
+            traceId == null ? "" : traceId
+        );
     }
 
     /** GET /api/signal-track/faults — 当前所有故障区段 */
     @GetMapping("/faults")
     public List<String> faults() {
-        return trackService.faultSegmentIds().stream().toList();
+        return trackService.faultSegmentIds().stream().sorted().toList();
+    }
+
+    private void requireSegment(String segmentId) {
+        if (!trackService.segmentExists(segmentId)) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND,
+                "Track segment " + segmentId + " does not exist");
+        }
+    }
+
+    public record FaultMutationResponse(
+        boolean accepted,
+        boolean changed,
+        boolean idempotent,
+        String operation,
+        String sourceId,
+        SignalTrackFaultType faultType,
+        String operator,
+        String reason,
+        String traceId
+    ) {
     }
 }

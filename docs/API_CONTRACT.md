@@ -240,7 +240,8 @@ GET /api/vehicle/onboard-subsystems
 
 ### 仿真故障注入
 
-仿真写接口只用于演示和联调，必须带二次确认字段。
+仿真写接口只用于演示和联调。供电和车辆故障接口必须带二次确认字段；信号轨道故障接口
+使用严格请求 DTO，并返回可审计的 `operator`、`reason` 和 `traceId`。
 
 ```http
 POST /api/power/sections/{sectionId}/faults
@@ -248,7 +249,46 @@ POST /api/power/sections/{sectionId}/faults/clear
 POST /api/power/operations
 POST /api/trains/{trainId}/faults
 POST /api/trains/{trainId}/faults/clear
+POST /api/signal-track/faults
+POST /api/signal-track/faults/{segmentId}/clear
+GET  /api/signal-track/faults
 ```
+
+信号轨道区段故障注入请求：
+
+```json
+{
+  "sourceId": "T02",
+  "faultType": "TRACK_CIRCUIT_UNKNOWN",
+  "reason": "demo",
+  "operator": "simulation",
+  "traceId": "trace-signal-001"
+}
+```
+
+`sourceId` 和 `faultType` 必填。`faultType` 必须是 `SignalTrackFaultType` 中的合法枚举值，非法值不会被替换成默认故障。
+
+注入或清除响应：
+
+```json
+{
+  "accepted": true,
+  "changed": true,
+  "idempotent": false,
+  "operation": "INJECT",
+  "sourceId": "T02",
+  "faultType": "TRACK_CIRCUIT_UNKNOWN",
+  "operator": "simulation",
+  "reason": "demo",
+  "traceId": "trace-signal-001"
+}
+```
+
+| 状态码 | 场景 |
+|---|---|
+| `200` | 首次操作成功；重复注入或重复清除也返回 `200`，此时 `changed=false`、`idempotent=true`。 |
+| `400` | `sourceId`/`faultType` 缺失或为空，或 `faultType` 不是合法枚举。 |
+| `404` | `sourceId`/路径中的 `segmentId` 不对应任何轨道区段。 |
 
 请求：
 
@@ -506,6 +546,10 @@ Content-Type: application/json
 也可将进路字段放入 `payload`；`routeId` 顶层字段优先覆盖同名 payload。`REQUEST_ROUTE` 和
 `REROUTE` 是一次性联锁命令，联锁接受后状态转为 `EFFECT_CONFIRMED`，拒绝时转为
 `SKIPPED`，拒绝原因写入 `payload.lastFeedbackReason`。
+
+进路命令提交响应会在 `payload` 中同时返回 `decisionId` 和 `reservationId`。调用方使用响应
+`id` 关联命令历史，使用 `decisionId` 关联 `dispatch.routeDecisions`，使用 `reservationId` 关联
+`dispatch.routeReservations`；三者不得绕过调度闭环直接建立联锁进路。
 
 响应：
 
