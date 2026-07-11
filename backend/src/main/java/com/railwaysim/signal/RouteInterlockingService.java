@@ -95,25 +95,12 @@ public class RouteInterlockingService {
             if (seg.occupancy() == TrackOccupancy.FAULT) {
                 return "TRACK_FAULT:" + segId + " is in fault state";
             }
-            if (seg.occupancy() == TrackOccupancy.OCCUPIED) {
-                // 只拒绝被"其他列车"占用的区段；同车追踪场景由 MA 前车尾部截断处理
-                // 只检查已锁定的进路（LOCKED），忽略 AVAILABLE/RELEASED 等空闲进路
-                boolean occupiedByOthers = false;
-                for (RouteState existing : routeStates.values()) {
-                    if (existing.status() != RouteStatus.LOCKED) {
-                        continue; // 只关心已锁定的进路
-                    }
-                    if (trainId.equals(existing.establishedByTrainId())) {
-                        continue; // 自己的进路不管
-                    }
-                    if (resolvedSegmentIds(existing).contains(segId)) {
-                        occupiedByOthers = true;
-                        break;
-                    }
-                }
-                if (occupiedByOthers) {
-                    return "TRACK_OCCUPIED:" + segId + " is occupied by another route";
-                }
+            Set<String> occupyingTrainIds = trackService.occupyingTrainIds(segId);
+            if (occupyingTrainIds.stream().anyMatch(occupyingTrainId -> !trainId.equals(occupyingTrainId))) {
+                return "TRACK_OCCUPIED:" + segId + " is occupied by another train";
+            }
+            if (seg.occupancy() == TrackOccupancy.OCCUPIED && occupyingTrainIds.isEmpty()) {
+                return "TRACK_OCCUPIED:" + segId + " has no attributable occupying train";
             }
         }
 

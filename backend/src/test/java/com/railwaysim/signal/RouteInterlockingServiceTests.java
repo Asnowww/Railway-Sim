@@ -70,6 +70,70 @@ class RouteInterlockingServiceTests {
     }
 
     @Test
+    void establishingRouteAllowsTheRequestingTrainsOwnOccupancy() {
+        Fixture fixture = fixture(lineDataWithDirectRoute());
+        fixture.interlocking.init();
+        fixture.trackService.updateOccupancy(List.of(train("TR-1", 50)));
+
+        String rejection = fixture.interlocking.establishRoute("R_BRANCH", "TR-1");
+
+        assertThat(rejection).isNull();
+        assertThat(fixture.interlocking.state("R_BRANCH").status()).isEqualTo(RouteStatus.LOCKED);
+    }
+
+    @Test
+    void establishingRouteRejectsAnotherTrainsOccupancy() {
+        Fixture fixture = fixture(lineDataWithDirectRoute());
+        fixture.interlocking.init();
+        fixture.trackService.updateOccupancy(List.of(train("TR-2", 50)));
+
+        String rejection = fixture.interlocking.establishRoute("R_BRANCH", "TR-1");
+
+        assertThat(rejection).startsWith("TRACK_OCCUPIED:SEG-1");
+        assertThat(fixture.interlocking.state("R_BRANCH").status()).isEqualTo(RouteStatus.AVAILABLE);
+    }
+
+    @Test
+    void establishingRouteRejectsMixedOccupancyIncludingTheRequestingTrain() {
+        Fixture fixture = fixture(lineDataWithDirectRoute());
+        fixture.interlocking.init();
+        fixture.trackService.updateOccupancy(List.of(
+            train("TR-1", 50),
+            train("TR-2", 50)
+        ));
+
+        String rejection = fixture.interlocking.establishRoute("R_BRANCH", "TR-1");
+
+        assertThat(rejection).startsWith("TRACK_OCCUPIED:SEG-1");
+    }
+
+    @Test
+    void establishingRouteRejectsAnOccupyingTrainWithoutAnyLockedRoute() {
+        Fixture fixture = fixture(lineDataWithDirectRoute());
+        fixture.interlocking.init();
+        fixture.trackService.updateOccupancy(List.of(train("TR-2", 50)));
+        assertThat(fixture.interlocking.states())
+            .extracting(RouteState::status)
+            .containsOnly(RouteStatus.AVAILABLE);
+
+        String rejection = fixture.interlocking.establishRoute("R_BRANCH", "TR-1");
+
+        assertThat(rejection).startsWith("TRACK_OCCUPIED:SEG-1");
+    }
+
+    @Test
+    void establishingRouteRejectsAFaultedSegmentEvenWhenOccupiedByTheRequestingTrain() {
+        Fixture fixture = fixture(lineDataWithDirectRoute());
+        fixture.interlocking.init();
+        fixture.trackService.updateOccupancy(List.of(train("TR-1", 50)));
+        fixture.trackService.injectFault("SEG-1");
+
+        String rejection = fixture.interlocking.establishRoute("R_BRANCH", "TR-1");
+
+        assertThat(rejection).startsWith("TRACK_FAULT:SEG-1");
+    }
+
+    @Test
     void requestRouteCommandEstablishesExactRouteId() {
         Fixture fixture = fixture(lineDataWithDirectRoute());
         fixture.interlocking.init();

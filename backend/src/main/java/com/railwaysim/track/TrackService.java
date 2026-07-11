@@ -50,6 +50,7 @@ public class TrackService {
     private final Map<String, SwitchState> switches = new HashMap<>();
     private final Set<String> reservedSegmentIds = new HashSet<>();
     private final Set<String> faultSegmentIds = new HashSet<>();
+    private final Map<String, Set<String>> occupyingTrainIdsBySegment = new HashMap<>();
     private final StaticInfrastructureCatalog infrastructureCatalog;
     private final SimulationProperties simulationProperties;
 
@@ -105,6 +106,7 @@ public class TrackService {
         }
         reservedSegmentIds.clear();
         faultSegmentIds.clear();
+        occupyingTrainIdsBySegment.clear();
     }
 
     // ==================== 区段占用计算 ====================
@@ -122,6 +124,8 @@ public class TrackService {
      * @param trains 当前所有列车状态列表
      */
     public synchronized void updateOccupancy(List<TrainState> trains) {
+        occupyingTrainIdsBySegment.clear();
+
         // ① 清除 OCCUPIED → FREE（保留 RESERVED 和 FAULT）
         for (int i = 0; i < segments.size(); i++) {
             TrackSegmentState seg = segments.get(i);
@@ -141,14 +145,22 @@ public class TrackService {
             double head = train.positionMeters();
             for (int i = 0; i < segments.size(); i++) {
                 TrackSegmentState seg = segments.get(i);
-                if (seg.occupancy() == TrackOccupancy.FAULT) {
-                    continue; // 故障区段不受占用影响
-                }
                 if (overlaps(head, tail, seg.startMeters(), seg.endMeters())) {
-                    segments.set(i, seg.withOccupancy(TrackOccupancy.OCCUPIED));
+                    occupyingTrainIdsBySegment
+                        .computeIfAbsent(seg.id(), ignored -> new HashSet<>())
+                        .add(train.id());
+                    if (seg.occupancy() != TrackOccupancy.FAULT) {
+                        segments.set(i, seg.withOccupancy(TrackOccupancy.OCCUPIED));
+                    }
                 }
             }
         }
+    }
+
+    /** 返回当前实际覆盖指定区段的列车 ID 快照。 */
+    public synchronized Set<String> occupyingTrainIds(String segmentId) {
+        Set<String> trainIds = occupyingTrainIdsBySegment.get(segmentId);
+        return trainIds == null ? Set.of() : Set.copyOf(trainIds);
     }
 
     /**
