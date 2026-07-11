@@ -22,7 +22,6 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
@@ -105,8 +104,7 @@ public class DispatchController {
             Instant.now(),
             null
         );
-        dispatchService.submit(command);
-        return command;
+        return dispatchService.submit(command);
     }
 
     @PostMapping("/commands/{commandId}/cancel")
@@ -115,27 +113,11 @@ public class DispatchController {
         return Map.of("accepted", true, "commandId", commandId);
     }
 
-    // ---- 进路查询与建立（信号层 × 调度层调试用） ----
+    // ---- 调度进路查询 ----
 
     @GetMapping("/route/list")
     public List<RouteInfo> routeList() {
         return routeInterlockingService.queryRoutes();
-    }
-
-    @PostMapping("/route/establish")
-    public Map<String, Object> routeEstablish(
-        @RequestParam @NotBlank String routeId,
-        @RequestParam @NotBlank String trainId
-    ) {
-        String rejection = routeInterlockingService.establishRoute(routeId, trainId);
-        Map<String, Object> result = new HashMap<>();
-        result.put("accepted", rejection == null);
-        result.put("routeId", routeId);
-        result.put("trainId", trainId);
-        if (rejection != null) {
-            result.put("rejectReason", rejection);
-        }
-        return result;
     }
 
     @GetMapping("/station-records")

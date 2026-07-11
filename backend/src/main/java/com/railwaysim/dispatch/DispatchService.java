@@ -113,7 +113,7 @@ public class DispatchService {
         latestSnapshot = buildSnapshot(currentPlan, latestProfiles, List.of(), List.of());
     }
 
-    public synchronized void submit(DispatchCommand command) {
+    public synchronized DispatchCommand submit(DispatchCommand command) {
         Map<String, Object> payload = command.payload() == null
             ? new HashMap<>()
             : new HashMap<>(command.payload());
@@ -140,6 +140,7 @@ public class DispatchService {
             log.info("[DispatchLoop] route command queued {}", commandSummary(stored));
         }
         refreshSnapshot();
+        return stored;
     }
 
     public synchronized List<DispatchCommand> pendingCommands() {

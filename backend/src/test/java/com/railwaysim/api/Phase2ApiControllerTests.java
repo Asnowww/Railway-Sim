@@ -6,6 +6,8 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.railwaysim.train.VehicleSpecificationCatalog;
 import com.railwaysim.vehicle.external.ExternalTrainDirection;
 import com.railwaysim.vehicle.drivercab.DriverCabDirectionHandleState;
@@ -22,6 +24,7 @@ import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMock
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.MvcResult;
 
 @SpringBootTest(properties = {
     "spring.datasource.url=jdbc:h2:mem:phase2-api;MODE=MySQL;DB_CLOSE_DELAY=-1;DATABASE_TO_LOWER=TRUE",
@@ -37,6 +40,9 @@ class Phase2ApiControllerTests {
 
     @Autowired
     private VehicleSpecificationCatalog vehicleSpecificationCatalog;
+
+    @Autowired
+    private ObjectMapper objectMapper;
 
     @Test
     void exposesTrainPowerEnergyAndMaintenanceReadApis() throws Exception {
@@ -114,7 +120,7 @@ class Phase2ApiControllerTests {
             .andExpect(status().isOk())
             .andExpect(jsonPath("$", hasSize(1)));
 
-        mockMvc.perform(post("/api/dispatch/commands")
+        MvcResult submittedResult = mockMvc.perform(post("/api/dispatch/commands")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                     {
@@ -124,16 +130,32 @@ class Phase2ApiControllerTests {
                     }
                     """))
             .andExpect(status().isOk())
-            .andExpect(jsonPath("$.status").value("PENDING"));
+            .andExpect(jsonPath("$.status").value("PENDING"))
+            .andExpect(jsonPath("$.payload.decisionId").isNotEmpty())
+            .andExpect(jsonPath("$.payload.reservationId").isNotEmpty())
+            .andReturn();
+
+        JsonNode submitted = objectMapper.readTree(submittedResult.getResponse().getContentAsString());
+        String commandId = submitted.path("id").asText();
+        String decisionId = submitted.path("payload").path("decisionId").asText();
+        String reservationId = submitted.path("payload").path("reservationId").asText();
 
         mockMvc.perform(post("/api/simulation/tick"))
-            .andExpect(status().isOk());
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.routeStates[0].status").value("OCCUPIED"))
+            .andExpect(jsonPath("$.dispatch.routeDecisions[0].decisionId").value(decisionId))
+            .andExpect(jsonPath("$.dispatch.routeDecisions[0].routeCommandId").value(commandId))
+            .andExpect(jsonPath("$.dispatch.routeReservations[0].reservationId").value(reservationId))
+            .andExpect(jsonPath("$.dispatch.routeReservations[0].decisionId").value(decisionId))
+            .andExpect(jsonPath("$.dispatch.routeReservations[0].commandId").value(commandId));
 
         mockMvc.perform(get("/api/dispatch/commands"))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$", hasSize(1)))
             .andExpect(jsonPath("$[0].commandType").value("REQUEST_ROUTE"))
             .andExpect(jsonPath("$[0].status").value("EFFECT_CONFIRMED"))
+            .andExpect(jsonPath("$[0].payload.decisionId").value(decisionId))
+            .andExpect(jsonPath("$[0].payload.reservationId").value(reservationId))
             .andExpect(jsonPath("$[0].payload.lastFeedbackSource").value("SIGNAL_INTERLOCKING"))
             .andExpect(jsonPath("$[0].payload.lastFeedbackDetails.accepted").value(true));
     }

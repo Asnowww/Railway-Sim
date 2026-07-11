@@ -29,6 +29,9 @@ export interface DispatchCommandView {
   commandType: string
   status: string
   reason: string
+  payload?: Record<string, unknown>
+  createdAt?: string
+  appliedAt?: string | null
 }
 
 export interface DispatchRouteInfo {
@@ -41,11 +44,25 @@ export interface DispatchRouteInfo {
   status: string
 }
 
-export interface DispatchRouteEstablishResponse {
-  accepted: boolean
-  routeId: string
+export interface DispatchRouteDecision {
+  decisionId: string
+  selectedTrainId: string
+  selectedRouteId: string
+  waitingTrainIds: string[]
+  status: string
+  routeCommandId: string
+  reason: string
+  rejectReason: string | null
+}
+
+export interface DispatchRouteReservation {
+  reservationId: string
   trainId: string
-  rejectReason?: string
+  routeId: string
+  decisionId: string
+  state: string
+  commandId: string
+  rejectReason: string | null
 }
 
 export interface DispatchSnapshot {
@@ -57,6 +74,9 @@ export interface DispatchSnapshot {
   trainProfiles: DispatchTrainProfile[]
   openDisturbances: DispatchDisturbance[]
   activeCommands: DispatchCommandView[]
+  routeDispatchActive: boolean
+  routeDecisions: DispatchRouteDecision[]
+  routeReservations: DispatchRouteReservation[]
 }
 
 export interface RunPlanPeriod {
