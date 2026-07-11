@@ -64,7 +64,7 @@ GET /api/signal/vehicles/statuses
 | `directionHandleState` | `ZERO`、`FORWARD`、`BACKWARD` | 当前按列车上下行接入方向投影为前进位。 |
 | `masterHandleState` | `ZERO`、`TRACTION`、`BRAKE`、`FAST_BRAKE` | 按牵引、常用制动、紧急制动状态投影。 |
 
-司机台 PLC 原始报文不属于车辆-信号接口本身，而属于 `司机驾驶模拟台 PLC <-> 车辆控制系统 DriverCabAdapter`。车辆-信号接口只消费车辆控制系统整理后的 `driverConsoleState` 和 `cabDisplay`。
+司机台 PLC 原始报文不属于车辆-信号接口本身，而属于车辆控制系统内部外设适配。PLC 输入侧（`POST plc-input`）由 `vehicle-runtime-service:9300` 的 `DriverCabInputController` 接收处理；信号系统只消费车辆控制系统整理后的 `driverConsoleState` 和 `cabDisplay`，两者均通过 `backend:8080` 提供给信号模块。
 
 ### 车辆遥测 JSON 入口
 
