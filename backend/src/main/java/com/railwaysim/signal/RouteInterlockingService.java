@@ -43,6 +43,16 @@ public class RouteInterlockingService {
     }
 
     public synchronized void reset() {
+        Map<String, RouteState> expiredStates = new LinkedHashMap<>();
+        for (RouteState route : routeStates.values()) {
+            for (String switchId : route.lockedSwitchIds()) {
+                trackService.unlockSwitch(switchId);
+            }
+            RouteState expired = route.status() == RouteStatus.EXPIRED_BY_RESET
+                ? route
+                : route.transitionTo(RouteStatus.EXPIRED_BY_RESET);
+            expiredStates.put(route.routeId(), expired);
+        }
         routeStates.clear();
         routeHoldsByTrain.clear();
         OperationalLineData lineData = infrastructureCatalog.lineData();
@@ -50,13 +60,15 @@ public class RouteInterlockingService {
             return;
         }
         for (OperationalLineData.RouteDefinition routeDef : lineData.routes()) {
-            routeStates.put(routeDef.id(), new RouteState(
-                routeDef.id(),
-                RouteStatus.AVAILABLE,
-                Set.of(),
-                null,
-                new LinkedHashSet<>(routeDef.axleSectionIds() == null ? List.of() : routeDef.axleSectionIds())
-            ));
+            Set<String> axleSegmentIds = new LinkedHashSet<>(
+                routeDef.axleSectionIds() == null ? List.of() : routeDef.axleSectionIds()
+            );
+            RouteState expired = expiredStates.get(routeDef.id());
+            RouteState available = expired == null
+                ? new RouteState(routeDef.id(), RouteStatus.AVAILABLE, Set.of(), null, axleSegmentIds)
+                : new RouteState(routeDef.id(), RouteStatus.EXPIRED_BY_RESET, Set.of(), null, axleSegmentIds)
+                    .transitionTo(RouteStatus.AVAILABLE);
+            routeStates.put(routeDef.id(), available);
         }
     }
 
@@ -65,32 +77,74 @@ public class RouteInterlockingService {
         if (route == null) {
             return "Route " + routeId + " does not exist";
         }
-        if (route.status() == RouteStatus.ESTABLISHED) {
-            // 同一条进路允许多列车先后使用（单线追踪），
-            // 只在其区段重叠部分由 MA 前车尾部截断处理，不拒绝
-            if (trainId.equals(route.establishedByTrainId())) {
+        if (trainId == null || trainId.isBlank()) {
+            return "trainId is required";
+        }
+        if (route.status().holdsInterlockingResources()) {
+            if (trainId.equals(route.establishedByTrainId())
+                && route.status() != RouteStatus.RELEASING) {
                 routeHoldsByTrain.remove(trainId);
                 return null;
             }
-            // 不拒绝，允许后续列车进入同一进路
+            return "Route " + routeId + " is " + route.status()
+                + " for train " + route.establishedByTrainId();
         }
+        if (route.status() != RouteStatus.AVAILABLE) {
+            if (route.status() == RouteStatus.CONFLICTED) {
+                restoreResolvedConflicts();
+                route = routeStates.get(routeId);
+            }
+            if (route.status() != RouteStatus.AVAILABLE
+                && route.status().returnsToAvailableOnTick()) {
+                route = transition(route, RouteStatus.AVAILABLE);
+            }
+            if (route.status() != RouteStatus.AVAILABLE) {
+                return "Route " + routeId + " is not available: " + route.status();
+            }
+        }
+
+        route = transition(route, RouteStatus.VALIDATING);
 
         Set<String> routeSegments = resolvedSegmentIds(route);
         if (routeSegments.isEmpty()) {
-            return "Route " + routeId + " has no resolved track segments";
+            return reject(route, RouteStatus.REJECTED,
+                "Route " + routeId + " has no resolved track segments");
         }
 
         for (RouteState existing : routeStates.values()) {
-            if (existing.status() == RouteStatus.ESTABLISHED
+            if (!existing.routeId().equals(routeId)
+                && existing.status().holdsInterlockingResources()
                 && intersects(routeSegments, resolvedSegmentIds(existing))) {
-                routeStates.put(routeId, route.withConflicted());
-                return "Route " + routeId + " conflicts with established route " + existing.routeId();
+                return reject(route, RouteStatus.CONFLICTED,
+                    "Route " + routeId + " conflicts with established route " + existing.routeId());
+            }
+        }
+
+        // ---- 区段占用/故障检查（不在计划中的区段禁止建进路） ----
+        for (String segId : routeSegments) {
+            TrackSegmentState seg = findSegmentById(segId).orElse(null);
+            if (seg == null) {
+                return reject(route, RouteStatus.REJECTED,
+                    "TRACK_NOT_FOUND:" + segId + " does not exist");
+            }
+            if (seg.occupancy() == TrackOccupancy.FAULT) {
+                return reject(route, RouteStatus.REJECTED,
+                    "TRACK_FAULT:" + segId + " is in fault state");
+            }
+            Set<String> occupyingTrainIds = trackService.occupyingTrainIds(segId);
+            if (occupyingTrainIds.stream().anyMatch(occupyingTrainId -> !trainId.equals(occupyingTrainId))) {
+                return reject(route, RouteStatus.REJECTED,
+                    "TRACK_OCCUPIED:" + segId + " is occupied by another train");
+            }
+            if (seg.occupancy() == TrackOccupancy.OCCUPIED && occupyingTrainIds.isEmpty()) {
+                return reject(route, RouteStatus.REJECTED,
+                    "TRACK_OCCUPIED:" + segId + " has no attributable occupying train");
             }
         }
 
         Optional<String> invalidSwitchRequirement = invalidSwitchRequirement(routeSegments);
         if (invalidSwitchRequirement.isPresent()) {
-            return invalidSwitchRequirement.get();
+            return reject(route, RouteStatus.REJECTED, invalidSwitchRequirement.get());
         }
 
         Map<OperationalLineData.SwitchDefinition, SwitchPosition> switchRequirements =
@@ -104,36 +158,40 @@ public class RouteInterlockingService {
                 continue;
             }
             if (sw.locked()) {
-                return "Switch " + swDef.id() + " is locked";
+                return reject(route, RouteStatus.REJECTED, "Switch " + swDef.id() + " is locked");
             }
             if (sw.position() != required && !trackService.canThrowSwitch(swDef.id(), required)) {
-                return "Switch " + swDef.id() + " cannot move to " + required;
+                return reject(route, RouteStatus.REJECTED,
+                    "Switch " + swDef.id() + " cannot move to " + required);
             }
         }
 
-        // All checks passed — throw and lock switches atomically
+        route = transition(route, RouteStatus.SETTING_SWITCHES);
         Set<String> lockedIds = new LinkedHashSet<>();
-        for (Map.Entry<OperationalLineData.SwitchDefinition, SwitchPosition> entry : switchRequirements.entrySet()) {
-            OperationalLineData.SwitchDefinition swDef = entry.getKey();
-            SwitchPosition required = entry.getValue();
-            SwitchState sw = switchState(swDef.id()).orElse(null);
-            if (sw == null) {
-                continue;
+        try {
+            for (Map.Entry<OperationalLineData.SwitchDefinition, SwitchPosition> entry : switchRequirements.entrySet()) {
+                OperationalLineData.SwitchDefinition swDef = entry.getKey();
+                SwitchPosition required = entry.getValue();
+                SwitchState sw = switchState(swDef.id()).orElse(null);
+                if (sw == null) {
+                    continue;
+                }
+                if (sw.position() != required) {
+                    trackService.throwSwitch(swDef.id(), required);
+                }
+                trackService.lockSwitch(swDef.id());
+                lockedIds.add(swDef.id());
             }
-            if (sw.position() != required) {
-                trackService.throwSwitch(swDef.id(), required);
+        } catch (RuntimeException exception) {
+            for (String switchId : lockedIds) {
+                trackService.unlockSwitch(switchId);
             }
-            trackService.lockSwitch(swDef.id());
-            lockedIds.add(swDef.id());
+            routeStates.put(routeId, route.transitionTo(RouteStatus.FAILED));
+            log.error("[Interlocking] failed to establish route {}", routeId, exception);
+            return "ROUTE_FAILED:" + routeId + " could not set and lock switches";
         }
 
-        routeStates.put(routeId, new RouteState(
-            routeId,
-            RouteStatus.ESTABLISHED,
-            lockedIds,
-            trainId,
-            route.axleSegmentIds()
-        ));
+        routeStates.put(routeId, route.withLocked(lockedIds, trainId));
         routeHoldsByTrain.remove(trainId);
         log.info("[Interlocking] route {} established by train {}; locked switches={}", routeId, trainId, lockedIds);
         return null;
@@ -143,7 +201,7 @@ public class RouteInterlockingService {
         if (trainId == null || trainId.isBlank()) {
             return;
         }
-        routeHoldsByTrain.put(trainId, reason == null || reason.isBlank() ? "ROUTE_NOT_ESTABLISHED" : reason);
+        routeHoldsByTrain.put(trainId, reason == null || reason.isBlank() ? "ROUTE_NOT_LOCKED" : reason);
     }
 
     public synchronized void clearRouteHold(String trainId) {
@@ -155,21 +213,50 @@ public class RouteInterlockingService {
     }
 
     public synchronized String routeHoldReason(String trainId) {
-        return routeHoldsByTrain.getOrDefault(trainId, "ROUTE_NOT_ESTABLISHED");
+        return routeHoldsByTrain.getOrDefault(trainId, "ROUTE_NOT_LOCKED");
     }
 
     public synchronized void releaseRoute(String routeId) {
         RouteState route = routeStates.get(routeId);
-        if (route == null || route.status() != RouteStatus.ESTABLISHED) {
+        if (route == null) {
             return;
+        }
+        if (route.status() == RouteStatus.LOCKED || route.status() == RouteStatus.OCCUPIED) {
+            route = transition(route, RouteStatus.RELEASING);
+        }
+        if (route.status() != RouteStatus.RELEASING) {
+            return;
+        }
+
+        completeRelease(route);
+    }
+
+    public synchronized String cancelRoute(String routeId) {
+        RouteState route = routeStates.get(routeId);
+        if (route == null) {
+            return "Route " + routeId + " does not exist";
+        }
+        if (route.status() == RouteStatus.AVAILABLE
+            || route.status() == RouteStatus.RELEASED
+            || route.status() == RouteStatus.CANCELLED) {
+            return null;
+        }
+        if (route.status() == RouteStatus.OCCUPIED || route.status() == RouteStatus.RELEASING) {
+            return "Route " + routeId + " cannot be cancelled after a train has entered";
+        }
+        if (route.status() != RouteStatus.LOCKED
+            && route.status() != RouteStatus.VALIDATING
+            && route.status() != RouteStatus.SETTING_SWITCHES) {
+            return "Route " + routeId + " cannot be cancelled from " + route.status();
         }
 
         for (String switchId : route.lockedSwitchIds()) {
             trackService.unlockSwitch(switchId);
         }
-        routeStates.put(routeId, route.withReleased());
+        routeStates.put(routeId, route.transitionTo(RouteStatus.CANCELLED));
         restoreResolvedConflicts();
-        log.info("[Interlocking] route {} released; unlocked switches={}", routeId, route.lockedSwitchIds());
+        log.info("[Interlocking] route {} cancelled; unlocked switches={}", routeId, route.lockedSwitchIds());
+        return null;
     }
 
     public synchronized void releaseAllForTrain(String trainId) {
@@ -204,7 +291,7 @@ public class RouteInterlockingService {
 
         double closest = Double.POSITIVE_INFINITY;
         for (RouteState route : routeStates.values()) {
-            if (route.status() != RouteStatus.ESTABLISHED) {
+            if (!route.status().holdsInterlockingResources()) {
                 continue;
             }
             if (trainId.equals(route.establishedByTrainId())) {
@@ -230,19 +317,9 @@ public class RouteInterlockingService {
         return closest;
     }
 
-    private Set<String> trainRouteSegments(String trainId) {
-        for (RouteState route : routeStates.values()) {
-            if (route.status() == RouteStatus.ESTABLISHED
-                && trainId.equals(route.establishedByTrainId())) {
-                return resolvedSegmentIds(route);
-            }
-        }
-        return Set.of();
-    }
-
     public synchronized List<String> establishedSegmentPathForTrain(String trainId) {
         return routeStates.values().stream()
-            .filter(route -> route.status() == RouteStatus.ESTABLISHED)
+            .filter(route -> route.status().holdsInterlockingResources())
             .filter(route -> trainId.equals(route.establishedByTrainId()))
             .findFirst()
             .map(route -> List.copyOf(resolvedSegmentIds(route)))
@@ -251,6 +328,13 @@ public class RouteInterlockingService {
 
     public synchronized void touchRoutes(List<TrainState> trains) {
         ensureInitialized();
+        restoreResolvedConflicts();
+        for (RouteState route : List.copyOf(routeStates.values())) {
+            if (route.status().returnsToAvailableOnTick()) {
+                transition(route, RouteStatus.AVAILABLE);
+            }
+        }
+
         for (TrainState train : trains) {
             for (RouteState route : List.copyOf(routeStates.values())) {
                 if (route.status() != RouteStatus.AVAILABLE) {
@@ -267,11 +351,12 @@ public class RouteInterlockingService {
         }
 
         for (RouteState route : List.copyOf(routeStates.values())) {
-            if (route.status() != RouteStatus.ESTABLISHED) {
-                continue;
-            }
-            if (!anyTrainInRoute(trains, route)) {
-                releaseRoute(route.routeId());
+            if (route.status() == RouteStatus.LOCKED && ownerTrainInRoute(trains, route)) {
+                transition(route, RouteStatus.OCCUPIED);
+            } else if (route.status() == RouteStatus.OCCUPIED && !ownerTrainInRoute(trains, route)) {
+                transition(route, RouteStatus.RELEASING);
+            } else if (route.status() == RouteStatus.RELEASING) {
+                completeRelease(route);
             }
         }
     }
@@ -290,8 +375,39 @@ public class RouteInterlockingService {
                     ? new RouteDispatchResult(true, null)
                     : new RouteDispatchResult(false, rejection);
             }
+            case "CANCEL_ROUTE" -> {
+                String routeId = findBestRoute(detail);
+                if (routeId == null) {
+                    yield new RouteDispatchResult(false, "No matching route for detail=" + detail);
+                }
+                String rejection = cancelRoute(routeId);
+                yield rejection == null
+                    ? new RouteDispatchResult(true, null)
+                    : new RouteDispatchResult(false, rejection);
+            }
             default -> new RouteDispatchResult(false, "Unsupported route command: " + commandType);
         };
+    }
+
+    private RouteState transition(RouteState route, RouteStatus target) {
+        RouteState next = route.transitionTo(target);
+        routeStates.put(route.routeId(), next);
+        return next;
+    }
+
+    private String reject(RouteState route, RouteStatus target, String reason) {
+        transition(route, target);
+        return reason;
+    }
+
+    private void completeRelease(RouteState route) {
+        for (String switchId : route.lockedSwitchIds()) {
+            trackService.unlockSwitch(switchId);
+        }
+        RouteState released = transition(route, RouteStatus.RELEASED);
+        restoreResolvedConflicts();
+        log.info("[Interlocking] route {} released; unlocked switches={}",
+            released.routeId(), route.lockedSwitchIds());
     }
 
     private void ensureInitialized() {
@@ -309,20 +425,26 @@ public class RouteInterlockingService {
                 && train.positionMeters() < seg.endMeters());
     }
 
-    private boolean anyTrainInRoute(List<TrainState> trains, RouteState route) {
+    private boolean ownerTrainInRoute(List<TrainState> trains, RouteState route) {
+        return trains.stream()
+            .filter(train -> train.id().equals(route.establishedByTrainId()))
+            .anyMatch(train -> trainInRoute(train, route));
+    }
+
+    private boolean trainInRoute(TrainState train, RouteState route) {
         Set<String> segmentIds = resolvedSegmentIds(route);
-        return trains.stream().anyMatch(train -> segmentIds.stream()
+        return segmentIds.stream()
             .map(this::findSegmentById)
             .flatMap(Optional::stream)
             .anyMatch(seg -> {
                 double tail = train.positionMeters() - train.lengthMeters();
                 return train.positionMeters() > seg.startMeters() && tail < seg.endMeters();
-            }));
+            });
     }
 
     private void restoreResolvedConflicts() {
         List<RouteState> established = routeStates.values().stream()
-            .filter(route -> route.status() == RouteStatus.ESTABLISHED)
+            .filter(route -> route.status().holdsInterlockingResources())
             .toList();
         for (RouteState route : List.copyOf(routeStates.values())) {
             if (route.status() != RouteStatus.CONFLICTED) {
@@ -332,7 +454,7 @@ public class RouteInterlockingService {
             boolean stillConflicts = established.stream()
                 .anyMatch(existing -> intersects(routeSegments, resolvedSegmentIds(existing)));
             if (!stillConflicts) {
-                routeStates.put(route.routeId(), route.withReleased());
+                transition(route, RouteStatus.AVAILABLE);
             }
         }
     }

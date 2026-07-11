@@ -12,7 +12,6 @@ import com.railwaysim.track.TrackService;
 import com.railwaysim.train.TrainState;
 import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -36,6 +35,7 @@ public class SignalService {
     private final StaticInfrastructureCatalog infrastructureCatalog;
     private final TrackService trackService;
     private final RouteInterlockingService interlockingService;
+    private final FixedBlockAuthorityCalculator fixedBlockCalculator;
     private List<MovementAuthority> authorities = List.of();
     private List<SignalState> signalStates = List.of();
 
@@ -52,12 +52,14 @@ public class SignalService {
         SimulationProperties simulationProperties,
         StaticInfrastructureCatalog infrastructureCatalog,
         TrackService trackService,
-        RouteInterlockingService interlockingService
+        RouteInterlockingService interlockingService,
+        FixedBlockAuthorityCalculator fixedBlockCalculator
     ) {
         this.simulationProperties = simulationProperties;
         this.infrastructureCatalog = infrastructureCatalog;
         this.trackService = trackService;
         this.interlockingService = interlockingService;
+        this.fixedBlockCalculator = fixedBlockCalculator;
     }
 
     public synchronized void reset() {
@@ -100,6 +102,74 @@ public class SignalService {
         List<MovementAuthority> nextAuthorities = new ArrayList<>();
         Set<String> allReserved = new HashSet<>();
 
+        boolean isFixedBlock = "FIXED".equalsIgnoreCase(simulationProperties.getBlockMode());
+        if (isFixedBlock && !ordered.isEmpty()) {
+            var fixedResult = fixedBlockCalculator.calculate(
+                ordered, trackByTrain, dispatchByTrain, lineLengthMeters, safetyGap);
+
+            // ---- 固定闭塞后处理：叠加进路联锁 + 站台停靠约束 ----
+            Map<String, MovementAuthority> fixedByTrain = fixedResult.authorities().stream()
+                .collect(Collectors.toMap(MovementAuthority::trainId, Function.identity(), (a, b) -> b));
+            List<MovementAuthority> constrained = new ArrayList<>();
+            for (TrainState train : ordered) {
+                MovementAuthority orig = fixedByTrain.get(train.id());
+                if (orig == null) continue;
+
+                double constrainedEnd = orig.authorityEndMeters();
+                double constrainedSpeed = orig.speedLimitMetersPerSecond();
+                String reason = orig.reason();
+                String endSegId = orig.endSegmentId();
+                String reasonCode = orig.reasonCode();
+
+                // 进路联锁：等待进路建立时 MA 不得前伸
+                if (interlockingService.isRouteHoldActive(train.id())) {
+                    constrainedEnd = train.positionMeters();
+                    constrainedSpeed = 0;
+                    reason = "等待进路建立(" + interlockingService.routeHoldReason(train.id()) + ")";
+                    reasonCode = "ROUTE_CONFLICT";
+                }
+
+                // 站台停靠：MA 截到站台位置
+                DispatchConstraint dispatch = dispatchByTrain.get(train.id());
+                Map<String, Double> stationLimits = resolveStationDwell(train, dispatch);
+                if (stationLimits.containsKey("maEndAt")
+                    && stationLimits.get("maEndAt") < constrainedEnd) {
+                    constrainedEnd = stationLimits.get("maEndAt");
+                    boolean dwelling = stationLimits.getOrDefault("isDwelling", 0.0) > 0;
+                    if (dwelling) {
+                        constrainedSpeed = 0;
+                        int dwellElapsedSec = stationLimits.getOrDefault("dwellElapsedSec", 0.0).intValue();
+                        int dwellTargetSec = stationLimits.getOrDefault("dwellTargetSec", (double) DEFAULT_DWELL_SECONDS).intValue();
+                        reason = "站台停靠(" + dwellElapsedSec + "/" + dwellTargetSec + "s)";
+                    } else {
+                        double maDistance = Math.max(0, constrainedEnd - train.positionMeters());
+                        double safeBrakingSpeed = Math.sqrt(2 * DEFAULT_BRAKING_DECELERATION * maDistance);
+                        double dispatchLimitedSpeed = dispatch == null
+                            ? safeBrakingSpeed
+                            : dispatch.applyToSpeedLimit(safeBrakingSpeed);
+                        constrainedSpeed = Math.min(constrainedSpeed, dispatchLimitedSpeed);
+                        reason = "站台停靠";
+                    }
+                    reasonCode = "STATION_DWELL";
+                }
+
+                constrainedEnd = Math.max(train.positionMeters(), constrainedEnd);
+                if (constrainedEnd <= train.positionMeters()) {
+                    constrainedSpeed = 0;
+                }
+                TrackSegmentState endSeg = trackService.segmentAt(constrainedEnd);
+                if (endSeg != null) endSegId = endSeg.id();
+
+                constrained.add(new MovementAuthority(train.id(), constrainedEnd, constrainedSpeed,
+                    reason, orig.currentSegmentId(), endSegId, reasonCode));
+            }
+
+            trackService.applyReservations(fixedResult.reservedSegmentIds());
+            authorities = List.copyOf(constrained);
+            signalStates = computeSignalAspects(ordered);
+            return;
+        }
+
         for (int i = 0; i < ordered.size(); i++) {
             TrainState train = ordered.get(i);
             double trainHead = train.positionMeters();
@@ -110,7 +180,15 @@ public class SignalService {
             double nextTrainTailLimit = Double.POSITIVE_INFINITY;
             if (i + 1 < ordered.size()) {
                 TrainState nextTrain = ordered.get(i + 1);
-                nextTrainTailLimit = nextTrain.positionMeters() - nextTrain.lengthMeters() - effectiveSafetyGap;
+                double linearLimit = nextTrain.positionMeters() - nextTrain.lengthMeters() - effectiveSafetyGap;
+                nextTrainTailLimit = linearLimit;
+            }
+            // 拓扑感知（移动闭塞）：沿本车路径查找前方障碍
+            if ("MOVING".equalsIgnoreCase(simulationProperties.getBlockMode())) {
+                double topoObstacle = resolveTopologyObstacle(train, effectiveSafetyGap);
+                if (topoObstacle < nextTrainTailLimit) {
+                    nextTrainTailLimit = topoObstacle;
+                }
             }
 
             double lineEndLimit = lineLengthMeters;
@@ -167,7 +245,11 @@ public class SignalService {
             }
 
             String segId = currentSeg != null ? currentSeg.id() : "?";
-            nextAuthorities.add(new MovementAuthority(train.id(), authorityEnd, speedLimit, reason, segId));
+            TrackSegmentState endSeg = trackService.segmentAt(authorityEnd);
+            String endSegId = endSeg != null ? endSeg.id() : segId;
+            String reasonCode = deriveReasonCode(reason);
+            nextAuthorities.add(new MovementAuthority(train.id(), authorityEnd, speedLimit,
+                reason, segId, endSegId, reasonCode));
         }
 
         trackService.applyReservations(allReserved);
@@ -204,27 +286,45 @@ public class SignalService {
             return List.of();
         }
 
+        Map<String, List<String>> forwardMap = trackService.forwardNeighborMap();
         List<SignalState> aspects = new ArrayList<>();
         for (TrackSegmentState seg : trackSegments) {
-            SignalAspect aspect = switch (seg.occupancy()) {
-                case FREE -> SignalAspect.GREEN;
-                case RESERVED -> SignalAspect.YELLOW;
-                case OCCUPIED, FAULT -> SignalAspect.RED;
-            };
+            // 按"前方两区段"判断灯色：
+            //   首区段 OCCUPIED/FAULT → RED
+            //   首区段 FREE/RESERVED + 第二区段 OCCUPIED/FAULT/不存在 → YELLOW
+            //   首区段 FREE/RESERVED + 第二区段 FREE/RESERVED → GREEN
 
+            List<String> forward = forwardMap.getOrDefault(seg.id(), List.of());
+            TrackSegmentState seg1 = seg; // 首保护区段（本区段）
+            TrackSegmentState seg2 = forward.isEmpty() ? null
+                : findSegment(forward.get(0)); // 第二保护区段
+
+            SignalAspect aspect;
             String reasonTrainId = null;
-            if (aspect == SignalAspect.RED && seg.occupancy() == TrackOccupancy.OCCUPIED) {
-                reasonTrainId = trains.stream()
-                    .filter(t -> {
-                        double tail = t.positionMeters() - t.lengthMeters();
-                        return t.positionMeters() > seg.startMeters() && tail < seg.endMeters();
-                    })
-                    .map(TrainState::id)
-                    .findFirst()
-                    .orElse(null);
-            }
-            if (aspect == SignalAspect.RED && seg.occupancy() == TrackOccupancy.FAULT) {
-                reasonTrainId = "FAULT";
+
+            if (seg1.occupancy() == TrackOccupancy.OCCUPIED
+                || seg1.occupancy() == TrackOccupancy.FAULT) {
+                aspect = SignalAspect.RED;
+                if (seg1.occupancy() == TrackOccupancy.OCCUPIED) {
+                    reasonTrainId = trains.stream()
+                        .filter(t -> {
+                            double tail = t.positionMeters() - t.lengthMeters();
+                            return t.positionMeters() > seg1.startMeters()
+                                && tail < seg1.endMeters();
+                        })
+                        .map(TrainState::id)
+                        .findFirst()
+                        .orElse(null);
+                } else {
+                    reasonTrainId = "FAULT";
+                }
+            } else if (seg1.occupancy() == TrackOccupancy.RESERVED) {
+                aspect = SignalAspect.YELLOW;
+            } else if (seg2 != null && (seg2.occupancy() == TrackOccupancy.OCCUPIED
+                || seg2.occupancy() == TrackOccupancy.FAULT)) {
+                aspect = SignalAspect.YELLOW;
+            } else {
+                aspect = SignalAspect.GREEN;
             }
 
             aspects.add(new SignalState(
@@ -314,6 +414,41 @@ public class SignalService {
             }
         }
         return best;
+    }
+
+    /**
+     * 沿拓扑前向邻居搜索本车前方最近的障碍点（前车尾部减安全距离）。
+     * 在分叉场景下沿当前激活的道岔方向搜索，不会跨越到平行支路。
+     */
+    private double resolveTopologyObstacle(TrainState self, double safetyGap) {
+        TrackSegmentState seg = trackService.segmentAt(self.positionMeters());
+        if (seg == null) return Double.POSITIVE_INFINITY;
+        Map<String, List<String>> forwardMap = trackService.forwardNeighborMap();
+        String current = seg.id();
+        int steps = 0;
+
+        while (current != null && steps < 20) { // 搜索上限：20段
+            TrackSegmentState curSeg = findSegment(current);
+            if (curSeg == null) break;
+            // 发现此区段上有别的列车→取尾部减安全间隔
+            if (curSeg.occupancy() == TrackOccupancy.OCCUPIED) {
+                // 检查是否是自己的区段
+                if (self.positionMeters() >= curSeg.startMeters()
+                    && self.positionMeters() < curSeg.endMeters()) {
+                    // 自己所在区段，继续向下找
+                } else {
+                    return curSeg.startMeters() - safetyGap;
+                }
+            }
+            if (curSeg.occupancy() == TrackOccupancy.FAULT) {
+                return curSeg.startMeters() - safetyGap;
+            }
+            List<String> forward = forwardMap.getOrDefault(current, List.of());
+            if (forward.isEmpty()) break;
+            current = forward.size() == 1 ? forward.get(0) : chooseActiveForwardNeighbor(current, forward);
+            steps++;
+        }
+        return Double.POSITIVE_INFINITY;
     }
 
     private TrackSegmentState findSegment(String id) {
@@ -433,6 +568,15 @@ public class SignalService {
         if (!train.brakeAvailable() && !train.tractionAvailable()) return base * 2.0;
         if (!train.brakeAvailable() || !train.tractionAvailable()) return base * 1.5;
         return base;
+    }
+
+    private static String deriveReasonCode(String reason) {
+        if (reason == null) return "NORMAL";
+        if (reason.contains("故障")) return "FAULT_LIMIT";
+        if (reason.contains("前车")) return "TRAIN_AHEAD";
+        if (reason.contains("进路")) return "ROUTE_CONFLICT";
+        if (reason.contains("站台")) return "STATION_DWELL";
+        return "NORMAL";
     }
 
     private String buildReason(double authorityEnd, double nextTrainLimit, double lineEnd,

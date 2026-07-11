@@ -224,4 +224,14 @@ public class SimulationProperties {
     public void setOnboardSubsystemLeaseMillis(long onboardSubsystemLeaseMillis) {
         this.onboardSubsystemLeaseMillis = Math.max(1, onboardSubsystemLeaseMillis);
     }
+
+    // ---- 信号配置 ----
+
+    private String blockMode = "MOVING";
+
+    public String getBlockMode() { return blockMode; }
+
+    public void setBlockMode(String blockMode) {
+        this.blockMode = (blockMode == null || blockMode.isBlank()) ? "MOVING" : blockMode;
+    }
 }

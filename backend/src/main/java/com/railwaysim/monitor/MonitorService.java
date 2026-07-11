@@ -54,7 +54,7 @@ public class MonitorService {
             routeStates,
             powerSections,
             vehicleRuntime,
-            buildAlarms(tick, simulatedTime, trains, authorities, powerSections, events),
+            buildAlarms(tick, simulatedTime, trains, trackSegments, authorities, powerSections, events),
             dispatch
         );
     }
@@ -63,6 +63,7 @@ public class MonitorService {
         long tick,
         Instant simulatedTime,
         List<TrainState> trains,
+        List<TrackSegmentState> trackSegments,
         List<MovementAuthority> authorities,
         List<PowerSectionState> powerSections,
         List<DomainEvent> events
@@ -77,6 +78,19 @@ public class MonitorService {
                 train.faultLevel() <= 0 ? 2 : train.faultLevel(),
                 "车辆物理状态异常",
                 "车辆故障码：" + train.faultCode() + "，自检：" + train.selfCheckStatus() + "，可用模式：" + train.availableOperationMode(),
+                simulatedTime,
+                false
+            ))
+            .forEach(alarms::add);
+        trackSegments.stream()
+            .filter(seg -> seg.occupancy() == com.railwaysim.track.TrackOccupancy.FAULT)
+            .map(seg -> new Alarm(
+                "TRACK-FAULT-" + tick + "-" + seg.id(),
+                "track",
+                seg.id(),
+                3,
+                "轨道区段故障",
+                "区段 " + seg.id() + " 处于 FAULT 状态，前方信号降红、MA 截断",
                 simulatedTime,
                 false
             ))
