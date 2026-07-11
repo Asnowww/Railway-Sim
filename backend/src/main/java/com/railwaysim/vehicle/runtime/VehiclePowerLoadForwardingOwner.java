@@ -7,4 +7,9 @@ package com.railwaysim.vehicle.runtime;
 public interface VehiclePowerLoadForwardingOwner {
 
     boolean ownsPowerLoadForwarding();
+
+    /** True when this deployment delegates power authority to the external vehicle/power services. */
+    default boolean isConfiguredPowerLoadForwardingOwner() {
+        return ownsPowerLoadForwarding();
+    }
 }

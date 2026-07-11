@@ -1,61 +1,91 @@
-# FMU Vehicle Physics Service
+# FMU Vehicle Physics Service (9000)
 
-This service is the legacy Python prototype boundary for the Modelica/FMU vehicle physics model.
-Spring Boot remains the simulation coordinator and sends one batch request per
-simulation tick. The FMU service owns the traction, braking, resistance,
-longitudinal dynamics, current draw, and regenerative braking calculations.
+This service executes the real `TrainTractionBrake.fmu` through FMPy. It is the
+vehicle-physics execution boundary only: Spring Boot on port 9300 remains the
+owner of train control state, MA/speed-limit/station decisions, and fleet tick
+orchestration.
 
-The current preferred external vehicle runtime is `vehicle-runtime-service`
-on port `9300`. It is a Spring Boot service that manages per-train control and
-simulation queues. This Python service is retained as an FMU prototype and
-compatibility scaffold; it has not been wired into the new queue-based runtime.
+The current WP4 boundary is intentionally not connected to the 9300 production
+loop yet. That integration belongs to WP5.
 
-Current scaffold:
+## Runtime invariants
 
-```text
-fmu-service
-├── app
-│   ├── fleet_stepper.py
-│   ├── fmu_manager.py
-│   ├── http_server.py
-│   ├── input_mapper.py
-│   ├── output_mapper.py
-│   ├── schemas.py
-│   ├── simple_fallback.py
-│   └── train_fmu_instance.py
-└── modelica
-    └── TrainTractionBrake.mo
-```
+- FMI 2.0 Co-Simulation with a fixed `0.1 s` communication step.
+- Linux/amd64, Python 3.12, FMPy 0.3.30, FastAPI 0.139.0, Uvicorn 0.51.0.
+- One extracted FMU artifact per process and one persistent `FMU2Slave` per
+  `trainId`.
+- One Uvicorn worker. Multiple workers would split the in-memory instance map.
+- `config/train_params.yaml` is the only vehicle calibration source. The FMU
+  manifest, request, and loaded YAML must have the same `parameterSetId`.
+- The Python `SimpleFallbackModel` is retained only as an offline reference; no
+  production HTTP route invokes it.
 
-The backend currently uses a Java fallback model through `FmuVehiclePhysicsAdapter`
-so the project can run before the exported FMU is available. Once the Modelica
-model is exported as an FMI 2.0 Co-Simulation FMU, the adapter can call this
-service over HTTP or gRPC without changing the TCMS/ATO adapter or the train
-state contract.
+`simulationTimeSeconds` is the start time of the requested communication step.
+For example, an INIT at `0.0` advances the FMU to `0.1`; the next STEP must use
+`simulationTimeSeconds=0.1`.
 
-Run the current fallback-backed HTTP service:
+## Build and test
+
+Run from the repository root:
 
 ```bash
-cd fmu-service
-python3 -m app.http_server
+./scripts/build-fmu.sh
+
+docker build --platform linux/amd64 \
+  -f fmu-service/Dockerfile \
+  --target test \
+  -t railway-sim-fmu-test:local \
+  .
+
+docker run --rm --platform linux/amd64 railway-sim-fmu-test:local
 ```
 
-Endpoints:
+The generated `.fmu`, OpenModelica intermediates, SHA and manifest stay under
+the ignored `fmu-service/build/` directory. Git tracks the Modelica source,
+build scripts, manifest schema, and tests, not the FMU binary.
 
-```text
-GET  /health
-POST /step-fleet
-```
-
-`/api/fleet/step` is kept as a compatibility alias for early adapter
-experiments; the Spring Boot adapter uses `/step-fleet`.
-
-The service keeps one `TrainFMUInstance` per train ID through `FleetStepper`, so
-the future FMU runtime has a stable place to store per-train FMU state.
-
-Run a local smoke test without starting the HTTP server:
+## Run
 
 ```bash
-cd fmu-service
-python3 -m app.self_test
+docker build --platform linux/amd64 \
+  -f fmu-service/Dockerfile \
+  --target runtime \
+  -t railway-sim-fmu-runtime:local \
+  .
+
+docker run --rm --platform linux/amd64 \
+  -p 9000:9000 \
+  railway-sim-fmu-runtime:local
 ```
+
+Compatibility entry point for an environment that already has all pinned
+dependencies and artifact paths configured:
+
+```bash
+python -m app.http_server
+```
+
+## API
+
+```text
+GET    /health
+GET    /fmu/metadata
+POST   /fmu/validate
+POST   /step-fleet
+DELETE /instances/{trainId}
+POST   /instances/{trainId}/reset
+POST   /instances/reset-all
+```
+
+`/api/fleet/step` and `/parameters` remain compatibility aliases.
+
+`POST /instances/{trainId}/reset` accepts the frozen `/step-fleet` request
+envelope with exactly one matching train and `lifecycleCommand=RESET`. The main
+`/step-fleet` endpoint supports `INIT`, `STEP`, `RESET`, and `RESYNC` directly.
+
+Batch validation is completed before any `doStep`. Repeating the same tick with
+the same canonical request returns the cached response. A conflicting or
+out-of-order tick returns HTTP 409 without advancing any instance. A native FMI
+failure affects only that train: successful trains remain in `trainOutputs`, the
+failed train appears in `trainErrors`, and it can resume only through RESET or
+RESYNC.

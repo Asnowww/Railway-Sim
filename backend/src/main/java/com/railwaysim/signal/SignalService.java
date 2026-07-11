@@ -20,13 +20,17 @@ import java.util.Map;
 import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 @Service
 public class SignalService {
 
+    private static final Logger log = LoggerFactory.getLogger(SignalService.class);
     private static final double DEFAULT_BRAKING_DECELERATION = 0.8;
     private static final int MAX_RESERVE_SEGMENTS = 2;
+    private static final double STATION_STOP_WINDOW_METERS = 10.0;
 
     private final SimulationProperties simulationProperties;
     private final StaticInfrastructureCatalog infrastructureCatalog;
@@ -116,8 +120,10 @@ public class SignalService {
                 ? trainHead
                 : interlockingService.maLimitFromRouteConflict(train.id());
 
+            DispatchConstraint dispatch = dispatchByTrain.get(train.id());
+
             // ---- 停站控制：MA终点收到站台位置前，等停站时间到才延伸 ----
-            Map<String, Double> stationLimits = resolveStationDwell(train);
+            Map<String, Double> stationLimits = resolveStationDwell(train, dispatch);
             if (stationLimits.containsKey("maEndAt")) {
                 lineEndLimit = Math.min(lineEndLimit, stationLimits.get("maEndAt"));
             }
@@ -139,7 +145,6 @@ public class SignalService {
             double maDistance = Math.max(0, authorityEnd - trainHead);
             double safeBrakingSpeed = Math.sqrt(2 * DEFAULT_BRAKING_DECELERATION * maDistance);
 
-            DispatchConstraint dispatch = dispatchByTrain.get(train.id());
             double dispatchLimitedSpeed = dispatch == null
                 ? safeBrakingSpeed
                 : dispatch.applyToSpeedLimit(safeBrakingSpeed);
@@ -328,7 +333,7 @@ public class SignalService {
      *
      * @return Map with "maEndAt"(截断MA终点) and/or "isDwelling"(>0 表示正在站停)
      */
-    private Map<String, Double> resolveStationDwell(TrainState train) {
+    private Map<String, Double> resolveStationDwell(TrainState train, DispatchConstraint dispatch) {
         Map<String, Double> result = new LinkedHashMap<>();
         OperationalLineData lineData = infrastructureCatalog.lineData();
         List<OperationalLineData.StationDefinition> stations = lineData.stations();
@@ -338,13 +343,27 @@ public class SignalService {
 
         // 找车头前方的下一站；允许车头在站中心后方 10m 内继续被视为站停窗口。
         OperationalLineData.StationDefinition nextStation = stations.stream()
-            .filter(s -> s.centerMeters() >= head - 10)
+            .filter(s -> s.centerMeters() >= head - STATION_STOP_WINDOW_METERS)
             .min(Comparator.comparingDouble(s -> s.centerMeters() - head))
             .orElse(null);
         if (nextStation == null) return result;
 
         String dwellKey = train.id() + ":" + nextStation.id();
-        boolean stopped = Math.abs(head - nextStation.centerMeters()) < 10 && train.zeroSpeed();
+        if (dispatch != null && dispatch.releaseStationStop()) {
+            stationDwellTicks.remove(dwellKey);
+            releasedStationStops.add(dwellKey);
+            atStationStop.remove(train.id());
+            log.info(
+                "[DispatchLoop] signal released station stop train={} station={} commandIds={} reason={}",
+                train.id(),
+                nextStation.id(),
+                dispatch.sourceCommandIds(),
+                dispatch.reason()
+            );
+            return result;
+        }
+
+        boolean stopped = Math.abs(head - nextStation.centerMeters()) <= STATION_STOP_WINDOW_METERS && train.zeroSpeed();
         if (releasedStationStops.contains(dwellKey)) {
             atStationStop.remove(train.id());
             return result;
@@ -354,6 +373,14 @@ public class SignalService {
         if (stopped) {
             stationDwellTicks.put(dwellKey, tickCount + 1);
             atStationStop.put(train.id(), true);
+            if (tickCount == 0) {
+                log.info(
+                    "[DispatchLoop] signal latched station dwell train={} station={} position={}m",
+                    train.id(),
+                    nextStation.id(),
+                    String.format("%.1f", head)
+                );
+            }
         }
 
         int dwellTicks = stationDwellTicks.getOrDefault(dwellKey, 0);
@@ -362,7 +389,7 @@ public class SignalService {
 
         // 站停未完成 → MA 截到站台位置
         if (dwellTicks < targetDwellTicks) {
-            result.put("maEndAt", nextStation.centerMeters() + 10);
+            result.put("maEndAt", nextStation.centerMeters() + STATION_STOP_WINDOW_METERS);
             if (dwellTicks > 0) {
                 result.put("isDwelling", 1.0);
                 result.put("dwellElapsedSec", (double) dwellElapsedSec);
@@ -375,6 +402,13 @@ public class SignalService {
         stationDwellTicks.remove(dwellKey);
         releasedStationStops.add(dwellKey);
         atStationStop.remove(train.id());
+        log.info(
+            "[DispatchLoop] signal scheduled dwell complete train={} station={} elapsed={}s target={}s",
+            train.id(),
+            nextStation.id(),
+            dwellElapsedSec,
+            DEFAULT_DWELL_SECONDS
+        );
         return result;
     }
 

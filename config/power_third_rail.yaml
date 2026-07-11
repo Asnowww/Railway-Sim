@@ -1,31 +1,33 @@
+# 供电网络配置 — 从 线路数据(1).xls 实际轨道拓扑推导
+#
+# 线路拓扑（来自 xls）：
+#   - 全 319 Seg 连通，总长 47,503m
+#   - 主线段 0~16,049m：双线（上下行），15 组道岔渡线交叉连接
+#   - 车辆段 16,049~47,503m：234 个 Seg 编组场配线网络
+#   - 13 座车站（GGZ → GTG），每站 2 站台对应上下行
+#
+# 供电分区策略：
+#   - 每段覆盖 3~4 站/约 3.6~4.5km
+#   - 每段由一座牵引变电所供电，变电所置于段内主站
+#   - 每段含上下行双接触轨，通过馈线分别供电
+#   - 道岔渡线自然落于段内，不切割分区
+#   - 车辆段独立分区（单端供电）
+
 nominalVoltage: 1500
 minimumVoltage: 1000
 cutoffVoltage: 900
-maxTractionCurrentAmps: 2000
-overCurrentThresholdAmps: 2200
+maxTractionCurrentAmps: 3000
+overCurrentThresholdAmps: 3300
 currentToVoltageDrop: 0.03
 
+# ── 供电分区（5 个分区 x 上下行）────────────────────────
 sections:
   - id: P01
-    name: 南段供电分区
+    name: 西段-GGZ至KYL（上下行）
     substationId: SS01
     feederId: F01
     startMeters: 0
-    endMeters: 2500
-    substationVoltage: 1500
-    energized: true
-    breakerStatus: CLOSED
-    isolatorStatus: CLOSED
-    supplyMode: DOUBLE_END
-    maintenanceState: NONE
-    lockoutState: UNLOCKED
-    resistanceOhmPerMeter: 0.00002
-  - id: P02
-    name: 北段供电分区
-    substationId: SS02
-    feederId: F02
-    startMeters: 2500
-    endMeters: 5000
+    endMeters: 4000
     substationVoltage: 1500
     energized: true
     breakerStatus: CLOSED
@@ -35,144 +37,418 @@ sections:
     lockoutState: UNLOCKED
     resistanceOhmPerMeter: 0.00002
 
+  - id: P02
+    name: 中段-FTN至QLZ（上下行）
+    substationId: SS02
+    feederId: F02
+    startMeters: 4000
+    endMeters: 7500
+    substationVoltage: 1500
+    energized: true
+    breakerStatus: CLOSED
+    isolatorStatus: CLOSED
+    supplyMode: DOUBLE_END
+    maintenanceState: NONE
+    lockoutState: UNLOCKED
+    resistanceOhmPerMeter: 0.00002
+
+  - id: P03
+    name: 中北段-LLQ至BWR（上下行）
+    substationId: SS03
+    feederId: F03
+    startMeters: 7500
+    endMeters: 11000
+    substationVoltage: 1500
+    energized: true
+    breakerStatus: CLOSED
+    isolatorStatus: CLOSED
+    supplyMode: DOUBLE_END
+    maintenanceState: NONE
+    lockoutState: UNLOCKED
+    resistanceOhmPerMeter: 0.00002
+
+  - id: P04
+    name: 北段-JBG至GTG（上下行）
+    substationId: SS04
+    feederId: F04
+    startMeters: 11000
+    endMeters: 16600
+    substationVoltage: 1500
+    energized: true
+    breakerStatus: CLOSED
+    isolatorStatus: CLOSED
+    supplyMode: DOUBLE_END
+    maintenanceState: NONE
+    lockoutState: UNLOCKED
+    resistanceOhmPerMeter: 0.00002
+
+  - id: P05
+    name: 车辆段（配线网络）
+    substationId: SS05
+    feederId: F05
+    startMeters: 16600
+    endMeters: 47503
+    substationVoltage: 1500
+    energized: true
+    breakerStatus: CLOSED
+    isolatorStatus: CLOSED
+    supplyMode: SINGLE_END
+    maintenanceState: NONE
+    lockoutState: UNLOCKED
+    resistanceOhmPerMeter: 0.00003
+
+# ── 牵引变电所（5 座，位置对应实际车站）─────────────────
 substations:
   - id: SS01
-    name: 南段牵引变电所
+    name: FSP（丰山坡）牵引变电所
     startMeters: 0
-    endMeters: 2500
+    endMeters: 4000
     supplyMode: DOUBLE_END
     available: true
-    feederIds: [F01]
+    feederIds: [F01-UP, F01-DN]
     sectionIds: [P01]
     devices:
       - id: SS01-TR
-        name: 南段牵引变压器
+        name: FSP牵引变压器
         deviceType: TRACTION_TRANSFORMER
         defaultState: AVAILABLE
         ratedVoltage: 35000
-        ratedCurrentAmps: 1800
-        locationMeters: 100
+        ratedCurrentAmps: 2500
+        locationMeters: 1661
         affectsSectionIds: [P01]
       - id: SS01-REC
-        name: 南段整流器
+        name: FSP整流器
         deviceType: RECTIFIER
         defaultState: AVAILABLE
         ratedVoltage: 1500
-        ratedCurrentAmps: 2200
-        locationMeters: 105
+        ratedCurrentAmps: 3000
+        locationMeters: 1665
         affectsSectionIds: [P01]
       - id: SS01-DCB
-        name: 南段直流快速断路器
+        name: FSP直流快速断路器
         deviceType: DC_BREAKER
         defaultState: CLOSED
         ratedVoltage: 1500
-        ratedCurrentAmps: 2200
-        locationMeters: 110
+        ratedCurrentAmps: 3000
+        locationMeters: 1670
         affectsSectionIds: [P01]
+
   - id: SS02
-    name: 北段牵引变电所
-    startMeters: 2500
-    endMeters: 5000
+    name: FTD（富田东）牵引变电所
+    startMeters: 4000
+    endMeters: 7500
     supplyMode: DOUBLE_END
     available: true
-    feederIds: [F02]
+    feederIds: [F02-UP, F02-DN]
     sectionIds: [P02]
     devices:
       - id: SS02-TR
-        name: 北段牵引变压器
+        name: FTD牵引变压器
         deviceType: TRACTION_TRANSFORMER
         defaultState: AVAILABLE
         ratedVoltage: 35000
-        ratedCurrentAmps: 1800
-        locationMeters: 2600
+        ratedCurrentAmps: 2500
+        locationMeters: 5014
         affectsSectionIds: [P02]
       - id: SS02-REC
-        name: 北段整流器
+        name: FTD整流器
         deviceType: RECTIFIER
         defaultState: AVAILABLE
         ratedVoltage: 1500
-        ratedCurrentAmps: 2200
-        locationMeters: 2605
+        ratedCurrentAmps: 3000
+        locationMeters: 5018
         affectsSectionIds: [P02]
       - id: SS02-DCB
-        name: 北段直流快速断路器
+        name: FTD直流快速断路器
         deviceType: DC_BREAKER
         defaultState: CLOSED
         ratedVoltage: 1500
-        ratedCurrentAmps: 2200
-        locationMeters: 2610
+        ratedCurrentAmps: 3000
+        locationMeters: 5023
         affectsSectionIds: [P02]
 
+  - id: SS03
+    name: LLE（柳林二）牵引变电所
+    startMeters: 7500
+    endMeters: 11000
+    supplyMode: DOUBLE_END
+    available: true
+    feederIds: [F03-UP, F03-DN]
+    sectionIds: [P03]
+    devices:
+      - id: SS03-TR
+        name: LLE牵引变压器
+        deviceType: TRACTION_TRANSFORMER
+        defaultState: AVAILABLE
+        ratedVoltage: 35000
+        ratedCurrentAmps: 2500
+        locationMeters: 9429
+        affectsSectionIds: [P03]
+      - id: SS03-REC
+        name: LLE整流器
+        deviceType: RECTIFIER
+        defaultState: AVAILABLE
+        ratedVoltage: 1500
+        ratedCurrentAmps: 3000
+        locationMeters: 9433
+        affectsSectionIds: [P03]
+      - id: SS03-DCB
+        name: LLE直流快速断路器
+        deviceType: DC_BREAKER
+        defaultState: CLOSED
+        ratedVoltage: 1500
+        ratedCurrentAmps: 3000
+        locationMeters: 9438
+        affectsSectionIds: [P03]
+
+  - id: SS04
+    name: BDZ（北大张）牵引变电所
+    startMeters: 11000
+    endMeters: 16600
+    supplyMode: DOUBLE_END
+    available: true
+    feederIds: [F04-UP, F04-DN]
+    sectionIds: [P04]
+    devices:
+      - id: SS04-TR
+        name: BDZ牵引变压器
+        deviceType: TRACTION_TRANSFORMER
+        defaultState: AVAILABLE
+        ratedVoltage: 35000
+        ratedCurrentAmps: 2500
+        locationMeters: 13907
+        affectsSectionIds: [P04]
+      - id: SS04-REC
+        name: BDZ整流器
+        deviceType: RECTIFIER
+        defaultState: AVAILABLE
+        ratedVoltage: 1500
+        ratedCurrentAmps: 3000
+        locationMeters: 13911
+        affectsSectionIds: [P04]
+      - id: SS04-DCB
+        name: BDZ直流快速断路器
+        deviceType: DC_BREAKER
+        defaultState: CLOSED
+        ratedVoltage: 1500
+        ratedCurrentAmps: 3000
+        locationMeters: 13916
+        affectsSectionIds: [P04]
+
+  - id: SS05
+    name: 车辆段牵引变电所
+    startMeters: 16600
+    endMeters: 47503
+    supplyMode: SINGLE_END
+    available: true
+    feederIds: [F05]
+    sectionIds: [P05]
+    devices:
+      - id: SS05-TR
+        name: 车辆段牵引变压器
+        deviceType: TRACTION_TRANSFORMER
+        defaultState: AVAILABLE
+        ratedVoltage: 35000
+        ratedCurrentAmps: 1500
+        locationMeters: 32000
+        affectsSectionIds: [P05]
+      - id: SS05-REC
+        name: 车辆段整流器
+        deviceType: RECTIFIER
+        defaultState: AVAILABLE
+        ratedVoltage: 1500
+        ratedCurrentAmps: 2000
+        locationMeters: 32004
+        affectsSectionIds: [P05]
+      - id: SS05-DCB
+        name: 车辆段直流快速断路器
+        deviceType: DC_BREAKER
+        defaultState: CLOSED
+        ratedVoltage: 1500
+        ratedCurrentAmps: 2000
+        locationMeters: 32008
+        affectsSectionIds: [P05]
+
+# ── 接触轨区段（5 段，上下行合并为一组）───────────────
+# 注：每段内的上下行两条第三轨由同一变电所的不同馈线供电，
+# 道岔渡线处的接触轨采用电气分段（绝缘节/中性段）。
 thirdRailSections:
   - id: TRS01
-    name: 南段接触轨
+    name: 西段接触轨（GGZ-KYL，上下行）
     powerSectionId: P01
     startMeters: 0
-    endMeters: 2500
+    endMeters: 4000
     isolatorIds: [ISO-P01-A, ISO-P01-B]
     returnCurrentDeviceId: RCD-P01
+
   - id: TRS02
-    name: 北段接触轨
+    name: 中段接触轨（FTN-QLZ，上下行）
     powerSectionId: P02
-    startMeters: 2500
-    endMeters: 5000
+    startMeters: 4000
+    endMeters: 7500
     isolatorIds: [ISO-P02-A, ISO-P02-B]
     returnCurrentDeviceId: RCD-P02
 
+  - id: TRS03
+    name: 中北段接触轨（LLQ-BWR，上下行）
+    powerSectionId: P03
+    startMeters: 7500
+    endMeters: 11000
+    isolatorIds: [ISO-P03-A, ISO-P03-B]
+    returnCurrentDeviceId: RCD-P03
+
+  - id: TRS04
+    name: 北段接触轨（JBG-GTG，上下行）
+    powerSectionId: P04
+    startMeters: 11000
+    endMeters: 16600
+    isolatorIds: [ISO-P04-A, ISO-P04-B]
+    returnCurrentDeviceId: RCD-P04
+
+  - id: TRS05
+    name: 车辆段接触轨
+    powerSectionId: P05
+    startMeters: 16600
+    endMeters: 47503
+    isolatorIds: [ISO-P05-A, ISO-P05-B]
+    returnCurrentDeviceId: RCD-P05
+
+# ── 隔离开关（10 个，段边界/电分段处）─────────────────
+# 注：实际现场在每个分段绝缘节处设隔离开关，
+# 实现越区供电和检修隔离。此处仅列区段边界。
 isolators:
   - id: ISO-P01-A
-    name: 南段首端隔离开关
+    name: 西段首端（上行起点）
     thirdRailSectionId: TRS01
     positionMeters: 0
     defaultState: CLOSED
     normallyOpen: false
   - id: ISO-P01-B
-    name: 南段末端隔离开关
+    name: 西段末端（KYL-FTN间）
     thirdRailSectionId: TRS01
-    positionMeters: 2500
-    defaultState: CLOSED
-    normallyOpen: false
-  - id: ISO-P02-A
-    name: 北段首端隔离开关
-    thirdRailSectionId: TRS02
-    positionMeters: 2500
-    defaultState: CLOSED
-    normallyOpen: false
-  - id: ISO-P02-B
-    name: 北段末端隔离开关
-    thirdRailSectionId: TRS02
-    positionMeters: 5000
+    positionMeters: 4000
     defaultState: CLOSED
     normallyOpen: false
 
+  - id: ISO-P02-A
+    name: 中段首端（KYL-FTN间）
+    thirdRailSectionId: TRS02
+    positionMeters: 4000
+    defaultState: CLOSED
+    normallyOpen: false
+  - id: ISO-P02-B
+    name: 中段末端（QLZ-LLQ间）
+    thirdRailSectionId: TRS02
+    positionMeters: 7500
+    defaultState: CLOSED
+    normallyOpen: false
+
+  - id: ISO-P03-A
+    name: 中北段首端（QLZ-LLQ间）
+    thirdRailSectionId: TRS03
+    positionMeters: 7500
+    defaultState: CLOSED
+    normallyOpen: false
+  - id: ISO-P03-B
+    name: 中北段末端（BWR-JBG间）
+    thirdRailSectionId: TRS03
+    positionMeters: 11000
+    defaultState: CLOSED
+    normallyOpen: false
+
+  - id: ISO-P04-A
+    name: 北段首端（BWR-JBG间）
+    thirdRailSectionId: TRS04
+    positionMeters: 11000
+    defaultState: CLOSED
+    normallyOpen: false
+  - id: ISO-P04-B
+    name: 北段末端（车挡处）
+    thirdRailSectionId: TRS04
+    positionMeters: 16600
+    defaultState: CLOSED
+    normallyOpen: false
+
+  - id: ISO-P05-A
+    name: 车辆段入口隔离开关
+    thirdRailSectionId: TRS05
+    positionMeters: 16600
+    defaultState: CLOSED
+    normallyOpen: false
+  - id: ISO-P05-B
+    name: 车辆段末端隔离开关
+    thirdRailSectionId: TRS05
+    positionMeters: 47503
+    defaultState: CLOSED
+    normallyOpen: false
+
+# ── 排流柜（5 个）──────────────────────────────────────
 returnCurrentDevices:
   - id: RCD-P01
-    name: 南段排流柜
+    name: 西段排流柜（FSP）
     sectionId: P01
     deviceType: DRAINAGE_CABINET
     defaultState: NORMAL
   - id: RCD-P02
-    name: 北段排流柜
+    name: 中段排流柜（FTD）
     sectionId: P02
     deviceType: DRAINAGE_CABINET
     defaultState: NORMAL
+  - id: RCD-P03
+    name: 中北段排流柜（LLE）
+    sectionId: P03
+    deviceType: DRAINAGE_CABINET
+    defaultState: NORMAL
+  - id: RCD-P04
+    name: 北段排流柜（BDZ）
+    sectionId: P04
+    deviceType: DRAINAGE_CABINET
+    defaultState: NORMAL
+  - id: RCD-P05
+    name: 车辆段排流柜
+    sectionId: P05
+    deviceType: DRAINAGE_CABINET
+    defaultState: NORMAL
 
+# ── 杂散电流监测点（5 个）──────────────────────────────
 strayCurrentMonitorPoints:
   - id: SCP-P01
-    name: 南段极化电位监测点
+    name: 西段极化电位监测点（KYL附近）
     sectionId: P01
-    positionMeters: 1250
+    positionMeters: 2000
     returnCurrentDeviceId: RCD-P01
     normalMinPotentialVolts: -0.8
     normalMaxPotentialVolts: 1.8
   - id: SCP-P02
-    name: 北段极化电位监测点
+    name: 中段极化电位监测点（FTD附近）
     sectionId: P02
-    positionMeters: 3750
+    positionMeters: 5500
     returnCurrentDeviceId: RCD-P02
     normalMinPotentialVolts: -0.8
     normalMaxPotentialVolts: 1.8
+  - id: SCP-P03
+    name: 中北段极化电位监测点（JBG附近）
+    sectionId: P03
+    positionMeters: 10000
+    returnCurrentDeviceId: RCD-P03
+    normalMinPotentialVolts: -0.8
+    normalMaxPotentialVolts: 1.8
+  - id: SCP-P04
+    name: 北段极化电位监测点（GTG附近）
+    sectionId: P04
+    positionMeters: 15000
+    returnCurrentDeviceId: RCD-P04
+    normalMinPotentialVolts: -0.8
+    normalMaxPotentialVolts: 1.8
+  - id: SCP-P05
+    name: 车辆段极化电位监测点
+    sectionId: P05
+    positionMeters: 32050
+    returnCurrentDeviceId: RCD-P05
+    normalMinPotentialVolts: -0.8
+    normalMaxPotentialVolts: 1.8
 
+# ── 再生制动策略────────────────────────────────────────
 regeneration:
   sameSectionAbsorbFirst: true
   unabsorbedMode: BRAKE_RESISTOR

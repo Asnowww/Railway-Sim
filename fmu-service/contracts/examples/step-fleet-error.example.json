@@ -1,0 +1,6 @@
+{
+  "status": 409,
+  "errorCode": "FMU_PARAMETER_SET_MISMATCH",
+  "message": "request parameterSetId does not match the loaded vehicle parameter set",
+  "traceId": "vehicle-tick-12001"
+}

@@ -85,6 +85,16 @@ public record OperationalLineData(
             .orElse(Double.POSITIVE_INFINITY);
     }
 
+    public double stationControlDistanceMeters(double positionMeters, double stopWindowMeters) {
+        double window = Math.max(0, stopWindowMeters);
+        return stations.stream()
+            .mapToDouble(station -> station.centerMeters() - positionMeters)
+            .filter(distance -> Math.abs(distance) <= window)
+            .map(Math::abs)
+            .min()
+            .orElseGet(() -> nextStationDistanceMeters(positionMeters));
+    }
+
     public Map<String, TrackSegmentDefinition> trackSegmentById() {
         return trackSegments.stream()
             .collect(Collectors.toMap(TrackSegmentDefinition::id, Function.identity(), (left, right) -> left));

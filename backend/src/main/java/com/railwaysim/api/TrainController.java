@@ -88,12 +88,20 @@ public class TrainController {
         if (request == null || request.normalizedTrainId().isBlank()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "trainId or trainNo is required");
         }
-        TrainState state = trainManager.registerRuntimeStartedTrain(
-            request.normalizedTrainId(),
-            request.normalizedLinkId(),
-            request.normalizedOffsetMeters(),
-            parseDirection(request.direction())
-        );
+        TrainState state;
+        try {
+            state = trainManager.registerRuntimeStartedTrain(
+                request.normalizedTrainId(),
+                request.normalizedLinkId(),
+                request.normalizedOffsetMeters(),
+                parseDirection(request.direction()),
+                request.normalizedLengthMeters(),
+                request.normalizedTrainType(),
+                request.normalizedParameterSetId()
+            );
+        } catch (IllegalArgumentException exception) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, exception.getMessage(), exception);
+        }
         // 该接口由车辆仿真运行时主动调用，用于中央建镜像和审计，不再触发反向注册。
         operationLogService.record(
             "vehicle-runtime",
@@ -101,7 +109,8 @@ public class TrainController {
             "train:" + state.id(),
             "runtime-launch",
             state.controlSessionState(),
-            request.normalizedReason(),
+            request.normalizedReason() + ",trainType=" + request.normalizedTrainType()
+                + ",parameterSetId=" + request.normalizedParameterSetId(),
             request.normalizedTraceId()
         );
         return state;

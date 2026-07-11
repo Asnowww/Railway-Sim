@@ -1,7 +1,9 @@
 # External Power Network Service
 
-This service is the external device-level traction power simulator used by the
-central Spring Boot backend.
+This service is the authoritative traction-power simulator.  In split mode it
+is the only component that calculates a train's section, contact-rail voltage,
+available traction power and power-protection constraint.  The central Spring
+Boot service keeps dispatch, signal and control orchestration only.
 
 Current scope:
 
@@ -13,12 +15,16 @@ Current scope:
 - Execute simple switch, breaker, and maintenance operations
 - Solve simplified medium-voltage feeder current, bus voltage drop, DC contact
   rail voltage, single-end/cross-feed support mode, and stray-current risk
+- Derive section regenerative-absorption budgets from simultaneous traction,
+  split the budget across trains, and expose absorbed/unabsorbed regeneration
 
 Run the service:
 
 ```bash
 cd power-network-service
-python3 -m app.http_server
+python3 -m venv .venv
+.venv/bin/python -m pip install -r requirements.txt
+.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 9200
 ```
 
 Endpoints:
@@ -30,24 +36,36 @@ GET  /power-network/topology
 GET  /power-network/events
 POST /power-network/bootstrap
 POST /power-network/state/query
+POST /power-network/constraints/query
+POST /power-network/step
 POST /power-network/operations
 ```
 
-`POST /power-network/state/query` accepts load snapshots. In authoritative
-`EXTERNAL_HTTP` vehicle-runtime mode, these snapshots are pushed by
-`vehicle-runtime-service:9300`; in `LOCAL`, `DUAL_SHADOW`, or fallback mode they
-are pushed by the central backend
-`PowerIntegrationService`.
+`POST /power-network/step` is the split-mode closed-loop endpoint.  It accepts
+the complete fleet load snapshot and the post-step train positions, then returns
+the next control-cycle `powerConstraints`. `vehicle-runtime-service:9300` is
+the sole writer. `POST /power-network/constraints/query` provides the initial
+constraint before the first vehicle step.  `state/query` remains for local
+fallback and compatibility. The step endpoint is idempotent for the same
+`tick`; an older tick returns HTTP 409.
 
 ```json
 {
+  "tick": 10,
+  "simulationTimeSeconds": 1.0,
+  "stepSizeSeconds": 0.1,
   "sectionLoads": [
     {
       "powerSectionId": "P-CJG-W",
+      "trainIds": ["TR-001", "TR-002"],
       "tractionPowerWatts": 1200000,
       "regenPowerWatts": 0,
       "currentAmps": 1600
     }
+  ],
+  "trainPositions": [
+    {"trainId": "TR-001", "positionMeters": 600.0},
+    {"trainId": "TR-002", "positionMeters": 900.0}
   ]
 }
 ```
@@ -57,8 +75,7 @@ Run the local self-test:
 ```bash
 cd power-network-service
 python3 -m app.self_test
+PYTHONPATH=. .venv/bin/python -m unittest discover -s tests -v
 ```
 
-Logic not fully tested: long-running three-service linkage
-(`backend + vehicle-runtime-service + power-network-service`), real PSCADA
-point-table mapping, and physical power-flow validation are still pending.
+The FastAPI OpenAPI interface is available at `http://127.0.0.1:9200/docs`.

@@ -6,11 +6,16 @@ spring:
     name: vehicle-runtime-service
 
 vehicle-runtime:
+  train-params-path: config/train_params.yaml
   queue-capacity: 1
   default-line-length-meters: 5000
   default-speed-limit-meters-per-second: 22.2
   safety-gap-meters: 120
   instance-lease-millis: 1000
+  physics-mode: JAVA_FALLBACK
+  fmu-base-url: http://localhost:9000
+  fmu-timeout-millis: 80
+  fmu-model-version: TrainTractionBrake/2.0.0
   forward-power-loads: false
   power-network-base-url: http://localhost:9200
   power-network-timeout-millis: 300

@@ -3,6 +3,9 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import * as echarts from 'echarts'
 import topologyTrainUrl from './assets/topology-train.svg'
+import { simulationApi } from './api/rest'
+import { simulationSocket } from './api/ws'
+import type { SimulationSnapshot } from './types/simulation'
 import DispatchLoopDebugView from './views/dispatch/DispatchLoopDebugView.vue'
 
 type ActivePage = 'monitor' | 'dispatchLoop'
@@ -144,6 +147,10 @@ const simulationClock = ref('08:35:24')
 const topologyView = ref<TopologyView>('overview')
 const selectedRouteId = ref('R01')
 const activePage = ref<ActivePage>('monitor')
+const backendConnected = ref(false)
+const backendErrorMessage = ref('')
+const backendTick = ref(0)
+const backendStatus = ref('STOPPED')
 
 const stations = ['上京南', '科技园', '人民广场', '金融城', '会展中心', '机场北']
 
@@ -271,6 +278,7 @@ const linkStates = ref<LinkState[]>([
 
 const trendChartRef = ref<HTMLDivElement | null>(null)
 let trendChart: echarts.ECharts | null = null
+let trendChartResizeObserver: ResizeObserver | null = null
 let clockTimer = 0
 let dataTimer = 0
 
@@ -306,21 +314,36 @@ const selectedStationLoadRate = computed(() => Math.round((selectedStation.value
 const selectedTopologyRoute = computed<TopologyRoute>(() => topologyRoutes.find((route) => route.id === selectedRouteId.value) ?? topologyRoutes[0]!)
 const topologyNodeById = computed(() => new Map(topologyNodes.map((node) => [node.id, node])))
 
+const backendTopologyEdges = computed<TopologyEdge[]>(() => {
+  if (!backendConnected.value || trackSegments.value.length === 0) return topologyEdges
+  return topologyEdges.map((edge, edgeIndex) => {
+    const segment = trackSegments.value[edgeIndex % trackSegments.value.length]
+    return {
+      ...edge,
+      segmentId: segment.id,
+      status: segment.occupancy,
+      speedLimitKph: segment.speedLimitKph,
+      detailCount: Math.max(1, Math.round(segment.widthPercent))
+    }
+  })
+})
+
 const visibleTopologyEdges = computed(() => {
+  const sourceEdges = backendTopologyEdges.value
   if (topologyView.value === 'route') {
     const routeEdgeIds = new Set(selectedTopologyRoute.value.segmentIds)
-    return topologyEdges.filter((edge) => routeEdgeIds.has(edge.id) || edge.routeIds.includes('R01'))
+    return sourceEdges.filter((edge) => routeEdgeIds.has(edge.id) || edge.routeIds.includes('R01'))
   }
 
   if (topologyView.value === 'station') {
-    return topologyEdges.filter((edge) => {
+    return sourceEdges.filter((edge) => {
       const source = topologyNodeById.value.get(edge.source)
       const target = topologyNodeById.value.get(edge.target)
       return [source?.x, target?.x].some((x) => x !== undefined && x >= 22 && x <= 78)
     })
   }
 
-  return topologyEdges.filter((edge) => edge.detailCount >= 10 || edge.routeIds.includes('R01'))
+  return sourceEdges.filter((edge) => edge.detailCount >= 10 || edge.routeIds.includes('R01'))
 })
 const visibleTopologyEdgeIds = computed(() => new Set(visibleTopologyEdges.value.map((edge) => edge.id)))
 
@@ -498,7 +521,74 @@ function updateThresholds(): void {
   if (predictionWindowMinutes.value !== normalizedPredictionWindow) predictionWindowMinutes.value = normalizedPredictionWindow
 }
 
+function applyBackendSnapshot(snapshot: SimulationSnapshot): void {
+  backendConnected.value = true
+  backendErrorMessage.value = ''
+  backendTick.value = snapshot.tick
+  backendStatus.value = snapshot.status
+  simulationClock.value = new Date(snapshot.simulatedTime).toLocaleTimeString('zh-CN', { hour12: false })
+
+  const maxPositionMeters = Math.max(1, ...snapshot.trackSegments.map((segment) => segment.endMeters), ...snapshot.trains.map((train) => train.positionMeters))
+
+  // 性能策略：后端快照按模块整体替换，避免深层逐字段监听带来的额外渲染开销，复杂度 O(n)。
+  trains.value = snapshot.trains.map((train) => ({
+    id: train.id,
+    serviceNo: train.serviceNo || train.id,
+    positionPercent: Math.min(95, Math.max(5, (train.positionMeters / maxPositionMeters) * 100)),
+    speedKph: Math.round(train.speedMetersPerSecond * 3.6),
+    loadRate: Math.round((train.loadRate ?? 0) * 100),
+    faultCode: train.faultCode || '',
+    section: train.currentStationId || `里程 ${Math.round(train.positionMeters)}m`
+  }))
+
+  trackSegments.value = snapshot.trackSegments.map((segment) => ({
+    id: segment.id,
+    name: `${segment.fromNode}-${segment.toNode}`,
+    startPercent: Math.min(95, Math.max(4, (segment.startMeters / maxPositionMeters) * 100)),
+    widthPercent: Math.max(3, ((segment.endMeters - segment.startMeters) / maxPositionMeters) * 100),
+    occupancy: segment.occupancy === 'RESERVED' ? 'OCCUPIED' : segment.occupancy,
+    speedLimitKph: Math.round(segment.speedLimitMetersPerSecond * 3.6)
+  }))
+
+  powerSections.value = snapshot.powerSections.map((section) => ({
+    id: section.id,
+    name: section.name,
+    startPercent: Math.min(95, Math.max(4, (section.startMeters / maxPositionMeters) * 100)),
+    widthPercent: Math.max(4, ((section.endMeters - section.startMeters) / maxPositionMeters) * 100),
+    status: section.status === 'ENERGIZED' ? 'ENERGIZED' : section.status === 'LOST' ? 'LOST' : 'OVERRANGE',
+    affectedTrains: section.affectedTrainIds ?? []
+  }))
+
+  alarms.value = snapshot.alarms.map((alarm) => ({
+    id: alarm.id,
+    time: new Date(alarm.raisedAt).toLocaleTimeString('zh-CN', { hour12: false }),
+    source: alarm.sourceModule,
+    location: alarm.locationRef,
+    level: Math.min(Math.max(alarm.level, 1), 3) as AlarmLevel,
+    description: alarm.title,
+    impact: alarm.detail,
+    confirmed: alarm.confirmed,
+    muted: false
+  }))
+
+  dispatchCommands.value = snapshot.dispatch.activeCommands.map((command) => ({
+    id: command.id,
+    type: command.commandType,
+    target: command.trainId,
+    status: command.status === 'APPLIED' ? '已执行' : command.status === 'PENDING' ? '待执行' : '异常',
+    deviation: command.reason
+  }))
+
+  linkStates.value = [
+    { name: '后端仿真', status: '在线', latencyMs: 0, lastPacket: simulationClock.value },
+    { name: '车辆运行时', status: snapshot.vehicleRuntime.heartbeatStatus === 'UP' ? '在线' : '延迟', latencyMs: snapshot.vehicleRuntime.latencyMillis, lastPacket: simulationClock.value },
+    { name: 'WebSocket', status: '在线', latencyMs: 0, lastPacket: simulationClock.value },
+    { name: '调度模块', status: snapshot.dispatch.interventionActive ? '延迟' : '在线', latencyMs: 0, lastPacket: simulationClock.value }
+  ]
+}
+
 function tickMockData(): void {
+  if (backendConnected.value) return
   // 性能策略：只更新小规模响应式数组中的必要字段，避免整页重建，单次刷新复杂度 O(n)。
   trains.value = trains.value.map((train, trainIndex) => ({
     ...train,
@@ -513,9 +603,24 @@ function tickMockData(): void {
   renderTrendChart()
 }
 
+async function loadBackendSnapshot(): Promise<void> {
+  try {
+    applyBackendSnapshot(await simulationApi.snapshot())
+  } catch (error) {
+    backendConnected.value = false
+    backendErrorMessage.value = error instanceof Error ? error.message : '后端快照加载失败'
+  }
+}
+
+function resizeTrendChart(): void {
+  // 性能策略：仅在容器尺寸变化时触发 ECharts resize，避免大屏缩放时 canvas 使用旧宽度溢出 section。
+  trendChart?.resize()
+}
+
 function renderTrendChart(): void {
   if (!trendChartRef.value) return
   if (!trendChart) trendChart = echarts.init(trendChartRef.value)
+  resizeTrendChart()
   const baseSeries = [620, 760, 980, 1260, 1480, 1660, 1810, 1960, 2130, selectedStation.value.waiting]
   const forecastSeries = baseSeries.map((value, index) => Math.round(value * (1 + index * 0.012)))
   trendChart.setOption({
@@ -544,17 +649,27 @@ watch([selectedLocation, predictionWindowMinutes], () => nextTick(renderTrendCha
 
 onMounted(() => {
   renderTrendChart()
+  void loadBackendSnapshot()
+  simulationSocket.connect()
+  simulationSocket.subscribe(applyBackendSnapshot)
   clockTimer = window.setInterval(() => {
-    simulationClock.value = new Date().toLocaleTimeString('zh-CN', { hour12: false })
+    if (!backendConnected.value) {
+      simulationClock.value = new Date().toLocaleTimeString('zh-CN', { hour12: false })
+    }
   }, 1000)
   dataTimer = window.setInterval(tickMockData, 3000)
-  window.addEventListener('resize', renderTrendChart)
+  trendChartResizeObserver = new ResizeObserver(resizeTrendChart)
+  if (trendChartRef.value) trendChartResizeObserver.observe(trendChartRef.value)
+  window.addEventListener('resize', resizeTrendChart)
 })
 
 onBeforeUnmount(() => {
   window.clearInterval(clockTimer)
   window.clearInterval(dataTimer)
-  window.removeEventListener('resize', renderTrendChart)
+  window.removeEventListener('resize', resizeTrendChart)
+  trendChartResizeObserver?.disconnect()
+  trendChartResizeObserver = null
+  simulationSocket.disconnect()
   trendChart?.dispose()
 })
 </script>
@@ -568,7 +683,10 @@ onBeforeUnmount(() => {
         <h1>上京地铁运营态势监控</h1>
       </section>
       <section class="topbar-actions" aria-label="仿真状态">
-        <span class="status-pill running">本地仿真数据</span>
+        <span :class="['status-pill', { running: backendConnected }]">
+          {{ backendConnected ? `后端已连接 · ${backendStatus} · Tick ${backendTick}` : '本地演示数据' }}
+        </span>
+        <span v-if="backendErrorMessage" class="backend-error">{{ backendErrorMessage }}</span>
         <span>{{ simulationClock }}</span>
         <button type="button" :class="['sound-button', { off: !soundEnabled }]" @click="soundEnabled = !soundEnabled">
           {{ soundEnabled ? '声警开启' : '声警关闭' }}

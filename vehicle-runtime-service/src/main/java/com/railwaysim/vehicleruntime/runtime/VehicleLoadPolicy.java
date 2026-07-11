@@ -1,67 +1,78 @@
 package com.railwaysim.vehicleruntime.runtime;
 
-/**
- * 外部运行时复制中央车辆载荷规则，保证控制队列和本地 fallback 行为接近。
- */
+import com.railwaysim.vehicleruntime.config.VehicleParameters;
+
+/** Vehicle load and equipment derating rules backed by the validated YAML parameter set. */
 final class VehicleLoadPolicy {
 
-    static final double EMPTY_MASS_KG = 180_000;
-    static final double CRUSH_LOAD_MASS_KG = 70_000;
     static final int NOMINAL_TRACTION_UNITS = 4;
     static final int NOMINAL_BRAKE_UNITS = 4;
 
-    private VehicleLoadPolicy() {
+    private final VehicleParameters parameters;
+
+    VehicleLoadPolicy(VehicleParameters parameters) {
+        this.parameters = parameters;
     }
 
-    static double loadMassKg(double explicitLoadMassKg, double loadRate) {
+    double loadMassKg(double explicitLoadMassKg, double loadRate) {
         return explicitLoadMassKg > 0 ? explicitLoadMassKg : loadMassFromRate(loadRate);
     }
 
-    static double loadMassFromRate(double loadRate) {
-        return CRUSH_LOAD_MASS_KG * clamp(loadRate, 0, 1.3);
+    double loadMassFromRate(double loadRate) {
+        double maximumRate = parameters.maxOperatingLoadMassKg() / parameters.maxLoadMassKg();
+        return parameters.maxLoadMassKg() * clamp(loadRate, 0, maximumRate);
     }
 
-    static double totalMassKg(double loadMassKg) {
-        return EMPTY_MASS_KG + Math.max(0, loadMassKg);
+    double totalMassKg(double loadMassKg) {
+        double totalMass = parameters.emptyMassKg() + Math.max(0, loadMassKg);
+        if (totalMass > parameters.formation().hardMassLimitKg()) {
+            throw new IllegalArgumentException(
+                "vehicle mass exceeds hard limit " + parameters.formation().hardMassLimitKg() + " kg"
+            );
+        }
+        return totalMass;
     }
 
-    static String overloadStatus(double loadMassKg) {
-        double rate = CRUSH_LOAD_MASS_KG <= 0 ? 0 : loadMassKg / CRUSH_LOAD_MASS_KG;
-        if (rate > 1.15) {
+    String overloadStatus(double loadMassKg) {
+        if (loadMassKg > parameters.maxOperatingLoadMassKg()) {
             return "CRUSH_OVERLOAD";
         }
-        if (rate > 1.0) {
+        if (loadMassKg > parameters.maxLoadMassKg()) {
             return "OVERLOAD";
         }
         return "NORMAL";
     }
 
-    static boolean overloaded(String overloadStatus) {
+    boolean overloaded(String overloadStatus) {
         return "OVERLOAD".equals(overloadStatus) || "CRUSH_OVERLOAD".equals(overloadStatus);
     }
 
-    static double tractionCommandFactor(double loadMassKg, int availableTractionCount) {
+    double tractionCommandFactor(double loadMassKg, int availableTractionCount) {
         double unitFactor = normalizeUnitCount(availableTractionCount, NOMINAL_TRACTION_UNITS) / (double) NOMINAL_TRACTION_UNITS;
         String overloadStatus = overloadStatus(loadMassKg);
         double loadFactor = "CRUSH_OVERLOAD".equals(overloadStatus) ? 0.55 : "OVERLOAD".equals(overloadStatus) ? 0.75 : 1.0;
         return clamp(unitFactor * loadFactor, 0, 1);
     }
 
-    static double brakingDecelerationFactor(double loadMassKg, int availableBrakeCount) {
+    double brakingDecelerationFactor(double loadMassKg, int availableBrakeCount) {
         double unitFactor = normalizeUnitCount(availableBrakeCount, NOMINAL_BRAKE_UNITS) / (double) NOMINAL_BRAKE_UNITS;
-        double loadPenalty = clamp(1.0 - Math.max(0, loadMassKg - CRUSH_LOAD_MASS_KG) / CRUSH_LOAD_MASS_KG * 0.25, 0.65, 1.0);
+        double loadPenalty = clamp(
+            1.0 - Math.max(0, loadMassKg - parameters.maxLoadMassKg()) / parameters.maxLoadMassKg() * 0.25,
+            0.65,
+            1.0
+        );
         return clamp(unitFactor * loadPenalty, 0.2, 1.2);
     }
 
-    static int normalizeUnitCount(int value, int defaults) {
+    int normalizeUnitCount(int value, int defaults) {
         return value <= 0 ? defaults : Math.min(value, defaults);
     }
 
-    static String vehicleProtectionReason(String overloadStatus) {
+    String vehicleProtectionReason(String overloadStatus) {
         return overloaded(overloadStatus) ? "OVERLOAD_TRACTION_LIMIT" : "NONE";
     }
 
-    private static double clamp(double value, double min, double max) {
+    private double clamp(double value, double min, double max) {
         return Math.max(min, Math.min(max, value));
     }
 }

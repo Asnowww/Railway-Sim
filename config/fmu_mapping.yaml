@@ -1,34 +1,307 @@
 model: RailwaySimVehicle.TrainTractionBrake
+modelVersion: TrainTractionBrake/2.0.0
 fmiVersion: "2.0"
 fmuType: CoSimulation
+
 service:
   protocol: HTTP_JSON
   baseUrl: http://localhost:9000
   stepFleetPath: /step-fleet
 
-inputs:
-  tractionCmd: tractionCommand
-  brakeCmd: brakeCommand
-  emergencyBrakeCmd: emergencyBrakeCommand
-  speedLimit: speedLimitMetersPerSecond
-  maDistance: movementAuthorityDistanceMeters
-  gradient: gradient
-  curveRadius: curveRadiusMeters
-  railVoltage: railVoltage
-  powerAvailable: powerAvailableWatts
-  doorClosed: doorClosed
-  adhesionCoeff: adhesionCoefficient
+# FMU 初始化模式内从 config/train_params.yaml 写入的固定参数。
+parameters:
+  motorCount:
+    fmiVariable: motorCount
+    type: Integer
+    source: formation.motorCount
+  axleCount:
+    fmiVariable: axleCount
+    type: Integer
+    source: formation.axleCount
+  vehicleCount:
+    fmiVariable: vehicleCount
+    type: Integer
+    source: formation.vehicleCount
+  gearRatio:
+    fmiVariable: gearRatio
+    type: Real
+    unit: "1"
+    source: drivetrain.gearRatio
+  wheelRadiusMeters:
+    fmiVariable: wheelRadiusMeters
+    type: Real
+    unit: m
+    source: drivetrain.wheelRadiusMeters
+  tractionTotalEfficiency:
+    fmiVariable: tractionTotalEfficiency
+    type: Real
+    unit: "1"
+    source: drivetrain.tractionTotalEfficiency
+  regenTotalEfficiency:
+    fmiVariable: regenTotalEfficiency
+    type: Real
+    unit: "1"
+    source: drivetrain.regenTotalEfficiency
+  speedRpm:
+    fmiVariablePattern: "speedRpm[{index}]"
+    length: 52
+    type: Real
+    unit: rev/min
+    source: curves.speedRpm
+  tractionTorqueNmPerMotor:
+    fmiVariablePattern: "tractionTorqueNmPerMotor[{index}]"
+    length: 52
+    type: Real
+    unit: N.m
+    source: curves.tractionTorqueNmPerMotor
+  brakeTorqueNmPerMotor:
+    fmiVariablePattern: "brakeTorqueNmPerMotor[{index}]"
+    length: 52
+    type: Real
+    unit: N.m
+    source: curves.brakeTorqueNmPerMotor
+  davisMassCoefficient:
+    fmiVariable: davisMassCoefficient
+    type: Real
+    unit: N
+    source: resistance.davisMassCoefficient
+  davisAxleConstant:
+    fmiVariable: davisAxleConstant
+    type: Real
+    unit: N
+    source: resistance.davisAxleConstant
+  davisSpeedMassCoefficient:
+    fmiVariable: davisSpeedMassCoefficient
+    type: Real
+    unit: N.h/km
+    source: resistance.davisSpeedMassCoefficient
+  davisAeroBase:
+    fmiVariable: davisAeroBase
+    type: Real
+    unit: N.h2/km2/m2
+    source: resistance.davisAeroBase
+  davisAeroVehicleCoefficient:
+    fmiVariable: davisAeroVehicleCoefficient
+    type: Real
+    unit: N.h2/km2/m2
+    source: resistance.davisAeroVehicleCoefficient
+  frontalAreaSquareMeters:
+    fmiVariable: frontalAreaSquareMeters
+    type: Real
+    unit: m2
+    source: resistance.frontalAreaSquareMeters
+  serviceDecelerationMps2:
+    fmiVariable: serviceDecelerationMps2
+    type: Real
+    unit: m/s2
+    source: brake.serviceDecelerationMps2
+  emergencyDecelerationMps2:
+    fmiVariable: emergencyDecelerationMps2
+    type: Real
+    unit: m/s2
+    source: brake.emergencyDecelerationMps2
+  minimumVoltageVolts:
+    fmiVariable: minimumVoltageVolts
+    type: Real
+    unit: V
+    source: power.minVoltage
+  cutoffVoltageVolts:
+    fmiVariable: cutoffVoltageVolts
+    type: Real
+    unit: V
+    source: power.cutoffVoltage
+
+# 只在 INIT、RESET 或 RESYNC 的初始化模式内写入。
+initialState:
+  positionMeters:
+    fmiVariable: initialPositionMeters
+    type: Real
+    unit: m
+  speedMetersPerSecond:
+    fmiVariable: initialSpeedMetersPerSecond
+    type: Real
+    unit: m/s
+  previousEnergyConsumedKwh:
+    fmiVariable: initialEnergyConsumedKwh
+    type: Real
+    unit: kWh
+  previousEnergyRegeneratedKwh:
+    fmiVariable: initialEnergyRegeneratedKwh
+    type: Real
+    unit: kWh
+
+# 每个 100 ms doStep 前写入；stepSizeSeconds 本身作为 doStep 参数。
+stepInputs:
+  trainMassKg:
+    fmiVariable: trainMassKg
+    type: Real
+    unit: kg
+    source: 9300.VehicleLoadPolicy.totalMassKg
+  tractionCommand:
+    fmiVariable: tractionCommand
+    type: Real
+    unit: "1"
+    source: 9300.VehicleControlQueue
+  brakeCommand:
+    fmiVariable: brakeCommand
+    type: Real
+    unit: "1"
+    source: 9300.VehicleControlQueue
+  emergencyBrakeCommand:
+    fmiVariable: emergencyBrakeCommand
+    type: Boolean
+    source: 9300.VehicleControlQueue
+  doorClosed:
+    fmiVariable: doorClosed
+    type: Boolean
+    source: 9300.TCMS
+  gradient:
+    fmiVariable: gradient
+    type: Real
+    unit: "1"
+    source: 9300.TrackConstraint
+  railVoltage:
+    fmiVariable: lineVoltageVolts
+    type: Real
+    unit: V
+    source: 9200.PowerConstraintSnapshot
+  powerAvailableWatts:
+    fmiVariable: powerAvailableWatts
+    type: Real
+    unit: W
+    source: 9200.PowerConstraintSnapshot
+  regenPowerAvailableWatts:
+    fmiVariable: regenPowerAvailableWatts
+    type: Real
+    unit: W
+    source: 9200.PowerConstraintSnapshot
+  currentCollectionAvailable:
+    fmiVariable: currentCollectionAvailable
+    type: Boolean
+    source: 9200.PowerConstraintSnapshot
+  adhesionCoefficient:
+    fmiVariable: adhesionCoefficient
+    type: Real
+    unit: "1"
+    source: 9300.environment
+
+# 只参与实例路由、追踪和诊断，不写入 FMU 物理变量。
+metadata:
+  trainId:
+    purpose: instance-key
+  lifecycleCommand:
+    allowedValues: [INIT, STEP, RESET, RESYNC]
+  sectionId:
+    purpose: power-section-trace
+  speedLimitMetersPerSecond:
+    unit: m/s
+    owner: 9300-control
+  movementAuthorityDistanceMeters:
+    unit: m
+    owner: 9300-control
+  stationDistanceMeters:
+    unit: m
+    owner: 9300-control
+  stoppingDistanceMeters:
+    unit: m
+    owner: 9300-control
+  dynamicsState:
+    owner: 9300-control
+  dynamicsConstraintReason:
+    owner: 9300-control
+  curveRadiusMeters:
+    unit: m
+    owner: 9300-track-metadata
 
 outputs:
-  newPosition: newPositionMeters
-  newSpeed: newSpeedMetersPerSecond
-  acceleration: accelerationMetersPerSecondSquared
-  tractionForce: tractionForceNewtons
-  brakeForce: brakeForceNewtons
-  regenBrakeForce: regenBrakeForceNewtons
-  tractionPower: tractionPowerWatts
-  railCurrent: railCurrentAmps
-  regenPower: regenPowerWatts
-  energyConsumed: energyConsumedKwh
-  energyRegenerated: energyRegeneratedKwh
-  faultCode: faultCode
+  newPositionMeters:
+    fmiVariable: positionMeters
+    type: Real
+    unit: m
+    consumer: 9300-state
+  newSpeedMetersPerSecond:
+    fmiVariable: speedMetersPerSecond
+    type: Real
+    unit: m/s
+    consumer: 9300-control
+  accelerationMetersPerSecondSquared:
+    fmiVariable: accelerationMetersPerSecondSquared
+    type: Real
+    unit: m/s2
+    consumer: 9300-report
+  tractionForceNewtons:
+    fmiVariable: tractionForceNewtons
+    type: Real
+    unit: N
+    consumer: 9300-report
+  brakeForceNewtons:
+    fmiVariable: brakeForceNewtons
+    type: Real
+    unit: N
+    consumer: 9300-report
+  regenBrakeForceNewtons:
+    fmiVariable: regenBrakeForceNewtons
+    type: Real
+    unit: N
+    consumer: 9300-report
+  motorSpeedRpm:
+    fmiVariable: motorSpeedRpm
+    type: Real
+    unit: rev/min
+    consumer: 9300-diagnostics
+  interpolatedTractionTorqueNmPerMotor:
+    fmiVariable: interpolatedTractionTorqueNmPerMotor
+    type: Real
+    unit: N.m
+    consumer: 9300-diagnostics
+  interpolatedBrakeTorqueNmPerMotor:
+    fmiVariable: interpolatedBrakeTorqueNmPerMotor
+    type: Real
+    unit: N.m
+    consumer: 9300-diagnostics
+  airBrakeForceNewtons:
+    fmiVariable: airBrakeForceNewtons
+    type: Real
+    unit: N
+    consumer: 9300-diagnostics
+  mechanicalTractionPowerWatts:
+    fmiVariable: mechanicalTractionPowerWatts
+    type: Real
+    unit: W
+    consumer: 9300-diagnostics
+  tractionPowerWatts:
+    fmiVariable: tractionPowerWatts
+    type: Real
+    unit: W
+    powerSide: grid
+    consumer: 9200-load
+  railCurrentAmps:
+    fmiVariable: railCurrentAmps
+    type: Real
+    unit: A
+    consumer: 9200-load
+  mechanicalRegenPowerWatts:
+    fmiVariable: mechanicalRegenPowerWatts
+    type: Real
+    unit: W
+    consumer: 9300-diagnostics
+  regenPowerWatts:
+    fmiVariable: regenPowerWatts
+    type: Real
+    unit: W
+    powerSide: grid
+    consumer: 9200-load
+  energyConsumedKwh:
+    fmiVariable: energyConsumedKwh
+    type: Real
+    unit: kWh
+    consumer: 9300-state
+  energyRegeneratedKwh:
+    fmiVariable: energyRegeneratedKwh
+    type: Real
+    unit: kWh
+    consumer: 9300-state
+  faultCode:
+    fmiVariable: faultCodeValue
+    type: Integer
+    mappingOwner: 9000

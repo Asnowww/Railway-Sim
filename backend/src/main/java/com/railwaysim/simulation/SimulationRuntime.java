@@ -26,12 +26,15 @@ import com.railwaysim.train.TrainManager;
 import com.railwaysim.train.TrainState;
 import com.railwaysim.vehicle.VehiclePhysicsOutput;
 import com.railwaysim.vehicle.external.ExternalTrainDirection;
+import com.railwaysim.vehicle.runtime.VehicleRuntimeIntegrationService;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -54,6 +57,7 @@ public class SimulationRuntime {
     private final RealtimeStateCache realtimeStateCache;
     private final SimulationPersistenceService persistenceService;
     private final RouteInterlockingService interlockingService;
+    private final VehicleRuntimeIntegrationService vehicleRuntimeIntegrationService;
     private List<DomainEvent> lastEvents = List.of();
     private long tick;
     private SimulationStatus status = SimulationStatus.STOPPED;
@@ -62,6 +66,7 @@ public class SimulationRuntime {
     private Instant lastDepartureTime = Instant.now();
     private int nextServiceNo = 3; // TR-001/TR-002 pre-loaded on reset
     private final Map<String, Instant> lastStationDepartures = new LinkedHashMap<>();
+    private final Set<String> appliedFeedbackSent = new HashSet<>();
 
     public SimulationRuntime(
         TrainManager trainManager,
@@ -76,7 +81,8 @@ public class SimulationRuntime {
         SimpleEventBus eventBus,
         RealtimeStateCache realtimeStateCache,
         SimulationPersistenceService persistenceService,
-        RouteInterlockingService interlockingService
+        RouteInterlockingService interlockingService,
+        VehicleRuntimeIntegrationService vehicleRuntimeIntegrationService
     ) {
         this.trainManager = trainManager;
         this.trackService = trackService;
@@ -91,6 +97,7 @@ public class SimulationRuntime {
         this.realtimeStateCache = realtimeStateCache;
         this.persistenceService = persistenceService;
         this.interlockingService = interlockingService;
+        this.vehicleRuntimeIntegrationService = vehicleRuntimeIntegrationService;
     }
 
     public synchronized SimulationSnapshot snapshot() {
@@ -130,6 +137,7 @@ public class SimulationRuntime {
         lastEvents = List.of();
         lastDepartureTime = simulatedTime;
         lastStationDepartures.clear();
+        appliedFeedbackSent.clear();
         nextServiceNo = 3;
         return buildSnapshot();
     }
@@ -189,7 +197,14 @@ public class SimulationRuntime {
         List<DispatchConstraint> dispatchConstraintsPreview = dispatchService.previewConstraintsForTrains(beforeTrainStates);
         List<DispatchConstraint> dispatchConstraints = dispatchService.constraintsForTrains(beforeTrainStates);
         signalService.calculateAuthorities(beforeTrainStates, trackConstraints, dispatchConstraints);
-        List<PowerConstraint> powerConstraints = powerService.constraintsForTrains(beforeTrainStates);
+        boolean externalPowerAuthority = vehicleRuntimeIntegrationService.usesExternalPowerAuthority();
+        if (externalPowerAuthority) {
+            // 9200 must be ready before 9300 performs its first authoritative power query.
+            powerService.prepareExternalNetwork();
+        }
+        List<PowerConstraint> powerConstraints = externalPowerAuthority
+            ? List.of()
+            : powerService.constraintsForTrains(beforeTrainStates);
 
         List<VehiclePhysicsOutput> outputs = trainManager.tickAll(
             context,
@@ -296,6 +311,18 @@ public class SimulationRuntime {
 
             if (done) {
                 for (String commandId : constraint.sourceCommandIds()) {
+                    if (!appliedFeedbackSent.add(commandId)) {
+                        continue;
+                    }
+                    log.info(
+                        "[DispatchLoop] runtime feedback command={} train={} status={} speed={} zeroSpeed={} reason={}",
+                        commandId,
+                        train.id(),
+                        CommandStatus.APPLIED,
+                        String.format("%.2f", train.speedMetersPerSecond()),
+                        train.zeroSpeed(),
+                        constraint.reason()
+                    );
                     feedbacks.add(new DispatchCommandFeedback(
                         commandId,
                         train.id(),

@@ -2,9 +2,12 @@ package com.railwaysim.vehicleruntime.runtime;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.within;
 
 import com.railwaysim.vehicleruntime.api.VehicleRuntimeController;
 import com.railwaysim.vehicleruntime.config.VehicleRuntimeProperties;
+import com.railwaysim.vehicleruntime.config.VehicleParameters;
+import com.railwaysim.vehicleruntime.config.VehicleParametersLoader;
 import com.railwaysim.vehicleruntime.model.MovementAuthoritySnapshot;
 import com.railwaysim.vehicleruntime.model.PowerConstraintSnapshot;
 import com.railwaysim.vehicleruntime.model.TrackConstraintSnapshot;
@@ -50,10 +53,14 @@ class VehicleRuntimeManagerTests {
         try {
             VehicleRuntimeProperties properties = new VehicleRuntimeProperties();
             properties.setCentralBaseUrl("http://127.0.0.1:" + server.getAddress().getPort());
+            VehicleParameters parameters = parameters(properties);
             VehicleRuntimeManager manager = new VehicleRuntimeManager(
                 properties,
+                parameters,
                 new PowerNetworkLoadClient(properties, RestClient.builder()),
-                new CentralTrainRegistrationClient(properties, RestClient.builder())
+                new CentralTrainRegistrationClient(properties, RestClient.builder()),
+                new FmuHttpVehiclePhysicsExecutor(properties, RestClient.builder()),
+                new JavaFallbackVehiclePhysicsExecutor(properties, parameters)
             );
 
             var response = manager.launch(new VehicleRuntimeLaunchRequest(
@@ -72,6 +79,9 @@ class VehicleRuntimeManagerTests {
             assertThat(payload.get()).contains("\"trainId\":\"TR-105\"");
             assertThat(payload.get()).contains("\"linkId\":8");
             assertThat(payload.get()).contains("\"offsetMeters\":450.0");
+            assertThat(payload.get()).contains("\"trainType\":\"B_TYPE_6_CAR\"");
+            assertThat(payload.get()).contains("\"lengthMeters\":118.0");
+            assertThat(payload.get()).contains("\"parameterSetId\":\"" + parameters.parameterSetId() + "\"");
         } finally {
             server.stop(0);
         }
@@ -90,9 +100,26 @@ class VehicleRuntimeManagerTests {
                 assertThat(output.newPositionMeters()).isGreaterThan(100);
                 assertThat(output.tractionPowerWatts()).isGreaterThan(0);
                 assertThat(output.railCurrentAmps()).isGreaterThan(0);
+                assertThat(output.mechanicalTractionPowerWatts()).isLessThanOrEqualTo(4_336_000);
+                assertThat(output.mechanicalTractionPowerWatts())
+                    .isCloseTo(output.tractionPowerWatts() * 0.882, within(0.001));
             });
         assertThat(response.trainReports()).singleElement()
             .satisfies(report -> assertThat(report.dynamicsState()).isIn("ACCELERATING", "CRUISING", "COASTING"));
+    }
+
+    @Test
+    void parameterMetadataExposesCanonicalYamlCalibration() {
+        var metadata = manager().parameterMetadata();
+
+        assertThat(metadata.parameterSetId()).matches("sha256:[0-9a-f]{64}");
+        assertThat(metadata.parameterSchemaVersion()).isEqualTo("2");
+        assertThat(metadata.curveSetId()).matches("sha256:[0-9a-f]{64}");
+        assertThat(metadata.emptyMassKg()).isEqualTo(225_000);
+        assertThat(metadata.maxLoadMassKg()).isEqualTo(76_000);
+        assertThat(metadata.lengthMeters()).isEqualTo(118.0);
+        assertThat(metadata.curvePointCount()).isEqualTo(52);
+        assertThat(metadata.maxMechanicalTractionPowerWatts()).isEqualTo(4_336_000);
     }
 
     @Test
@@ -111,6 +138,27 @@ class VehicleRuntimeManagerTests {
                 assertThat(state.controlQueueStatus()).isEqualTo("REJECTED");
                 assertThat(state.reason()).isEqualTo("STALE_OR_DUPLICATE_TICK");
             });
+    }
+
+    @Test
+    void duplicateTrainIdInOneFleetBatchIsRejectedBeforeAnyPhysicsStep() {
+        VehicleRuntimeManager manager = manager();
+        TrainStateSnapshot duplicate = train("TR-DUP", 100, 0);
+        VehicleRuntimeStepRequest invalid = new VehicleRuntimeStepRequest(
+            1,
+            0.1,
+            Instant.parse("2026-07-09T00:00:00Z"),
+            List.of(duplicate, duplicate),
+            List.of(),
+            List.of(),
+            List.of(),
+            List.of()
+        );
+
+        assertThatThrownBy(() -> manager.stepFleet(invalid))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("duplicate trainId");
+        assertThat(manager.instances()).isEmpty();
     }
 
     @Test
@@ -141,9 +189,18 @@ class VehicleRuntimeManagerTests {
     void stepFleetForwardsAggregatedLoadsToPowerNetworkWhenEnabled() throws Exception {
         AtomicReference<String> payload = new AtomicReference<>("");
         com.sun.net.httpserver.HttpServer server = com.sun.net.httpserver.HttpServer.create(new java.net.InetSocketAddress("127.0.0.1", 0), 0);
-        server.createContext("/power-network/state/query", exchange -> {
+        server.createContext("/power-network/constraints/query", exchange -> {
+            byte[] response = "{\"powerConstraints\":[{\"trainId\":\"TR-101\",\"sectionId\":\"P01\",\"railVoltage\":1500,\"powerAvailableWatts\":3200000,\"energized\":true,\"powerDeratingFactor\":1,\"currentCollectionAvailable\":true,\"regenAvailable\":true,\"constraintReason\":\"NORMAL\"}]}"
+                .getBytes(java.nio.charset.StandardCharsets.UTF_8);
+            exchange.getResponseHeaders().add("Content-Type", "application/json");
+            exchange.sendResponseHeaders(200, response.length);
+            exchange.getResponseBody().write(response);
+            exchange.close();
+        });
+        server.createContext("/power-network/step", exchange -> {
             payload.set(new String(exchange.getRequestBody().readAllBytes(), java.nio.charset.StandardCharsets.UTF_8));
-            byte[] response = "{\"dataQuality\":\"GOOD\"}".getBytes(java.nio.charset.StandardCharsets.UTF_8);
+            byte[] response = "{\"powerConstraints\":[{\"trainId\":\"TR-101\",\"sectionId\":\"P01\",\"railVoltage\":1490,\"powerAvailableWatts\":3000000,\"energized\":true,\"powerDeratingFactor\":1,\"currentCollectionAvailable\":true,\"regenAvailable\":true,\"constraintReason\":\"NORMAL\"}]}"
+                .getBytes(java.nio.charset.StandardCharsets.UTF_8);
             exchange.getResponseHeaders().add("Content-Type", "application/json");
             exchange.sendResponseHeaders(200, response.length);
             exchange.getResponseBody().write(response);
@@ -154,17 +211,26 @@ class VehicleRuntimeManagerTests {
             VehicleRuntimeProperties properties = new VehicleRuntimeProperties();
             properties.setForwardPowerLoads(true);
             properties.setPowerNetworkBaseUrl("http://127.0.0.1:" + server.getAddress().getPort());
+            VehicleParameters parameters = parameters(properties);
             VehicleRuntimeManager manager = new VehicleRuntimeManager(
                 properties,
+                parameters,
                 new PowerNetworkLoadClient(properties, RestClient.builder()),
-                new CentralTrainRegistrationClient(properties, RestClient.builder())
+                new CentralTrainRegistrationClient(properties, RestClient.builder()),
+                new FmuHttpVehiclePhysicsExecutor(properties, RestClient.builder()),
+                new JavaFallbackVehiclePhysicsExecutor(properties, parameters)
             );
 
             manager.stepFleet(request(1, train("TR-101", 100, 0), energized()));
 
             assertThat(payload.get()).contains("\"sectionLoads\"");
+            assertThat(payload.get()).contains("\"tick\":1");
+            assertThat(payload.get()).contains("\"simulationTimeSeconds\":0.1");
+            assertThat(payload.get()).contains("\"stepSizeSeconds\":0.1");
             assertThat(payload.get()).contains("\"powerSectionId\":\"P01\"");
             assertThat(payload.get()).contains("\"trainIds\":[\"TR-101\"]");
+            assertThat(payload.get()).doesNotContain("mechanicalTractionPowerWatts");
+            assertThat(payload.get()).doesNotContain("mechanicalRegenPowerWatts");
         } finally {
             server.stop(0);
         }
@@ -173,17 +239,25 @@ class VehicleRuntimeManagerTests {
     private VehicleRuntimeManager manager() {
         VehicleRuntimeProperties properties = new VehicleRuntimeProperties();
         properties.setQueueCapacity(1);
+        VehicleParameters parameters = parameters(properties);
         return new VehicleRuntimeManager(
             properties,
+            parameters,
             new PowerNetworkLoadClient(properties, RestClient.builder()),
-            new CentralTrainRegistrationClient(properties, RestClient.builder())
+            new CentralTrainRegistrationClient(properties, RestClient.builder()),
+            new FmuHttpVehiclePhysicsExecutor(properties, RestClient.builder()),
+            new JavaFallbackVehiclePhysicsExecutor(properties, parameters)
         );
+    }
+
+    private VehicleParameters parameters(VehicleRuntimeProperties properties) {
+        return VehicleParametersLoader.load(properties.getTrainParamsPath());
     }
 
     private VehicleRuntimeStepRequest request(long tick, TrainStateSnapshot train, PowerConstraintSnapshot power) {
         return new VehicleRuntimeStepRequest(
             tick,
-            0.2,
+            0.1,
             Instant.parse("2026-07-09T00:00:00Z"),
             List.of(train),
             List.of(new MovementAuthoritySnapshot(train.id(), 2_000, 22.2, "NORMAL")),

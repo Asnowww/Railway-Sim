@@ -1,0 +1,84 @@
+{
+  "status": "PASS",
+  "errors": [],
+  "evidence": {
+    "initial": {
+      "tick": 1,
+      "dataQuality": "GOOD",
+      "trainFaultCodes": {
+        "WP7-TR-01": "OK",
+        "WP7-TR-02": "OK"
+      },
+      "fallbackTrainCount": 0,
+      "fallbackEventCount": 0,
+      "fmiErrorCount": 0,
+      "runtimeReason": "OK"
+    },
+    "instanceLoss": {
+      "tick": 2,
+      "dataQuality": "DEGRADED",
+      "trainFaultCodes": {
+        "WP7-TR-01": "EXTERNAL_SIM_FALLBACK",
+        "WP7-TR-02": "EXTERNAL_SIM_FALLBACK"
+      },
+      "fallbackTrainCount": 2,
+      "fallbackEventCount": 2,
+      "fmiErrorCount": 1,
+      "runtimeReason": "PHYSICS_FALLBACK_ACTIVE"
+    },
+    "instanceResync": {
+      "tick": 3,
+      "dataQuality": "GOOD",
+      "trainFaultCodes": {
+        "WP7-TR-01": "OK",
+        "WP7-TR-02": "OK"
+      },
+      "fallbackTrainCount": 0,
+      "fallbackEventCount": 2,
+      "fmiErrorCount": 1,
+      "runtimeReason": "OK"
+    },
+    "fmuOutage": {
+      "tick": 4,
+      "dataQuality": "DEGRADED",
+      "trainFaultCodes": {
+        "WP7-TR-01": "EXTERNAL_SIM_FALLBACK",
+        "WP7-TR-02": "EXTERNAL_SIM_FALLBACK"
+      },
+      "fallbackTrainCount": 2,
+      "fallbackEventCount": 4,
+      "fmiErrorCount": 2,
+      "runtimeReason": "PHYSICS_FALLBACK_ACTIVE"
+    },
+    "stickyFallback": {
+      "tick": 5,
+      "dataQuality": "DEGRADED",
+      "trainFaultCodes": {
+        "WP7-TR-01": "EXTERNAL_SIM_FALLBACK",
+        "WP7-TR-02": "EXTERNAL_SIM_FALLBACK"
+      },
+      "fallbackTrainCount": 2,
+      "fallbackEventCount": 4,
+      "fmiErrorCount": 2,
+      "runtimeReason": "PHYSICS_FALLBACK_ACTIVE"
+    },
+    "serviceRecovery": {
+      "tick": 6,
+      "dataQuality": "GOOD",
+      "trainFaultCodes": {
+        "WP7-TR-01": "OK",
+        "WP7-TR-02": "OK"
+      },
+      "fallbackTrainCount": 0,
+      "fallbackEventCount": 4,
+      "fmiErrorCount": 2,
+      "runtimeReason": "OK"
+    },
+    "parameterMismatch": {
+      "status": 409,
+      "errorCode": "FMU_PARAMETER_SET_MISMATCH",
+      "message": "request parameterSetId does not match the loaded vehicle parameter set",
+      "traceId": "wp7-parameter-mismatch"
+    }
+  }
+}

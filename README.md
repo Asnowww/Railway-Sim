@@ -22,7 +22,23 @@ Railway-Sim
 
 ```bash
 cd backend
-mvn spring-boot:run
+mvn spring-boot:run -Dspring-boot.run.arguments="--spring.profiles.active=split"
+```
+
+供电仿真（必须先于后端启动）：
+
+```bash
+cd power-network-service
+python3 -m venv .venv
+.venv/bin/python -m pip install -r requirements.txt
+.venv/bin/python -m app.http_server
+```
+
+车辆运行时：
+
+```bash
+cd vehicle-runtime-service
+mvn spring-boot:run -Dspring-boot.run.arguments="--spring.profiles.active=split"
 ```
 
 前端：
@@ -45,6 +61,7 @@ python3 -m app.http_server
 - 后端 WebSocket: `ws://localhost:8080/ws/simulation`
 - 前端开发服务: `http://localhost:5173`
 - FMU 服务: `http://localhost:9000/step-fleet`
+- 供电仿真 OpenAPI: `http://localhost:9200/docs`
 
 ## 当前初始化范围
 

@@ -1,8 +1,10 @@
 package com.railwaysim.dispatch.command;
 
 import com.railwaysim.dispatch.DispatchCommand;
+import com.railwaysim.dispatch.route.RouteDispatchRecordStore;
 import com.railwaysim.signal.MovementAuthority;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import org.springframework.stereotype.Component;
@@ -19,6 +21,15 @@ public class CommandValidator {
     }
 
     private DispatchCommand validateOne(DispatchCommand command, List<MovementAuthority> authorities) {
+        if (RouteDispatchRecordStore.isRouteCommand(command)) {
+            if (command.trainId() == null || command.trainId().isBlank()) {
+                return skip(command, "route command requires trainId");
+            }
+            String routeId = RouteDispatchRecordStore.routeIdFrom(command);
+            if (routeId == null || routeId.isBlank()) {
+                return skip(command, "route command requires routeId or detail");
+            }
+        }
         if ("SPEED_BIAS".equals(command.commandType())) {
             double ratio = numberPayload(command.payload(), "speedBiasRatio", 1.0);
             if (ratio > 1.1 || ratio < 0.9) {
@@ -40,7 +51,9 @@ public class CommandValidator {
     }
 
     private DispatchCommand skip(DispatchCommand command, String reason) {
-        Map<String, Object> payload = new java.util.HashMap<>(command.payload());
+        Map<String, Object> payload = command.payload() == null
+            ? new HashMap<>()
+            : new HashMap<>(command.payload());
         payload.put("skipReason", reason);
         return new DispatchCommand(
             command.id(),
@@ -62,6 +75,9 @@ public class CommandValidator {
     }
 
     private double numberPayload(Map<String, Object> payload, String key, double defaultValue) {
+        if (payload == null) {
+            return defaultValue;
+        }
         Object value = payload.get(key);
         if (value instanceof Number number) {
             return number.doubleValue();

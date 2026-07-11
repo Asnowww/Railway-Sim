@@ -1,6 +1,7 @@
 package com.railwaysim.power;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.within;
 
 import com.railwaysim.config.ExternalPowerNetworkProperties;
 import com.railwaysim.config.SimulationProperties;
@@ -109,7 +110,7 @@ class PowerServiceTests {
 
         PowerSectionState section = constraintService.calculateStates(
             List.of(output),
-            externalSnapshot(1_300),
+            externalSnapshot(1_250),
             Map.of(),
             Map.of(),
             Map.of()
@@ -118,8 +119,10 @@ class PowerServiceTests {
             .findFirst()
             .orElseThrow();
 
-        assertThat(section.voltage()).isGreaterThan(1_390);
-        assertThat(section.externalVoltage()).isEqualTo(1_300);
+        // P01: 1500 V - 1200 A * (0.03 V/A + 0.00002 ohm/m * 4000 m) = 1368 V.
+        assertThat(section.voltage()).isCloseTo(1_368, within(0.001));
+        assertThat(section.voltage()).isNotEqualTo(section.externalVoltage());
+        assertThat(section.externalVoltage()).isEqualTo(1_250);
         assertThat(section.voltageComparisonStatus()).isEqualTo("DEVIATED");
         assertThat(section.externalSupportReason()).isEqualTo("test external voltage");
     }

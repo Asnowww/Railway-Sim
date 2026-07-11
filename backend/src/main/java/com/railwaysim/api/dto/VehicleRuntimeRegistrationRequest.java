@@ -10,7 +10,12 @@ public record VehicleRuntimeRegistrationRequest(
     Double offsetMeters,
     String direction,
     String reason,
-    String traceId
+    String traceId,
+    String trainType,
+    String parameterSetId,
+    Double lengthMeters,
+    Double emptyMassKg,
+    Double maxLoadMassKg
 ) {
     public String normalizedTrainId() {
         if (trainId != null && !trainId.isBlank()) {
@@ -36,5 +41,19 @@ public record VehicleRuntimeRegistrationRequest(
 
     public String normalizedTraceId() {
         return traceId == null || traceId.isBlank() ? "vehicle-runtime" : traceId.trim();
+    }
+
+    public String normalizedTrainType() {
+        return trainType == null ? "" : trainType.trim();
+    }
+
+    public String normalizedParameterSetId() {
+        return parameterSetId == null ? "" : parameterSetId.trim();
+    }
+
+    public double normalizedLengthMeters() {
+        return lengthMeters == null || !Double.isFinite(lengthMeters) || lengthMeters <= 0
+            ? 0
+            : lengthMeters;
     }
 }

@@ -2,7 +2,11 @@ package com.railwaysim.vehicleruntime.runtime;
 
 import com.railwaysim.vehicleruntime.config.VehicleRuntimeProperties;
 import com.railwaysim.vehicleruntime.model.PowerNetworkSectionLoadRequest;
-import com.railwaysim.vehicleruntime.model.PowerNetworkStateQueryRequest;
+import com.railwaysim.vehicleruntime.model.PowerNetworkConstraintQueryRequest;
+import com.railwaysim.vehicleruntime.model.PowerNetworkStepRequest;
+import com.railwaysim.vehicleruntime.model.PowerNetworkStepResponse;
+import com.railwaysim.vehicleruntime.model.PowerNetworkTrainPosition;
+import com.railwaysim.vehicleruntime.model.PowerConstraintSnapshot;
 import java.time.Duration;
 import java.util.List;
 import org.springframework.http.MediaType;
@@ -28,24 +32,52 @@ public class PowerNetworkLoadClient {
         return properties.isForwardPowerLoads();
     }
 
-    /**
-     * 把本 tick 聚合出的分区负荷写入供电仿真；失败由调用方转为 DEGRADED。
-     */
-    public void pushLoads(List<PowerNetworkSectionLoadRequest> loads) {
-        if (!enabled() || loads == null || loads.isEmpty()) {
-            return;
+    /** Read the authoritative constraint before the vehicle control queue runs. */
+    public List<PowerConstraintSnapshot> queryConstraints(List<PowerNetworkTrainPosition> trainPositions) {
+        if (!enabled()) {
+            return List.of();
         }
-        restClientBuilder
-            .baseUrl(properties.getPowerNetworkBaseUrl())
-            .requestFactory(requestFactory(properties.getPowerNetworkTimeoutMillis()))
-            .build()
+        PowerNetworkStepResponse response = client()
             .post()
-            .uri("/power-network/state/query")
+            .uri("/power-network/constraints/query")
             .contentType(MediaType.APPLICATION_JSON)
             .accept(MediaType.APPLICATION_JSON)
-            .body(new PowerNetworkStateQueryRequest(loads))
+            .body(new PowerNetworkConstraintQueryRequest(trainPositions))
             .retrieve()
-            .toBodilessEntity();
+            .body(PowerNetworkStepResponse.class);
+        return response == null ? List.of() : response.powerConstraints();
+    }
+
+    /**
+     * The vehicle runtime is the sole load writer.  The response supplies the
+     * next control-cycle constraints after all trains in the fleet were merged.
+     */
+    public List<PowerConstraintSnapshot> stepPowerNetwork(
+        long tick,
+        double simulationTimeSeconds,
+        double stepSizeSeconds,
+        List<PowerNetworkSectionLoadRequest> loads,
+        List<PowerNetworkTrainPosition> trainPositions
+    ) {
+        if (!enabled()) {
+            return List.of();
+        }
+        PowerNetworkStepResponse response = client()
+            .post()
+            .uri("/power-network/step")
+            .contentType(MediaType.APPLICATION_JSON)
+            .accept(MediaType.APPLICATION_JSON)
+            .body(new PowerNetworkStepRequest(tick, simulationTimeSeconds, stepSizeSeconds, loads, trainPositions))
+            .retrieve()
+            .body(PowerNetworkStepResponse.class);
+        return response == null ? List.of() : response.powerConstraints();
+    }
+
+    private RestClient client() {
+        return restClientBuilder
+            .baseUrl(properties.getPowerNetworkBaseUrl())
+            .requestFactory(requestFactory(properties.getPowerNetworkTimeoutMillis()))
+            .build();
     }
 
     private SimpleClientHttpRequestFactory requestFactory(long timeoutMillis) {

@@ -1,21 +1,107 @@
+name: ${COMPOSE_PROJECT_NAME:-railway-sim}
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: ${LOG_MAX_SIZE:-20m}
+    max-file: ${LOG_MAX_FILES:-5}
+
 services:
-  mysql:
-    image: mysql:8.4
-    container_name: railway-sim-mysql
+  power-network:
+    image: railway-sim/power-network:${IMAGE_TAG:-local}
+    platform: ${TARGET_PLATFORM:-linux/amd64}
+    build:
+      context: .
+      dockerfile: power-network-service/Dockerfile
+    restart: unless-stopped
+    init: true
     environment:
-      MYSQL_ROOT_PASSWORD: railway_root
-      MYSQL_DATABASE: railway_sim
-      MYSQL_USER: railway
-      MYSQL_PASSWORD: railway_pass
+      TZ: ${TZ:-Asia/Shanghai}
+      POWER_NETWORK_CONFIG_PATH: /config/power_third_rail.yaml
     ports:
-      - "3306:3306"
+      - "${INTERNAL_BIND_ADDRESS:-127.0.0.1}:${POWER_NETWORK_PORT:-9200}:9200"
     volumes:
-      - railway_mysql_data:/var/lib/mysql
-      - ./database/schema.sql:/docker-entrypoint-initdb.d/schema.sql:ro
-    command:
-      - --character-set-server=utf8mb4
-      - --collation-server=utf8mb4_unicode_ci
+      - ./config/power_third_rail.yaml:/config/power_third_rail.yaml:ro
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:9200/health"]
+      interval: 5s
+      timeout: 2s
+      retries: 20
+      start_period: 5s
+    stop_grace_period: 15s
+    logging: *default-logging
+    networks: [railway-internal]
 
-volumes:
-  railway_mysql_data:
+  fmu:
+    image: railway-sim/fmu:${IMAGE_TAG:-local}
+    platform: ${TARGET_PLATFORM:-linux/amd64}
+    profiles: [fmu]
+    build:
+      context: .
+      dockerfile: fmu-service/Dockerfile
+      target: runtime
+      args:
+        SOURCE_COMMIT: ${SOURCE_COMMIT:-unknown}
+    restart: unless-stopped
+    init: true
+    environment:
+      TZ: ${TZ:-Asia/Shanghai}
+      TRAIN_PARAMS_PATH: /config/train_params.yaml
+      FMU_MAPPING_PATH: /config/fmu_mapping.yaml
+    ports:
+      - "${INTERNAL_BIND_ADDRESS:-127.0.0.1}:${FMU_PORT:-9000}:9000"
+    volumes:
+      - ./config/train_params.yaml:/config/train_params.yaml:ro
+      - ./config/fmu_mapping.yaml:/config/fmu_mapping.yaml:ro
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:9000/health"]
+      interval: 5s
+      timeout: 2s
+      retries: 30
+      start_period: 15s
+    stop_grace_period: 20s
+    logging: *default-logging
+    networks: [railway-internal]
 
+  vehicle-runtime:
+    image: railway-sim/vehicle-runtime:${IMAGE_TAG:-local}
+    platform: ${TARGET_PLATFORM:-linux/amd64}
+    build:
+      context: .
+      dockerfile: vehicle-runtime-service/Dockerfile
+    restart: unless-stopped
+    init: true
+    depends_on:
+      power-network:
+        condition: service_healthy
+      fmu:
+        condition: service_healthy
+        required: false
+    environment:
+      TZ: ${TZ:-Asia/Shanghai}
+      SPRING_PROFILES_ACTIVE: split
+      VEHICLE_RUNTIME_TRAIN_PARAMS_PATH: /config/train_params.yaml
+      VEHICLE_RUNTIME_PHYSICS_MODE: ${VEHICLE_PHYSICS_MODE:-FMU_HTTP}
+      VEHICLE_RUNTIME_FMU_BASE_URL: http://fmu:9000
+      VEHICLE_RUNTIME_FMU_TIMEOUT_MILLIS: ${FMU_TIMEOUT_MILLIS:-80}
+      VEHICLE_RUNTIME_POWER_NETWORK_BASE_URL: http://power-network:9200
+      VEHICLE_RUNTIME_POWER_NETWORK_TIMEOUT_MILLIS: ${POWER_NETWORK_TIMEOUT_MILLIS:-300}
+      VEHICLE_RUNTIME_CENTRAL_BASE_URL: ${CENTRAL_BASE_URL:?set the existing central-system URL in the env file}
+      VEHICLE_RUNTIME_CENTRAL_TIMEOUT_MILLIS: ${CENTRAL_TIMEOUT_MILLIS:-300}
+    ports:
+      - "${INTERNAL_BIND_ADDRESS:-127.0.0.1}:${VEHICLE_RUNTIME_PORT:-9300}:9300"
+    volumes:
+      - ./config/train_params.yaml:/config/train_params.yaml:ro
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/9300; printf \"GET /vehicle-runtime/health HTTP/1.0\\r\\n\\r\\n\" >&3; head -n 1 <&3 | grep -q \"200\"'"]
+      interval: 5s
+      timeout: 2s
+      retries: 30
+      start_period: 15s
+    stop_grace_period: 20s
+    logging: *default-logging
+    networks: [railway-internal]
+
+networks:
+  railway-internal:
+    driver: bridge

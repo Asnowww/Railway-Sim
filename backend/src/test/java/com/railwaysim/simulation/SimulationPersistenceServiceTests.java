@@ -61,7 +61,7 @@ class SimulationPersistenceServiceTests {
         assertThat(jdbcTemplate.queryForObject(
             "SELECT load_mass_kg FROM train_physics_snapshot WHERE train_id = 'TR-001'",
             Double.class
-        )).isEqualTo(25_200.0);
+        )).isEqualTo(26_600.0);
         assertThat(jdbcTemplate.queryForObject(
             "SELECT overload_status FROM train_physics_snapshot WHERE train_id = 'TR-001'",
             String.class

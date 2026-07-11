@@ -8,6 +8,7 @@ defineProps<{
 const typeLabel = (type: string) => {
   const labels: Record<string, string> = {
     DWELL_EXTENDED: '停站时间过长',
+    HEADWAY_VIOLATION: '运行间隔超限',
     HEADWAY_SHRINK: '行车间隔过小',
     HEADWAY_EXPAND: '行车间隔过大',
     DEPARTURE_DELAY: '发车延误',
@@ -41,6 +42,14 @@ const statusDescription = (item: DispatchDisturbance) => {
 const deviationText = (item: DispatchDisturbance) => {
   if (item.disturbanceType === 'CROWDING') {
     return `满载率 ${(item.deviationValue * 100).toFixed(0)}%`
+  }
+  if (item.disturbanceType === 'HEADWAY_VIOLATION') {
+    const direction = item.headwayDirection === 'TOO_SHORT' ? '过短' : '过长'
+    const actual = item.actualHeadwaySec ?? 0
+    const target = item.targetHeadwaySec ?? 0
+    const tolerance = item.toleranceSec ?? 0
+    const violation = item.violationSec ?? item.deviationValue
+    return `${direction} · 实际 ${actual.toFixed(0)} 秒 / 目标 ${target.toFixed(0)} 秒 · 容差 ${tolerance.toFixed(0)} 秒 · 超限 ${violation.toFixed(0)} 秒`
   }
   if (item.disturbanceType === 'HEADWAY_SHRINK' || item.disturbanceType === 'HEADWAY_EXPAND') {
     return `实际间隔 ${item.deviationValue.toFixed(0)} 秒`
