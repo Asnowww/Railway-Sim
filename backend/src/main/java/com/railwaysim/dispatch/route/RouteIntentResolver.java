@@ -1,0 +1,112 @@
+package com.railwaysim.dispatch.route;
+
+import com.railwaysim.dispatch.config.DispatchProperties;
+import com.railwaysim.signal.MovementAuthority;
+import com.railwaysim.train.TrainState;
+import java.time.Instant;
+import java.util.Comparator;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import org.springframework.stereotype.Component;
+
+@Component
+public class RouteIntentResolver {
+
+    private final RouteCatalog routeCatalog;
+    private final DispatchProperties properties;
+
+    public RouteIntentResolver(RouteCatalog routeCatalog, DispatchProperties properties) {
+        this.routeCatalog = routeCatalog;
+        this.properties = properties;
+    }
+
+    public List<TrainRouteIntent> resolve(
+        Instant simulatedAt,
+        List<TrainState> trains,
+        List<MovementAuthority> authorities
+    ) {
+        if (!properties.isRouteDispatchEnabled() || trains == null || trains.isEmpty()) {
+            return List.of();
+        }
+        Map<String, MovementAuthority> authorityByTrain = new HashMap<>();
+        if (authorities != null) {
+            for (MovementAuthority authority : authorities) {
+                authorityByTrain.put(authority.trainId(), authority);
+            }
+        }
+        return trains.stream()
+            .map(train -> resolveOne(simulatedAt, train, authorityByTrain.get(train.id())))
+            .flatMap(Optional::stream)
+            .toList();
+    }
+
+    private Optional<TrainRouteIntent> resolveOne(
+        Instant simulatedAt,
+        TrainState train,
+        MovementAuthority authority
+    ) {
+        if (train == null || train.id() == null || train.id().isBlank()) {
+            return Optional.empty();
+        }
+        double observedSpeed = Math.max(0, train.speedMetersPerSecond());
+        double planningSpeed = observedSpeed > properties.getStopSpeedThresholdMps()
+            ? observedSpeed
+            : properties.getBaseCruiseSpeedMps();
+        double lookaheadMeters = Math.max(
+            properties.getRouteApproachWindowMeters(),
+            planningSpeed * properties.getRouteApproachLookaheadSeconds()
+        );
+        String currentSegmentId = authority == null ? null : authority.currentSegmentId();
+
+        return routeCatalog.candidateRoutesNear(train.positionMeters(), currentSegmentId, lookaheadMeters).stream()
+            .filter(route -> directionCompatible(train, route))
+            .min(Comparator
+                .comparing((DispatchRouteCandidate route) -> !route.mainline())
+                .thenComparingDouble(route -> Math.max(0, route.entryMeters() - train.positionMeters()))
+                .thenComparingDouble(DispatchRouteCandidate::lengthMeters)
+                .thenComparing(DispatchRouteCandidate::routeId))
+            .map(route -> intentFor(simulatedAt, train, route, planningSpeed));
+    }
+
+    private TrainRouteIntent intentFor(
+        Instant simulatedAt,
+        TrainState train,
+        DispatchRouteCandidate route,
+        double planningSpeed
+    ) {
+        double distance = Math.max(0, route.entryMeters() - train.positionMeters());
+        double etaSeconds = planningSpeed <= 0 ? 0 : distance / planningSpeed;
+        double priority = route.mainline() ? 10 : 5;
+        priority += Math.max(0, properties.getRouteApproachWindowMeters() - distance) / 100.0;
+        String reason = "AUTO_ROUTE_APPROACH(route=" + route.routeId()
+            + ",distance=" + Math.round(distance)
+            + "m,eta=" + Math.round(etaSeconds) + "s)";
+        return new TrainRouteIntent(
+            train.id(),
+            route.routeId(),
+            reason,
+            distance,
+            etaSeconds,
+            priority,
+            simulatedAt,
+            simulatedAt.plusSeconds(Math.max(5, properties.getRouteIntentValiditySeconds()))
+        );
+    }
+
+    private boolean directionCompatible(TrainState train, DispatchRouteCandidate route) {
+        String direction = train.direction();
+        if (direction == null || direction.isBlank() || "UNKNOWN".equalsIgnoreCase(direction)) {
+            return true;
+        }
+        boolean reverse = direction.equalsIgnoreCase("REVERSE")
+            || direction.equalsIgnoreCase("BACKWARD")
+            || direction.equalsIgnoreCase("DOWN")
+            || direction.equalsIgnoreCase("NEGATIVE");
+        if (!reverse) {
+            return route.exitMeters() >= route.entryMeters();
+        }
+        return route.exitMeters() <= route.entryMeters();
+    }
+}

@@ -236,6 +236,23 @@ public class RouteDispatchRecordStore {
         return reservations.subList(reservations.size() - limit, reservations.size());
     }
 
+    public synchronized boolean hasRecentRouteRequest(
+        String simulationRunId,
+        String trainId,
+        String routeId,
+        Instant notBefore
+    ) {
+        if (trainId == null || trainId.isBlank() || routeId == null || routeId.isBlank()) {
+            return false;
+        }
+        return reservationsById.values().stream()
+            .filter(reservation -> simulationRunId == null || simulationRunId.equals(reservation.simulationRunId()))
+            .filter(reservation -> trainId.equals(reservation.trainId()))
+            .filter(reservation -> routeId.equals(reservation.routeId()))
+            .anyMatch(reservation -> isActiveReservation(reservation.state())
+                || !reservation.updatedAt().isBefore(notBefore));
+    }
+
     public static boolean isRouteCommand(DispatchCommand command) {
         return command != null && isRouteCommand(command.commandType());
     }
@@ -258,6 +275,10 @@ public class RouteDispatchRecordStore {
             return detail;
         }
         return null;
+    }
+
+    private static boolean isActiveReservation(String state) {
+        return RouteReservationState.REQUESTED.equals(state) || RouteReservationState.ACCEPTED.equals(state);
     }
 
     private static String payloadString(Map<String, Object> payload, String key) {

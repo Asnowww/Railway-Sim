@@ -23,6 +23,11 @@ public class DispatchProperties {
     private int minDwellSec = 15;
     private int maxDwellSec = 60;
     private int commandEffectTimeoutSec = 180;
+    private boolean routeDispatchEnabled = true;
+    private double routeApproachWindowMeters = 600.0;
+    private int routeApproachLookaheadSeconds = 45;
+    private int routeIntentValiditySeconds = 90;
+    private int routeRequestCooldownSeconds = 20;
 
     public String getPlanLocation() {
         return planLocation;
@@ -166,5 +171,45 @@ public class DispatchProperties {
 
     public void setCommandEffectTimeoutSec(int commandEffectTimeoutSec) {
         this.commandEffectTimeoutSec = commandEffectTimeoutSec;
+    }
+
+    public boolean isRouteDispatchEnabled() {
+        return routeDispatchEnabled;
+    }
+
+    public void setRouteDispatchEnabled(boolean routeDispatchEnabled) {
+        this.routeDispatchEnabled = routeDispatchEnabled;
+    }
+
+    public double getRouteApproachWindowMeters() {
+        return routeApproachWindowMeters;
+    }
+
+    public void setRouteApproachWindowMeters(double routeApproachWindowMeters) {
+        this.routeApproachWindowMeters = routeApproachWindowMeters;
+    }
+
+    public int getRouteApproachLookaheadSeconds() {
+        return routeApproachLookaheadSeconds;
+    }
+
+    public void setRouteApproachLookaheadSeconds(int routeApproachLookaheadSeconds) {
+        this.routeApproachLookaheadSeconds = routeApproachLookaheadSeconds;
+    }
+
+    public int getRouteIntentValiditySeconds() {
+        return routeIntentValiditySeconds;
+    }
+
+    public void setRouteIntentValiditySeconds(int routeIntentValiditySeconds) {
+        this.routeIntentValiditySeconds = routeIntentValiditySeconds;
+    }
+
+    public int getRouteRequestCooldownSeconds() {
+        return routeRequestCooldownSeconds;
+    }
+
+    public void setRouteRequestCooldownSeconds(int routeRequestCooldownSeconds) {
+        this.routeRequestCooldownSeconds = routeRequestCooldownSeconds;
     }
 }
