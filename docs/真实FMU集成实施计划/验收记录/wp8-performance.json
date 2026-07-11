@@ -14,27 +14,27 @@
       "trainCount": 1,
       "ticks": 100,
       "simulatedSeconds": 10.0,
-      "wallSeconds": 3.283,
+      "wallSeconds": 2.252,
       "httpRoundTrip": {
         "samples": 100,
-        "p50Millis": 22.376,
-        "p95Millis": 28.503,
-        "p99Millis": 52.563,
-        "maxMillis": 54.331
+        "p50Millis": 17.217,
+        "p95Millis": 21.455,
+        "p99Millis": 27.388,
+        "maxMillis": 46.481
       },
       "vehicleAndPower": {
         "samples": 100,
-        "p50Millis": 12.0,
-        "p95Millis": 16.0,
-        "p99Millis": 29.11,
-        "maxMillis": 40.0
+        "p50Millis": 11.0,
+        "p95Millis": 15.0,
+        "p99Millis": 21.16,
+        "maxMillis": 37.0
       },
       "fmuBatch": {
         "samples": 100,
-        "p50Millis": 4.0,
-        "p95Millis": 6.0,
-        "p99Millis": 11.01,
-        "maxMillis": 12.0
+        "p50Millis": 3.0,
+        "p95Millis": 5.0,
+        "p99Millis": 7.18,
+        "maxMillis": 25.0
       },
       "degradedTicks": 0,
       "fallbackTicks": 0,
@@ -45,27 +45,27 @@
       "trainCount": 2,
       "ticks": 100,
       "simulatedSeconds": 10.0,
-      "wallSeconds": 3.109,
+      "wallSeconds": 2.229,
       "httpRoundTrip": {
         "samples": 100,
-        "p50Millis": 20.831,
-        "p95Millis": 25.861,
-        "p99Millis": 29.41,
-        "maxMillis": 76.964
+        "p50Millis": 16.836,
+        "p95Millis": 21.654,
+        "p99Millis": 26.73,
+        "maxMillis": 89.006
       },
       "vehicleAndPower": {
         "samples": 100,
         "p50Millis": 11.0,
-        "p95Millis": 14.0,
-        "p99Millis": 18.42,
-        "maxMillis": 60.0
+        "p95Millis": 15.0,
+        "p99Millis": 22.04,
+        "maxMillis": 26.0
       },
       "fmuBatch": {
         "samples": 100,
         "p50Millis": 3.0,
         "p95Millis": 5.0,
-        "p99Millis": 6.37,
-        "maxMillis": 43.0
+        "p99Millis": 6.0,
+        "maxMillis": 6.0
       },
       "degradedTicks": 0,
       "fallbackTicks": 0,
@@ -76,29 +76,29 @@
       "trainCount": 10,
       "ticks": 100,
       "simulatedSeconds": 10.0,
-      "wallSeconds": 3.194,
+      "wallSeconds": 2.29,
       "httpRoundTrip": {
         "samples": 100,
-        "p50Millis": 22.354,
-        "p95Millis": 27.737,
-        "p99Millis": 42.33,
-        "maxMillis": 71.404
+        "p50Millis": 17.67,
+        "p95Millis": 22.903,
+        "p99Millis": 26.428,
+        "maxMillis": 68.306
       },
       "vehicleAndPower": {
         "samples": 100,
         "p50Millis": 12.0,
-        "p95Millis": 16.05,
-        "p99Millis": 27.08,
-        "maxMillis": 35.0
+        "p95Millis": 14.05,
+        "p99Millis": 18.34,
+        "maxMillis": 52.0
       },
       "fmuBatch": {
         "samples": 100,
         "p50Millis": 4.0,
         "p95Millis": 6.0,
-        "p99Millis": 7.0,
-        "maxMillis": 7.0
+        "p99Millis": 8.21,
+        "maxMillis": 29.0
       },
-      "degradedTicks": 46,
+      "degradedTicks": 44,
       "fallbackTicks": 0,
       "newFmiErrors": 0,
       "newMissedDeadlines": 0
@@ -107,29 +107,29 @@
       "trainCount": 20,
       "ticks": 100,
       "simulatedSeconds": 10.0,
-      "wallSeconds": 3.35,
+      "wallSeconds": 2.456,
       "httpRoundTrip": {
         "samples": 100,
-        "p50Millis": 23.174,
-        "p95Millis": 29.303,
-        "p99Millis": 82.854,
-        "maxMillis": 93.268
+        "p50Millis": 19.046,
+        "p95Millis": 25.034,
+        "p99Millis": 72.228,
+        "maxMillis": 78.871
       },
       "vehicleAndPower": {
         "samples": 100,
         "p50Millis": 13.0,
-        "p95Millis": 17.05,
-        "p99Millis": 33.05,
-        "maxMillis": 38.0
+        "p95Millis": 14.1,
+        "p99Millis": 53.05,
+        "maxMillis": 58.0
       },
       "fmuBatch": {
         "samples": 100,
         "p50Millis": 5.0,
-        "p95Millis": 7.0,
-        "p99Millis": 9.12,
-        "maxMillis": 21.0
+        "p95Millis": 6.05,
+        "p99Millis": 22.09,
+        "maxMillis": 31.0
       },
-      "degradedTicks": 71,
+      "degradedTicks": 81,
       "fallbackTicks": 0,
       "newFmiErrors": 0,
       "newMissedDeadlines": 0
@@ -139,29 +139,29 @@
     "trainCount": 20,
     "ticks": 6000,
     "simulatedSeconds": 600.0,
-    "wallSeconds": 193.134,
+    "wallSeconds": 141.643,
     "httpRoundTrip": {
       "samples": 6000,
-      "p50Millis": 23.073,
-      "p95Millis": 26.625,
-      "p99Millis": 29.57,
-      "maxMillis": 112.137
+      "p50Millis": 19.118,
+      "p95Millis": 22.252,
+      "p99Millis": 24.363,
+      "maxMillis": 96.248
     },
     "vehicleAndPower": {
       "samples": 6000,
       "p50Millis": 13.0,
-      "p95Millis": 16.0,
-      "p99Millis": 18.0,
-      "maxMillis": 60.0
+      "p95Millis": 14.0,
+      "p99Millis": 16.0,
+      "maxMillis": 57.0
     },
     "fmuBatch": {
       "samples": 6000,
-      "p50Millis": 5.0,
+      "p50Millis": 6.0,
       "p95Millis": 7.0,
       "p99Millis": 7.0,
-      "maxMillis": 38.0
+      "maxMillis": 34.0
     },
-    "degradedTicks": 3144,
+    "degradedTicks": 3117,
     "fallbackTicks": 0,
     "newFmiErrors": 0,
     "newMissedDeadlines": 0
@@ -169,15 +169,15 @@
   "finalHealth": {
     "mode": "EXTERNAL_HTTP",
     "heartbeatStatus": "UP",
-    "sourceTimestamp": "2026-07-10T14:20:48.873573924Z",
-    "latencyMillis": 16,
+    "sourceTimestamp": "2026-07-11T01:13:15.600029884Z",
+    "latencyMillis": 12,
     "dataQuality": "DEGRADED",
     "instanceCount": 20,
     "reason": "PARTIAL_STEP",
     "physicsMode": "FMU_HTTP",
-    "fmuModelVersion": "TrainTractionBrake/1.0.0",
-    "parameterSetId": "sha256:1e9876fadddf765471ab6e57da39de909b2074ccd9687089bc5f2680f90e6994",
-    "fmuBatchLatencyMillis": 6,
+    "fmuModelVersion": "TrainTractionBrake/2.0.0",
+    "parameterSetId": "sha256:a43ce442759c13c8106d921862cd29e80db7ee44379d5b0702da42733612e87c",
+    "fmuBatchLatencyMillis": 5,
     "fallbackTrainCount": 0,
     "totalFleetTickCount": 6440,
     "missedDeadlineCount": 1,

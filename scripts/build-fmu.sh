@@ -6,6 +6,10 @@ BUILD_DIR="$ROOT_DIR/fmu-service/build"
 OPENMODELICA_DIGEST="sha256:80fbff1a66fb6a6ade64a158415a45e022363249982c9f3ade07df2a369a357e"
 OPENMODELICA_IMAGE="openmodelica/openmodelica@$OPENMODELICA_DIGEST"
 SOURCE_COMMIT="$(git -C "$ROOT_DIR" rev-parse HEAD)"
+PYTHON_BIN="${PYTHON_BIN:-$ROOT_DIR/fmu-service/.venv/bin/python}"
+if [[ ! -x "$PYTHON_BIN" ]]; then
+  PYTHON_BIN="python3"
+fi
 
 rm -rf "$BUILD_DIR"
 mkdir -p "$BUILD_DIR"
@@ -18,7 +22,7 @@ docker run --rm --platform linux/amd64 \
 
 test -f "$BUILD_DIR/TrainTractionBrake.fmu"
 
-python3 "$ROOT_DIR/fmu-service/scripts/generate_fmu_manifest.py" \
+"$PYTHON_BIN" "$ROOT_DIR/fmu-service/scripts/generate_fmu_manifest.py" \
   --fmu "$BUILD_DIR/TrainTractionBrake.fmu" \
   --parameter-file "$ROOT_DIR/config/train_params.yaml" \
   --output "$BUILD_DIR/fmu-manifest.json" \

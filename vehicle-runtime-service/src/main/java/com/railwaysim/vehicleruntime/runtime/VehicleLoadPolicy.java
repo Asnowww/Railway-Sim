@@ -19,19 +19,25 @@ final class VehicleLoadPolicy {
     }
 
     double loadMassFromRate(double loadRate) {
-        return parameters.maxLoadMassKg() * clamp(loadRate, 0, 1.3);
+        double maximumRate = parameters.maxOperatingLoadMassKg() / parameters.maxLoadMassKg();
+        return parameters.maxLoadMassKg() * clamp(loadRate, 0, maximumRate);
     }
 
     double totalMassKg(double loadMassKg) {
-        return parameters.emptyMassKg() + Math.max(0, loadMassKg);
+        double totalMass = parameters.emptyMassKg() + Math.max(0, loadMassKg);
+        if (totalMass > parameters.formation().hardMassLimitKg()) {
+            throw new IllegalArgumentException(
+                "vehicle mass exceeds hard limit " + parameters.formation().hardMassLimitKg() + " kg"
+            );
+        }
+        return totalMass;
     }
 
     String overloadStatus(double loadMassKg) {
-        double rate = parameters.maxLoadMassKg() <= 0 ? 0 : loadMassKg / parameters.maxLoadMassKg();
-        if (rate > 1.15) {
+        if (loadMassKg > parameters.maxOperatingLoadMassKg()) {
             return "CRUSH_OVERLOAD";
         }
-        if (rate > 1.0) {
+        if (loadMassKg > parameters.maxLoadMassKg()) {
             return "OVERLOAD";
         }
         return "NORMAL";

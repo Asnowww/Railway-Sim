@@ -27,7 +27,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClientResponseException;
 
 /**
- * 中央车辆运行时编排器，统一封装本地链路、外部 HTTP 链路和 fallback。
+ * 中央车辆运行时编排器，统一封装本地兼容链路和外部 HTTP 链路。
+ * 生产 EXTERNAL_HTTP 模式下，车辆动力学权威固定在9300；9300不可用时中央不得计算替代物理状态。
  */
 @Service
 public class VehicleRuntimeIntegrationService implements VehiclePowerLoadForwardingOwner {
@@ -71,7 +72,7 @@ public class VehicleRuntimeIntegrationService implements VehiclePowerLoadForward
     ) {
         return switch (properties.getMode()) {
             case LOCAL -> localStep(context, trains, authorities, trackConstraints, dispatchConstraints, powerConstraints, null);
-            case EXTERNAL_HTTP -> externalOrFallback(context, trains, authorities, trackConstraints, dispatchConstraints, powerConstraints);
+            case EXTERNAL_HTTP -> externalStepRequired(context, trains, authorities, trackConstraints, dispatchConstraints, powerConstraints);
             case DUAL_SHADOW -> shadowStep(context, trains, authorities, trackConstraints, dispatchConstraints, powerConstraints);
         };
     }
@@ -86,7 +87,7 @@ public class VehicleRuntimeIntegrationService implements VehiclePowerLoadForward
             latestInstances = mergeInstance(state);
             latestHealth = client.health();
         } catch (RuntimeException exception) {
-            // 注册失败不能阻塞列车上线，后续 tick 会自动走本地 fallback。
+            // 保留注册失败状态，后续外部 tick 会明确失败；中央不得创建替代车辆物理状态。
             latestHealth = VehicleRuntimeHealth.fallback(properties.getMode(), summarize(exception));
         }
     }
@@ -149,7 +150,7 @@ public class VehicleRuntimeIntegrationService implements VehiclePowerLoadForward
         return isConfiguredPowerLoadForwardingOwner();
     }
 
-    private VehicleRuntimeStepResult externalOrFallback(
+    private VehicleRuntimeStepResult externalStepRequired(
         TickContext context,
         List<TrainState> trains,
         List<MovementAuthority> authorities,
@@ -163,9 +164,11 @@ public class VehicleRuntimeIntegrationService implements VehiclePowerLoadForward
             latestInstances = result.instanceStates();
             return result;
         } catch (RuntimeException exception) {
-            // 外部车辆运行时在热循环中失败时，中央立即降级到本地模型。
             latestHealth = VehicleRuntimeHealth.fallback(properties.getMode(), summarize(exception));
-            return localStep(context, trains, authorities, trackConstraints, dispatchConstraints, powerConstraints, "EXTERNAL_SIM_FALLBACK");
+            throw new IllegalStateException(
+                "vehicle runtime 9300 unavailable; central physics fallback is disabled: " + summarize(exception),
+                exception
+            );
         }
     }
 

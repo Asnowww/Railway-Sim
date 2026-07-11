@@ -121,7 +121,7 @@ public class VehicleRuntimeController {
             "UNKNOWN",
             0,
             0,
-            120,
+            manager.parameterMetadata().lengthMeters(),
             0,
             0,
             0,

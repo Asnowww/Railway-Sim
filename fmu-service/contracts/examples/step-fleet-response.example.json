@@ -1,7 +1,7 @@
 {
   "tick": 12001,
-  "modelVersion": "TrainTractionBrake/1.0.0",
-  "parameterSetId": "sha256:1e9876fadddf765471ab6e57da39de909b2074ccd9687089bc5f2680f90e6994",
+  "modelVersion": "TrainTractionBrake/2.0.0",
+  "parameterSetId": "sha256:a43ce442759c13c8106d921862cd29e80db7ee44379d5b0702da42733612e87c",
   "traceId": "vehicle-tick-12001",
   "trainOutputs": [
     {
@@ -12,6 +12,10 @@
       "tractionForceNewtons": 210000.0,
       "brakeForceNewtons": 0.0,
       "regenBrakeForceNewtons": 0.0,
+      "motorSpeedRpm": 2024.0,
+      "interpolatedTractionTorqueNmPerMotor": 977.7,
+      "interpolatedBrakeTorqueNmPerMotor": 977.7,
+      "airBrakeForceNewtons": 0.0,
       "mechanicalTractionPowerWatts": 3150000.0,
       "tractionPowerWatts": 3579545.45,
       "railCurrentAmps": 2520.81,

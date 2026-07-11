@@ -6,6 +6,8 @@ import math
 import pytest
 
 from app.fmu_manager import FmuManager
+from app.simple_fallback import SimpleFallbackModel
+from app.vehicle_parameters import load_vehicle_parameters
 
 from .helpers import fleet_request, train_input
 
@@ -31,9 +33,60 @@ def test_fmu_artifact_and_mapping_are_valid(manager: FmuManager) -> None:
     assert metadata["fastapiVersion"] == "0.139.0"
     assert metadata["uvicornVersion"] == "0.51.0"
     assert metadata["variableValidation"]["status"] == "VALID"
-    assert metadata["variableValidation"]["checkedVariableCount"] == 41
+    assert metadata["parameterSchemaVersion"] == "2"
+    assert metadata["curvePointCount"] == 52
+    assert metadata["curveSetId"].startswith("sha256:")
+    assert metadata["lengthMeters"] == 118.0
+    assert metadata["variableValidation"]["checkedVariableCount"] == 206
     assert validation["status"] == "VALID"
     assert validation["parameterSetId"] == manager.parameter_set_id
+
+
+def test_all_curve_knots_and_midpoints_match_fmu_diagnostics(manager: FmuManager) -> None:
+    parameters = load_vehicle_parameters()
+    speed_rpm = parameters.curves.speed_rpm
+    sample_rpm = list(speed_rpm)
+    sample_rpm.extend(
+        (speed_rpm[index] + speed_rpm[index + 1]) * 0.5
+        for index in range(len(speed_rpm) - 1)
+    )
+    trains = []
+    for index, rpm in enumerate(sample_rpm):
+        speed_mps = (
+            rpm * 2.0 * math.pi / 60.0
+            * parameters.drivetrain.wheel_radius_meters
+            / parameters.drivetrain.gear_ratio
+        )
+        trains.append(
+            train_input(
+                f"CURVE-{index:03d}",
+                speed_meters_per_second=speed_mps,
+                train_mass_kg=parameters.empty_mass_kg,
+                traction_command=0.0,
+                brake_command=0.0,
+                power_available_watts=10_000_000.0,
+            )
+        )
+    response = manager.step_fleet(fleet_request(manager, 1, 0.0, trains))
+    assert not response.train_errors
+    assert len(response.train_outputs) == 103
+    for output in response.train_outputs:
+        expected_traction = SimpleFallbackModel.interpolate(
+            output.motor_speed_rpm,
+            speed_rpm,
+            parameters.curves.traction_torque_nm_per_motor,
+        )
+        expected_brake = SimpleFallbackModel.interpolate(
+            output.motor_speed_rpm,
+            speed_rpm,
+            parameters.curves.brake_torque_nm_per_motor,
+        )
+        assert output.interpolated_traction_torque_nm_per_motor == pytest.approx(
+            expected_traction, rel=5e-6, abs=1e-6
+        )
+        assert output.interpolated_brake_torque_nm_per_motor == pytest.approx(
+            expected_brake, rel=5e-6, abs=1e-6
+        )
 
 
 def test_real_fmu_physics_scenarios(manager: FmuManager) -> None:
@@ -115,33 +168,49 @@ def test_real_fmu_physics_scenarios(manager: FmuManager) -> None:
     output = {item.train_id: item for item in response.train_outputs}
 
     coast = output["COAST"]
-    expected_coast_acceleration = -(1800 + 45 * coast.new_speed_meters_per_second + 3.2 * coast.new_speed_meters_per_second**2) / 220_000
+    coast_speed_kph = coast.new_speed_meters_per_second * 3.6
+    expected_coast_resistance = (
+        6.4 * 220
+        + 130 * 24
+        + 0.14 * 220 * coast_speed_kph
+        + (0.046 + 0.0065 * 5) * 10.6 * coast_speed_kph**2
+    )
+    expected_coast_acceleration = -expected_coast_resistance / 220_000
     assert coast.acceleration_meters_per_second_squared == pytest.approx(
         expected_coast_acceleration, rel=0.01
     )
     assert coast.new_speed_meters_per_second < 10.0
 
     low_speed = output["LOW_SPEED_TRACTION"]
-    assert low_speed.traction_force_newtons == pytest.approx(240_000.0, rel=0.01)
+    assert low_speed.traction_force_newtons == pytest.approx(
+        1042.9 * 16 * 6.5 / 0.46,
+        rel=0.01,
+    )
 
     constant_power = output["CONSTANT_POWER"]
-    assert constant_power.mechanical_traction_power_watts <= 3_200_000.0 + 1.0
-    assert constant_power.mechanical_traction_power_watts == pytest.approx(3_200_000.0, rel=0.01)
+    assert constant_power.mechanical_traction_power_watts <= 4_336_000.0 + 1.0
+    assert constant_power.mechanical_traction_power_watts > 3_200_000.0
     assert constant_power.traction_power_watts == pytest.approx(
-        constant_power.mechanical_traction_power_watts / 0.88, rel=0.01
+        constant_power.mechanical_traction_power_watts / 0.882, rel=0.01
     )
     assert constant_power.rail_current_amps == pytest.approx(
         constant_power.traction_power_watts / 1500.0, rel=0.01
     )
 
     supply_limit = output["SUPPLY_LIMIT"]
-    assert supply_limit.mechanical_traction_power_watts <= 880_000.0 + 1.0
+    assert supply_limit.mechanical_traction_power_watts <= 882_000.0 + 1.0
     assert supply_limit.traction_power_watts <= 1_000_000.0 + 1.0
 
     grade = output["GRADE"]
+    grade_speed_kph = grade.new_speed_meters_per_second * 3.6
+    grade_resistance = (
+        6.4 * 220
+        + 130 * 24
+        + 0.14 * 220 * grade_speed_kph
+        + (0.046 + 0.0065 * 5) * 10.6 * grade_speed_kph**2
+    )
     expected_grade_acceleration = (
-        -(1800 + 45 * grade.new_speed_meters_per_second + 3.2 * grade.new_speed_meters_per_second**2)
-        - 220_000 * 9.81 * 0.010
+        -grade_resistance - 220_000 * 9.81 * 0.010
     ) / 220_000
     assert grade.acceleration_meters_per_second_squared == pytest.approx(
         expected_grade_acceleration, rel=0.01
@@ -151,7 +220,7 @@ def test_real_fmu_physics_scenarios(manager: FmuManager) -> None:
     assert service.brake_force_newtons == pytest.approx(220_000.0, abs=1.0)
     assert service.regen_brake_force_newtons <= service.brake_force_newtons
     assert service.regen_power_watts == pytest.approx(
-        service.mechanical_regen_power_watts * 0.35, rel=0.01
+        service.mechanical_regen_power_watts * 0.802, rel=0.01
     )
 
     regen_limit = output["REGEN_LIMIT"]
@@ -163,7 +232,8 @@ def test_real_fmu_physics_scenarios(manager: FmuManager) -> None:
 
     emergency = output["EMERGENCY"]
     assert emergency.traction_force_newtons == pytest.approx(0.0, abs=1e-9)
-    assert emergency.brake_force_newtons == pytest.approx(300_000.0, abs=1.0)
+    assert emergency.brake_force_newtons == pytest.approx(286_000.0, abs=1.0)
+    assert emergency.regen_brake_force_newtons == pytest.approx(0.0, abs=1e-9)
     assert emergency.fault_code == "ATP_BRAKE"
 
     cutoff = output["CUTOFF"]
@@ -183,7 +253,7 @@ def test_real_fmu_physics_scenarios(manager: FmuManager) -> None:
     )
     for item in response.train_outputs:
         assert math.isfinite(item.new_position_meters)
-        assert item.mechanical_traction_power_watts <= 3_200_000.0 + 1.0
+        assert item.mechanical_traction_power_watts <= 4_336_000.0 + 1.0
 
 
 def test_two_persistent_instances_remain_independent_for_100_steps(

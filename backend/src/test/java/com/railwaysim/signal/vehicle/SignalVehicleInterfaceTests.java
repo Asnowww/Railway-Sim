@@ -119,7 +119,7 @@ class SignalVehicleInterfaceTests {
             12.34,
             987.65,
             ExternalTrainDirection.DOWN,
-            86_400,
+            105_000,
             2.0,
             true,
             4,
@@ -129,10 +129,10 @@ class SignalVehicleInterfaceTests {
 
         assertThat(status.headMileage()).isEqualTo(987.65);
         assertThat(status.speedMetersPerSecond()).isEqualTo(12.34);
-        assertThat(status.loadMassKg()).isEqualTo(86_400);
+        assertThat(status.loadMassKg()).isEqualTo(105_000);
         assertThat(status.overloadStatus()).isEqualTo("CRITICAL_OVERLOAD");
         assertThat(status.availableTractionCount()).isEqualTo(4);
-        assertThat(status.availableBrakeCount()).isEqualTo(5);
+        assertThat(status.availableBrakeCount()).isEqualTo(4);
         assertThat(status.brakeAvailable()).isTrue();
         assertThat(status.faultCode()).isEqualTo("ATP_BRAKE");
         assertThat(status.vehicleFaultSpeedLimitMetersPerSecond()).isEqualTo(2.0);

@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from typing import Any
 
 
-MODEL_VERSION = "TrainTractionBrake/1.0.0"
+MODEL_VERSION = "TrainTractionBrake/2.0.0"
 
 
 @dataclass(frozen=True)
@@ -44,6 +44,10 @@ class VehiclePhysicsOutput:
     traction_force_newtons: float
     brake_force_newtons: float
     regen_brake_force_newtons: float
+    motor_speed_rpm: float
+    interpolated_traction_torque_nm_per_motor: float
+    interpolated_brake_torque_nm_per_motor: float
+    air_brake_force_newtons: float
     mechanical_traction_power_watts: float
     traction_power_watts: float
     rail_current_amps: float
@@ -184,6 +188,10 @@ def vehicle_physics_output_to_dict(output: VehiclePhysicsOutput) -> dict[str, An
         "tractionForceNewtons": output.traction_force_newtons,
         "brakeForceNewtons": output.brake_force_newtons,
         "regenBrakeForceNewtons": output.regen_brake_force_newtons,
+        "motorSpeedRpm": output.motor_speed_rpm,
+        "interpolatedTractionTorqueNmPerMotor": output.interpolated_traction_torque_nm_per_motor,
+        "interpolatedBrakeTorqueNmPerMotor": output.interpolated_brake_torque_nm_per_motor,
+        "airBrakeForceNewtons": output.air_brake_force_newtons,
         "mechanicalTractionPowerWatts": output.mechanical_traction_power_watts,
         "tractionPowerWatts": output.traction_power_watts,
         "railCurrentAmps": output.rail_current_amps,

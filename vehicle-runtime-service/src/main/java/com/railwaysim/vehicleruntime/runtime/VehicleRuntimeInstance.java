@@ -212,8 +212,8 @@ final class VehicleRuntimeInstance {
         }
         if ("POWER_DERATED".equals(input.dynamicsState())
             || "OVERLOAD_DERATED".equals(input.dynamicsState())
-            || input.powerAvailableWatts() * vehicleParameters.traction().efficiency()
-                < vehicleParameters.traction().maxPowerWatts()) {
+            || input.powerAvailableWatts() * vehicleParameters.drivetrain().tractionTotalEfficiency()
+                < vehicleParameters.maxCurveMechanicalTractionPowerWatts()) {
             return "DERATED";
         }
         return "APPLYING";

@@ -9,6 +9,7 @@ import java.nio.file.Path;
 import org.springframework.stereotype.Component;
 
 @Component
+@Deprecated(forRemoval = false)
 public class SimpleVehicleDynamicsModel {
 
     private static final double GRAVITY = 9.81;
@@ -130,16 +131,16 @@ public class SimpleVehicleDynamicsModel {
     ) {
         static TrainDynamicsParameters defaults() {
             return new TrainDynamicsParameters(
-                3_200_000,
-                240_000,
-                220_000,
-                300_000,
-                0.88,
-                0.35,
-                0.45,
-                1_800,
-                45,
-                3.2,
+                4_916_250,
+                235_786,
+                301_000,
+                391_300,
+                0.882,
+                0.802,
+                0.7344,
+                5_046.4,
+                151.704,
+                10.784,
                 1_000,
                 900
             );

@@ -25,10 +25,16 @@ class VehicleParametersLoaderTests {
             MessageDigest.getInstance("SHA-256").digest(Files.readAllBytes(source))
         );
 
-        assertThat(parameters.emptyMassKg()).isEqualTo(198_000);
-        assertThat(parameters.maxLoadMassKg()).isEqualTo(72_000);
-        assertThat(parameters.traction().maxPowerWatts()).isEqualTo(3_200_000);
-        assertThat(parameters.traction().efficiency()).isEqualTo(0.88);
+        assertThat(parameters.parameterSchemaVersion()).isEqualTo("2");
+        assertThat(parameters.emptyMassKg()).isEqualTo(225_000);
+        assertThat(parameters.maxLoadMassKg()).isEqualTo(76_000);
+        assertThat(parameters.maxOperatingLoadMassKg()).isEqualTo(104_000);
+        assertThat(parameters.lengthMeters()).isEqualTo(118.0);
+        assertThat(parameters.curves().pointCount()).isEqualTo(52);
+        assertThat(parameters.drivetrain().gearRatio()).isEqualTo(6.5);
+        assertThat(parameters.drivetrain().tractionTotalEfficiency()).isEqualTo(0.882);
+        assertThat(parameters.maxCurveMechanicalTractionPowerWatts()).isEqualTo(4_336_000);
+        assertThat(parameters.curveSetId()).startsWith("sha256:");
         assertThat(parameters.parameterSetId()).isEqualTo(expectedHash);
     }
 
@@ -38,13 +44,13 @@ class VehicleParametersLoaderTests {
         Files.writeString(
             invalid,
             Files.readString(projectPath("config/train_params.yaml"), StandardCharsets.UTF_8)
-                .replace("efficiency: 0.88", "efficiency: 0"),
+                .replace("tractionTotalEfficiency: 0.882", "tractionTotalEfficiency: 0"),
             StandardCharsets.UTF_8
         );
 
         assertThatThrownBy(() -> VehicleParametersLoader.load(invalid.toString()))
             .isInstanceOf(IllegalStateException.class)
-            .hasMessageContaining("traction.efficiency")
+            .hasMessageContaining("drivetrain.tractionTotalEfficiency")
             .hasMessageContaining(invalid.toString());
     }
 
@@ -69,7 +75,7 @@ class VehicleParametersLoaderTests {
         Files.writeString(
             invalid,
             Files.readString(projectPath("config/train_params.yaml"), StandardCharsets.UTF_8)
-                .replace("  efficiency: 0.88", "  efficiency: 0.88\n  unsupportedEfficiency: 0.5"),
+                .replace("  tractionTotalEfficiency: 0.882", "  tractionTotalEfficiency: 0.882\n  unsupportedEfficiency: 0.5"),
             StandardCharsets.UTF_8
         );
 

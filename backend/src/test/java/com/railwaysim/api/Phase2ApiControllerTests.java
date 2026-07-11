@@ -188,12 +188,18 @@ class Phase2ApiControllerTests {
                       "offsetMeters": 450.0,
                       "direction": "DOWN",
                       "reason": "runtime-test",
-                      "traceId": "trace-runtime"
+                      "traceId": "trace-runtime",
+                      "trainType": "B_TYPE_6_CAR",
+                      "parameterSetId": "sha256:a43ce442759c13c8106d921862cd29e80db7ee44379d5b0702da42733612e87c",
+                      "lengthMeters": 118.0,
+                      "emptyMassKg": 225000,
+                      "maxLoadMassKg": 76000
                     }
                     """))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.id").value("TR-901"))
             .andExpect(jsonPath("$.positionMeters").value(450.0))
+            .andExpect(jsonPath("$.lengthMeters").value(118.0))
             .andExpect(jsonPath("$.controlSessionState").value("CONNECTING"))
             .andExpect(jsonPath("$.linkId").value(9))
             .andExpect(jsonPath("$.direction").value("DOWN"));
@@ -223,7 +229,7 @@ class Phase2ApiControllerTests {
                         "speedMetersPerSecond": 12.34,
                         "cumulativeDistanceMeters": 987.65,
                         "direction": "DOWN",
-                        "loadMassKg": 86400,
+                        "loadMassKg": 105000,
                         "faultSpeedLimitMetersPerSecond": 2.0,
                         "emergencyBrakeApplied": true,
                         "availableTractionCount": 4,
@@ -244,7 +250,7 @@ class Phase2ApiControllerTests {
             8.0,
             456.78,
             ExternalTrainDirection.UP,
-            72_000,
+            76_000,
             0,
             false,
             6,
@@ -257,7 +263,7 @@ class Phase2ApiControllerTests {
             .andExpect(status().isOk())
             .andExpect(jsonPath("$[1].trainId").value("TR-002"))
             .andExpect(jsonPath("$[1].headMileage").value(456.78))
-            .andExpect(jsonPath("$[1].loadMassKg").value(72000));
+            .andExpect(jsonPath("$[1].loadMassKg").value(76000));
 
         mockMvc.perform(get("/api/signal/vehicles/commands"))
             .andExpect(status().isOk())

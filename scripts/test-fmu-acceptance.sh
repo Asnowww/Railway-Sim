@@ -66,14 +66,15 @@ python3 scripts/test-vehicle-runtime-performance.py \
   --output "${REPORT_DIR}/wp8-performance.json"
 
 mvn -q -f vehicle-runtime-service/pom.xml test
+mvn -q -f backend/pom.xml test
 PYTHONPATH=power-network-service "${POWER_PYTHON}" -m app.self_test
 PYTHONPATH=power-network-service "${POWER_PYTHON}" -m unittest discover -s power-network-service/tests -v
 
 FMU_TEST_IMAGE="${FMU_TEST_IMAGE:-railway-sim-fmu-test:local}"
-if ! docker image inspect "${FMU_TEST_IMAGE}" >/dev/null 2>&1; then
-  docker build --platform "${TARGET_PLATFORM:-linux/amd64}" \
-    -f fmu-service/Dockerfile --target test -t "${FMU_TEST_IMAGE}" .
-fi
+# Always rebuild: mounting only app/tests onto an older image can silently mix a
+# new parser with stale FMU/config/manifest generations.
+docker build --platform "${TARGET_PLATFORM:-linux/amd64}" \
+  -f fmu-service/Dockerfile --target test -t "${FMU_TEST_IMAGE}" .
 docker run --rm --platform "${TARGET_PLATFORM:-linux/amd64}" \
   -v "${ROOT_DIR}/fmu-service/app:/app/app:ro" \
   -v "${ROOT_DIR}/fmu-service/tests:/app/tests:ro" \

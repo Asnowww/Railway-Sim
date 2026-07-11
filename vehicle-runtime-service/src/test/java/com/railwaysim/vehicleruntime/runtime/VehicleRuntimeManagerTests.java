@@ -79,6 +79,9 @@ class VehicleRuntimeManagerTests {
             assertThat(payload.get()).contains("\"trainId\":\"TR-105\"");
             assertThat(payload.get()).contains("\"linkId\":8");
             assertThat(payload.get()).contains("\"offsetMeters\":450.0");
+            assertThat(payload.get()).contains("\"trainType\":\"B_TYPE_6_CAR\"");
+            assertThat(payload.get()).contains("\"lengthMeters\":118.0");
+            assertThat(payload.get()).contains("\"parameterSetId\":\"" + parameters.parameterSetId() + "\"");
         } finally {
             server.stop(0);
         }
@@ -97,9 +100,9 @@ class VehicleRuntimeManagerTests {
                 assertThat(output.newPositionMeters()).isGreaterThan(100);
                 assertThat(output.tractionPowerWatts()).isGreaterThan(0);
                 assertThat(output.railCurrentAmps()).isGreaterThan(0);
-                assertThat(output.mechanicalTractionPowerWatts()).isLessThanOrEqualTo(3_200_000);
+                assertThat(output.mechanicalTractionPowerWatts()).isLessThanOrEqualTo(4_336_000);
                 assertThat(output.mechanicalTractionPowerWatts())
-                    .isCloseTo(output.tractionPowerWatts() * 0.88, within(0.001));
+                    .isCloseTo(output.tractionPowerWatts() * 0.882, within(0.001));
             });
         assertThat(response.trainReports()).singleElement()
             .satisfies(report -> assertThat(report.dynamicsState()).isIn("ACCELERATING", "CRUISING", "COASTING"));
@@ -110,9 +113,13 @@ class VehicleRuntimeManagerTests {
         var metadata = manager().parameterMetadata();
 
         assertThat(metadata.parameterSetId()).matches("sha256:[0-9a-f]{64}");
-        assertThat(metadata.emptyMassKg()).isEqualTo(198_000);
-        assertThat(metadata.maxLoadMassKg()).isEqualTo(72_000);
-        assertThat(metadata.maxMechanicalTractionPowerWatts()).isEqualTo(3_200_000);
+        assertThat(metadata.parameterSchemaVersion()).isEqualTo("2");
+        assertThat(metadata.curveSetId()).matches("sha256:[0-9a-f]{64}");
+        assertThat(metadata.emptyMassKg()).isEqualTo(225_000);
+        assertThat(metadata.maxLoadMassKg()).isEqualTo(76_000);
+        assertThat(metadata.lengthMeters()).isEqualTo(118.0);
+        assertThat(metadata.curvePointCount()).isEqualTo(52);
+        assertThat(metadata.maxMechanicalTractionPowerWatts()).isEqualTo(4_336_000);
     }
 
     @Test

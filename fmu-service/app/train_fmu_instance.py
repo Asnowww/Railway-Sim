@@ -110,7 +110,7 @@ class TrainFMUInstance:
     def _set_values(
         self,
         bindings: Mapping[str, VariableBinding],
-        values: Mapping[str, float | bool],
+        values: Mapping[str, float | int | bool],
     ) -> None:
         if self._slave is None:
             raise FmuExecutionError(f"FMU instance {self.train_id} is not allocated")
@@ -118,6 +118,8 @@ class TrainFMUInstance:
         real_values: list[float] = []
         boolean_references: list[int] = []
         boolean_values: list[bool] = []
+        integer_references: list[int] = []
+        integer_values: list[int] = []
         for logical_name, binding in bindings.items():
             if logical_name not in values:
                 raise FmuExecutionError(f"Missing FMU value for {logical_name}")
@@ -131,6 +133,11 @@ class TrainFMUInstance:
             elif binding.value_type == "Boolean":
                 boolean_references.append(binding.value_reference)
                 boolean_values.append(bool(value))
+            elif binding.value_type == "Integer":
+                if isinstance(value, bool) or int(value) != value:
+                    raise FmuExecutionError(f"Non-integer FMU input {logical_name}")
+                integer_references.append(binding.value_reference)
+                integer_values.append(int(value))
             else:
                 raise FmuExecutionError(
                     f"Unsupported FMU input type {binding.value_type} for {logical_name}"
@@ -139,6 +146,8 @@ class TrainFMUInstance:
             self._slave.setReal(real_references, real_values)
         if boolean_references:
             self._slave.setBoolean(boolean_references, boolean_values)
+        if integer_references:
+            self._slave.setInteger(integer_references, integer_values)
 
     @staticmethod
     def _initial_state_values(train: VehiclePhysicsInput) -> Mapping[str, float]:
@@ -202,6 +211,18 @@ class TrainFMUInstance:
             ),
             regen_brake_force_newtons=self._non_negative(
                 "regenBrakeForceNewtons", values["regenBrakeForceNewtons"]
+            ),
+            motor_speed_rpm=self._non_negative("motorSpeedRpm", values["motorSpeedRpm"]),
+            interpolated_traction_torque_nm_per_motor=self._non_negative(
+                "interpolatedTractionTorqueNmPerMotor",
+                values["interpolatedTractionTorqueNmPerMotor"],
+            ),
+            interpolated_brake_torque_nm_per_motor=self._non_negative(
+                "interpolatedBrakeTorqueNmPerMotor",
+                values["interpolatedBrakeTorqueNmPerMotor"],
+            ),
+            air_brake_force_newtons=self._non_negative(
+                "airBrakeForceNewtons", values["airBrakeForceNewtons"]
             ),
             mechanical_traction_power_watts=self._non_negative(
                 "mechanicalTractionPowerWatts",

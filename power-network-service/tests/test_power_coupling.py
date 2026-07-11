@@ -36,12 +36,40 @@ class PowerCouplingTests(unittest.TestCase):
         self.assertEqual(900_000.0, constraints[0]["regenPowerAvailableWatts"])
         self.assertEqual(900_000.0, constraints[1]["regenPowerAvailableWatts"])
         loaded_b = next(item for item in constraints if item["trainId"] == "TR-B")
-        baseline_mechanical_power = min(3_200_000, unloaded_b["powerAvailableWatts"] * 0.88)
-        next_step_mechanical_power = min(3_200_000, loaded_b["powerAvailableWatts"] * 0.88)
-        baseline_force_at_15_mps = min(240_000, baseline_mechanical_power / 15.0)
-        next_step_force_at_15_mps = min(240_000, next_step_mechanical_power / 15.0)
+        curve_power_limit = 4_336_000
+        curve_force_limit = 1042.9 * 16 * 6.5 / 0.46
+        baseline_mechanical_power = min(curve_power_limit, unloaded_b["powerAvailableWatts"] * 0.882)
+        next_step_mechanical_power = min(curve_power_limit, loaded_b["powerAvailableWatts"] * 0.882)
+        baseline_force_at_15_mps = min(curve_force_limit, baseline_mechanical_power / 15.0)
+        next_step_force_at_15_mps = min(curve_force_limit, next_step_mechanical_power / 15.0)
         self.assertLess(next_step_mechanical_power, baseline_mechanical_power)
         self.assertLess(next_step_force_at_15_mps, baseline_force_at_15_mps)
+
+    def test_reference_peak_traction_is_limited_by_real_section_current_capacity(self) -> None:
+        positions = [{"trainId": "TR-PEAK", "positionMeters": 200.0}]
+        response = self.model.step(
+            1,
+            load_payload("P01", ["TR-PEAK"], 4_916_250.0, 0.0, 3_277.5),
+            positions,
+        )
+        constraint = response["powerConstraints"][0]
+        self.assertLess(constraint["railVoltage"], 1500.0)
+        self.assertLess(constraint["powerAvailableWatts"], 4_916_250.0)
+        self.assertLess(constraint["powerAvailableWatts"] * 0.882, 4_336_000.0)
+
+    def test_reference_peak_regen_records_unabsorbed_power(self) -> None:
+        response = self.model.step(
+            1,
+            load_payload("P01", ["TR-PEAK"], 4_916_250.0, 5_464_350.0, 0.0),
+            [{"trainId": "TR-PEAK", "positionMeters": 200.0}],
+        )
+        section = next(
+            item for item in response["thirdRailSections"]
+            if item["powerSectionId"] == "P01"
+        )
+        self.assertEqual(4_916_250.0, section["absorbedRegenWatts"])
+        self.assertEqual(548_100.0, section["unabsorbedRegenWatts"])
+        self.assertEqual(4_916_250.0, section["regenBudgetWatts"])
 
     def test_different_section_isolation(self) -> None:
         positions = [

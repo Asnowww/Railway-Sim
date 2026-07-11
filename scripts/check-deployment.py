@@ -17,6 +17,7 @@ def main() -> None:
     args = parser.parse_args()
 
     _, vehicle = request_json(f"{args.vehicle}/vehicle-runtime/health")
+    _, vehicle_parameters = request_json(f"{args.vehicle}/vehicle-runtime/parameters")
     _, power = request_json(f"{args.power}/health")
     fmu = None
     metadata = None
@@ -45,8 +46,18 @@ def main() -> None:
             errors.append("FMU service is not ready")
         if metadata is None or vehicle.get("parameterSetId") != metadata.get("parameterSetId"):
             errors.append("9300/9000 parameterSetId mismatch")
+        if metadata is None or vehicle_parameters.get("curveSetId") != metadata.get("curveSetId"):
+            errors.append("9300/9000 curveSetId mismatch")
         if metadata is None or vehicle.get("fmuModelVersion") != metadata.get("modelVersion"):
             errors.append("9300/9000 modelVersion mismatch")
+        if metadata is None or metadata.get("parameterSchemaVersion") != "2":
+            errors.append("FMU parameter schema is not v2")
+        if metadata is None or metadata.get("curvePointCount") != 52:
+            errors.append("FMU did not load the 52-point motor curves")
+        if metadata is None or metadata.get("lengthMeters") != 118.0:
+            errors.append("FMU vehicle length is not 118 m")
+        if vehicle_parameters.get("lengthMeters") != 118.0:
+            errors.append("vehicle runtime vehicle length is not 118 m")
         validation_status = (validation or {}).get("variableValidation", {}).get("status")
         if validation_status not in {"VALID", None}:
             errors.append(f"FMU variable validation is {validation_status}")
@@ -55,6 +66,7 @@ def main() -> None:
         "status": "PASS" if not errors else "FAIL",
         "errors": errors,
         "vehicleRuntime": vehicle,
+        "vehicleParameters": vehicle_parameters,
         "powerNetwork": power,
         "fmu": fmu,
         "fmuMetadata": metadata,

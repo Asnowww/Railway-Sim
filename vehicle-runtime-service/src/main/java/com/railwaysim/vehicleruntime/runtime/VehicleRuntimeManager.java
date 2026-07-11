@@ -99,12 +99,30 @@ public class VehicleRuntimeManager {
 
     public VehicleParameterMetadata parameterMetadata() {
         return new VehicleParameterMetadata(
+            vehicleParameters.parameterSchemaVersion(),
             vehicleParameters.parameterSetId(),
+            vehicleParameters.curveSetId(),
             vehicleParameters.sourcePath().toString(),
             vehicleParameters.trainType(),
+            vehicleParameters.lengthMeters(),
+            String.join("-", vehicleParameters.formation().order()),
+            vehicleParameters.formation().motorCount(),
+            vehicleParameters.formation().axleCount(),
+            vehicleParameters.drivetrain().wheelRadiusMeters(),
+            vehicleParameters.drivetrain().gearRatio(),
             vehicleParameters.emptyMassKg(),
             vehicleParameters.maxLoadMassKg(),
-            vehicleParameters.traction().maxPowerWatts()
+            java.util.Map.of(
+                "AW0", vehicleParameters.formation().loadCasesKg().aw0(),
+                "AW2", vehicleParameters.formation().loadCasesKg().aw2(),
+                "AW3", vehicleParameters.formation().loadCasesKg().aw3()
+            ),
+            vehicleParameters.formation().hardMassLimitKg(),
+            vehicleParameters.curves().pointCount(),
+            vehicleParameters.maxCurveMechanicalTractionPowerWatts(),
+            vehicleParameters.drivetrain().tractionTotalEfficiency(),
+            vehicleParameters.drivetrain().regenTotalEfficiency(),
+            vehicleParameters.curves().referenceVoltageVolts()
         );
     }
 
@@ -152,7 +170,9 @@ public class VehicleRuntimeManager {
         String dataQuality = "GOOD";
         if (request.shouldRegisterWithCentral()) {
             try {
-                centralTrainRegistrationClient.register(CentralTrainRegistrationRequest.from(request));
+                centralTrainRegistrationClient.register(
+                    CentralTrainRegistrationRequest.from(request, vehicleParameters)
+                );
                 registrationStatus = "REGISTERED";
                 reason = "CENTRAL_REGISTERED";
                 recordEvent(trainId, "CENTRAL_REGISTERED", "vehicle runtime registered train with central system");
@@ -431,6 +451,10 @@ public class VehicleRuntimeManager {
             output.tractionForceNewtons(),
             output.brakeForceNewtons(),
             output.regenBrakeForceNewtons(),
+            output.motorSpeedRpm(),
+            output.interpolatedTractionTorqueNmPerMotor(),
+            output.interpolatedBrakeTorqueNmPerMotor(),
+            output.airBrakeForceNewtons(),
             output.mechanicalTractionPowerWatts(),
             output.tractionPowerWatts(),
             output.railCurrentAmps(),

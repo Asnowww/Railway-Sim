@@ -1,6 +1,7 @@
 package com.railwaysim.vehicle.runtime;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.railwaysim.config.ExternalPowerNetworkProperties;
 import com.railwaysim.config.SimulationProperties;
@@ -65,7 +66,7 @@ class VehicleRuntimeIntegrationServiceTests {
     }
 
     @Test
-    void externalHttpFailureFallsBackToLocalRuntimeAndMarksDataQuality() throws IOException {
+    void externalHttpFailureDoesNotRunCentralPhysicsFallback() throws IOException {
         HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         server.createContext("/vehicle-runtime/bootstrap", exchange -> writeJson(exchange, 200, healthJson("GOOD")));
         server.createContext("/vehicle-runtime/step-fleet", exchange -> writeJson(exchange, 500, "{\"error\":\"boom\"}"));
@@ -73,13 +74,10 @@ class VehicleRuntimeIntegrationServiceTests {
         try {
             VehicleRuntimeIntegrationService service = service(server, VehicleRuntimeMode.EXTERNAL_HTTP);
 
-            VehicleRuntimeStepResult result = service.stepFleet(tick(1), List.of(train()), authority(), track(), List.of(), power());
-
-            assertThat(result.outputs()).singleElement()
-                .satisfies(output -> assertThat(output.faultCode()).isEqualTo("EXTERNAL_SIM_FALLBACK"));
-            assertThat(result.trainSteps()).singleElement()
-                .satisfies(step -> assertThat(step.report().dataQuality()).isEqualTo("FALLBACK"));
-            assertThat(result.health().dataQuality()).isEqualTo("FALLBACK");
+            assertThatThrownBy(() -> service.stepFleet(tick(1), List.of(train()), authority(), track(), List.of(), power()))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("central physics fallback is disabled");
+            assertThat(service.health().dataQuality()).isEqualTo("FALLBACK");
             assertThat(service.ownsPowerLoadForwarding()).isFalse();
         } finally {
             server.stop(0);
@@ -109,10 +107,11 @@ class VehicleRuntimeIntegrationServiceTests {
         try {
             VehicleRuntimeIntegrationService service = service(server, VehicleRuntimeMode.EXTERNAL_HTTP, ExternalPowerNetworkMode.EXTERNAL_HTTP);
 
-            VehicleRuntimeStepResult first = service.stepFleet(tick(1), List.of(train()), authority(), track(), List.of(), power());
+            assertThatThrownBy(() -> service.stepFleet(tick(1), List.of(train()), authority(), track(), List.of(), power()))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("central physics fallback is disabled");
             VehicleRuntimeStepResult second = service.stepFleet(tick(2), List.of(train()), authority(), track(), List.of(), power());
 
-            assertThat(first.health().dataQuality()).isEqualTo("FALLBACK");
             assertThat(second.outputs()).singleElement()
                 .satisfies(output -> assertThat(output.newPositionMeters()).isEqualTo(456.0));
             assertThat(bootstrapCalls.get()).isEqualTo(2);

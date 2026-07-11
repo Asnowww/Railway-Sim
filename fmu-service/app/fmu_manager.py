@@ -75,7 +75,9 @@ class FmuManager:
             {
                 "parameterSource": str(self._parameters.source_path),
                 "trainType": self._parameters.train_type,
-                "maxMechanicalTractionPowerWatts": self._parameters.traction.max_power_watts,
+                "maxMechanicalTractionPowerWatts": (
+                    self._parameters.max_curve_mechanical_traction_power_watts
+                ),
             }
         )
         return metadata
@@ -445,5 +447,5 @@ class FmuManager:
             raise FmuProtocolError(503, "FMU_SERVICE_NOT_READY", "FMU service is closed")
 
 
-if MODEL_VERSION != "TrainTractionBrake/1.0.0":
+if MODEL_VERSION != "TrainTractionBrake/2.0.0":
     raise RuntimeError("Python domain model version changed without updating the frozen contract")

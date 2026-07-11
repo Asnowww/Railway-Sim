@@ -132,6 +132,14 @@ class FmuModelRuntime:
             raise FmuArtifactError(
                 "FMU manifest parameterSetId does not match loaded train parameters"
             )
+        if self.manifest.get("curveSetId") != self.parameters.curve_set_id:
+            raise FmuArtifactError(
+                "FMU manifest curveSetId does not match loaded train parameters"
+            )
+        if self.manifest.get("parameterSchemaVersion") != self.parameters.parameter_schema_version:
+            raise FmuArtifactError(
+                "FMU manifest parameterSchemaVersion does not match loaded train parameters"
+            )
         if self.manifest.get("modelVersion") != self.model_version:
             raise FmuArtifactError("FMU manifest modelVersion does not match fmu_mapping.yaml")
 
@@ -172,53 +180,55 @@ class FmuModelRuntime:
                     raise FmuArtifactError(
                         f"FMU mapping entry must be a mapping: {group_name}.{logical_name}"
                     )
-                fmi_name = specification.get("fmiVariable")
                 expected_type = specification.get("type")
-                if not isinstance(fmi_name, str) or not isinstance(expected_type, str):
+                if not isinstance(expected_type, str):
                     raise FmuArtifactError(
-                        f"FMU mapping entry lacks fmiVariable/type: {group_name}.{logical_name}"
+                        f"FMU mapping entry lacks type: {group_name}.{logical_name}"
                     )
-                variable = self._variables.get(fmi_name)
-                if variable is None:
-                    raise FmuArtifactError(f"FMU variable is missing: {fmi_name}")
-                if variable.type != expected_type:
-                    raise FmuArtifactError(
-                        f"FMU variable {fmi_name} type is {variable.type}, expected {expected_type}"
+                for expanded_logical_name, fmi_name in self._expanded_mapping_entries(
+                    group_name, logical_name, specification
+                ):
+                    variable = self._variables.get(fmi_name)
+                    if variable is None:
+                        raise FmuArtifactError(f"FMU variable is missing: {fmi_name}")
+                    if variable.type != expected_type:
+                        raise FmuArtifactError(
+                            f"FMU variable {fmi_name} type is {variable.type}, expected {expected_type}"
+                        )
+                    if variable.causality != expected_causality:
+                        raise FmuArtifactError(
+                            f"FMU variable {fmi_name} causality is {variable.causality}, "
+                            f"expected {expected_causality}"
+                        )
+                    if expected_variability and variable.variability != expected_variability:
+                        raise FmuArtifactError(
+                            f"FMU variable {fmi_name} variability is {variable.variability}, "
+                            f"expected {expected_variability}"
+                        )
+                    expected_unit = specification.get("unit")
+                    if expected_unit is not None and variable.unit != expected_unit:
+                        raise FmuArtifactError(
+                            f"FMU variable {fmi_name} unit is {variable.unit}, expected {expected_unit}"
+                        )
+                    value_reference = int(variable.valueReference)
+                    reference_key = (variable.type, value_reference)
+                    previous_name = used_references.get(reference_key)
+                    if previous_name and previous_name != fmi_name:
+                        raise FmuArtifactError(
+                            f"Mapped variables {previous_name} and {fmi_name} alias the same "
+                            f"{variable.type} value reference {value_reference}"
+                        )
+                    used_references[reference_key] = fmi_name
+                    group_bindings[expanded_logical_name] = VariableBinding(
+                        logical_name=expanded_logical_name,
+                        fmi_name=fmi_name,
+                        value_reference=value_reference,
+                        value_type=variable.type,
+                        unit=variable.unit,
+                        causality=variable.causality,
+                        variability=variable.variability,
                     )
-                if variable.causality != expected_causality:
-                    raise FmuArtifactError(
-                        f"FMU variable {fmi_name} causality is {variable.causality}, "
-                        f"expected {expected_causality}"
-                    )
-                if expected_variability and variable.variability != expected_variability:
-                    raise FmuArtifactError(
-                        f"FMU variable {fmi_name} variability is {variable.variability}, "
-                        f"expected {expected_variability}"
-                    )
-                expected_unit = specification.get("unit")
-                if expected_unit is not None and variable.unit != expected_unit:
-                    raise FmuArtifactError(
-                        f"FMU variable {fmi_name} unit is {variable.unit}, expected {expected_unit}"
-                    )
-                value_reference = int(variable.valueReference)
-                reference_key = (variable.type, value_reference)
-                previous_name = used_references.get(reference_key)
-                if previous_name and previous_name != fmi_name:
-                    raise FmuArtifactError(
-                        f"Mapped variables {previous_name} and {fmi_name} alias the same "
-                        f"{variable.type} value reference {value_reference}"
-                    )
-                used_references[reference_key] = fmi_name
-                group_bindings[logical_name] = VariableBinding(
-                    logical_name=logical_name,
-                    fmi_name=fmi_name,
-                    value_reference=value_reference,
-                    value_type=variable.type,
-                    unit=variable.unit,
-                    causality=variable.causality,
-                    variability=variable.variability,
-                )
-                checked_names.append(fmi_name)
+                    checked_names.append(fmi_name)
             bindings[group_name] = MappingProxyType(group_bindings)
 
         report = MappingProxyType(
@@ -231,6 +241,34 @@ class FmuModelRuntime:
             }
         )
         return MappingProxyType(bindings), report
+
+    @staticmethod
+    def _expanded_mapping_entries(
+        group_name: str,
+        logical_name: str,
+        specification: Mapping[str, Any],
+    ) -> tuple[tuple[str, str], ...]:
+        fmi_name = specification.get("fmiVariable")
+        pattern = specification.get("fmiVariablePattern")
+        if isinstance(fmi_name, str) and pattern is None:
+            return ((logical_name, fmi_name),)
+        length = specification.get("length")
+        if (
+            isinstance(pattern, str)
+            and "{index}" in pattern
+            and isinstance(length, int)
+            and not isinstance(length, bool)
+            and length > 0
+            and fmi_name is None
+        ):
+            return tuple(
+                (f"{logical_name}[{index}]", pattern.format(index=index))
+                for index in range(1, length + 1)
+            )
+        raise FmuArtifactError(
+            f"FMU mapping entry must define either fmiVariable or "
+            f"fmiVariablePattern/length: {group_name}.{logical_name}"
+        )
 
     def binding(self, group_name: str, logical_name: str) -> VariableBinding:
         try:
@@ -246,30 +284,50 @@ class FmuModelRuntime:
         except KeyError as exc:
             raise FmuArtifactError(f"Unknown FMU binding group {group_name}") from exc
 
-    def parameter_values(self) -> Mapping[str, float]:
+    def parameter_values(self) -> Mapping[str, float | int]:
         parameters = self.parameters
         values_by_source = {
-            "traction.maxPowerWatts": parameters.traction.max_power_watts,
-            "traction.maxTractionForceNewtons": parameters.traction.max_traction_force_newtons,
-            "traction.efficiency": parameters.traction.efficiency,
-            "brake.maxServiceBrakeForceNewtons": parameters.brake.max_service_brake_force_newtons,
-            "brake.maxEmergencyBrakeForceNewtons": parameters.brake.max_emergency_brake_force_newtons,
-            "brake.regenBrakeRatio": parameters.brake.regen_brake_ratio,
-            "brake.regenEfficiency": parameters.brake.regen_efficiency,
-            "resistance.davisA": parameters.resistance.davis_a,
-            "resistance.davisB": parameters.resistance.davis_b,
-            "resistance.davisC": parameters.resistance.davis_c,
+            "formation.motorCount": parameters.formation.motor_count,
+            "formation.axleCount": parameters.formation.axle_count,
+            "formation.vehicleCount": len(parameters.formation.order),
+            "drivetrain.gearRatio": parameters.drivetrain.gear_ratio,
+            "drivetrain.wheelRadiusMeters": parameters.drivetrain.wheel_radius_meters,
+            "drivetrain.tractionTotalEfficiency": parameters.drivetrain.traction_total_efficiency,
+            "drivetrain.regenTotalEfficiency": parameters.drivetrain.regen_total_efficiency,
+            "curves.speedRpm": parameters.curves.speed_rpm,
+            "curves.tractionTorqueNmPerMotor": parameters.curves.traction_torque_nm_per_motor,
+            "curves.brakeTorqueNmPerMotor": parameters.curves.brake_torque_nm_per_motor,
+            "resistance.davisMassCoefficient": parameters.resistance.davis_mass_coefficient,
+            "resistance.davisAxleConstant": parameters.resistance.davis_axle_constant,
+            "resistance.davisSpeedMassCoefficient": parameters.resistance.davis_speed_mass_coefficient,
+            "resistance.davisAeroBase": parameters.resistance.davis_aero_base,
+            "resistance.davisAeroVehicleCoefficient": parameters.resistance.davis_aero_vehicle_coefficient,
+            "resistance.frontalAreaSquareMeters": parameters.resistance.frontal_area_square_meters,
+            "brake.serviceDecelerationMps2": parameters.brake.service_deceleration_mps2,
+            "brake.emergencyDecelerationMps2": parameters.brake.emergency_deceleration_mps2,
             "power.minVoltage": parameters.power.min_voltage,
             "power.cutoffVoltage": parameters.power.cutoff_voltage,
         }
-        result: dict[str, float] = {}
+        result: dict[str, float | int] = {}
         for logical_name, specification in self.mapping["parameters"].items():
             source = specification.get("source")
             if source not in values_by_source:
                 raise FmuArtifactError(
                     f"Unsupported parameter source for {logical_name}: {source}"
                 )
-            result[logical_name] = float(values_by_source[source])
+            source_value = values_by_source[source]
+            expanded = self._expanded_mapping_entries("parameters", logical_name, specification)
+            if len(expanded) == 1:
+                if isinstance(source_value, (tuple, list)):
+                    raise FmuArtifactError(f"Scalar parameter {logical_name} has an array source")
+                result[logical_name] = source_value
+                continue
+            if not isinstance(source_value, (tuple, list)) or len(source_value) != len(expanded):
+                raise FmuArtifactError(
+                    f"Array parameter {logical_name} expected {len(expanded)} values"
+                )
+            for (expanded_logical_name, _), value in zip(expanded, source_value, strict=True):
+                result[expanded_logical_name] = float(value)
         return MappingProxyType(result)
 
     def create_slave(self, train_id: str) -> FMU2Slave:
@@ -291,7 +349,16 @@ class FmuModelRuntime:
             "fmuType": "CoSimulation",
             "fmuSha256": self.manifest["fmuSha256"],
             "parameterSetId": self.parameters.parameter_set_id,
+            "curveSetId": self.parameters.curve_set_id,
             "parameterSchemaVersion": self.manifest["parameterSchemaVersion"],
+            "lengthMeters": self.parameters.length_meters,
+            "formation": "-".join(self.parameters.formation.order),
+            "motorCount": self.parameters.formation.motor_count,
+            "axleCount": self.parameters.formation.axle_count,
+            "wheelRadiusMeters": self.parameters.drivetrain.wheel_radius_meters,
+            "gearRatio": self.parameters.drivetrain.gear_ratio,
+            "curvePointCount": self.parameters.curves.point_count,
+            "referenceVoltageVolts": self.parameters.curves.reference_voltage_volts,
             "targetPlatform": self.manifest["targetPlatform"],
             "openModelicaImageDigest": self.manifest["openModelicaImageDigest"],
             "generationTool": self.manifest["generationTool"],

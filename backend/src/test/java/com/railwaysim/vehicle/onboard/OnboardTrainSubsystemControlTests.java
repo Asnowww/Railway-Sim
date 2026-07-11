@@ -159,7 +159,7 @@ class OnboardTrainSubsystemControlTests {
     void dynamicOverloadDeratesTractionAndExtendsStoppingDistanceWithoutDispatchCommand() {
         OnboardTrainSubsystemManager manager = manager();
         TrainState normal = movingTrainState(5.0, 25_200, 6, 6);
-        TrainState overloaded = movingTrainState(5.0, 86_400, 6, 6);
+        TrainState overloaded = movingTrainState(5.0, 105_000, 4, 4);
 
         VehiclePhysicsInput normalInput = control(
             manager,

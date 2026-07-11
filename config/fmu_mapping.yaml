@@ -1,5 +1,5 @@
 model: RailwaySimVehicle.TrainTractionBrake
-modelVersion: TrainTractionBrake/1.0.0
+modelVersion: TrainTractionBrake/2.0.0
 fmiVersion: "2.0"
 fmuType: CoSimulation
 
@@ -10,56 +10,96 @@ service:
 
 # FMU 初始化模式内从 config/train_params.yaml 写入的固定参数。
 parameters:
-  maxMechanicalTractionPowerWatts:
-    fmiVariable: maxMechanicalTractionPowerWatts
-    type: Real
-    unit: W
-    source: traction.maxPowerWatts
-  maxTractionForceNewtons:
-    fmiVariable: maxTractionForceNewtons
-    type: Real
-    unit: N
-    source: traction.maxTractionForceNewtons
-  tractionEfficiency:
-    fmiVariable: tractionEfficiency
-    type: Real
-    unit: "1"
-    source: traction.efficiency
-  maxServiceBrakeForceNewtons:
-    fmiVariable: maxServiceBrakeForceNewtons
-    type: Real
-    unit: N
-    source: brake.maxServiceBrakeForceNewtons
-  maxEmergencyBrakeForceNewtons:
-    fmiVariable: maxEmergencyBrakeForceNewtons
-    type: Real
-    unit: N
-    source: brake.maxEmergencyBrakeForceNewtons
-  regenBrakeRatio:
-    fmiVariable: regenBrakeRatio
+  motorCount:
+    fmiVariable: motorCount
+    type: Integer
+    source: formation.motorCount
+  axleCount:
+    fmiVariable: axleCount
+    type: Integer
+    source: formation.axleCount
+  vehicleCount:
+    fmiVariable: vehicleCount
+    type: Integer
+    source: formation.vehicleCount
+  gearRatio:
+    fmiVariable: gearRatio
     type: Real
     unit: "1"
-    source: brake.regenBrakeRatio
-  regenEfficiency:
-    fmiVariable: regenEfficiency
+    source: drivetrain.gearRatio
+  wheelRadiusMeters:
+    fmiVariable: wheelRadiusMeters
+    type: Real
+    unit: m
+    source: drivetrain.wheelRadiusMeters
+  tractionTotalEfficiency:
+    fmiVariable: tractionTotalEfficiency
     type: Real
     unit: "1"
-    source: brake.regenEfficiency
-  davisA:
-    fmiVariable: davisA
+    source: drivetrain.tractionTotalEfficiency
+  regenTotalEfficiency:
+    fmiVariable: regenTotalEfficiency
+    type: Real
+    unit: "1"
+    source: drivetrain.regenTotalEfficiency
+  speedRpm:
+    fmiVariablePattern: "speedRpm[{index}]"
+    length: 52
+    type: Real
+    unit: rev/min
+    source: curves.speedRpm
+  tractionTorqueNmPerMotor:
+    fmiVariablePattern: "tractionTorqueNmPerMotor[{index}]"
+    length: 52
+    type: Real
+    unit: N.m
+    source: curves.tractionTorqueNmPerMotor
+  brakeTorqueNmPerMotor:
+    fmiVariablePattern: "brakeTorqueNmPerMotor[{index}]"
+    length: 52
+    type: Real
+    unit: N.m
+    source: curves.brakeTorqueNmPerMotor
+  davisMassCoefficient:
+    fmiVariable: davisMassCoefficient
     type: Real
     unit: N
-    source: resistance.davisA
-  davisB:
-    fmiVariable: davisB
+    source: resistance.davisMassCoefficient
+  davisAxleConstant:
+    fmiVariable: davisAxleConstant
     type: Real
-    unit: N.s/m
-    source: resistance.davisB
-  davisC:
-    fmiVariable: davisC
+    unit: N
+    source: resistance.davisAxleConstant
+  davisSpeedMassCoefficient:
+    fmiVariable: davisSpeedMassCoefficient
     type: Real
-    unit: N.s2/m2
-    source: resistance.davisC
+    unit: N.h/km
+    source: resistance.davisSpeedMassCoefficient
+  davisAeroBase:
+    fmiVariable: davisAeroBase
+    type: Real
+    unit: N.h2/km2/m2
+    source: resistance.davisAeroBase
+  davisAeroVehicleCoefficient:
+    fmiVariable: davisAeroVehicleCoefficient
+    type: Real
+    unit: N.h2/km2/m2
+    source: resistance.davisAeroVehicleCoefficient
+  frontalAreaSquareMeters:
+    fmiVariable: frontalAreaSquareMeters
+    type: Real
+    unit: m2
+    source: resistance.frontalAreaSquareMeters
+  serviceDecelerationMps2:
+    fmiVariable: serviceDecelerationMps2
+    type: Real
+    unit: m/s2
+    source: brake.serviceDecelerationMps2
+  emergencyDecelerationMps2:
+    fmiVariable: emergencyDecelerationMps2
+    type: Real
+    unit: m/s2
+    source: brake.emergencyDecelerationMps2
   minimumVoltageVolts:
     fmiVariable: minimumVoltageVolts
     type: Real
@@ -204,6 +244,26 @@ outputs:
     type: Real
     unit: N
     consumer: 9300-report
+  motorSpeedRpm:
+    fmiVariable: motorSpeedRpm
+    type: Real
+    unit: rev/min
+    consumer: 9300-diagnostics
+  interpolatedTractionTorqueNmPerMotor:
+    fmiVariable: interpolatedTractionTorqueNmPerMotor
+    type: Real
+    unit: N.m
+    consumer: 9300-diagnostics
+  interpolatedBrakeTorqueNmPerMotor:
+    fmiVariable: interpolatedBrakeTorqueNmPerMotor
+    type: Real
+    unit: N.m
+    consumer: 9300-diagnostics
+  airBrakeForceNewtons:
+    fmiVariable: airBrakeForceNewtons
+    type: Real
+    unit: N
+    consumer: 9300-diagnostics
   mechanicalTractionPowerWatts:
     fmiVariable: mechanicalTractionPowerWatts
     type: Real
