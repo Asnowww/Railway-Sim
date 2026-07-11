@@ -35,6 +35,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import org.springframework.stereotype.Service;
+import org.springframework.beans.factory.annotation.Autowired;
 
 /**
  * 外部车辆运行时总入口，集中管理每车实例和同步 step-fleet 调度。
@@ -50,6 +51,7 @@ public class VehicleRuntimeManager {
     private final CentralTrainRegistrationClient centralTrainRegistrationClient;
     private final FmuHttpVehiclePhysicsExecutor fmuExecutor;
     private final JavaFallbackVehiclePhysicsExecutor javaFallbackExecutor;
+    private final DriverCommandHolder driverCommandHolder;
     private final Map<String, VehicleRuntimeInstance> instances = new ConcurrentHashMap<>();
     private final Map<String, FmuInstanceSessionState> fmuSessions = new ConcurrentHashMap<>();
     private final Map<String, PowerConstraintSnapshot> authoritativePowerByTrain = new ConcurrentHashMap<>();
@@ -60,6 +62,26 @@ public class VehicleRuntimeManager {
     private long fallbackEventCount;
     private long fmiErrorCount;
 
+    @Autowired
+    public VehicleRuntimeManager(
+        VehicleRuntimeProperties properties,
+        VehicleParameters vehicleParameters,
+        PowerNetworkLoadClient powerNetworkLoadClient,
+        CentralTrainRegistrationClient centralTrainRegistrationClient,
+        FmuHttpVehiclePhysicsExecutor fmuExecutor,
+        JavaFallbackVehiclePhysicsExecutor javaFallbackExecutor,
+        DriverCommandHolder driverCommandHolder
+    ) {
+        this.properties = properties;
+        this.vehicleParameters = vehicleParameters;
+        this.powerNetworkLoadClient = powerNetworkLoadClient;
+        this.centralTrainRegistrationClient = centralTrainRegistrationClient;
+        this.fmuExecutor = fmuExecutor;
+        this.javaFallbackExecutor = javaFallbackExecutor;
+        this.driverCommandHolder = driverCommandHolder;
+        this.latestHealth = healthSnapshot("UP", 0, "GOOD", "READY", 0);
+    }
+
     public VehicleRuntimeManager(
         VehicleRuntimeProperties properties,
         VehicleParameters vehicleParameters,
@@ -68,13 +90,8 @@ public class VehicleRuntimeManager {
         FmuHttpVehiclePhysicsExecutor fmuExecutor,
         JavaFallbackVehiclePhysicsExecutor javaFallbackExecutor
     ) {
-        this.properties = properties;
-        this.vehicleParameters = vehicleParameters;
-        this.powerNetworkLoadClient = powerNetworkLoadClient;
-        this.centralTrainRegistrationClient = centralTrainRegistrationClient;
-        this.fmuExecutor = fmuExecutor;
-        this.javaFallbackExecutor = javaFallbackExecutor;
-        this.latestHealth = healthSnapshot("UP", 0, "GOOD", "READY", 0);
+        this(properties, vehicleParameters, powerNetworkLoadClient, centralTrainRegistrationClient,
+            fmuExecutor, javaFallbackExecutor, DriverCommandHolder.getInstance());
     }
 
     public VehicleRuntimeHealth health() {
@@ -147,7 +164,7 @@ public class VehicleRuntimeManager {
         }
         VehicleRuntimeInstance instance = instances.computeIfAbsent(
             trainId,
-            id -> new VehicleRuntimeInstance(id, properties, vehicleParameters)
+            id -> new VehicleRuntimeInstance(id, properties, vehicleParameters, driverCommandHolder)
         );
         instance.launch();
         recordEvent(trainId, "REGISTER", "vehicle runtime instance registered");
@@ -161,7 +178,7 @@ public class VehicleRuntimeManager {
         String trainId = request.normalizedTrainId();
         VehicleRuntimeInstance instance = instances.computeIfAbsent(
             trainId,
-            id -> new VehicleRuntimeInstance(id, properties, vehicleParameters)
+            id -> new VehicleRuntimeInstance(id, properties, vehicleParameters, driverCommandHolder)
         );
         // 启动顺序固定：先创建车辆仿真实例，再唤醒本车控制实例，最后向中央登记镜像。
         instance.launch();
@@ -244,12 +261,19 @@ public class VehicleRuntimeManager {
             .toList();
     }
 
+    public boolean hasInstance(String trainId) {
+        return trainId != null && instances.containsKey(trainId);
+    }
+
     /**
      * 同步执行一批列车 tick，并在成功后把车辆物理输出折算成供电分区负荷。
      */
     public synchronized VehicleRuntimeStepResponse stepFleet(VehicleRuntimeStepRequest request) {
         if (request == null) {
             throw new IllegalArgumentException("step request is required");
+        }
+        if (request.simulationRunId() == null || request.simulationRunId().isBlank()) {
+            throw new IllegalArgumentException("simulationRunId is required");
         }
         if (Math.abs(request.deltaSeconds() - 0.1) > 1.0e-9) {
             throw new IllegalArgumentException("deltaSeconds must equal 0.1");
@@ -280,7 +304,7 @@ public class VehicleRuntimeManager {
         for (TrainStateSnapshot train : trains) {
             VehicleRuntimeInstance instance = instances.computeIfAbsent(
                 train.id(),
-                id -> new VehicleRuntimeInstance(id, properties, vehicleParameters)
+                id -> new VehicleRuntimeInstance(id, properties, vehicleParameters, driverCommandHolder)
             );
             VehicleRuntimeInstance.PreparedStep prepared = instance.prepare(
                 request.tick(),
@@ -383,6 +407,7 @@ public class VehicleRuntimeManager {
         try {
             // 车辆状态变化先汇总为同分区负荷，再由权威供电仿真返回下一控制周期的约束。
             List<PowerConstraintSnapshot> nextConstraints = powerNetworkLoadClient.stepPowerNetwork(
+                request.simulationRunId(),
                 request.tick(),
                 request.tick() * request.deltaSeconds(),
                 request.deltaSeconds(),

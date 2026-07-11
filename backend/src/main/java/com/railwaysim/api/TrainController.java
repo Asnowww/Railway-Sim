@@ -12,6 +12,7 @@ import com.railwaysim.signal.vehicle.SignalTrainLifecycleTrainSpec;
 import com.railwaysim.train.TrainFaultRecord;
 import com.railwaysim.train.TrainManager;
 import com.railwaysim.train.TrainState;
+import com.railwaysim.simulation.SimulationRunContext;
 import com.railwaysim.vehicle.external.ExternalTrainDirection;
 import java.time.Instant;
 import java.util.List;
@@ -38,10 +39,13 @@ public class TrainController {
 
     private final TrainManager trainManager;
     private final ApiOperationLogService operationLogService;
+    private final SimulationRunContext runContext;
 
-    public TrainController(TrainManager trainManager, ApiOperationLogService operationLogService) {
+    public TrainController(TrainManager trainManager, ApiOperationLogService operationLogService,
+        SimulationRunContext runContext) {
         this.trainManager = trainManager;
         this.operationLogService = operationLogService;
+        this.runContext = runContext;
     }
 
     @GetMapping
@@ -134,10 +138,10 @@ public class TrainController {
         requireConfirm(request);
         String beforeState = train(trainId).faultCode();
         try {
-            operationLogService.recordSync(
+            operationLogService.recordSyncWithRunId(
                 request.normalizedOperator(), "TRAIN_FAULT_INJECT",
                 "train:" + trainId, beforeState, null,
-                request.normalizedReason(), request.normalizedTraceId());
+                request.normalizedReason(), request.normalizedTraceId(), runContext.runId(), runContext.tick());
         } catch (DataAccessException ex) {
             return ResponseEntity.status(503).body(
                 ApiError.of("AUDIT_FAILED", "Audit log unavailable"));
@@ -156,10 +160,10 @@ public class TrainController {
         requireConfirm(request);
         String beforeState = train(trainId).faultCode();
         try {
-            operationLogService.recordSync(
+            operationLogService.recordSyncWithRunId(
                 request.normalizedOperator(), "TRAIN_FAULT_CLEAR",
                 "train:" + trainId, beforeState, null,
-                request.normalizedReason(), request.normalizedTraceId());
+                request.normalizedReason(), request.normalizedTraceId(), runContext.runId(), runContext.tick());
         } catch (DataAccessException ex) {
             return ResponseEntity.status(503).body(
                 ApiError.of("AUDIT_FAILED", "Audit log unavailable"));

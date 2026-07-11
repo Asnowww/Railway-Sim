@@ -1,6 +1,7 @@
 package com.railwaysim.api;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.Duration;
@@ -75,6 +76,58 @@ class ApiOperationLogServiceTests {
         assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM operation_log", Integer.class)).isEqualTo(1);
         assertThat(jdbcTemplate.queryForObject("SELECT run_id FROM operation_log", String.class)).isEqualTo("run-1");
         assertThat(jdbcTemplate.queryForObject("SELECT status FROM operation_log", String.class)).isEqualTo("PERSISTED");
+        service.shutdown();
+    }
+
+    @Test
+    void dangerousAuditFailsClosedWhenDatabaseIsUnavailable() {
+        JdbcTemplate unavailable = new JdbcTemplate() {
+            @Override
+            public int update(String sql, Object... args) {
+                throw new DataAccessResourceFailureException("database unavailable");
+            }
+        };
+        ApiOperationLogService service = new ApiOperationLogService(unavailable, new ObjectMapper());
+
+        assertThatThrownBy(() -> service.recordSync(
+            "operator", "TRAIN_FAULT_INJECT", "train:TR-001",
+            "OK", "FAULT", "test", "trace-fail-closed"))
+            .isInstanceOf(DataAccessResourceFailureException.class);
+        assertThat(service.entries()).singleElement().satisfies(entry ->
+            assertThat(entry.status()).isEqualTo("FAILED"));
+        assertThat(service.totalFailed()).isEqualTo(1);
+        assertThat(service.pendingCount()).isZero();
+        service.shutdown();
+    }
+
+    @Test
+    void dangerousAuditPersistsRunAndTickBeforeReturning() {
+        JdbcDataSource dataSource = new JdbcDataSource();
+        dataSource.setURL("jdbc:h2:mem:operation-log-sync;MODE=MySQL;DB_CLOSE_DELAY=-1;DATABASE_TO_LOWER=TRUE");
+        JdbcTemplate jdbcTemplate = new JdbcTemplate(dataSource);
+        jdbcTemplate.execute("""
+            CREATE TABLE operation_log (
+              id BIGINT AUTO_INCREMENT PRIMARY KEY,
+              operator_name VARCHAR(64) NOT NULL, operation_type VARCHAR(64) NOT NULL,
+              target_ref VARCHAR(128) NOT NULL, detail_json JSON,
+              run_id VARCHAR(64), tick BIGINT, trace_id VARCHAR(64),
+              before_state VARCHAR(1024), after_state VARCHAR(1024), reason VARCHAR(512),
+              status VARCHAR(32) NOT NULL, retry_count INT NOT NULL,
+              error_text VARCHAR(1024), created_at TIMESTAMP NOT NULL
+            )
+            """);
+        ApiOperationLogService service = new ApiOperationLogService(jdbcTemplate, new ObjectMapper());
+
+        service.recordSyncWithRunId(
+            "operator", "POWER_FAULT_INJECT", "power-section:P01",
+            "ENERGIZED", "UNDERVOLTAGE", "test", "trace-sync", "run-sync", 17);
+
+        assertThat(jdbcTemplate.queryForObject("SELECT run_id FROM operation_log", String.class))
+            .isEqualTo("run-sync");
+        assertThat(jdbcTemplate.queryForObject("SELECT tick FROM operation_log", Long.class))
+            .isEqualTo(17);
+        assertThat(jdbcTemplate.queryForObject("SELECT status FROM operation_log", String.class))
+            .isEqualTo("PERSISTED");
         service.shutdown();
     }
 }

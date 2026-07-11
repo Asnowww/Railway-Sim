@@ -7,20 +7,17 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.railwaysim.vehicle.external.ExternalTrainDirection;
-import com.railwaysim.vehicle.drivercab.DriverCabDirectionHandleState;
-import com.railwaysim.vehicle.drivercab.DriverCabDoorModeSwitch;
-import com.railwaysim.vehicle.drivercab.DriverCabMasterHandleState;
-import com.railwaysim.vehicle.drivercab.DriverCabPlcCodec;
-import com.railwaysim.vehicle.drivercab.DriverCabPlcInputPacket;
 import com.railwaysim.vehicle.protocol.SignalTrainContentCodec;
 import com.railwaysim.vehicle.protocol.TrainOperationalTelemetry;
 import java.util.List;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.BeforeEach;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.jdbc.core.JdbcTemplate;
 
 @SpringBootTest(properties = {
     "spring.datasource.url=jdbc:h2:mem:phase2-api;MODE=MySQL;DB_CLOSE_DELAY=-1;DATABASE_TO_LOWER=TRUE",
@@ -33,6 +30,38 @@ class Phase2ApiControllerTests {
 
     @Autowired
     private MockMvc mockMvc;
+
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
+
+    @BeforeEach
+    void createAuditAndRunTables() {
+        jdbcTemplate.execute("""
+            CREATE TABLE IF NOT EXISTS operation_log (
+              id BIGINT AUTO_INCREMENT PRIMARY KEY,
+              operator_name VARCHAR(64) NOT NULL,
+              operation_type VARCHAR(64) NOT NULL,
+              target_ref VARCHAR(128) NOT NULL,
+              detail_json JSON,
+              run_id VARCHAR(64), tick BIGINT, trace_id VARCHAR(64),
+              before_state VARCHAR(1024), after_state VARCHAR(1024), reason VARCHAR(512),
+              status VARCHAR(32) NOT NULL, retry_count INT NOT NULL,
+              error_text VARCHAR(1024), created_at TIMESTAMP NOT NULL
+            )
+            """);
+        jdbcTemplate.execute("""
+            CREATE TABLE IF NOT EXISTS simulation_run (
+              id BIGINT AUTO_INCREMENT PRIMARY KEY,
+              run_id VARCHAR(64) NOT NULL UNIQUE,
+              status VARCHAR(32) NOT NULL,
+              created_at TIMESTAMP NOT NULL,
+              started_at TIMESTAMP NULL,
+              ended_at TIMESTAMP NULL,
+              last_tick BIGINT NOT NULL DEFAULT 0,
+              end_reason VARCHAR(255)
+            )
+            """);
+    }
 
     @Test
     void exposesTrainPowerEnergyAndMaintenanceReadApis() throws Exception {
@@ -280,62 +309,13 @@ class Phase2ApiControllerTests {
     }
 
     @Test
-    void driverCabPlcPacketUpdatesSingleTrainCabState() throws Exception {
-        mockMvc.perform(post("/api/simulation/reset"))
-            .andExpect(status().isOk());
-        DriverCabPlcCodec codec = new DriverCabPlcCodec();
-        byte[] inputPayload = codec.encodeInput(new DriverCabPlcInputPacket(
-            true,
-            true,
-            false,
-            true,
-            true,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            DriverCabDoorModeSwitch.MANUAL,
-            false,
-            true,
-            false,
-            true,
-            true,
-            DriverCabDirectionHandleState.FORWARD,
-            DriverCabMasterHandleState.FAST_BRAKE,
-            0,
-            90
-        ));
-
+    void centralSignalBackendDoesNotExposePlcControlWriteEndpoint() throws Exception {
         mockMvc.perform(post("/api/vehicle/driver-cabs/TR-001/plc-input")
                 .contentType(MediaType.APPLICATION_OCTET_STREAM)
-                .content(inputPayload))
-            .andExpect(status().isOk())
-            .andExpect(jsonPath("$.accepted").value(true))
-            .andExpect(jsonPath("$.trainId").value("TR-001"))
-            .andExpect(jsonPath("$.reasonCode").value("ACCEPTED"))
-            .andExpect(jsonPath("$.commandId").isNotEmpty());
-
-        mockMvc.perform(get("/api/vehicle/driver-cabs/TR-001/state"))
-            .andExpect(status().isOk())
-            .andExpect(jsonPath("$.doorModeSwitchState").value("MANUAL"))
-            .andExpect(jsonPath("$.brakeNotchPercent").value(90));
+                .content(new byte[46]))
+            .andExpect(status().isNotFound());
 
         mockMvc.perform(get("/api/vehicle/driver-cabs/TR-001/plc-output"))
             .andExpect(status().isOk());
-    }
-
-    @Test
-    void driverCabRejectsUnknownTrainBeforeCachingCommand() throws Exception {
-        byte[] inputPayload = new DriverCabPlcCodec().encodeInput(DriverCabPlcInputPacket.neutral());
-
-        mockMvc.perform(post("/api/vehicle/driver-cabs/TR-UNKNOWN/plc-input")
-                .contentType(MediaType.APPLICATION_OCTET_STREAM)
-                .content(inputPayload))
-            .andExpect(status().isNotFound())
-            .andExpect(jsonPath("$.accepted").value(false))
-            .andExpect(jsonPath("$.reasonCode").value("UNKNOWN_TRAIN"));
     }
 }

@@ -174,7 +174,10 @@ class OnboardTrainSubsystem {
             input.emergencyBrakeCommand(),
             input.railVoltage(),
             input.powerAvailableWatts(),
-            output.faultCode()
+            output.faultCode(),
+            "CONTROL_OR_SAFETY",
+            null,
+            null
         );
     }
 

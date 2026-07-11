@@ -58,6 +58,9 @@ public class SimulationRuntime {
     private final SimulationPersistenceService persistenceService;
     private final RouteInterlockingService interlockingService;
     private final VehicleRuntimeIntegrationService vehicleRuntimeIntegrationService;
+    private final SimulationRunService simulationRunService;
+    private final SimulationRunContext simulationRunContext;
+    private final TrainStopEvaluationService trainStopEvaluationService;
     private List<DomainEvent> lastEvents = List.of();
     private long tick;
     private SimulationStatus status = SimulationStatus.STOPPED;
@@ -82,7 +85,10 @@ public class SimulationRuntime {
         RealtimeStateCache realtimeStateCache,
         SimulationPersistenceService persistenceService,
         RouteInterlockingService interlockingService,
-        VehicleRuntimeIntegrationService vehicleRuntimeIntegrationService
+        VehicleRuntimeIntegrationService vehicleRuntimeIntegrationService,
+        SimulationRunService simulationRunService,
+        SimulationRunContext simulationRunContext,
+        TrainStopEvaluationService trainStopEvaluationService
     ) {
         this.trainManager = trainManager;
         this.trackService = trackService;
@@ -98,6 +104,10 @@ public class SimulationRuntime {
         this.persistenceService = persistenceService;
         this.interlockingService = interlockingService;
         this.vehicleRuntimeIntegrationService = vehicleRuntimeIntegrationService;
+        this.simulationRunService = simulationRunService;
+        this.simulationRunContext = simulationRunContext;
+        this.trainStopEvaluationService = trainStopEvaluationService;
+        this.simulationRunContext.update(dispatchService.simulationRunId(), tick);
     }
 
     public synchronized SimulationSnapshot snapshot() {
@@ -105,29 +115,46 @@ public class SimulationRuntime {
     }
 
     public synchronized SimulationSnapshot start() {
+        simulationRunService.start(dispatchService.simulationRunId(), tick, simulatedTime);
         status = SimulationStatus.RUNNING;
-        return advanceOneTick();
+        return advanceWithFailureTracking();
     }
 
     public synchronized SimulationSnapshot tick() {
         if (status == SimulationStatus.STOPPED) {
+            simulationRunService.start(dispatchService.simulationRunId(), tick, simulatedTime);
             status = SimulationStatus.RUNNING;
         }
-        return advanceOneTick();
+        return advanceWithFailureTracking();
     }
 
     public synchronized SimulationSnapshot pause() {
         status = SimulationStatus.PAUSED;
+        simulationRunService.pause(dispatchService.simulationRunId(), tick);
+        return buildSnapshot();
+    }
+
+    public synchronized SimulationSnapshot stop() {
+        status = SimulationStatus.STOPPED;
+        simulationRunService.complete(dispatchService.simulationRunId(), tick, simulatedTime, "STOPPED_BY_API");
         return buildSnapshot();
     }
 
     public synchronized SimulationSnapshot reset() {
+        String previousRunId = dispatchService.simulationRunId();
+        long previousTick = tick;
+        Instant previousSimulatedTime = simulatedTime;
+        dispatchService.reset();
+        String nextRunId = dispatchService.simulationRunId();
+        simulationRunService.rollover(
+            previousRunId, nextRunId, previousTick, previousSimulatedTime, Instant.now());
         tick = 0;
         status = SimulationStatus.STOPPED;
         simulatedTime = Instant.now();
         lastPushAtMillis = 0;
-        dispatchService.reset();
+        simulationRunContext.update(dispatchService.simulationRunId(), tick);
         trainManager.reset();
+        trainStopEvaluationService.resetTransientState();
         trackService.reset();
         signalService.reset();
         interlockingService.reset();
@@ -152,6 +179,7 @@ public class SimulationRuntime {
             simulatedTime,
             dispatchService.simulationRunId()
         );
+        simulationRunContext.update(context.simulationRunId(), context.tick());
 
         List<TrainState> beforeTrainStates = trainManager.states();
         trackService.updateOccupancy(beforeTrainStates);
@@ -214,6 +242,8 @@ public class SimulationRuntime {
             dispatchConstraints,
             powerConstraints
         );
+        persistenceService.persistVehicleControlDecisions(context);
+        trainStopEvaluationService.evaluate(context, trainManager.states());
         powerService.updateFromVehicleOutputs(outputs);
         trackService.updateOccupancy(trainManager.states());
         signalService.recomputeSignalAspects(); // 基于最终区段占用刷新灯色
@@ -228,6 +258,18 @@ public class SimulationRuntime {
             lastPushAtMillis = nowMillis;
         }
         return snapshot;
+    }
+
+    private SimulationSnapshot advanceWithFailureTracking() {
+        try {
+            return advanceOneTick();
+        } catch (RuntimeException ex) {
+            status = SimulationStatus.STOPPED;
+            simulationRunService.fail(
+                dispatchService.simulationRunId(), tick, simulatedTime,
+                ex.getClass().getSimpleName() + ":" + (ex.getMessage() == null ? "" : ex.getMessage()));
+            throw ex;
+        }
     }
 
     /**
@@ -446,6 +488,7 @@ public class SimulationRuntime {
         }
         long elapsedMillis = context.tick() * tickMillis;
         if (elapsedMillis % persistenceStepMillis == 0) {
+            simulationRunService.recordTickBestEffort(context.simulationRunId(), context.tick());
             persistenceService.persist(
                 context,
                 trainManager.states(),
@@ -458,7 +501,9 @@ public class SimulationRuntime {
     }
 
     private SimulationSnapshot buildSnapshot() {
+        simulationRunContext.update(dispatchService.simulationRunId(), tick);
         return monitorService.buildSnapshot(
+            dispatchService.simulationRunId(),
             tick,
             simulatedTime,
             status,

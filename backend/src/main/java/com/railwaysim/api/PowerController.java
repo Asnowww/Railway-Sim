@@ -16,6 +16,7 @@ import com.railwaysim.power.PowerService;
 import com.railwaysim.power.external.PowerNetworkEventPayload;
 import com.railwaysim.power.external.PowerNetworkOperationRequest;
 import com.railwaysim.power.external.PowerNetworkOperationResult;
+import com.railwaysim.simulation.SimulationRunContext;
 import java.time.Instant;
 import java.util.List;
 import org.springframework.dao.DataAccessException;
@@ -39,10 +40,13 @@ public class PowerController {
 
     private final PowerService powerService;
     private final ApiOperationLogService operationLogService;
+    private final SimulationRunContext runContext;
 
-    public PowerController(PowerService powerService, ApiOperationLogService operationLogService) {
+    public PowerController(PowerService powerService, ApiOperationLogService operationLogService,
+        SimulationRunContext runContext) {
         this.powerService = powerService;
         this.operationLogService = operationLogService;
+        this.runContext = runContext;
     }
 
     @GetMapping("/sections")
@@ -172,11 +176,11 @@ public class PowerController {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "confirmToken must be SIMULATION_CONFIRM");
         }
         try {
-            operationLogService.recordSync(
+            operationLogService.recordSyncWithRunId(
                 request.normalizedOperator(), "POWER_NETWORK_OPERATION",
                 request.targetType() + ":" + request.targetId(),
                 request.desiredState(), null,
-                request.normalizedReason(), request.traceId());
+                request.normalizedReason(), request.traceId(), runContext.runId(), runContext.tick());
         } catch (DataAccessException ex) {
             return ResponseEntity.status(503).body(
                 ApiError.of("AUDIT_FAILED", "Audit log unavailable"));
@@ -191,11 +195,11 @@ public class PowerController {
     ) {
         requireConfirm(request);
         try {
-            operationLogService.recordSync(
+            operationLogService.recordSyncWithRunId(
                 request.normalizedOperator(), "POWER_FAULT_INJECT",
                 "power-section:" + sectionId,
                 section(sectionId).status(), null,
-                request.normalizedReason(), request.normalizedTraceId());
+                request.normalizedReason(), request.normalizedTraceId(), runContext.runId(), runContext.tick());
         } catch (DataAccessException ex) {
             return ResponseEntity.status(503).body(
                 ApiError.of("AUDIT_FAILED", "Audit log unavailable"));
@@ -211,11 +215,11 @@ public class PowerController {
     ) {
         requireConfirm(request);
         try {
-            operationLogService.recordSync(
+            operationLogService.recordSyncWithRunId(
                 request.normalizedOperator(), "POWER_FAULT_CLEAR",
                 "power-section:" + sectionId,
                 section(sectionId).status(), null,
-                request.normalizedReason(), request.normalizedTraceId());
+                request.normalizedReason(), request.normalizedTraceId(), runContext.runId(), runContext.tick());
         } catch (DataAccessException ex) {
             return ResponseEntity.status(503).body(
                 ApiError.of("AUDIT_FAILED", "Audit log unavailable"));

@@ -140,6 +140,7 @@ class PowerNetworkModel:
     events: list[dict[str, Any]] = field(default_factory=list)
     source_timestamp: str = field(default_factory=now_iso)
     last_step_tick: int | None = None
+    active_run_id: str | None = None
     last_step_response: dict[str, Any] | None = None
 
     def __post_init__(self) -> None:
@@ -155,6 +156,7 @@ class PowerNetworkModel:
         self.cutoff_dc_voltage = positive_float(payload.get("cutoffVoltage"), self.minimum_dc_voltage * 0.9)
         self.max_traction_current_amps = positive_float(payload.get("maxTractionCurrentAmps"), 2_000.0)
         self.last_step_tick = None
+        self.active_run_id = None
         self.last_step_response = None
         self.topology_segments = [
             {
@@ -281,18 +283,36 @@ class PowerNetworkModel:
 
     def step(
         self,
+        simulation_run_id: str,
         tick: int,
         payload: dict[str, Any],
         train_positions: list[dict[str, Any]],
     ) -> dict[str, Any]:
         """Atomically apply T(n) fleet loads and return constraints consumed at T(n+1)."""
+        if not simulation_run_id:
+            raise ValueError("POWER_RUN_ID_REQUIRED")
+        if self.active_run_id is None:
+            self.active_run_id = simulation_run_id
+        elif simulation_run_id != self.active_run_id:
+            if tick > 1:
+                raise ValueError(
+                    f"POWER_RUN_ID_MISMATCH:{simulation_run_id}!={self.active_run_id}"
+                )
+            self.active_run_id = simulation_run_id
+            self.last_step_tick = None
+            self.last_step_response = None
         if self.last_step_tick is not None:
             if tick == self.last_step_tick:
                 return dict(self.last_step_response or {})
             if tick < self.last_step_tick:
                 raise ValueError(f"POWER_TICK_OUT_OF_ORDER:{tick}<{self.last_step_tick}")
         snapshot = self.query_state(payload)
-        response = {**snapshot, "tick": tick, "powerConstraints": self.constraints_for_positions(train_positions)}
+        response = {
+            **snapshot,
+            "simulationRunId": simulation_run_id,
+            "tick": tick,
+            "powerConstraints": self.constraints_for_positions(train_positions),
+        }
         self.last_step_tick = tick
         self.last_step_response = response
         return dict(response)

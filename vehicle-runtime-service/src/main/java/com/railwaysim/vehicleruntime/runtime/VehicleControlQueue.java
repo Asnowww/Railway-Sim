@@ -26,7 +26,7 @@ final class VehicleControlQueue {
     private final VehicleRuntimeProperties properties;
     private final VehicleLoadPolicy loadPolicy;
     private final VehicleParameters vehicleParameters;
-    private final DriverCommandHolder driverCommandHolder = DriverCommandHolder.getInstance();
+    private final DriverCommandHolder driverCommandHolder;
 
     /** 离站释放时的列车位置(m) */
     private double departureOriginMeters = -1;
@@ -34,12 +34,14 @@ final class VehicleControlQueue {
     VehicleControlQueue(
         VehicleRuntimeProperties properties,
         VehicleLoadPolicy loadPolicy,
-        VehicleParameters vehicleParameters
+        VehicleParameters vehicleParameters,
+        DriverCommandHolder driverCommandHolder
     ) {
         this.queue = new VehicleRuntimeQueue(properties.getQueueCapacity());
         this.properties = properties;
         this.loadPolicy = loadPolicy;
         this.vehicleParameters = vehicleParameters;
+        this.driverCommandHolder = driverCommandHolder;
     }
 
     VehiclePhysicsInputDto control(
@@ -51,6 +53,10 @@ final class VehicleControlQueue {
         PowerConstraintSnapshot power
     ) {
         return queue.execute(tick, () -> buildInput(deltaSeconds, train, authority, track, dispatch, power));
+    }
+
+    DriverControlCommandSnapshot latestDriverCommand(String trainId) {
+        return driverCommandHolder.latest(trainId);
     }
 
     private VehiclePhysicsInputDto buildInput(

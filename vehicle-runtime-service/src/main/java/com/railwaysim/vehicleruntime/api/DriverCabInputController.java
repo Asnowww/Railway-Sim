@@ -5,6 +5,7 @@ import com.railwaysim.vehicleruntime.drivercab.DriverCabPlcInputPacket;
 import com.railwaysim.vehicleruntime.model.DriverCommandAcceptance;
 import com.railwaysim.vehicleruntime.model.DriverControlCommandSnapshot;
 import com.railwaysim.vehicleruntime.runtime.DriverCommandHolder;
+import com.railwaysim.vehicleruntime.runtime.VehicleRuntimeManager;
 import java.time.Instant;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
@@ -25,14 +26,17 @@ public class DriverCabInputController {
 
     private final DriverCabPlcCodec codec = new DriverCabPlcCodec();
     private final DriverCommandHolder commandHolder;
+    private final VehicleRuntimeManager runtimeManager;
     private final ConcurrentMap<String, Integer> sequenceNumbers = new ConcurrentHashMap<>();
     private final long commandTimeoutMs;
 
     public DriverCabInputController(
         DriverCommandHolder commandHolder,
+        VehicleRuntimeManager runtimeManager,
         @Value("${railway.simulation.driver-command-timeout-ms:5000}") long commandTimeoutMs
     ) {
         this.commandHolder = commandHolder;
+        this.runtimeManager = runtimeManager;
         this.commandTimeoutMs = commandTimeoutMs;
     }
 
@@ -44,6 +48,10 @@ public class DriverCabInputController {
         @PathVariable String trainId,
         @RequestBody byte[] payload
     ) {
+        if (!runtimeManager.hasInstance(trainId)) {
+            return ResponseEntity.status(404).body(
+                DriverCommandAcceptance.rejected(trainId, "UNKNOWN_TRAIN", "Vehicle runtime instance not found"));
+        }
         DriverCabPlcInputPacket input;
         try {
             input = codec.decodeInput(payload);

@@ -243,10 +243,7 @@ public class VehicleRuntimeIntegrationService implements VehiclePowerLoadForward
             dispatchConstraints,
             powerConstraints,
             context.simulationRunId(),
-            trains.stream()
-                .map(train -> driverCommandHolder.latest(train.id()))
-                .filter(java.util.Objects::nonNull)
-                .toList()
+            List.of()
         ));
         if (response.trainOutputs() == null || response.trainReports() == null || response.trainOutputs().size() != trains.size() || response.trainReports().size() != trains.size()) {
             throw new IllegalStateException("vehicle runtime returned incomplete fleet result");
@@ -263,10 +260,7 @@ public class VehicleRuntimeIntegrationService implements VehiclePowerLoadForward
         }
         for (VehicleRuntimeTrainStep step : steps) {
             TrainStateReport report = step.report();
-            DriverControlCommand driver = driverCommandHolder.latest(step.trainId());
-            boolean driverSelected = driver != null
-                && report.dynamicsConstraintReason() != null
-                && report.dynamicsConstraintReason().startsWith("DRIVER_");
+            boolean driverSelected = "DRIVER".equals(report.decisionSource());
             decisionRepository.store(new VehicleControlDecision(
                 null,
                 context.simulationRunId(),
@@ -277,16 +271,16 @@ public class VehicleRuntimeIntegrationService implements VehiclePowerLoadForward
                 report.tractionCommand(),
                 report.brakeCommand(),
                 report.emergencyBrakeCommand(),
-                driver == null ? 0.0 : driver.direction(),
+                0.0,
                 report.doorClosed(),
                 !"LOST".equals(report.currentCollectionStatus()),
                 report.tractionAvailable(),
                 report.brakeAvailable(),
                 List.of(),
                 report.dynamicsConstraintReason(),
-                driver == null ? response.sourceTimestamp() : driver.receivedAt(),
+                response.sourceTimestamp(),
                 Instant.now(),
-                driver == null ? "runtime-" + context.tick() : driver.traceId(),
+                report.inputTraceId() == null ? "runtime-" + context.tick() : report.inputTraceId(),
                 1
             ));
         }

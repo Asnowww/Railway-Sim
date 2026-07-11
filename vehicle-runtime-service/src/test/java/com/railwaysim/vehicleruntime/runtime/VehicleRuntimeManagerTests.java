@@ -5,6 +5,9 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.within;
 
 import com.railwaysim.vehicleruntime.api.VehicleRuntimeController;
+import com.railwaysim.vehicleruntime.api.DriverCabInputController;
+import com.railwaysim.vehicleruntime.drivercab.DriverCabPlcCodec;
+import com.railwaysim.vehicleruntime.drivercab.DriverCabPlcInputPacket;
 import com.railwaysim.vehicleruntime.config.VehicleRuntimeProperties;
 import com.railwaysim.vehicleruntime.config.VehicleParameters;
 import com.railwaysim.vehicleruntime.config.VehicleParametersLoader;
@@ -19,6 +22,8 @@ import com.railwaysim.vehicleruntime.model.VehicleRuntimeStepResponse;
 import java.time.Instant;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.ArrayList;
+import java.util.Collections;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.client.RestClient;
@@ -36,6 +41,46 @@ class VehicleRuntimeManagerTests {
         assertThat(state.lifecycleState()).isEqualTo("CONTROL_AWAKE");
         assertThat(manager.instances()).singleElement()
             .satisfies(instance -> assertThat(instance.trainId()).isEqualTo("TR-101"));
+    }
+
+    @Test
+    void plcInputIsOwnedByRuntimeAndRejectsUnknownInstance() {
+        DriverCommandHolder holder = new DriverCommandHolder();
+        VehicleRuntimeManager manager = manager();
+        DriverCabInputController controller = new DriverCabInputController(holder, manager, 5_000);
+        byte[] neutral = new DriverCabPlcCodec().encodeInput(DriverCabPlcInputPacket.neutral());
+
+        assertThat(controller.applyPlcInput("TR-PLC", neutral).getStatusCode().value()).isEqualTo(404);
+
+        manager.register(train("TR-PLC", 100, 0));
+        var accepted = controller.applyPlcInput("TR-PLC", neutral);
+        assertThat(accepted.getStatusCode().is2xxSuccessful()).isTrue();
+        assertThat(holder.latest("TR-PLC")).isNotNull();
+    }
+
+    @Test
+    void plcInputToNewRuntimeStateP95IsBelowTwoHundredMilliseconds() {
+        DriverCommandHolder holder = new DriverCommandHolder();
+        VehicleRuntimeManager manager = manager();
+        manager.register(train("TR-101", 100, 0));
+        DriverCabInputController controller = new DriverCabInputController(holder, manager, 5_000);
+        byte[] neutral = new DriverCabPlcCodec().encodeInput(DriverCabPlcInputPacket.neutral());
+        List<Long> samplesMillis = new ArrayList<>();
+
+        for (int tick = 1; tick <= 50; tick++) {
+            long started = System.nanoTime();
+            assertThat(controller.applyPlcInput("TR-101", neutral).getStatusCode().is2xxSuccessful()).isTrue();
+            VehicleRuntimeStepResponse response = manager.stepFleet(request(tick, train("TR-101", 100, 0), energized()));
+            assertThat(response.trainReports()).singleElement().satisfies(report -> {
+                assertThat(report.decisionSource()).isEqualTo("DRIVER");
+                assertThat(report.inputCommandId()).isNotBlank();
+            });
+            samplesMillis.add((System.nanoTime() - started) / 1_000_000);
+        }
+
+        Collections.sort(samplesMillis);
+        long p95 = samplesMillis.get((int) Math.ceil(samplesMillis.size() * 0.95) - 1);
+        assertThat(p95).isLessThan(200);
     }
 
     @Test
@@ -153,6 +198,8 @@ class VehicleRuntimeManagerTests {
             List.of(),
             List.of(),
             List.of(),
+            List.of(),
+            "run-duplicate",
             List.of()
         );
 
@@ -211,9 +258,12 @@ class VehicleRuntimeManagerTests {
             assertThat(output.tractionForceNewtons()).isZero();
             assertThat(output.brakeForceNewtons()).isGreaterThan(0);
         });
-        assertThat(response.trainReports()).singleElement().satisfies(report ->
-            assertThat(report.dynamicsConstraintReason()).isEqualTo("DRIVER_SERVICE_BRAKE")
-        );
+        assertThat(response.trainReports()).singleElement().satisfies(report -> {
+            assertThat(report.dynamicsConstraintReason()).isEqualTo("DRIVER_SERVICE_BRAKE");
+            assertThat(report.decisionSource()).isEqualTo("DRIVER");
+            assertThat(report.inputCommandId()).isEqualTo("driver-1");
+            assertThat(report.inputTraceId()).isEqualTo("trace-driver");
+        });
     }
 
     @Test
@@ -294,7 +344,9 @@ class VehicleRuntimeManagerTests {
             List.of(new MovementAuthoritySnapshot(train.id(), 2_000, 22.2, "NORMAL")),
             List.of(new TrackConstraintSnapshot(train.id(), "SEG-1", 22.2, 0, 1_000, 1_000_000)),
             List.of(),
-            List.of(power)
+            List.of(power),
+            "run-test",
+            List.of()
         );
     }
 

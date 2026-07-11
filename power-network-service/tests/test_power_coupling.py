@@ -24,6 +24,7 @@ class PowerCouplingTests(unittest.TestCase):
         unloaded_b = next(item for item in unloaded_constraints if item["trainId"] == "TR-B")
 
         response = self.model.step(
+            "run-test",
             1,
             load_payload("P01", ["TR-A", "TR-B"], 1_800_000, 0, 1_200),
             positions,
@@ -48,6 +49,7 @@ class PowerCouplingTests(unittest.TestCase):
     def test_reference_peak_traction_is_limited_by_real_section_current_capacity(self) -> None:
         positions = [{"trainId": "TR-PEAK", "positionMeters": 200.0}]
         response = self.model.step(
+            "run-test",
             1,
             load_payload("P01", ["TR-PEAK"], 4_916_250.0, 0.0, 3_277.5),
             positions,
@@ -59,6 +61,7 @@ class PowerCouplingTests(unittest.TestCase):
 
     def test_reference_peak_regen_records_unabsorbed_power(self) -> None:
         response = self.model.step(
+            "run-test",
             1,
             load_payload("P01", ["TR-PEAK"], 4_916_250.0, 5_464_350.0, 0.0),
             [{"trainId": "TR-PEAK", "positionMeters": 200.0}],
@@ -82,6 +85,7 @@ class PowerCouplingTests(unittest.TestCase):
         }
 
         response = self.model.step(
+            "run-test",
             1,
             load_payload("P01", ["TR-A"], 1_800_000, 0, 1_200),
             positions,
@@ -94,6 +98,7 @@ class PowerCouplingTests(unittest.TestCase):
 
     def test_regen_absorption_and_unabsorbed_power_are_explicit(self) -> None:
         response = self.model.step(
+            "run-test",
             1,
             load_payload("P01", ["TR-A", "TR-B"], 600_000, 900_000, 400),
             [
@@ -110,6 +115,7 @@ class PowerCouplingTests(unittest.TestCase):
 
     def test_regen_without_simultaneous_traction_has_zero_budget(self) -> None:
         response = self.model.step(
+            "run-test",
             1,
             load_payload("P01", ["TR-A"], 0, 900_000, 0),
             [{"trainId": "TR-A", "positionMeters": 200.0}],
@@ -123,12 +129,23 @@ class PowerCouplingTests(unittest.TestCase):
 
     def test_duplicate_tick_is_idempotent_and_backward_tick_is_rejected(self) -> None:
         positions = [{"trainId": "TR-A", "positionMeters": 200.0}]
-        first = self.model.step(2, load_payload("P01", ["TR-A"], 600_000, 0, 400), positions)
-        duplicate = self.model.step(2, load_payload("P01", ["TR-A"], 2_000_000, 0, 1300), positions)
+        first = self.model.step("run-test", 2, load_payload("P01", ["TR-A"], 600_000, 0, 400), positions)
+        duplicate = self.model.step("run-test", 2, load_payload("P01", ["TR-A"], 2_000_000, 0, 1300), positions)
 
         self.assertEqual(first, duplicate)
         with self.assertRaisesRegex(ValueError, "POWER_TICK_OUT_OF_ORDER"):
-            self.model.step(1, load_payload("P01", ["TR-A"], 0, 0, 0), positions)
+            self.model.step("run-test", 1, load_payload("P01", ["TR-A"], 0, 0, 0), positions)
+
+    def test_new_run_resets_tick_watermark_but_rejects_midrun_run_id_change(self) -> None:
+        positions = [{"trainId": "TR-A", "positionMeters": 200.0}]
+        self.model.step("run-old", 8, load_payload("P01", ["TR-A"], 600_000, 0, 400), positions)
+
+        with self.assertRaisesRegex(ValueError, "POWER_RUN_ID_MISMATCH"):
+            self.model.step("run-new", 2, load_payload("P01", ["TR-A"], 0, 0, 0), positions)
+
+        first = self.model.step("run-new", 1, load_payload("P01", ["TR-A"], 0, 0, 0), positions)
+        self.assertEqual("run-new", first["simulationRunId"])
+        self.assertEqual(1, first["tick"])
 
     def test_invalid_and_gap_positions_return_unknown_safe_constraint(self) -> None:
         gap_payload = two_section_payload()
@@ -156,6 +173,7 @@ class PowerStepApiTests(unittest.TestCase):
 
     def test_http_step_requires_fixed_time_and_maps_backward_tick_to_409(self) -> None:
         payload = {
+            "simulationRunId": "run-api-test",
             "tick": 2,
             "simulationTimeSeconds": 0.2,
             "stepSizeSeconds": 0.1,

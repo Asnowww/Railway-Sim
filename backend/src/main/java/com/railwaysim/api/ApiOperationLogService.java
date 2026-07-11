@@ -78,7 +78,10 @@ public class ApiOperationLogService {
 
     /**
      * 同步写入审计日志（危险操作使用）。
-     * 先尝试同步写入，数据库不可用时回落异步（不阻塞危险操作本身）。
+     *
+     * <p>该方法是危险操作的 fail-closed 门禁：只有审计证据已经落库，
+     * 调用方才能继续修改仿真状态。不允许回落到异步队列，否则会形成
+     * “业务成功、证据丢失”的伪成功。
      */
     public OperationLogEntry recordSync(String operator, String operationType, String targetRef,
         String beforeState, String afterState, String reason, String traceId) {
@@ -95,10 +98,38 @@ public class ApiOperationLogService {
             updateEntryStatus(entry, "PERSISTED", 0);
             totalPersisted.incrementAndGet();
         } catch (DataAccessException ex) {
-            enqueuePersistence(entry, () -> persistOperation(entry));
-            log.warn("Sync audit failed, falling back to async: {}", ex.getMessage());
+            updateEntryStatus(entry, "FAILED", 0);
+            totalFailed.incrementAndGet();
+            logPersistenceWarning(ex);
+            throw ex;
         }
         return entry;
+    }
+
+    public OperationLogEntry recordSyncWithRunId(String operator, String operationType, String targetRef,
+        String beforeState, String afterState, String reason, String traceId, String runId, long tick) {
+        OperationLogEntry entry = new OperationLogEntry(
+            operator == null || operator.isBlank() ? "simulation" : operator,
+            operationType, targetRef, beforeState, afterState, reason, traceId, Instant.now());
+        entries.add(entry);
+        try {
+            jdbcTemplate.update("""
+                INSERT INTO operation_log (operator_name, operation_type, target_ref, detail_json,
+                  run_id, tick, trace_id, before_state, after_state, reason,
+                  status, retry_count, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PERSISTED', 0, ?)
+                """, entry.operator(), entry.operationType(), entry.targetRef(), detailJson(entry),
+                runId, tick, entry.traceId(), entry.beforeState(), entry.afterState(), entry.reason(),
+                Timestamp.from(entry.createdAt()));
+            updateEntryStatus(entry, "PERSISTED", 0);
+            totalPersisted.incrementAndGet();
+            return entry;
+        } catch (DataAccessException ex) {
+            updateEntryStatus(entry, "FAILED", 0);
+            totalFailed.incrementAndGet();
+            logPersistenceWarning(ex);
+            throw ex;
+        }
     }
 
     public void recordPowerOperation(OperationLogEntry entry, String sectionId) {

@@ -33,6 +33,7 @@ class PowerStepPayload(PowerConstraintQueryPayload):
 
 
 class TimedPowerStepPayload(PowerStepPayload):
+    simulation_run_id: str = Field(alias="simulationRunId")
     tick: int
     simulation_time_seconds: float = Field(alias="simulationTimeSeconds")
     step_size_seconds: float = Field(alias="stepSizeSeconds")
@@ -142,6 +143,11 @@ def step(payload: TimedPowerStepPayload) -> dict[str, Any]:
         raise HTTPException(status_code=422, detail="simulationTimeSeconds must equal tick * stepSizeSeconds")
     with model_lock:
         try:
-            return model.step(payload.tick, as_load_request(payload), as_positions(payload))
+            return model.step(
+                payload.simulation_run_id,
+                payload.tick,
+                as_load_request(payload),
+                as_positions(payload),
+            )
         except ValueError as exception:
             raise HTTPException(status_code=409, detail=str(exception)) from exception
