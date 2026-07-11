@@ -46,18 +46,23 @@ class StrategySelectorTests {
     }
 
     @Test
-    void headwayDisturbanceAdjustsTheRearTrainThatTriggeredIt() {
+    void headwayViolationTooShortExtendsDwellOnTheRearTrainThatTriggeredIt() {
         DisturbanceEvent event = new DisturbanceEvent(
             "DIST-2",
             "RUN-1",
             "TR-001",
             null,
-            DisturbanceType.HEADWAY_SHRINK,
-            120,
+            DisturbanceType.HEADWAY_VIOLATION,
+            90,
             "OPEN",
             Instant.now(),
             null,
-            null
+            null,
+            "TOO_SHORT",
+            300.0,
+            120.0,
+            90.0,
+            90.0
         );
 
         List<DispatchCommand> commands = selector.select(
@@ -73,6 +78,7 @@ class StrategySelectorTests {
         assertThat(commands).hasSize(1);
         assertThat(commands.get(0).trainId()).isEqualTo("TR-001");
         assertThat(commands.get(0).commandType()).isEqualTo("EXTEND_DWELL");
+        assertThat(commands.get(0).payload()).containsEntry("headwayViolationSec", 90.0);
     }
 
     private static TrainRunProfile profile(String trainId, double positionMeters) {

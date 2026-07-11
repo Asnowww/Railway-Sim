@@ -17,7 +17,7 @@ final class VehicleControlQueue {
     private static final double DEFAULT_ADHESION = 0.9;
     private static final double GRAVITY = 9.81;
     private static final double SERVICE_BRAKE_DECELERATION = 0.9;
-    private static final double STATION_STOP_WINDOW_METERS = 8.0;
+    private static final double STATION_STOP_WINDOW_METERS = 10.0;
     private static final double NO_STATION_DISTANCE_METERS = 1_000_000;
 
     private final VehicleRuntimeQueue queue;

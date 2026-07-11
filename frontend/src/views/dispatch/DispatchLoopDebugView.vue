@@ -2,6 +2,7 @@
 import { computed, ref } from 'vue'
 import { dispatchApi } from '../../api/dispatch'
 import { useSimulation } from '../../composables/useSimulation'
+import type { DispatchDisturbance } from '../../types/dispatch'
 import type { TrainState } from '../../types/simulation'
 
 defineEmits<{
@@ -36,12 +37,60 @@ const demoSpeedLimitMps = ref(6)
 const demoShortHeadwaySec = ref(180)
 const demoLongHeadwaySec = ref(540)
 const comparisonBaseline = ref<ComparisonBaseline | null>(null)
+const headwayShrinkRatio = 0.7
+const headwayExpandRatio = 1.5
 
 const orderedTrains = computed(() =>
   [...trains.value].sort((firstTrain, secondTrain) => firstTrain.positionMeters - secondTrain.positionMeters)
 )
 const rearTrain = computed(() => orderedTrains.value[0] ?? null)
 const frontTrain = computed(() => orderedTrains.value[1] ?? null)
+const primaryHeadwayProfile = computed(() => {
+  if (rearTrain.value) {
+    const rearProfile = dispatch.value.trainProfiles.find((profile) => profile.trainId === rearTrain.value?.id)
+    if (rearProfile) return rearProfile
+  }
+  return dispatch.value.trainProfiles.find((profile) => profile.frontTrainId) ?? dispatch.value.trainProfiles[0] ?? null
+})
+const headwayTargetSec = computed(() => Math.max(1, dispatch.value.targetHeadwaySeconds || 1))
+const headwayTooShortLimitSec = computed(() => headwayTargetSec.value * headwayShrinkRatio)
+const headwayTooLongLimitSec = computed(() => headwayTargetSec.value * headwayExpandRatio)
+const headwayActualSec = computed(() => primaryHeadwayProfile.value?.headwayActualSeconds ?? null)
+const headwayViolation = computed(() => {
+  const actual = headwayActualSec.value
+  if (actual === null) {
+    return {
+      state: 'WAITING',
+      label: '等待离站数据',
+      value: null,
+      hint: '至少需要两列车都有离站记录'
+    }
+  }
+  if (actual < headwayTooShortLimitSec.value) {
+    return {
+      state: 'TOO_SHORT',
+      label: '过短',
+      value: headwayTooShortLimitSec.value - actual,
+      hint: '调度对象是后车：延长停站或压低速度'
+    }
+  }
+  if (actual > headwayTooLongLimitSec.value) {
+    return {
+      state: 'TOO_LONG',
+      label: '过长',
+      value: actual - headwayTooLongLimitSec.value,
+      hint: '调度对象是后车：缩短停站或适度追赶'
+    }
+  }
+  return {
+    state: 'ON_TARGET',
+    label: '正常',
+    value: 0,
+    hint: '实际间隔在允许容差内'
+  }
+})
+const headwayControlledTrainId = computed(() => primaryHeadwayProfile.value?.trainId ?? rearTrain.value?.id ?? '-')
+const headwayFrontTrainId = computed(() => primaryHeadwayProfile.value?.frontTrainId ?? frontTrain.value?.id ?? '-')
 const lineEndMeters = computed(() => {
   const ends = snapshot.value?.trackSegments.map((segment) => segment.endMeters) ?? []
   return ends.length > 0 ? Math.max(...ends) : null
@@ -176,8 +225,8 @@ const commandLabel = (type: string) => {
     HOLD_TRAIN: '扣车',
     DEPART: '发车',
     REROUTE: '重排进路',
-    HEADWAY_TOO_SHORT: '间隔过短演示',
-    HEADWAY_TOO_LONG: '间隔过长演示',
+    HEADWAY_TOO_SHORT: '拉开后车间隔',
+    HEADWAY_TOO_LONG: '催发后车追赶',
   }
   return labels[type] ?? type
 }
@@ -283,6 +332,14 @@ const headwayActionLabel = (action: string) => {
 const formatNumber = (value: number | null | undefined, digits = 1) => {
   if (value === null || value === undefined || Number.isNaN(value)) return '-'
   return value.toFixed(digits)
+}
+
+const disturbanceMetricText = (disturbance: DispatchDisturbance) => {
+  if (disturbance.disturbanceType !== 'HEADWAY_VIOLATION') {
+    return `偏差 ${formatNumber(disturbance.deviationValue, 0)}s`
+  }
+  const direction = disturbance.headwayDirection === 'TOO_SHORT' ? '过短' : '过长'
+  return `${direction} · 实际 ${formatNumber(disturbance.actualHeadwaySec, 0)}s / 目标 ${formatNumber(disturbance.targetHeadwaySec, 0)}s · 容差 ${formatNumber(disturbance.toleranceSec, 0)}s · 超限 ${formatNumber(disturbance.violationSec ?? disturbance.deviationValue, 0)}s`
 }
 
 const formatPercent = (value: number | null | undefined) => {
@@ -448,6 +505,41 @@ function formatDelta(current: number | null | undefined, baseline: number | null
       </article>
     </section>
 
+    <section class="headway-focus" :data-state="headwayViolation.state">
+      <div class="panel-title">
+        <h2>运行间隔关键指标</h2>
+        <span>后车相对前车 / 超限时间</span>
+      </div>
+      <div class="headway-kpi-grid">
+        <article class="headway-kpi controlled">
+          <span>调度对象</span>
+          <strong>{{ headwayControlledTrainId }}</strong>
+          <small>参考前车 {{ headwayFrontTrainId }}</small>
+        </article>
+        <article class="headway-kpi">
+          <span>目标间隔</span>
+          <strong>{{ formatSeconds(headwayTargetSec) }}</strong>
+          <small>计划值</small>
+        </article>
+        <article class="headway-kpi">
+          <span>实际间隔</span>
+          <strong>{{ formatSeconds(headwayActualSec) }}</strong>
+          <small>{{ primaryHeadwayProfile ? headwayStateLabel(primaryHeadwayProfile.headwayState) : '等待观测' }}</small>
+        </article>
+        <article class="headway-kpi">
+          <span>允许范围</span>
+          <strong>{{ formatSeconds(headwayTooShortLimitSec) }} ~ {{ formatSeconds(headwayTooLongLimitSec) }}</strong>
+          <small>低于下限需拉开，高于上限需追赶</small>
+        </article>
+        <article class="headway-kpi highlight">
+          <span>超限时间</span>
+          <strong>{{ headwayViolation.value === null ? '-' : formatSeconds(headwayViolation.value) }}</strong>
+          <small>{{ headwayViolation.label }}</small>
+        </article>
+      </div>
+      <p class="headway-focus-hint">{{ headwayViolation.hint }}</p>
+    </section>
+
     <section class="debug-grid">
       <section class="debug-panel command-panel">
         <div class="panel-title">
@@ -463,18 +555,18 @@ function formatDelta(current: number | null | undefined, baseline: number | null
             发送限速闭环
           </button>
           <label>
-            <span>过短间隔目标 s</span>
+            <span>拉开后车目标间隔 s</span>
             <input v-model.number="demoLongHeadwaySec" type="number" min="30" max="900" step="10" />
           </label>
           <button type="button" :disabled="trains.length === 0" @click="submitHeadwayDemo('tooShort')">
-            间隔过短演示
+            拉开后车间隔
           </button>
           <label>
-            <span>过长间隔目标 s</span>
+            <span>追赶后车目标间隔 s</span>
             <input v-model.number="demoShortHeadwaySec" type="number" min="30" max="900" step="10" />
           </label>
           <button type="button" :disabled="trains.length === 0" @click="submitHeadwayDemo('tooLong')">
-            间隔过长演示
+            催发后车追赶
           </button>
         </div>
         <p v-if="dispatch.activeCommands.length === 0" class="empty">暂无调度指令。可以启动仿真并等待停站/间隔扰动触发。</p>
@@ -522,7 +614,7 @@ function formatDelta(current: number | null | undefined, baseline: number | null
             <strong>{{ disturbance.disturbanceType }}</strong>
             <span>{{ disturbance.status }}</span>
             <p>列车 {{ disturbance.trainId }} / 站点 {{ disturbance.stationId }}</p>
-            <small>偏差 {{ formatNumber(disturbance.deviationValue, 0) }}s</small>
+            <small>{{ disturbanceMetricText(disturbance) }}</small>
           </article>
         </div>
         <div class="profile-observation">
@@ -551,7 +643,7 @@ function formatDelta(current: number | null | undefined, baseline: number | null
         <span v-else>发送演示指令时自动记录基线</span>
       </div>
       <p v-if="!comparisonBaseline" class="empty">
-        暂无对比数据。点击“发送限速闭环”“间隔过短演示”或“间隔过长演示”后，这里会记录调度前状态并与当前状态实时比较。
+        暂无对比数据。点击“发送限速闭环”“拉开后车间隔”或“催发后车追赶”后，这里会记录调度前状态并与当前状态实时比较。
       </p>
       <div v-else-if="comparisonWarnings.length > 0" class="comparison-warnings">
         <p v-for="warning in comparisonWarnings" :key="warning">{{ warning }}</p>
@@ -773,7 +865,7 @@ button:disabled {
 
 .demo-control-bar {
   display: grid;
-  grid-template-columns: repeat(3, minmax(130px, 1fr) auto);
+  grid-template-columns: minmax(130px, 1fr) auto minmax(150px, 1fr) auto minmax(150px, 1fr) auto;
   align-items: end;
   gap: 8px;
   margin-bottom: 12px;
@@ -863,6 +955,92 @@ small {
 
 .metric-grid strong {
   font-size: 22px;
+}
+
+.headway-focus {
+  max-width: 1500px;
+  margin: 0 auto 12px;
+  border: 1px solid #bfdbfe;
+  border-radius: 8px;
+  background: #f8fbff;
+  padding: 14px;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.05);
+}
+
+.headway-kpi-grid {
+  display: grid;
+  grid-template-columns: 1.1fr repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.headway-kpi {
+  display: grid;
+  align-content: start;
+  gap: 6px;
+  min-height: 96px;
+  min-width: 0;
+  border: 1px solid #dbeafe;
+  border-radius: 8px;
+  background: #fff;
+  padding: 12px;
+}
+
+.headway-kpi span {
+  color: #475569;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.headway-kpi strong {
+  overflow-wrap: anywhere;
+  color: #172033;
+  font-size: 20px;
+  line-height: 1.25;
+}
+
+.headway-kpi small {
+  line-height: 1.35;
+}
+
+.headway-kpi.controlled {
+  border-color: #c7d2fe;
+  background: #eef2ff;
+}
+
+.headway-kpi.highlight {
+  border-color: #f59e0b;
+  background: #fffbeb;
+}
+
+.headway-kpi.highlight strong {
+  font-size: 26px;
+}
+
+.headway-focus[data-state='TOO_SHORT'] .headway-kpi.highlight,
+.headway-focus[data-state='TOO_LONG'] .headway-kpi.highlight {
+  border-color: #ef4444;
+  background: #fef2f2;
+}
+
+.headway-focus[data-state='TOO_SHORT'] .headway-kpi.highlight strong,
+.headway-focus[data-state='TOO_LONG'] .headway-kpi.highlight strong {
+  color: #b91c1c;
+}
+
+.headway-focus[data-state='ON_TARGET'] .headway-kpi.highlight {
+  border-color: #10b981;
+  background: #ecfdf5;
+}
+
+.headway-focus[data-state='ON_TARGET'] .headway-kpi.highlight strong {
+  color: #047857;
+}
+
+.headway-focus-hint {
+  margin-top: 10px;
+  color: #475569;
+  font-size: 13px;
+  line-height: 1.5;
 }
 
 .debug-grid {
@@ -1128,6 +1306,7 @@ th {
   }
 
   .metric-grid,
+  .headway-kpi-grid,
   .debug-grid,
   .debug-grid.three,
   .comparison-grid {

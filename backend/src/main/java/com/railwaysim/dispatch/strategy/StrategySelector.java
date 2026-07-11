@@ -43,6 +43,7 @@ public class StrategySelector {
             }
             DispatchCommand command = switch (event.disturbanceType()) {
                 case DWELL_EXTENDED -> dwellCommand(simulationRunId, target.trainId(), -5, event);
+                case HEADWAY_VIOLATION -> headwayViolationCommand(simulationRunId, target.trainId(), event);
                 case HEADWAY_SHRINK -> dwellCommand(simulationRunId, target.trainId(), 5, event);
                 case HEADWAY_EXPAND -> dwellCommand(simulationRunId, target.trainId(), -3, event);
                 case DEPARTURE_DELAY -> speedBiasCommand(simulationRunId, event.trainId(), 1.05, event);
@@ -62,6 +63,7 @@ public class StrategySelector {
             event.disturbanceType() == DisturbanceType.DWELL_EXTENDED
                 || event.disturbanceType() == DisturbanceType.CROWDING
                 || event.disturbanceType() == DisturbanceType.DEPARTURE_DELAY
+                || event.disturbanceType() == DisturbanceType.HEADWAY_VIOLATION
                 || event.disturbanceType() == DisturbanceType.HEADWAY_SHRINK
                 || event.disturbanceType() == DisturbanceType.HEADWAY_EXPAND
         ) {
@@ -79,6 +81,17 @@ public class StrategySelector {
         return ordered.isEmpty() ? null : ordered.getLast();
     }
 
+    private DispatchCommand headwayViolationCommand(
+        String simulationRunId,
+        String trainId,
+        DisturbanceEvent event
+    ) {
+        if ("TOO_SHORT".equals(event.headwayDirection())) {
+            return dwellCommand(simulationRunId, trainId, 5, event);
+        }
+        return dwellCommand(simulationRunId, trainId, -3, event);
+    }
+
     private DispatchCommand dwellCommand(
         String simulationRunId,
         String trainId,
@@ -90,6 +103,7 @@ public class StrategySelector {
         payload.put("deltaDwellSec", delta);
         payload.put("simulationRunId", simulationRunId);
         payload.put("disturbanceId", event.id());
+        putHeadwayPayload(payload, event);
         return new DispatchCommand(
             "CMD-" + UUID.randomUUID().toString().substring(0, 8),
             trainId,
@@ -112,6 +126,7 @@ public class StrategySelector {
         payload.put("speedBiasRatio", ratio);
         payload.put("simulationRunId", simulationRunId);
         payload.put("disturbanceId", event.id());
+        putHeadwayPayload(payload, event);
         return new DispatchCommand(
             "CMD-" + UUID.randomUUID().toString().substring(0, 8),
             trainId,
@@ -130,6 +145,7 @@ public class StrategySelector {
         payload.put("targetHeadwaySec", adjusted);
         payload.put("simulationRunId", simulationRunId);
         payload.put("disturbanceId", event.id());
+        putHeadwayPayload(payload, event);
         return new DispatchCommand(
             "CMD-" + UUID.randomUUID().toString().substring(0, 8),
             event.trainId(),
@@ -140,5 +156,23 @@ public class StrategySelector {
             Instant.now(),
             null
         );
+    }
+
+    private void putHeadwayPayload(Map<String, Object> payload, DisturbanceEvent event) {
+        if (event.headwayDirection() != null) {
+            payload.put("headwayDirection", event.headwayDirection());
+        }
+        if (event.actualHeadwaySec() != null) {
+            payload.put("actualHeadwaySec", event.actualHeadwaySec());
+        }
+        if (event.targetHeadwaySec() != null) {
+            payload.put("targetHeadwaySec", event.targetHeadwaySec());
+        }
+        if (event.toleranceSec() != null) {
+            payload.put("headwayToleranceSec", event.toleranceSec());
+        }
+        if (event.violationSec() != null) {
+            payload.put("headwayViolationSec", event.violationSec());
+        }
     }
 }

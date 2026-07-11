@@ -15,11 +15,16 @@ class DisturbanceDetectorTests {
     private final CurrentRunPlan plan = new CurrentRunPlan("P1", "L1", "FLAT", 300, 25, Instant.EPOCH);
 
     @Test
-    void headwayShrinkRecoversAtShrinkThresholdInsteadOfExtremeValue() {
+    void headwayViolationTooShortRecoversAtShrinkThresholdInsteadOfExtremeValue() {
         DisturbanceDetector detector = new DisturbanceDetector(properties);
 
         detector.detect("RUN-1", Instant.EPOCH, plan, List.of(profile("TR-1", 100)));
         assertThat(detector.openEvents()).hasSize(1);
+        DisturbanceEvent event = detector.openEvents().get(0);
+        assertThat(event.disturbanceType()).isEqualTo(DisturbanceType.HEADWAY_VIOLATION);
+        assertThat(event.headwayDirection()).isEqualTo("TOO_SHORT");
+        assertThat(event.violationSec()).isEqualTo(110);
+        assertThat(event.deviationValue()).isEqualTo(110);
 
         detector.detect("RUN-1", Instant.EPOCH.plusSeconds(1), plan, List.of(profile("TR-1", 220)));
 
@@ -27,11 +32,16 @@ class DisturbanceDetectorTests {
     }
 
     @Test
-    void headwayExpandRecoversAtExpandThresholdInsteadOfExtremeValue() {
+    void headwayViolationTooLongRecoversAtExpandThresholdInsteadOfExtremeValue() {
         DisturbanceDetector detector = new DisturbanceDetector(properties);
 
         detector.detect("RUN-1", Instant.EPOCH, plan, List.of(profile("TR-1", 600)));
         assertThat(detector.openEvents()).hasSize(1);
+        DisturbanceEvent event = detector.openEvents().get(0);
+        assertThat(event.disturbanceType()).isEqualTo(DisturbanceType.HEADWAY_VIOLATION);
+        assertThat(event.headwayDirection()).isEqualTo("TOO_LONG");
+        assertThat(event.violationSec()).isEqualTo(150);
+        assertThat(event.deviationValue()).isEqualTo(150);
 
         detector.detect("RUN-1", Instant.EPOCH.plusSeconds(1), plan, List.of(profile("TR-1", 440)));
 

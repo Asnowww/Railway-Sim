@@ -34,6 +34,26 @@ class TrackServiceTests {
         assertThat(constraint.stationDistanceMeters()).isEqualTo(606);
     }
 
+    @Test
+    void constraintsKeepCurrentStationVisibleInsideStopWindow() {
+        TrackService trackService = trackService(lineWithMidStation());
+        TrainState train = train("TR-1", 1004);
+
+        TrackConstraint constraint = trackService.constraintsForTrains(List.of(train)).get(0);
+
+        assertThat(constraint.stationDistanceMeters()).isEqualTo(4);
+    }
+
+    @Test
+    void constraintsDoNotCaptureCurrentStationAfterStopWindow() {
+        TrackService trackService = trackService(lineWithMidStation());
+        TrainState train = train("TR-1", 1011);
+
+        TrackConstraint constraint = trackService.constraintsForTrains(List.of(train)).get(0);
+
+        assertThat(constraint.stationDistanceMeters()).isInfinite();
+    }
+
     private static TrackService trackService(OperationalLineData lineData) {
         StaticInfrastructureCatalog catalog = new StaticInfrastructureCatalog(lineData, emptyPowerData());
         SimulationProperties properties = new SimulationProperties();

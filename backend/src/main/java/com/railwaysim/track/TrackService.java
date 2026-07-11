@@ -44,6 +44,7 @@ import org.springframework.stereotype.Service;
 public class TrackService {
 
     private static final Logger log = LoggerFactory.getLogger(TrackService.class);
+    private static final double STATION_STOP_WINDOW_METERS = 10.0;
 
     private final List<TrackSegmentState> segments = new ArrayList<>();
     private final Map<String, SwitchState> switches = new HashMap<>();
@@ -331,15 +332,18 @@ public class TrackService {
                     train.positionMeters(),
                     segment.speedLimitMetersPerSecond()
                 );
-                double nextStationDistance = lineData.nextStationDistanceMeters(train.positionMeters());
+                double stationControlDistance = lineData.stationControlDistanceMeters(
+                    train.positionMeters(),
+                    STATION_STOP_WINDOW_METERS
+                );
                 return new TrackConstraint(
                     train.id(),
                     segment.id(),
                     speedLimit,
                     lineData.gradientAt(train.positionMeters()),
                     simulationProperties.getDefaultCurveRadiusMeters(),
-                    // Only real station definitions may trigger onboard station-stop logic.
-                    nextStationDistance
+                    // Keep the current station visible inside the platform stop window.
+                    stationControlDistance
                 );
             })
             .toList();

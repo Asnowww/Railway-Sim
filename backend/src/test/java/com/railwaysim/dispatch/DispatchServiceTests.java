@@ -13,6 +13,9 @@ import com.railwaysim.dispatch.monitor.InMemoryStationRecordStore;
 import com.railwaysim.dispatch.monitor.TrainRunMonitor;
 import com.railwaysim.dispatch.plan.OperationPlanLoader;
 import com.railwaysim.dispatch.plan.PlannedScheduleCalculator;
+import com.railwaysim.dispatch.route.RouteDecisionStatus;
+import com.railwaysim.dispatch.route.RouteDispatchRecordStore;
+import com.railwaysim.dispatch.route.RouteReservationState;
 import com.railwaysim.dispatch.strategy.StrategySelector;
 import com.railwaysim.signal.MovementAuthority;
 import com.railwaysim.simulation.TickContext;
@@ -80,6 +83,62 @@ class DispatchServiceTests {
             .extracting(DispatchCommand::id)
             .containsExactly("DC-test-REQUEST_ROUTE");
         assertThat(dispatchService.pendingCommands()).isEmpty();
+    }
+
+    @Test
+    void submittedRequestRouteCommandCreatesRouteDecisionAndReservation() {
+        dispatchService.submit(commandWithPayload("TR-1", "REQUEST_ROUTE", Map.of("routeId", "R_BRANCH")));
+
+        DispatchSnapshot snapshot = dispatchService.snapshot();
+
+        assertThat(snapshot.routeDispatchActive()).isTrue();
+        assertThat(snapshot.routeDecisions())
+            .extracting(DispatchSnapshot.RouteDecisionView::selectedRouteId)
+            .containsExactly("R_BRANCH");
+        assertThat(snapshot.routeDecisions())
+            .extracting(DispatchSnapshot.RouteDecisionView::status)
+            .containsExactly(RouteDecisionStatus.REQUESTED);
+        assertThat(snapshot.routeReservations())
+            .extracting(DispatchSnapshot.RouteReservationView::state)
+            .containsExactly(RouteReservationState.REQUESTED);
+    }
+
+    @Test
+    void routeInterlockingFeedbackAcceptsRouteReservation() {
+        dispatchService.submit(commandWithPayload("TR-1", "REQUEST_ROUTE", Map.of("routeId", "R_BRANCH")));
+
+        dispatchService.acceptFeedback(List.of(new DispatchCommandFeedback(
+            "DC-test-REQUEST_ROUTE",
+            "TR-1",
+            "REQUEST_ROUTE",
+            "SIGNAL_INTERLOCKING",
+            CommandStatus.EFFECT_CONFIRMED,
+            "route established",
+            Instant.parse("2026-07-09T00:00:00Z"),
+            Map.of("accepted", true)
+        )));
+
+        assertThat(dispatchService.snapshot().routeDecisions())
+            .extracting(DispatchSnapshot.RouteDecisionView::status)
+            .containsExactly(RouteDecisionStatus.ACCEPTED);
+        assertThat(dispatchService.snapshot().routeReservations())
+            .extracting(DispatchSnapshot.RouteReservationView::state)
+            .containsExactly(RouteReservationState.ACCEPTED);
+    }
+
+    @Test
+    void invalidRouteCommandIsRejectedBeforeInterlockingQueue() {
+        dispatchService.submit(commandWithPayload("TR-1", "REQUEST_ROUTE", Map.of()));
+
+        assertThat(dispatchService.pendingCommands()).isEmpty();
+        assertThat(dispatchService.commands())
+            .extracting(DispatchCommand::status)
+            .containsExactly(CommandStatus.SKIPPED);
+        assertThat(dispatchService.snapshot().routeDecisions())
+            .extracting(DispatchSnapshot.RouteDecisionView::status)
+            .containsExactly(RouteDecisionStatus.REJECTED);
+        assertThat(dispatchService.snapshot().routeDecisions().get(0).rejectReason())
+            .contains("route command requires routeId or detail");
     }
 
     @Test
@@ -237,7 +296,7 @@ class DispatchServiceTests {
     }
 
     @Test
-    void repeatedFeedbackRefreshesTrackingDetailsWithoutDuplicatingCommand() {
+    void repeatedAppliedFeedbackIsIgnoredAfterFirstObservation() {
         dispatchService.submit(commandWithPayload("TR-1", "SPEED_LIMIT", Map.of("detail", "8")));
 
         dispatchService.acceptFeedback(List.of(new DispatchCommandFeedback(
@@ -263,8 +322,8 @@ class DispatchServiceTests {
 
         assertThat(dispatchService.commands()).hasSize(1);
         assertThat(dispatchService.commands().get(0).payload())
-            .containsEntry("lastFeedbackReason", "second observation")
-            .containsEntry("lastFeedbackAt", "2026-07-09T00:00:01Z");
+            .containsEntry("lastFeedbackReason", "first observation")
+            .containsEntry("lastFeedbackAt", "2026-07-09T00:00:00Z");
     }
 
     @Test
@@ -384,6 +443,49 @@ class DispatchServiceTests {
             .containsExactly(CommandStatus.APPLIED);
     }
 
+    @Test
+    void appliedHeadwayAdjustTimesOutWhenHeadwayCannotBeConfirmed() {
+        Instant now = Instant.parse("2026-07-09T00:00:00Z");
+        DispatchCommand command = new DispatchCommand(
+            "DC-headway-adjust",
+            "TR-1",
+            "HEADWAY_ADJUST",
+            Map.of("targetHeadwaySec", dispatchService.currentPlan().departureIntervalSec() + 240),
+            "test",
+            CommandStatus.PENDING,
+            now,
+            null
+        );
+        dispatchService.markCommandsSent(List.of(command));
+        dispatchService.acceptFeedback(List.of(new DispatchCommandFeedback(
+            "DC-headway-adjust",
+            "TR-1",
+            "HEADWAY_ADJUST",
+            "SIGNAL_RUNTIME",
+            CommandStatus.APPLIED,
+            "headway hold observed",
+            now,
+            Map.of("zeroSpeed", true)
+        )));
+
+        dispatchService.evaluate(
+            tick(1, now.plusSeconds(dispatchServiceTimeoutSec() + 1L)),
+            List.of(dwellingTrain("TR-1", 60)),
+            List.of(authority("TR-1"))
+        );
+
+        assertThat(dispatchService.commands())
+            .filteredOn(commandView -> commandView.id().equals("DC-headway-adjust"))
+            .extracting(DispatchCommand::status)
+            .containsExactly(CommandStatus.TIMEOUT);
+        assertThat(dispatchService.snapshot().activeCommands())
+            .filteredOn(commandView -> commandView.id().equals("DC-headway-adjust"))
+            .extracting(DispatchSnapshot.CommandView::status)
+            .containsExactly(CommandStatus.TIMEOUT);
+        assertThat(dispatchService.previewConstraintsForTrains(List.of(dwellingTrain("TR-1", 60))).get(0).sourceCommandIds())
+            .isEmpty();
+    }
+
     private static DispatchCommand command(String trainId, String type, String detail) {
         Map<String, Object> payload = detail == null ? Map.of() : Map.of("detail", detail);
         return commandWithPayload(trainId, type, payload);
@@ -419,6 +521,10 @@ class DispatchServiceTests {
 
     private static TickContext tick(long tick, Instant simulatedTime) {
         return new TickContext(tick, 1000, 1.0, simulatedTime);
+    }
+
+    private static int dispatchServiceTimeoutSec() {
+        return new DispatchProperties().getCommandEffectTimeoutSec();
     }
 
     private static TrainState dwellingTrain(String id, int dwellElapsedSeconds) {
@@ -615,7 +721,8 @@ class DispatchServiceTests {
                 new CommandQueue(),
                 new InMemoryDisturbanceRecordStore(),
                 new InMemoryCommandRecordStore(),
-                stationStore
+                stationStore,
+                new RouteDispatchRecordStore()
             );
         } catch (IOException ex) {
             throw new IllegalStateException("failed to load dispatch test plan", ex);

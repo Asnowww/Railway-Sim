@@ -15,6 +15,11 @@ export interface DispatchDisturbance {
   stationId: string
   disturbanceType: string
   deviationValue: number
+  headwayDirection?: string | null
+  targetHeadwaySec?: number | null
+  actualHeadwaySec?: number | null
+  toleranceSec?: number | null
+  violationSec?: number | null
   status: string
 }
 
