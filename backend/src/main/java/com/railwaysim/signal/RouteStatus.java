@@ -1,7 +1,7 @@
 package com.railwaysim.signal;
 
 /**
- * 进路状态枚举（WP-03 细化 — 原 3 态扩展为 8 态）。
+ * 进路状态枚举（WP-03 细化 — 原 3 态扩展为 12 态）。
  *
  * <pre>
  *   AVAILABLE     — 空闲，可接收请求
@@ -14,7 +14,7 @@ package com.railwaysim.signal;
  *   CONFLICTED    — 与另一已建立进路冲突
  *   REJECTED      — 校验/扳动失败
  *   FAILED        — 执行过程中发生不可恢复错误
- *   CANCELLED     — 调度主动取消（列车未进入）
+ *   CANCELLED     — 列车未进入前主动取消
  *   EXPIRED_BY_RESET — 仿真重置时强制终止
  * </pre>
  */
@@ -30,5 +30,40 @@ public enum RouteStatus {
     REJECTED,
     FAILED,
     CANCELLED,
-    EXPIRED_BY_RESET
+    EXPIRED_BY_RESET;
+
+    public boolean canTransitionTo(RouteStatus target) {
+        if (target == null || target == this) {
+            return false;
+        }
+        if (target == EXPIRED_BY_RESET && this != EXPIRED_BY_RESET) {
+            return true;
+        }
+        return switch (this) {
+            case AVAILABLE -> target == VALIDATING;
+            case VALIDATING -> target == SETTING_SWITCHES
+                || target == CONFLICTED
+                || target == REJECTED
+                || target == CANCELLED;
+            case SETTING_SWITCHES -> target == LOCKED
+                || target == FAILED
+                || target == CANCELLED;
+            case LOCKED -> target == OCCUPIED
+                || target == RELEASING
+                || target == CANCELLED
+                || target == FAILED;
+            case OCCUPIED -> target == RELEASING || target == FAILED;
+            case RELEASING -> target == RELEASED || target == FAILED;
+            case RELEASED, CONFLICTED, REJECTED, FAILED, CANCELLED, EXPIRED_BY_RESET ->
+                target == AVAILABLE;
+        };
+    }
+
+    public boolean holdsInterlockingResources() {
+        return this == LOCKED || this == OCCUPIED || this == RELEASING;
+    }
+
+    public boolean returnsToAvailableOnTick() {
+        return this == RELEASED || this == REJECTED || this == FAILED || this == CANCELLED;
+    }
 }

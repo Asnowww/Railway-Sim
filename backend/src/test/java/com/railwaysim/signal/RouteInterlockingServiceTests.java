@@ -38,7 +38,7 @@ class RouteInterlockingServiceTests {
 
         fixture.interlocking.touchRoutes(List.of(train("TR-1", 50)));
 
-        assertThat(fixture.interlocking.state("R_AXLE").status()).isEqualTo(RouteStatus.LOCKED);
+        assertThat(fixture.interlocking.state("R_AXLE").status()).isEqualTo(RouteStatus.OCCUPIED);
         assertThat(fixture.interlocking.establishedSegmentPathForTrain("TR-1"))
             .containsExactly("SEG-1", "SEG-3");
     }
@@ -90,7 +90,7 @@ class RouteInterlockingServiceTests {
         String rejection = fixture.interlocking.establishRoute("R_BRANCH", "TR-1");
 
         assertThat(rejection).startsWith("TRACK_OCCUPIED:SEG-1");
-        assertThat(fixture.interlocking.state("R_BRANCH").status()).isEqualTo(RouteStatus.AVAILABLE);
+        assertThat(fixture.interlocking.state("R_BRANCH").status()).isEqualTo(RouteStatus.REJECTED);
     }
 
     @Test
@@ -166,6 +166,58 @@ class RouteInterlockingServiceTests {
     }
 
     @Test
+    void repeatedRequestByAnotherTrainDoesNotCorruptTheLockedRoute() {
+        Fixture fixture = fixture(lineDataWithDirectRoute());
+        fixture.interlocking.init();
+        assertThat(fixture.interlocking.establishRoute("R_BRANCH", "TR-1")).isNull();
+
+        String rejection = fixture.interlocking.establishRoute("R_BRANCH", "TR-2");
+
+        assertThat(rejection).contains("is LOCKED for train TR-1");
+        assertThat(fixture.interlocking.state("R_BRANCH").status()).isEqualTo(RouteStatus.LOCKED);
+        assertThat(fixture.interlocking.state("R_BRANCH").establishedByTrainId()).isEqualTo("TR-1");
+        assertThat(fixture.trackService.switchStates().get(0).locked()).isTrue();
+    }
+
+    @Test
+    void routeLifecycleRemainsVisibleUntilTheFollowingTick() {
+        Fixture fixture = fixture(lineDataWithDirectRoute());
+        fixture.interlocking.init();
+        TrainState train = train("TR-1", 50);
+        fixture.trackService.updateOccupancy(List.of(train));
+        assertThat(fixture.interlocking.establishRoute("R_BRANCH", "TR-1")).isNull();
+
+        fixture.interlocking.touchRoutes(List.of(train));
+        assertThat(fixture.interlocking.state("R_BRANCH").status()).isEqualTo(RouteStatus.OCCUPIED);
+
+        fixture.interlocking.touchRoutes(List.of());
+        assertThat(fixture.interlocking.state("R_BRANCH").status()).isEqualTo(RouteStatus.RELEASING);
+
+        fixture.interlocking.touchRoutes(List.of());
+        assertThat(fixture.interlocking.state("R_BRANCH").status()).isEqualTo(RouteStatus.RELEASED);
+        assertThat(fixture.trackService.switchStates().get(0).locked()).isFalse();
+
+        fixture.interlocking.touchRoutes(List.of());
+        assertThat(fixture.interlocking.state("R_BRANCH").status()).isEqualTo(RouteStatus.AVAILABLE);
+    }
+
+    @Test
+    void cancellingAnUnoccupiedLockedRouteIsVisibleAndUnlocksSwitches() {
+        Fixture fixture = fixture(lineDataWithDirectRoute());
+        fixture.interlocking.init();
+        assertThat(fixture.interlocking.establishRoute("R_BRANCH", "TR-1")).isNull();
+
+        String rejection = fixture.interlocking.cancelRoute("R_BRANCH");
+
+        assertThat(rejection).isNull();
+        assertThat(fixture.interlocking.state("R_BRANCH").status()).isEqualTo(RouteStatus.CANCELLED);
+        assertThat(fixture.trackService.switchStates().get(0).locked()).isFalse();
+
+        fixture.interlocking.touchRoutes(List.of());
+        assertThat(fixture.interlocking.state("R_BRANCH").status()).isEqualTo(RouteStatus.AVAILABLE);
+    }
+
+    @Test
     void unsupportedRouteCommandIsRejectedInsteadOfSilentlyAccepted() {
         Fixture fixture = fixture(lineDataWithDirectRoute());
         fixture.interlocking.init();
@@ -207,7 +259,7 @@ class RouteInterlockingServiceTests {
         String rejection = fixture.interlocking.establishRoute("R_BOTH", "TR-1");
 
         assertThat(rejection).contains("both NORMAL and REVERSE");
-        assertThat(fixture.interlocking.state("R_BOTH").status()).isEqualTo(RouteStatus.AVAILABLE);
+        assertThat(fixture.interlocking.state("R_BOTH").status()).isEqualTo(RouteStatus.REJECTED);
         SwitchState sw = fixture.trackService.switchStates().get(0);
         assertThat(sw.position()).isEqualTo(SwitchPosition.NORMAL);
         assertThat(sw.locked()).isFalse();
