@@ -35,6 +35,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.function.Function;
 import java.util.stream.Collectors;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 @Service
@@ -47,7 +48,26 @@ public class TrainManager {
     private final StaticInfrastructureCatalog infrastructureCatalog;
     private final RealtimeStateCache realtimeStateCache;
     private final SimpleEventBus eventBus;
+    private final VehicleSpecificationCatalog vehicleSpecificationCatalog;
+    private final Map<String, RuntimeVehicleMetadata> vehicleMetadata = new LinkedHashMap<>();
     private final List<TrainFaultRecord> faultRecords = new ArrayList<>();
+
+    @Autowired
+    public TrainManager(
+        OnboardTrainSubsystemManager onboardTrainSubsystemManager,
+        VehicleRuntimeIntegrationService vehicleRuntimeIntegrationService,
+        StaticInfrastructureCatalog infrastructureCatalog,
+        RealtimeStateCache realtimeStateCache,
+        SimpleEventBus eventBus,
+        VehicleSpecificationCatalog vehicleSpecificationCatalog
+    ) {
+        this.onboardTrainSubsystemManager = onboardTrainSubsystemManager;
+        this.vehicleRuntimeIntegrationService = vehicleRuntimeIntegrationService;
+        this.infrastructureCatalog = infrastructureCatalog;
+        this.realtimeStateCache = realtimeStateCache;
+        this.eventBus = eventBus;
+        this.vehicleSpecificationCatalog = vehicleSpecificationCatalog;
+    }
 
     public TrainManager(
         OnboardTrainSubsystemManager onboardTrainSubsystemManager,
@@ -56,11 +76,14 @@ public class TrainManager {
         RealtimeStateCache realtimeStateCache,
         SimpleEventBus eventBus
     ) {
-        this.onboardTrainSubsystemManager = onboardTrainSubsystemManager;
-        this.vehicleRuntimeIntegrationService = vehicleRuntimeIntegrationService;
-        this.infrastructureCatalog = infrastructureCatalog;
-        this.realtimeStateCache = realtimeStateCache;
-        this.eventBus = eventBus;
+        this(
+            onboardTrainSubsystemManager,
+            vehicleRuntimeIntegrationService,
+            infrastructureCatalog,
+            realtimeStateCache,
+            eventBus,
+            new VehicleSpecificationCatalog("config/train_params.yaml")
+        );
     }
 
     @PostConstruct
@@ -78,6 +101,7 @@ public class TrainManager {
         double frontStartMeters = Math.min(lineLengthMeters - 100, Math.max(900, lineLengthMeters * 0.52));
         trains.clear();
         controlSessions.clear();
+        vehicleMetadata.clear();
         onboardTrainSubsystemManager.clear();
         vehicleRuntimeIntegrationService.clear();
         addInitialTrain("TR-001", routeId, rearStartMeters, 0.42, 1, ExternalTrainDirection.DOWN);
@@ -99,7 +123,7 @@ public class TrainManager {
         advanceControlSessions(authorityByTrain, powerByTrain);
         removeDisconnectedTrains();
         List<TrainState> currentStates = states();
-        // 车辆控制和动力学统一从运行时集成服务返回，外部失败时服务内部完成本地 fallback。
+        // 车辆控制和动力学统一从运行时集成服务返回；生产外部模式失败时停止本 tick，中央不计算替代物理状态。
         VehicleRuntimeStepResult runtimeResult = vehicleRuntimeIntegrationService.stepFleet(
             context,
             currentStates,
@@ -144,8 +168,12 @@ public class TrainManager {
             return existing.get().state(existingNode);
         }
         String routeId = infrastructureCatalog.lineData().lineId();
-        TrainEntity train = new TrainEntity(trainId, routeId, spec.offsetMeters(), 120, 0.35, infrastructureCatalog.lineData());
+        VehicleSpecificationCatalog.VehicleSpecification vehicleSpec = vehicleSpecificationCatalog.specification();
+        TrainEntity train = new TrainEntity(
+            trainId, routeId, spec.offsetMeters(), vehicleSpec.lengthMeters(), 0.35, infrastructureCatalog.lineData()
+        );
         trains.add(train);
+        vehicleMetadata.put(trainId, RuntimeVehicleMetadata.from(vehicleSpec));
         onboardTrainSubsystemManager.register(trainId);
         controlSessions.put(trainId, ExternalTrainControlSession.connecting(
             trainId,
@@ -164,6 +192,22 @@ public class TrainManager {
         double offsetMeters,
         ExternalTrainDirection direction
     ) {
+        VehicleSpecificationCatalog.VehicleSpecification spec = vehicleSpecificationCatalog.specification();
+        return registerRuntimeStartedTrain(
+            trainId, linkId, offsetMeters, direction,
+            spec.lengthMeters(), spec.trainType(), spec.parameterSetId()
+        );
+    }
+
+    public synchronized TrainState registerRuntimeStartedTrain(
+        String trainId,
+        int linkId,
+        double offsetMeters,
+        ExternalTrainDirection direction,
+        double lengthMeters,
+        String trainType,
+        String parameterSetId
+    ) {
         if (trainId == null || trainId.isBlank()) {
             throw new IllegalArgumentException("trainId is required");
         }
@@ -171,9 +215,38 @@ public class TrainManager {
         if (existing.isPresent()) {
             return existing.get().state(controlSessions.get(trainId));
         }
+        VehicleSpecificationCatalog.VehicleSpecification catalogSpec = vehicleSpecificationCatalog.specification();
+        double effectiveLength = lengthMeters > 0 ? lengthMeters : catalogSpec.lengthMeters();
+        String effectiveTrainType = trainType == null || trainType.isBlank()
+            ? catalogSpec.trainType()
+            : trainType.trim();
+        String effectiveParameterSetId = parameterSetId == null || parameterSetId.isBlank()
+            ? catalogSpec.parameterSetId()
+            : parameterSetId.trim();
+        if (Math.abs(effectiveLength - catalogSpec.lengthMeters()) > 1e-6) {
+            throw new IllegalArgumentException(
+                "runtime vehicle length does not match central vehicle specification"
+            );
+        }
+        if (!effectiveTrainType.equals(catalogSpec.trainType())) {
+            throw new IllegalArgumentException(
+                "runtime trainType does not match central vehicle specification"
+            );
+        }
+        if (!effectiveParameterSetId.equals(catalogSpec.parameterSetId())) {
+            throw new IllegalArgumentException(
+                "runtime parameterSetId does not match central vehicle specification"
+            );
+        }
         String routeId = infrastructureCatalog.lineData().lineId();
-        TrainEntity train = new TrainEntity(trainId.trim(), routeId, offsetMeters, 120, 0.35, infrastructureCatalog.lineData());
+        TrainEntity train = new TrainEntity(
+            trainId.trim(), routeId, offsetMeters, effectiveLength, 0.35, infrastructureCatalog.lineData()
+        );
         trains.add(train);
+        vehicleMetadata.put(
+            train.id(),
+            new RuntimeVehicleMetadata(effectiveTrainType, effectiveParameterSetId, effectiveLength)
+        );
         // 该入口由 9300 主动发起，中央只建立镜像和 fallback 纳管视图，不能再反向注册 9300。
         onboardTrainSubsystemManager.register(train.id());
         controlSessions.put(train.id(), ExternalTrainControlSession.connecting(
@@ -308,8 +381,12 @@ public class TrainManager {
         int linkId,
         ExternalTrainDirection direction
     ) {
-        TrainEntity train = new TrainEntity(trainId, routeId, positionMeters, 120, loadRate, infrastructureCatalog.lineData());
+        VehicleSpecificationCatalog.VehicleSpecification vehicleSpec = vehicleSpecificationCatalog.specification();
+        TrainEntity train = new TrainEntity(
+            trainId, routeId, positionMeters, vehicleSpec.lengthMeters(), loadRate, infrastructureCatalog.lineData()
+        );
         trains.add(train);
+        vehicleMetadata.put(trainId, RuntimeVehicleMetadata.from(vehicleSpec));
         onboardTrainSubsystemManager.register(trainId);
         controlSessions.put(trainId, ExternalTrainControlSession.inService(trainId, linkId, positionMeters, direction));
         vehicleRuntimeIntegrationService.register(train.state(controlSessions.get(trainId)));
@@ -335,9 +412,22 @@ public class TrainManager {
             if (node != null && node.disconnected()) {
                 iterator.remove();
                 controlSessions.remove(train.id());
+                vehicleMetadata.remove(train.id());
                 onboardTrainSubsystemManager.remove(train.id());
                 vehicleRuntimeIntegrationService.remove(train.id());
             }
+        }
+    }
+
+    public synchronized Optional<RuntimeVehicleMetadata> vehicleMetadata(String trainId) {
+        return Optional.ofNullable(vehicleMetadata.get(trainId));
+    }
+
+    public record RuntimeVehicleMetadata(String trainType, String parameterSetId, double lengthMeters) {
+        static RuntimeVehicleMetadata from(VehicleSpecificationCatalog.VehicleSpecification specification) {
+            return new RuntimeVehicleMetadata(
+                specification.trainType(), specification.parameterSetId(), specification.lengthMeters()
+            );
         }
     }
 

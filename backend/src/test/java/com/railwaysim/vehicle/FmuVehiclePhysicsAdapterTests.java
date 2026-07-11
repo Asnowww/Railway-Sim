@@ -37,12 +37,17 @@ class FmuVehiclePhysicsAdapterTests {
                       "tractionForceNewtons": 80000.0,
                       "brakeForceNewtons": 0.0,
                       "regenBrakeForceNewtons": 0.0,
+                      "mechanicalTractionPowerWatts": 422400.0,
                       "tractionPowerWatts": 480000.0,
                       "railCurrentAmps": 320.0,
+                      "mechanicalRegenPowerWatts": 0.0,
                       "regenPowerWatts": 0.0,
                       "energyConsumedKwh": 0.02,
                       "energyRegeneratedKwh": 0.0,
-                      "faultCode": "OK"
+                      "faultCode": "OK",
+                      "instanceState": "ACTIVE",
+                      "dataQuality": "GOOD",
+                      "fmiStatus": "OK"
                     }
                   ]
                 }

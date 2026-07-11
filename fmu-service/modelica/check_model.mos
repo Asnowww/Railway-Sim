@@ -1,0 +1,4 @@
+setCommandLineOptions("--std=3.4");
+loadFile("/workspace/fmu-service/modelica/TrainTractionBrake.mo");
+checkModel(RailwaySimVehicle.TrainTractionBrake);
+getErrorString();

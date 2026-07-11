@@ -1,0 +1,89 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://railwaysim.local/contracts/step-fleet-request.schema.json",
+  "title": "Railway-Sim FMU fleet step request",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "tick",
+    "simulationTimeSeconds",
+    "stepSizeSeconds",
+    "modelVersion",
+    "parameterSetId",
+    "traceId",
+    "trains"
+  ],
+  "properties": {
+    "tick": {"type": "integer", "minimum": 0},
+    "simulationTimeSeconds": {"type": "number", "minimum": 0},
+    "stepSizeSeconds": {"type": "number", "const": 0.1},
+    "modelVersion": {"type": "string", "minLength": 1},
+    "parameterSetId": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "traceId": {"type": "string", "minLength": 1},
+    "trains": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/trainStep"}
+    }
+  },
+  "$defs": {
+    "nonNegativeNumber": {"type": "number", "minimum": 0},
+    "trainStep": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "trainId",
+        "lifecycleCommand",
+        "sectionId",
+        "positionMeters",
+        "speedMetersPerSecond",
+        "trainMassKg",
+        "tractionCommand",
+        "brakeCommand",
+        "emergencyBrakeCommand",
+        "doorClosed",
+        "gradient",
+        "curveRadiusMeters",
+        "railVoltage",
+        "powerAvailableWatts",
+        "regenPowerAvailableWatts",
+        "currentCollectionAvailable",
+        "adhesionCoefficient",
+        "previousEnergyConsumedKwh",
+        "previousEnergyRegeneratedKwh",
+        "speedLimitMetersPerSecond",
+        "movementAuthorityDistanceMeters",
+        "stationDistanceMeters",
+        "stoppingDistanceMeters",
+        "dynamicsState",
+        "dynamicsConstraintReason"
+      ],
+      "properties": {
+        "trainId": {"type": "string", "minLength": 1},
+        "lifecycleCommand": {"enum": ["INIT", "STEP", "RESET", "RESYNC"]},
+        "sectionId": {"type": "string"},
+        "positionMeters": {"type": "number"},
+        "speedMetersPerSecond": {"$ref": "#/$defs/nonNegativeNumber"},
+        "trainMassKg": {"type": "number", "exclusiveMinimum": 0},
+        "tractionCommand": {"type": "number", "minimum": 0, "maximum": 1},
+        "brakeCommand": {"type": "number", "minimum": 0, "maximum": 1},
+        "emergencyBrakeCommand": {"type": "boolean"},
+        "doorClosed": {"type": "boolean"},
+        "gradient": {"type": "number"},
+        "curveRadiusMeters": {"type": "number", "exclusiveMinimum": 0},
+        "railVoltage": {"$ref": "#/$defs/nonNegativeNumber"},
+        "powerAvailableWatts": {"$ref": "#/$defs/nonNegativeNumber"},
+        "regenPowerAvailableWatts": {"$ref": "#/$defs/nonNegativeNumber"},
+        "currentCollectionAvailable": {"type": "boolean"},
+        "adhesionCoefficient": {"type": "number", "minimum": 0.2, "maximum": 1},
+        "previousEnergyConsumedKwh": {"$ref": "#/$defs/nonNegativeNumber"},
+        "previousEnergyRegeneratedKwh": {"$ref": "#/$defs/nonNegativeNumber"},
+        "speedLimitMetersPerSecond": {"$ref": "#/$defs/nonNegativeNumber"},
+        "movementAuthorityDistanceMeters": {"$ref": "#/$defs/nonNegativeNumber"},
+        "stationDistanceMeters": {"$ref": "#/$defs/nonNegativeNumber"},
+        "stoppingDistanceMeters": {"$ref": "#/$defs/nonNegativeNumber"},
+        "dynamicsState": {"type": "string", "minLength": 1},
+        "dynamicsConstraintReason": {"type": "string", "minLength": 1}
+      }
+    }
+  }
+}

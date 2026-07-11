@@ -43,6 +43,12 @@ class TrainManagerLifecycleTests {
         assertThat(added.powerNetworkStatus()).isEqualTo("NOT_ATTACHED");
         assertThat(added.linkId()).isEqualTo(12);
         assertThat(added.direction()).isEqualTo("DOWN");
+        assertThat(added.lengthMeters()).isEqualTo(118.0);
+        assertThat(manager.vehicleMetadata("TR-003")).get()
+            .satisfies(metadata -> {
+                assertThat(metadata.trainType()).isEqualTo("B_TYPE_6_CAR");
+                assertThat(metadata.parameterSetId()).matches("sha256:[0-9a-f]{64}");
+            });
     }
 
     @Test
@@ -57,6 +63,9 @@ class TrainManagerLifecycleTests {
         assertThat(added.controlSessionState()).isEqualTo("CONNECTING");
         assertThat(added.linkId()).isEqualTo(8);
         assertThat(added.direction()).isEqualTo("DOWN");
+        assertThat(added.lengthMeters()).isEqualTo(118.0);
+        assertThat(manager.vehicleMetadata("TR-105")).get()
+            .satisfies(metadata -> assertThat(metadata.lengthMeters()).isEqualTo(118.0));
     }
 
 

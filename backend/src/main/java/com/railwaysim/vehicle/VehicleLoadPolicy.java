@@ -2,10 +2,15 @@ package com.railwaysim.vehicle;
 
 public final class VehicleLoadPolicy {
 
-    public static final double EMPTY_MASS_KG = 198_000;
-    public static final double MAX_LOAD_MASS_KG = 72_000;
-    public static final int NOMINAL_TRACTION_UNITS = 6;
-    public static final int NOMINAL_BRAKE_UNITS = 6;
+    public static final double EMPTY_MASS_KG = 225_000;
+    /** AW2 rated payload: 301 t - 225 t. */
+    public static final double MAX_LOAD_MASS_KG = 76_000;
+    /** AW3 maximum operating payload: 329 t - 225 t. */
+    public static final double MAX_OPERATING_LOAD_MASS_KG = 104_000;
+    /** 336 t hard train limit - 225 t empty mass. */
+    public static final double HARD_LOAD_MASS_LIMIT_KG = 111_000;
+    public static final int NOMINAL_TRACTION_UNITS = 4;
+    public static final int NOMINAL_BRAKE_UNITS = 4;
 
     private VehicleLoadPolicy() {
     }
@@ -30,10 +35,10 @@ public final class VehicleLoadPolicy {
 
     public static String overloadStatus(double loadMassKg) {
         double rate = loadRateFromMass(loadMassKg);
-        if (rate > 1.15) {
+        if (loadMassKg > MAX_OPERATING_LOAD_MASS_KG) {
             return "CRITICAL_OVERLOAD";
         }
-        if (rate > 1.0) {
+        if (loadMassKg > MAX_LOAD_MASS_KG) {
             return "OVERLOAD";
         }
         if (rate >= 0.9) {
@@ -57,7 +62,11 @@ public final class VehicleLoadPolicy {
     }
 
     public static double totalMassKg(double loadMassKg) {
-        return EMPTY_MASS_KG + Math.max(0, loadMassKg);
+        double normalizedLoadMassKg = Math.max(0, loadMassKg);
+        if (normalizedLoadMassKg > HARD_LOAD_MASS_LIMIT_KG) {
+            throw new IllegalArgumentException("vehicle mass exceeds 336000 kg hard limit");
+        }
+        return EMPTY_MASS_KG + normalizedLoadMassKg;
     }
 
     public static double tractionCommandFactor(double loadMassKg, int availableTractionCount) {

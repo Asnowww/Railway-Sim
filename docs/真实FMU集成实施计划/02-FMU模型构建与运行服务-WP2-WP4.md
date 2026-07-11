@@ -10,7 +10,11 @@
 
 使用固定OpenModelica Docker工具链导出FMI 2.0 Co-Simulation车辆FMU，并在Linux/amd64容器内通过FMPy实现一份FMU、多列车独立实例的9000服务。
 
+**阶段状态：[已完成]。9000已具备真实FMU执行能力，但按本分计划边界尚未接入9300生产物理循环。**
+
 ## 2. WP2：Modelica一维纵向模型
+
+**状态：[已完成]；提交：`cf43b4c`。**
 
 ### 2.1 实施项
 
@@ -38,7 +42,7 @@ F_grade       = m*g*gradient
 ```bash
 docker run --rm --platform linux/amd64 \
   -v "$PWD:/workspace" -w /workspace \
-  openmodelica/openmodelica:v1.27.0-minimal \
+  openmodelica/openmodelica@sha256:80fbff1a66fb6a6ade64a158415a45e022363249982c9f3ade07df2a369a357e \
   omc fmu-service/modelica/build_fmu.mos
 ```
 
@@ -49,6 +53,8 @@ docker run --rm --platform linux/amd64 \
 - 回滚只恢复Modelica源码并删除本地生成物，不影响Java fallback。
 
 ## 3. WP3：可复现FMU制品
+
+**状态：[已完成]；提交：`2281c06`、`89bd127`。**
 
 ### 3.1 实施项
 
@@ -66,8 +72,14 @@ docker pull --platform linux/amd64 openmodelica/openmodelica:v1.27.0-minimal
 docker image inspect openmodelica/openmodelica:v1.27.0-minimal --format '{{index .RepoDigests 0}}'
 ./scripts/build-fmu.sh
 shasum -a 256 fmu-service/build/TrainTractionBrake.fmu
-docker run --rm --platform linux/amd64 railway-sim-fmu:build \
-  python -m fmpy info /app/fmu/TrainTractionBrake.fmu
+docker build --no-cache --platform linux/amd64 \
+  -f fmu-service/Dockerfile --target fmu-builder \
+  -t railway-sim-fmu-builder-clean:local .
+docker build --platform linux/amd64 \
+  -f fmu-service/Dockerfile --target test \
+  -t railway-sim-fmu-test:local .
+docker run --rm --platform linux/amd64 --entrypoint python \
+  railway-sim-fmu-test:local -m fmpy info /app/fmu/TrainTractionBrake.fmu
 ```
 
 ### 3.3 退出条件与回滚
@@ -77,6 +89,8 @@ docker run --rm --platform linux/amd64 railway-sim-fmu:build \
 - 回滚删除生成目录和镜像，不提交FMU二进制。
 
 ## 4. WP4：9000真实FMPy服务
+
+**状态：[已完成]；提交：`1da5c00`、`3d141b5`。**
 
 ### 4.1 固定环境
 
@@ -100,8 +114,13 @@ docker run --rm --platform linux/amd64 railway-sim-fmu:build \
 ### 4.3 验证命令
 
 ```bash
-docker build --platform linux/amd64 -t railway-sim-fmu-runtime:local fmu-service
-docker run --rm --platform linux/amd64 railway-sim-fmu-runtime:local pytest -q
+docker build --platform linux/amd64 \
+  -f fmu-service/Dockerfile --target test \
+  -t railway-sim-fmu-test:local .
+docker run --rm --platform linux/amd64 railway-sim-fmu-test:local
+docker build --platform linux/amd64 \
+  -f fmu-service/Dockerfile --target runtime \
+  -t railway-sim-fmu-runtime:local .
 docker run --rm --platform linux/amd64 -p 9000:9000 railway-sim-fmu-runtime:local
 curl -fsS http://127.0.0.1:9000/health
 curl -fsS http://127.0.0.1:9000/fmu/metadata
@@ -117,6 +136,6 @@ curl -fsS http://127.0.0.1:9000/fmu/metadata
 
 | 工作包 | 提交号 | FMU哈希/模型版本 | 测试报告路径 | 结论 |
 |---|---|---|---|---|
-| WP2 | 待填写 | 待填写 | 待填写 | 待实施 |
-| WP3 | 待填写 | 待填写 | 待填写 | 待实施 |
-| WP4 | 待填写 | 待填写 | 待填写 | 待实施 |
+| WP2 | `cf43b4c` | `TrainTractionBrake/1.0.0` | `docs/真实FMU集成实施计划/验收记录/02-WP2-WP4验收记录.md` | 通过 |
+| WP3 | `2281c06`、`89bd127` | 运行镜像`sha256:5b8c9ca70bf3ecd8e9bbd11a3262c8d413523a671bf4cc2cf6e40bf7ef5b635b` | 同上 | 通过 |
+| WP4 | `1da5c00`、`3d141b5` | `TrainTractionBrake/1.0.0` | 同上 | 通过 |

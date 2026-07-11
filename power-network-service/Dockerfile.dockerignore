@@ -1,0 +1,12 @@
+.git/
+.idea/
+.vscode/
+frontend/
+node_modules/
+**/node_modules/
+**/target/
+**/.venv/
+fmu-service/build/
+docs/
+docx/
+*.log

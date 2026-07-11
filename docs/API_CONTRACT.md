@@ -566,7 +566,7 @@ GET  /vehicle-runtime/events
 }
 ```
 
-`POST /vehicle-runtime/step-fleet` 请求包含 `tick`、`deltaSeconds`、`requestedAt`、`trains[]`、`movementAuthorities[]`、`trackConstraints[]`、`dispatchConstraints[]`。`split` 模式忽略中央传入的 `powerConstraints[]`：9300 自行向 9200 请求权威供电约束。外部服务按每车实例的控制队列和仿真队列同步返回 `trainOutputs[]`、`trainReports[]`、`instanceStates[]`。
+`POST /vehicle-runtime/step-fleet` 请求包含 `tick`、`deltaSeconds`、`requestedAt`、`trains[]`、`movementAuthorities[]`、`trackConstraints[]`、`dispatchConstraints[]`。`split` 模式忽略中央传入的 `powerConstraints[]`：9300 自行向 9200 请求权威供电约束。9300先为全车准备控制输入，每个tick只调用一次9000 `/step-fleet`，再统一写回`trainOutputs[]`、`trainReports[]`和`instanceStates[]`。
 
 `POST /vehicle-runtime/bootstrap` 还会携带供电仿真联动配置：
 
@@ -575,7 +575,17 @@ GET  /vehicle-runtime/events
 | `powerNetworkBaseUrl` | 中央配置的外部供电仿真地址，默认 `http://localhost:9200`。 |
 | `forwardPowerLoads` | 是否启用 9300 -> 9200 的权威供电闭环。启用时使用 `/constraints/query` 与 `/step`。 |
 
-当 `vehicle-runtime-service` 处于 `EXTERNAL_HTTP` 模式且 `forwardPowerLoads=true` 时，闭环为：`9300 -> POST 9200/constraints/query -> 车辆控制/动力学 -> POST 9200/step -> 下一周期供电约束`。中央 `PowerIntegrationService` 只调用 `GET 9200/power-network/state` 拉取镜像，绝不补写负荷。`LOCAL`、`DUAL_SHADOW`、外部车辆运行时不可用或降级时，中央保留兼容路径 `PowerIntegrationService.refreshSnapshot(sectionLoads) -> POST /power-network/state/query`。
+当 `vehicle-runtime-service` 处于 `EXTERNAL_HTTP` 模式且 `forwardPowerLoads=true` 时，闭环为：`9300 -> POST 9200/constraints/query -> 车辆控制/单次批量FMU动力学 -> POST 9200/step -> 下一周期供电约束`。中央 `PowerIntegrationService` 只调用 `GET 9200/power-network/state` 拉取镜像，绝不补写负荷；该写入权按部署配置固定，不因某车FMU降级而切回中央，从而避免双写。只有非拆分部署的`LOCAL`或`DUAL_SHADOW`模式保留兼容路径`PowerIntegrationService.refreshSnapshot(sectionLoads) -> POST /power-network/state/query`。
+
+9300物理实例恢复接口：
+
+```http
+POST /vehicle-runtime/physics/instances/{trainId}/reset
+POST /vehicle-runtime/physics/instances/{trainId}/resync
+POST /vehicle-runtime/physics/instances/resync-all
+```
+
+fallback列车不会自动切回FMU；上述RESET/RESYNC命令在下一个100 ms权威车辆状态到达时执行。`GET /vehicle-runtime/health`额外返回`physicsMode`、`fmuModelVersion`、`parameterSetId`、`fmuBatchLatencyMillis`和`fallbackTrainCount`。
 
 中央新增监控入口：
 
@@ -585,7 +595,7 @@ GET /api/vehicle/runtime-health
 
 该接口返回外部车辆运行时健康状态和实例队列状态。`/api/simulation/snapshot` 与 WebSocket 快照同步携带 `vehicleRuntime` 字段。
 
-实现状态：首期已完成 HTTP 同步批量步进、实例队列、中央 fallback、供电负荷转发单元测试和中央供电写入权切换测试；尚未进行 `9300 + 9200 + backend` 长时间联动、真实多车压力、真实 FMU/RT-LAB 逻辑验收。
+实现状态：WP5～WP6已完成9300到9000的单次批量调用、逐车/整批Java降级、9200再生预算及同段多车耦合；尚未执行WP7统一编排和WP8十分钟长稳、跨进程恢复及最终性能验收。
 
 #### 查询到发记录
 

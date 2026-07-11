@@ -1,5 +1,8 @@
 package com.railwaysim.vehicle;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+
+@JsonIgnoreProperties(ignoreUnknown = true)
 public record VehiclePhysicsOutput(
     String trainId,
     double newPositionMeters,

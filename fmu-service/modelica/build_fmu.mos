@@ -1,0 +1,8 @@
+setCommandLineOptions("--std=3.4");
+loadFile("/workspace/fmu-service/modelica/TrainTractionBrake.mo");
+cd("/workspace/fmu-service/build");
+buildModelFMU(
+  RailwaySimVehicle.TrainTractionBrake,
+  version = "2.0",
+  fmuType = "cs");
+getErrorString();

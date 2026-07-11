@@ -1,12 +1,14 @@
 from __future__ import annotations
 
+import os
 from threading import RLock
 from typing import Annotated, Any
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
 from .manager import PowerNetworkModel
+from .config_loader import load_power_config
 
 
 class SectionLoadPayload(BaseModel):
@@ -30,6 +32,12 @@ class PowerStepPayload(PowerConstraintQueryPayload):
     section_loads: list[SectionLoadPayload] = Field(default_factory=list, alias="sectionLoads")
 
 
+class TimedPowerStepPayload(PowerStepPayload):
+    tick: int
+    simulation_time_seconds: float = Field(alias="simulationTimeSeconds")
+    step_size_seconds: float = Field(alias="stepSizeSeconds")
+
+
 class PowerOperationPayload(BaseModel):
     target_type: str = Field(alias="targetType")
     target_id: str = Field(alias="targetId")
@@ -44,7 +52,12 @@ app = FastAPI(
     version="1.0.0",
     description="供电仿真权威服务：计算分区负荷、电压、电流与车辆供电约束。",
 )
+power_config_source = os.environ.get("POWER_NETWORK_CONFIG_PATH", "").strip()
+power_config_sha256 = ""
 model = PowerNetworkModel()
+if power_config_source:
+    bootstrap_payload, power_config_sha256 = load_power_config(power_config_source)
+    model.bootstrap(bootstrap_payload)
 model_lock = RLock()
 
 
@@ -66,8 +79,15 @@ def root() -> dict[str, str]:
 
 
 @app.get("/health")
-def health() -> dict[str, str]:
-    return {"status": "UP", "role": "AUTHORITATIVE_POWER_SIMULATOR"}
+def health() -> dict[str, Any]:
+    return {
+        "status": "UP",
+        "role": "AUTHORITATIVE_POWER_SIMULATOR",
+        "configSource": power_config_source or "BUILT_IN_REFERENCE",
+        "configSha256": power_config_sha256,
+        "nominalVoltage": model.nominal_dc_voltage,
+        "powerSectionCount": len(model.third_rail_sections),
+    }
 
 
 @app.get("/power-network/state")
@@ -114,8 +134,14 @@ def query_constraints(payload: PowerConstraintQueryPayload) -> dict[str, Any]:
 
 
 @app.post("/power-network/step")
-def step(payload: PowerStepPayload) -> dict[str, Any]:
+def step(payload: TimedPowerStepPayload) -> dict[str, Any]:
     """Apply one fleet-load snapshot and return the next control-cycle power constraints."""
+    if abs(payload.step_size_seconds - 0.1) > 1.0e-9:
+        raise HTTPException(status_code=422, detail="stepSizeSeconds must equal 0.1")
+    if payload.tick < 0 or abs(payload.simulation_time_seconds - payload.tick * payload.step_size_seconds) > 1.0e-9:
+        raise HTTPException(status_code=422, detail="simulationTimeSeconds must equal tick * stepSizeSeconds")
     with model_lock:
-        snapshot = model.query_state(as_load_request(payload))
-        return {**snapshot, "powerConstraints": model.constraints_for_positions(as_positions(payload))}
+        try:
+            return model.step(payload.tick, as_load_request(payload), as_positions(payload))
+        except ValueError as exception:
+            raise HTTPException(status_code=409, detail=str(exception)) from exception

@@ -17,8 +17,9 @@ class OnboardTrainSubsystem {
 
     private static final double DEFAULT_ADHESION = 0.9;
     private static final double GRAVITY = 9.81;
-    private static final double SERVICE_BRAKE_DECELERATION = 0.9;
-    private static final double STATION_STOP_WINDOW_METERS = 10.0;
+    private static final double SERVICE_BRAKE_DECELERATION = 1.0;
+    private static final double REFERENCE_PEAK_TRACTION_GRID_POWER_WATTS = 4_916_250;
+    private static final double STATION_STOP_WINDOW_METERS = 8.0;
     private static final double STATION_EXIT_WINDOW_METERS = 30.0;
     private static final double STATION_RELEASE_DISTANCE_METERS = 40.0;
     private static final double NO_STATION_DISTANCE_METERS = 1_000_000;
@@ -85,7 +86,7 @@ class OnboardTrainSubsystem {
             input.track() == null ? 0 : input.track().gradient(),
             input.track() == null ? 1_000 : input.track().curveRadiusMeters(),
             input.power() == null ? 1500 : input.power().railVoltage(),
-            input.power() == null ? 3_200_000 : input.power().powerAvailableWatts(),
+            input.power() == null ? REFERENCE_PEAK_TRACTION_GRID_POWER_WATTS : input.power().powerAvailableWatts(),
             doorClosed,
             DEFAULT_ADHESION,
             train.energyConsumedKwh(),
@@ -416,7 +417,6 @@ class OnboardTrainSubsystem {
         if (
             "POWER_DERATED".equals(input.dynamicsState())
                 || "OVERLOAD_DERATED".equals(input.dynamicsState())
-                || input.powerAvailableWatts() < 3_200_000
         ) {
             return "DERATED";
         }

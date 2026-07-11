@@ -4,6 +4,11 @@
 
 供电仿真联动：在 `split` 配置中，中央不再下发 `PowerConstraint`。本服务在每次 `step-fleet` 前通过 `9200 /power-network/constraints/query` 取得列车当前位置的供电约束；完成全车物理步进后，把同分区合并的牵引/再生负荷和列车新位置提交到 `9200 /power-network/step`，取得下一周期约束。9200 是唯一供电权威，9300 是唯一列车负荷写入方；中央仅下发 MA、轨道和调度约束并镜像状态。
 
+车辆标定参数由 `vehicle-runtime.train-params-path` 指向的
+`config/train_params.yaml` 统一提供。服务启动时严格校验完整结构，并在
+`GET /vehicle-runtime/parameters` 返回原始文件的 `parameterSetId`、质量和
+电机侧最大机械功率；参数非法时服务拒绝启动，不回退到隐藏常量。
+
 接口：
 
 ```text

@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://railwaysim.local/contracts/fmu-manifest.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "modelVersion",
+    "modelName",
+    "modelIdentifier",
+    "fmiVersion",
+    "fmiType",
+    "fmuSha256",
+    "parameterSetId",
+    "parameterSchemaVersion",
+    "curveSetId",
+    "curvePointCount",
+    "referenceVoltageVolts",
+    "lengthMeters",
+    "loadCasesKg",
+    "openModelicaImageDigest",
+    "generationTool",
+    "targetPlatform",
+    "sourceCommit",
+    "builtAt"
+  ],
+  "properties": {
+    "modelVersion": {"type": "string", "minLength": 1},
+    "modelName": {"type": "string", "minLength": 1},
+    "modelIdentifier": {"type": "string", "minLength": 1},
+    "fmiVersion": {"const": "2.0"},
+    "fmiType": {"const": "CoSimulation"},
+    "fmuSha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "parameterSetId": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "parameterSchemaVersion": {"const": "2"},
+    "curveSetId": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "curvePointCount": {"const": 52},
+    "referenceVoltageVolts": {"type": "number", "exclusiveMinimum": 0},
+    "lengthMeters": {"type": "number", "exclusiveMinimum": 0},
+    "loadCasesKg": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["AW0", "AW2", "AW3"],
+      "properties": {
+        "AW0": {"type": "number", "exclusiveMinimum": 0},
+        "AW2": {"type": "number", "exclusiveMinimum": 0},
+        "AW3": {"type": "number", "exclusiveMinimum": 0}
+      }
+    },
+    "openModelicaImageDigest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "generationTool": {"type": "string", "minLength": 1},
+    "targetPlatform": {"const": "linux/amd64"},
+    "sourceCommit": {"type": "string", "minLength": 1},
+    "builtAt": {"type": "string", "format": "date-time"}
+  }
+}

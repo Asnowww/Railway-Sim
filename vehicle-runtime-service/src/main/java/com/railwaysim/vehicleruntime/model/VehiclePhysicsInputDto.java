@@ -1,7 +1,11 @@
 package com.railwaysim.vehicleruntime.model;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
+
 public record VehiclePhysicsInputDto(
     String trainId,
+    String lifecycleCommand,
+    String sectionId,
     double positionMeters,
     double speedMetersPerSecond,
     double trainMassKg,
@@ -14,11 +18,13 @@ public record VehiclePhysicsInputDto(
     double curveRadiusMeters,
     double railVoltage,
     double powerAvailableWatts,
+    double regenPowerAvailableWatts,
+    boolean currentCollectionAvailable,
     boolean doorClosed,
     double adhesionCoefficient,
     double previousEnergyConsumedKwh,
     double previousEnergyRegeneratedKwh,
-    double deltaSeconds,
+    @JsonIgnore double deltaSeconds,
     String dynamicsState,
     String dynamicsConstraintReason,
     double stationDistanceMeters,

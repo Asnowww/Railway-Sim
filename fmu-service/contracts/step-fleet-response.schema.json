@@ -1,0 +1,114 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://railwaysim.local/contracts/step-fleet-response.schema.json",
+  "title": "Railway-Sim FMU fleet step response or error",
+  "oneOf": [
+    {"$ref": "#/$defs/successResponse"},
+    {"$ref": "#/$defs/errorResponse"}
+  ],
+  "$defs": {
+    "nonNegativeNumber": {"type": "number", "minimum": 0},
+    "successResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "tick",
+        "modelVersion",
+        "parameterSetId",
+        "traceId",
+        "trainOutputs",
+        "trainErrors"
+      ],
+      "properties": {
+        "tick": {"type": "integer", "minimum": 0},
+        "modelVersion": {"type": "string", "minLength": 1},
+        "parameterSetId": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+        "traceId": {"type": "string", "minLength": 1},
+        "trainOutputs": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/trainOutput"}
+        },
+        "trainErrors": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/trainError"}
+        }
+      }
+    },
+    "trainOutput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "trainId",
+        "newPositionMeters",
+        "newSpeedMetersPerSecond",
+        "accelerationMetersPerSecondSquared",
+        "tractionForceNewtons",
+        "brakeForceNewtons",
+        "regenBrakeForceNewtons",
+        "motorSpeedRpm",
+        "interpolatedTractionTorqueNmPerMotor",
+        "interpolatedBrakeTorqueNmPerMotor",
+        "airBrakeForceNewtons",
+        "mechanicalTractionPowerWatts",
+        "tractionPowerWatts",
+        "railCurrentAmps",
+        "mechanicalRegenPowerWatts",
+        "regenPowerWatts",
+        "energyConsumedKwh",
+        "energyRegeneratedKwh",
+        "faultCode",
+        "instanceState",
+        "dataQuality",
+        "fmiStatus"
+      ],
+      "properties": {
+        "trainId": {"type": "string", "minLength": 1},
+        "newPositionMeters": {"type": "number"},
+        "newSpeedMetersPerSecond": {"$ref": "#/$defs/nonNegativeNumber"},
+        "accelerationMetersPerSecondSquared": {"type": "number"},
+        "tractionForceNewtons": {"$ref": "#/$defs/nonNegativeNumber"},
+        "brakeForceNewtons": {"$ref": "#/$defs/nonNegativeNumber"},
+        "regenBrakeForceNewtons": {"$ref": "#/$defs/nonNegativeNumber"},
+        "motorSpeedRpm": {"$ref": "#/$defs/nonNegativeNumber"},
+        "interpolatedTractionTorqueNmPerMotor": {"$ref": "#/$defs/nonNegativeNumber"},
+        "interpolatedBrakeTorqueNmPerMotor": {"$ref": "#/$defs/nonNegativeNumber"},
+        "airBrakeForceNewtons": {"$ref": "#/$defs/nonNegativeNumber"},
+        "mechanicalTractionPowerWatts": {"$ref": "#/$defs/nonNegativeNumber"},
+        "tractionPowerWatts": {"$ref": "#/$defs/nonNegativeNumber"},
+        "railCurrentAmps": {"$ref": "#/$defs/nonNegativeNumber"},
+        "mechanicalRegenPowerWatts": {"$ref": "#/$defs/nonNegativeNumber"},
+        "regenPowerWatts": {"$ref": "#/$defs/nonNegativeNumber"},
+        "energyConsumedKwh": {"$ref": "#/$defs/nonNegativeNumber"},
+        "energyRegeneratedKwh": {"$ref": "#/$defs/nonNegativeNumber"},
+        "faultCode": {"type": "string", "minLength": 1},
+        "instanceState": {"enum": ["ACTIVE", "FAILED", "TERMINATED"]},
+        "dataQuality": {"enum": ["GOOD", "DEGRADED", "ERROR"]},
+        "fmiStatus": {"enum": ["OK", "WARNING", "DISCARD", "ERROR", "FATAL", "PENDING"]}
+      }
+    },
+    "trainError": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["trainId", "faultCode", "message", "instanceState", "dataQuality", "fmiStatus"],
+      "properties": {
+        "trainId": {"type": "string", "minLength": 1},
+        "faultCode": {"type": "string", "minLength": 1},
+        "message": {"type": "string", "minLength": 1},
+        "instanceState": {"enum": ["FAILED"]},
+        "dataQuality": {"enum": ["ERROR"]},
+        "fmiStatus": {"enum": ["WARNING", "DISCARD", "ERROR", "FATAL", "PENDING"]}
+      }
+    },
+    "errorResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "errorCode", "message", "traceId"],
+      "properties": {
+        "status": {"type": "integer", "minimum": 400, "maximum": 599},
+        "errorCode": {"type": "string", "minLength": 1},
+        "message": {"type": "string", "minLength": 1},
+        "traceId": {"type": "string"}
+      }
+    }
+  }
+}

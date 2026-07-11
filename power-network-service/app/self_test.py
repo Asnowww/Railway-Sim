@@ -59,6 +59,7 @@ def main() -> None:
     assert {constraint["trainId"] for constraint in constraints} == {"TR-001", "TR-002"}
     assert {constraint["sectionId"] for constraint in constraints} == {"P01"}
     assert all(constraint["railVoltage"] == traction_section["contactRailVoltage"] for constraint in constraints)
+    assert all(constraint["regenPowerAvailableWatts"] == 900_000.0 for constraint in constraints)
     snake_case = central.query_state(
         {
             "section_loads": [
@@ -87,6 +88,8 @@ def main() -> None:
         }
     )
     assert regen["thirdRailSections"][0]["contactRailVoltage"] > traction_section["contactRailVoltage"]
+    assert regen["thirdRailSections"][0]["absorbedRegenWatts"] == 900_000
+    assert regen["thirdRailSections"][0]["unabsorbedRegenWatts"] == 0
     central.operate(
         {
             "targetType": "STRAY_MONITOR",

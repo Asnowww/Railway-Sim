@@ -9,6 +9,7 @@ import com.railwaysim.vehicleruntime.model.VehicleRuntimeLaunchRequest;
 import com.railwaysim.vehicleruntime.model.VehicleRuntimeLaunchResponse;
 import com.railwaysim.vehicleruntime.model.VehicleRuntimeStepRequest;
 import com.railwaysim.vehicleruntime.model.VehicleRuntimeStepResponse;
+import com.railwaysim.vehicleruntime.model.VehicleParameterMetadata;
 import com.railwaysim.vehicleruntime.runtime.VehicleRuntimeManager;
 import java.util.List;
 import org.springframework.http.HttpStatus;
@@ -38,6 +39,11 @@ public class VehicleRuntimeController {
     @GetMapping("/health")
     public VehicleRuntimeHealth health() {
         return manager.health();
+    }
+
+    @GetMapping("/parameters")
+    public VehicleParameterMetadata parameters() {
+        return manager.parameterMetadata();
     }
 
     @PostMapping("/bootstrap")
@@ -82,6 +88,21 @@ public class VehicleRuntimeController {
         return manager.stepFleet(request);
     }
 
+    @PostMapping("/physics/instances/{trainId}/reset")
+    public void resetPhysics(@PathVariable String trainId) {
+        manager.resetPhysics(trainId);
+    }
+
+    @PostMapping("/physics/instances/{trainId}/resync")
+    public void resyncPhysics(@PathVariable String trainId) {
+        manager.resyncPhysics(trainId);
+    }
+
+    @PostMapping("/physics/instances/resync-all")
+    public void resyncAllPhysics() {
+        manager.resyncAllPhysics();
+    }
+
     @GetMapping("/events")
     public List<VehicleRuntimeEvent> events() {
         return manager.events();
@@ -100,7 +121,7 @@ public class VehicleRuntimeController {
             "UNKNOWN",
             0,
             0,
-            120,
+            manager.parameterMetadata().lengthMeters(),
             0,
             0,
             0,
