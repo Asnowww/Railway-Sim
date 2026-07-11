@@ -58,6 +58,47 @@ class SignalServiceTests {
     }
 
     @Test
+    void fixedBlockApproachesDwellsAndReleasesAtStation() {
+        Fixture f = fixedFixture(stationLine());
+        TrainState approaching = train("TR-1", 100);
+        f.trackService.updateOccupancy(List.of(approaching));
+
+        f.signalService.calculateAuthorities(
+            List.of(approaching),
+            f.trackService.constraintsForTrains(List.of(approaching)),
+            List.of()
+        );
+
+        MovementAuthority approachMa = authorityFor(f.signalService.authorities(), "TR-1");
+        assertThat(approachMa.authorityEndMeters()).isEqualTo(1260);
+        assertThat(approachMa.speedLimitMetersPerSecond()).isGreaterThan(0);
+
+        TrainState stoppedAtStation = train("TR-1", 1250);
+        f.trackService.updateOccupancy(List.of(stoppedAtStation));
+        f.signalService.calculateAuthorities(
+            List.of(stoppedAtStation),
+            f.trackService.constraintsForTrains(List.of(stoppedAtStation)),
+            List.of()
+        );
+
+        MovementAuthority dwellingMa = authorityFor(f.signalService.authorities(), "TR-1");
+        assertThat(dwellingMa.speedLimitMetersPerSecond()).isZero();
+        assertThat(dwellingMa.reason()).contains("站台停靠");
+
+        for (int i = 1; i < 125; i++) {
+            f.signalService.calculateAuthorities(
+                List.of(stoppedAtStation),
+                f.trackService.constraintsForTrains(List.of(stoppedAtStation)),
+                List.of()
+            );
+        }
+
+        MovementAuthority releasedMa = authorityFor(f.signalService.authorities(), "TR-1");
+        assertThat(releasedMa.authorityEndMeters()).isGreaterThan(stoppedAtStation.positionMeters());
+        assertThat(releasedMa.speedLimitMetersPerSecond()).isGreaterThan(0);
+    }
+
+    @Test
     void twoTrains_frontMaTruncatedByRearTail() {
         Fixture f = fixture(straightLine(4000));
         SimulationProperties props = new SimulationProperties();
@@ -289,6 +330,46 @@ class SignalServiceTests {
         return new Fixture(trackService, signalService, interlocking, catalog);
     }
 
+    private static Fixture fixedFixture(OperationalLineData lineData) {
+        StaticInfrastructureCatalog catalog = new StaticInfrastructureCatalog(lineData, emptyPowerData());
+        SimulationProperties properties = new SimulationProperties();
+        properties.setBlockMode("FIXED");
+        properties.setSafetyGapMeters(0);
+        TrackService trackService = new TrackService(catalog, properties);
+        trackService.reset();
+        RouteInterlockingService interlocking = new RouteInterlockingService(catalog, trackService);
+        SignalService signalService = new SignalService(
+            properties,
+            catalog,
+            trackService,
+            interlocking,
+            new FixedBlockAuthorityCalculator(trackService)
+        );
+        return new Fixture(trackService, signalService, interlocking, catalog);
+    }
+
+    private static OperationalLineData stationLine() {
+        return new OperationalLineData(
+            "station-line", "Station Test",
+            List.of(),
+            List.of(
+                seg("T01", 1, 0, 1250, List.of("T02"), "N1", "N2", "main", 20),
+                seg("T02", 2, 1250, 2500, List.of("T03"), "N2", "N3", "main", 22),
+                seg("T03", 3, 2500, 3750, List.of("T04"), "N3", "N4", "main", 22),
+                seg("T04", 4, 3750, 5000, List.of(), "N4", "N5", "main", 20)
+            ),
+            List.of(), List.of(), List.of(),
+            List.of(
+                station("S01", "S01", 0),
+                station("S02", "S02", 1250),
+                station("S03", "S03", 2500),
+                station("S04", "S04", 3750),
+                station("S05", "S05", 5000)
+            ),
+            List.of(), List.of(), List.of(), List.of()
+        );
+    }
+
     /** 简单直线: 0→1000→2000→3000→4000, 4段 */
     private static OperationalLineData straightLine(double length) {
         double segLen = length / 4;
@@ -331,6 +412,10 @@ class SignalServiceTests {
         );
     }
 
+    private static OperationalLineData.StationDefinition station(String id, String name, double positionMeters) {
+        return new OperationalLineData.StationDefinition(id, name, positionMeters, List.of());
+    }
+
     private static OperationalPowerData emptyPowerData() {
         return new OperationalPowerData(
             1500, 1000, 900, 3000, 3500, 0.02, true, "BRAKE_RESISTOR",
@@ -352,6 +437,12 @@ class SignalServiceTests {
     private static SignalState findSignal(List<SignalState> signals, String segmentId) {
         return signals.stream()
             .filter(s -> s.segmentId().equals(segmentId))
+            .findFirst().orElseThrow();
+    }
+
+    private static MovementAuthority authorityFor(List<MovementAuthority> authorities, String trainId) {
+        return authorities.stream()
+            .filter(authority -> authority.trainId().equals(trainId))
             .findFirst().orElseThrow();
     }
 

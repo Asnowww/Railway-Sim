@@ -135,18 +135,28 @@ public class SignalService {
                 if (stationLimits.containsKey("maEndAt")
                     && stationLimits.get("maEndAt") < constrainedEnd) {
                     constrainedEnd = stationLimits.get("maEndAt");
-                    constrainedSpeed = 0;
-                    if (stationLimits.containsKey("isDwelling") && stationLimits.get("isDwelling") > 0) {
+                    boolean dwelling = stationLimits.getOrDefault("isDwelling", 0.0) > 0;
+                    if (dwelling) {
+                        constrainedSpeed = 0;
                         int dwellElapsedSec = stationLimits.getOrDefault("dwellElapsedSec", 0.0).intValue();
                         int dwellTargetSec = stationLimits.getOrDefault("dwellTargetSec", (double) DEFAULT_DWELL_SECONDS).intValue();
                         reason = "站台停靠(" + dwellElapsedSec + "/" + dwellTargetSec + "s)";
                     } else {
+                        double maDistance = Math.max(0, constrainedEnd - train.positionMeters());
+                        double safeBrakingSpeed = Math.sqrt(2 * DEFAULT_BRAKING_DECELERATION * maDistance);
+                        double dispatchLimitedSpeed = dispatch == null
+                            ? safeBrakingSpeed
+                            : dispatch.applyToSpeedLimit(safeBrakingSpeed);
+                        constrainedSpeed = Math.min(constrainedSpeed, dispatchLimitedSpeed);
                         reason = "站台停靠";
                     }
                     reasonCode = "STATION_DWELL";
                 }
 
                 constrainedEnd = Math.max(train.positionMeters(), constrainedEnd);
+                if (constrainedEnd <= train.positionMeters()) {
+                    constrainedSpeed = 0;
+                }
                 TrackSegmentState endSeg = trackService.segmentAt(constrainedEnd);
                 if (endSeg != null) endSegId = endSeg.id();
 
