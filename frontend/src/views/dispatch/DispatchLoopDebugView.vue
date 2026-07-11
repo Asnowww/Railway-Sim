@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { dispatchApi } from '../../api/dispatch'
 import { useSimulation } from '../../composables/useSimulation'
-import type { DispatchDisturbance } from '../../types/dispatch'
+import type { DispatchDisturbance, DispatchRouteInfo } from '../../types/dispatch'
 import type { TrainState } from '../../types/simulation'
 
 defineEmits<{
@@ -37,6 +37,10 @@ const demoSpeedLimitMps = ref(6)
 const demoShortHeadwaySec = ref(180)
 const demoLongHeadwaySec = ref(540)
 const comparisonBaseline = ref<ComparisonBaseline | null>(null)
+const dispatchRouteList = ref<DispatchRouteInfo[]>([])
+const selectedRouteId = ref('')
+const selectedRouteTrainId = ref('')
+const routeOperationMessage = ref('')
 const headwayShrinkRatio = 0.7
 const headwayExpandRatio = 1.5
 
@@ -346,6 +350,29 @@ const formatPercent = (value: number | null | undefined) => {
   if (value === null || value === undefined || Number.isNaN(value)) return '-'
   return `${Math.round(value * 100)}%`
 }
+
+async function loadDispatchRoutes() {
+  try {
+    dispatchRouteList.value = await dispatchApi.routeList()
+    selectedRouteId.value ||= dispatchRouteList.value[0]?.routeId ?? ''
+  } catch (error) {
+    routeOperationMessage.value = error instanceof Error ? `进路列表加载失败：${error.message}` : '进路列表加载失败'
+  }
+}
+
+async function establishSelectedRoute() {
+  const routeId = selectedRouteId.value
+  const trainId = selectedRouteTrainId.value || trains.value[0]?.id || ''
+  if (!routeId || !trainId) return
+  const result = await dispatchApi.establishRoute(routeId, trainId)
+  routeOperationMessage.value = result.accepted
+    ? `进路 ${result.routeId} 已为 ${result.trainId} 建立`
+    : `进路 ${result.routeId} 建立失败：${result.rejectReason ?? '未知原因'}`
+  await runSimulation('tick')
+  await loadDispatchRoutes()
+}
+
+onMounted(loadDispatchRoutes)
 
 async function submitLoopDemoCommand() {
   const targetTrain = rearTrain.value ?? trains.value[0]
@@ -732,6 +759,23 @@ function formatDelta(current: number | null | undefined, baseline: number | null
           <h2>进路</h2>
           <span>道岔调度相关状态</span>
         </div>
+        <div class="route-control-bar">
+          <select v-model="selectedRouteId" aria-label="选择进路">
+            <option value="">选择进路</option>
+            <option v-for="route in dispatchRouteList" :key="route.routeId" :value="route.routeId">
+              {{ route.routeId }} · {{ route.name }} · {{ route.status }}
+            </option>
+          </select>
+          <select v-model="selectedRouteTrainId" aria-label="选择列车">
+            <option value="">默认首列车</option>
+            <option v-for="train in trains" :key="train.id" :value="train.id">{{ train.id }}</option>
+          </select>
+          <button type="button" :disabled="!selectedRouteId || trains.length === 0" @click="establishSelectedRoute">
+            建立进路
+          </button>
+          <button type="button" class="ghost-button" @click="loadDispatchRoutes">刷新</button>
+        </div>
+        <p v-if="routeOperationMessage" class="route-operation-message">{{ routeOperationMessage }}</p>
         <div class="compact-list">
           <article v-for="route in routes" :key="route.routeId">
             <strong>{{ route.routeId }}</strong>
@@ -739,7 +783,13 @@ function formatDelta(current: number | null | undefined, baseline: number | null
             <small>列车 {{ route.establishedByTrainId || '-' }}</small>
             <p>锁闭道岔 {{ route.lockedSwitchIds.length }} 个 / 轴占区段 {{ route.axleSegmentIds.length }} 个</p>
           </article>
-          <p v-if="routes.length === 0" class="empty">暂无进路数据。</p>
+          <article v-for="route in dispatchRouteList" :key="`list-${route.routeId}`">
+            <strong>{{ route.routeId }}</strong>
+            <span>{{ routeStatusLabel(route.status) }}</span>
+            <small>{{ route.fromStation }} -> {{ route.toStation }}</small>
+            <p>{{ route.type }} / {{ route.segmentIds.length }} 个区段</p>
+          </article>
+          <p v-if="routes.length === 0 && dispatchRouteList.length === 0" class="empty">暂无进路数据。</p>
         </div>
       </section>
 
@@ -892,8 +942,29 @@ button:disabled {
   min-height: 36px;
   border: 1px solid #cbd5e1;
   border-radius: 8px;
-  padding: 6px 8px;
+  padding: 6px 10px;
   font: inherit;
+}
+
+.route-control-bar {
+  display: grid;
+  grid-template-columns: minmax(160px, 1.2fr) minmax(120px, 0.8fr) auto auto;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.route-control-bar select {
+  min-height: 36px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 6px 10px;
+  font: inherit;
+}
+
+.route-operation-message {
+  margin: 0 0 10px;
+  color: #1d4ed8;
+  font-size: 13px;
 }
 
 .debug-banner,
@@ -1315,7 +1386,8 @@ th {
 
   .command-card dl,
   .switch-signal-grid,
-  .demo-control-bar {
+  .demo-control-bar,
+  .route-control-bar {
     grid-template-columns: 1fr;
   }
 }

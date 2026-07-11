@@ -1,5 +1,12 @@
 import { apiBaseUrl } from './config'
-import type { DispatchCommandView, DispatchSnapshot, RunPlanResponse, TrainStationEvent } from '../types/dispatch'
+import type {
+  DispatchCommandView,
+  DispatchRouteEstablishResponse,
+  DispatchRouteInfo,
+  DispatchSnapshot,
+  RunPlanResponse,
+  TrainStationEvent
+} from '../types/dispatch'
 import type { DispatchDisturbance } from '../types/dispatch'
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -35,5 +42,11 @@ export const dispatchApi = {
     request<Record<string, unknown>>(`/dispatch/commands/${encodeURIComponent(commandId)}/cancel`, {
       method: 'POST'
     }),
+  routeList: () => request<DispatchRouteInfo[]>('/dispatch/route/list'),
+  establishRoute: (routeId: string, trainId: string) =>
+    request<DispatchRouteEstablishResponse>(
+      `/dispatch/route/establish?routeId=${encodeURIComponent(routeId)}&trainId=${encodeURIComponent(trainId)}`,
+      { method: 'POST' }
+    ),
   stationRecords: () => request<TrainStationEvent[]>('/dispatch/station-records')
 }

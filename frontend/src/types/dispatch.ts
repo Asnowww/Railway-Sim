@@ -31,6 +31,23 @@ export interface DispatchCommandView {
   reason: string
 }
 
+export interface DispatchRouteInfo {
+  routeId: string
+  name: string
+  type: string
+  fromStation: string
+  toStation: string
+  segmentIds: string[]
+  status: string
+}
+
+export interface DispatchRouteEstablishResponse {
+  accepted: boolean
+  routeId: string
+  trainId: string
+  rejectReason?: string
+}
+
 export interface DispatchSnapshot {
   runMode: string
   planId: string
