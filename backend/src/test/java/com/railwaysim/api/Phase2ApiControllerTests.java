@@ -6,6 +6,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.railwaysim.train.VehicleSpecificationCatalog;
 import com.railwaysim.vehicle.external.ExternalTrainDirection;
 import com.railwaysim.vehicle.drivercab.DriverCabDirectionHandleState;
 import com.railwaysim.vehicle.drivercab.DriverCabDoorModeSwitch;
@@ -33,6 +34,9 @@ class Phase2ApiControllerTests {
 
     @Autowired
     private MockMvc mockMvc;
+
+    @Autowired
+    private VehicleSpecificationCatalog vehicleSpecificationCatalog;
 
     @Test
     void exposesTrainPowerEnergyAndMaintenanceReadApis() throws Exception {
@@ -68,6 +72,47 @@ class Phase2ApiControllerTests {
     void requestRouteCommandRunsThroughDispatchQueueAndInterlockingFeedback() throws Exception {
         mockMvc.perform(post("/api/simulation/reset"))
             .andExpect(status().isOk());
+
+        mockMvc.perform(post("/api/trains/lifecycle")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "action": "CLEAR",
+                      "trains": [],
+                      "reason": "isolate route command test",
+                      "operator": "api-test",
+                      "confirmToken": "SIMULATION_CONFIRM",
+                      "traceId": "trace-route-command"
+                    }
+                    """))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$", hasSize(2)));
+
+        mockMvc.perform(post("/api/simulation/tick"))
+            .andExpect(status().isOk());
+        mockMvc.perform(post("/api/simulation/tick"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.trains", hasSize(0)));
+
+        mockMvc.perform(post("/api/trains/lifecycle")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "action": "ADD",
+                      "trains": [{
+                        "trainNo": 1,
+                        "linkId": 1,
+                        "offsetMeters": 100,
+                        "direction": "DOWN"
+                      }],
+                      "reason": "isolate route command test",
+                      "operator": "api-test",
+                      "confirmToken": "SIMULATION_CONFIRM",
+                      "traceId": "trace-route-command"
+                    }
+                    """))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$", hasSize(1)));
 
         mockMvc.perform(post("/api/dispatch/commands")
                 .contentType(MediaType.APPLICATION_JSON)
@@ -181,21 +226,10 @@ class Phase2ApiControllerTests {
 
         mockMvc.perform(post("/api/trains/runtime-registrations")
                 .contentType(MediaType.APPLICATION_JSON)
-                .content("""
-                    {
-                      "trainId": "TR-901",
-                      "linkId": 9,
-                      "offsetMeters": 450.0,
-                      "direction": "DOWN",
-                      "reason": "runtime-test",
-                      "traceId": "trace-runtime",
-                      "trainType": "B_TYPE_6_CAR",
-                      "parameterSetId": "sha256:a43ce442759c13c8106d921862cd29e80db7ee44379d5b0702da42733612e87c",
-                      "lengthMeters": 118.0,
-                      "emptyMassKg": 225000,
-                      "maxLoadMassKg": 76000
-                    }
-                    """))
+                .content(runtimeRegistrationRequest(
+                    "TR-901",
+                    vehicleSpecificationCatalog.specification().parameterSetId()
+                )))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.id").value("TR-901"))
             .andExpect(jsonPath("$.positionMeters").value(450.0))
@@ -207,6 +241,20 @@ class Phase2ApiControllerTests {
         // 服务间注册接口只建立中央镜像；清理后避免影响同一 Spring 上下文内的其它接口测试。
         mockMvc.perform(post("/api/simulation/reset"))
             .andExpect(status().isOk());
+    }
+
+    @Test
+    void vehicleRuntimeRegistrationRejectsMismatchedParameterSet() throws Exception {
+        mockMvc.perform(post("/api/simulation/reset"))
+            .andExpect(status().isOk());
+
+        mockMvc.perform(post("/api/trains/runtime-registrations")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(runtimeRegistrationRequest(
+                    "TR-902",
+                    "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+                )))
+            .andExpect(status().isConflict());
     }
 
     @Test
@@ -323,5 +371,23 @@ class Phase2ApiControllerTests {
 
         mockMvc.perform(get("/api/vehicle/driver-cabs/TR-001/plc-output"))
             .andExpect(status().isOk());
+    }
+
+    private static String runtimeRegistrationRequest(String trainId, String parameterSetId) {
+        return """
+            {
+              "trainId": "%s",
+              "linkId": 9,
+              "offsetMeters": 450.0,
+              "direction": "DOWN",
+              "reason": "runtime-test",
+              "traceId": "trace-runtime",
+              "trainType": "B_TYPE_6_CAR",
+              "parameterSetId": "%s",
+              "lengthMeters": 118.0,
+              "emptyMassKg": 225000,
+              "maxLoadMassKg": 76000
+            }
+            """.formatted(trainId, parameterSetId);
     }
 }
