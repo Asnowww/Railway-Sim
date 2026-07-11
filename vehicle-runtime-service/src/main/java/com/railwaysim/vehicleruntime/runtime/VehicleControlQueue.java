@@ -19,11 +19,15 @@ final class VehicleControlQueue {
     private static final double SERVICE_BRAKE_DECELERATION = 0.9;
     private static final double STATION_STOP_WINDOW_METERS = 10.0;
     private static final double NO_STATION_DISTANCE_METERS = 1_000_000;
+    private static final double DEPARTURE_WINDOW_METERS = 40.0;
 
     private final VehicleRuntimeQueue queue;
     private final VehicleRuntimeProperties properties;
     private final VehicleLoadPolicy loadPolicy;
     private final VehicleParameters vehicleParameters;
+
+    /** 离站释放时的列车位置(m)，-1 表示不在离站保护窗口内。 */
+    private double departureOriginMeters = -1;
 
     VehicleControlQueue(
         VehicleRuntimeProperties properties,
@@ -60,7 +64,8 @@ final class VehicleControlQueue {
         double maDistance = resolveMovementAuthorityDistance(train, authority);
         boolean doorClosed = "CLOSED_LOCKED".equals(nullTo(train.doorState(), "CLOSED_LOCKED"));
         double stationDistance = resolveStationDistance(track);
-        if (shouldReleaseStationStop(train, dispatch)) {
+        boolean departing = updateDepartureWindow(train, dispatch);
+        if (departing) {
             stationDistance = NO_STATION_DISTANCE_METERS;
         }
         double loadMassKg = loadPolicy.loadMassKg(train.loadMassKg(), train.loadRate());
@@ -71,7 +76,8 @@ final class VehicleControlQueue {
             stationDistance,
             doorClosed,
             track,
-            power
+            power,
+            departing
         );
 
         return new VehiclePhysicsInputDto(
@@ -113,7 +119,8 @@ final class VehicleControlQueue {
         double stationDistance,
         boolean doorClosed,
         TrackConstraintSnapshot track,
-        PowerConstraintSnapshot power
+        PowerConstraintSnapshot power,
+        boolean departing
     ) {
         double speed = train.speedMetersPerSecond();
         double loadMassKg = loadPolicy.loadMassKg(train.loadMassKg(), train.loadRate());
@@ -185,12 +192,18 @@ final class VehicleControlQueue {
             );
         }
         if (speedMargin > Math.max(1.5, speedLimit * 0.08)) {
-            return new DynamicsDecision(TrainDynamicsState.ACCELERATING, "SPEED_MARGIN_AVAILABLE", tractionCommand * tractionCapacityFactor, 0, false, stoppingDistance);
+            TrainDynamicsState state = departing ? TrainDynamicsState.DEPARTING_STATION : TrainDynamicsState.ACCELERATING;
+            String reason = departing ? "DEPARTING_RELEASE" : "SPEED_MARGIN_AVAILABLE";
+            return new DynamicsDecision(state, reason, tractionCommand * tractionCapacityFactor, 0, false, stoppingDistance);
         }
         if (speedMargin > 0.4) {
-            return new DynamicsDecision(TrainDynamicsState.CRUISING, "NEAR_TARGET_SPEED", Math.min(tractionCommand * tractionCapacityFactor, 0.25), 0, false, stoppingDistance);
+            TrainDynamicsState state = departing ? TrainDynamicsState.DEPARTING_STATION : TrainDynamicsState.CRUISING;
+            String reason = departing ? "DEPARTING_RELEASE" : "NEAR_TARGET_SPEED";
+            return new DynamicsDecision(state, reason, Math.min(tractionCommand * tractionCapacityFactor, 0.25), 0, false, stoppingDistance);
         }
-        return new DynamicsDecision(TrainDynamicsState.COASTING, "TARGET_SPEED_REACHED", 0, 0, false, stoppingDistance);
+        TrainDynamicsState state = departing ? TrainDynamicsState.DEPARTING_STATION : TrainDynamicsState.COASTING;
+        String reason = departing ? "DEPARTING_RELEASE" : "TARGET_SPEED_REACHED";
+        return new DynamicsDecision(state, reason, 0, 0, false, stoppingDistance);
     }
 
     private double resolveSpeedLimit(MovementAuthoritySnapshot authority, TrackConstraintSnapshot track) {
@@ -223,6 +236,26 @@ final class VehicleControlQueue {
         boolean dwelling = "DWELLING".equals(train.status())
             || "STATION_STOPPED".equals(train.dynamicsState());
         return dwelling && train.speedMetersPerSecond() <= 0.5;
+    }
+
+    /**
+     * 更新离站保护窗口状态。
+     *
+     * @return true 表示列车当前处于离站保护窗口内，应屏蔽本站站点捕获。
+     */
+    private boolean updateDepartureWindow(TrainStateSnapshot train, DispatchConstraintSnapshot dispatch) {
+        if (shouldReleaseStationStop(train, dispatch)) {
+            departureOriginMeters = train.positionMeters();
+            return true;
+        }
+        if (departureOriginMeters >= 0) {
+            double traveled = train.positionMeters() - departureOriginMeters;
+            if (traveled < DEPARTURE_WINDOW_METERS) {
+                return true;
+            }
+            departureOriginMeters = -1;
+        }
+        return false;
     }
 
     private String resolveSelfCheckBlockReason(boolean doorClosed, TrainStateSnapshot train) {
