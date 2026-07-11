@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+import math
 from typing import Any
 
 
@@ -306,28 +307,59 @@ class PowerNetworkModel:
         sections = list(self.third_rail_sections.values())
         if not sections:
             return []
-        assignments: list[tuple[dict[str, Any], ThirdRailState]] = []
+        assignments: list[tuple[dict[str, Any], ThirdRailState | None]] = []
+        topology_min = min(
+            (float(item.get("startMeters", 0)) for item in self.topology_segments),
+            default=min(section.start_meters for section in sections),
+        )
+        topology_max = max(
+            (float(item.get("endMeters", 0)) for item in self.topology_segments),
+            default=max(section.end_meters for section in sections),
+        )
         for train in train_positions:
             train_id = train.get("trainId") or train.get("train_id")
             if not train_id:
                 continue
-            position = float(train.get("positionMeters", train.get("position_meters", 0)) or 0)
-            section = next(
-                (
-                    candidate
-                    for candidate in sections
-                    if candidate.start_meters <= position < candidate.end_meters
-                ),
-                sections[-1],
-            )
+            try:
+                position = float(train.get("positionMeters", train.get("position_meters", 0)))
+            except (TypeError, ValueError):
+                position = math.nan
+            section = None
+            if math.isfinite(position) and topology_min <= position < topology_max:
+                section = next(
+                    (
+                        candidate
+                        for candidate in sections
+                        if candidate.start_meters <= position < candidate.end_meters
+                    ),
+                    None,
+                )
             assignments.append((train, section))
         train_count_by_section: dict[str, int] = {}
         for _, section in assignments:
+            if section is None:
+                continue
             train_count_by_section[section.power_section_id] = train_count_by_section.get(section.power_section_id, 0) + 1
 
         constraints: list[dict[str, Any]] = []
         for train, section in assignments:
             train_id = train.get("trainId") or train.get("train_id")
+            if section is None:
+                constraints.append(
+                    {
+                        "trainId": train_id,
+                        "sectionId": "UNKNOWN",
+                        "railVoltage": 0.0,
+                        "powerAvailableWatts": 0.0,
+                        "regenPowerAvailableWatts": 0.0,
+                        "energized": False,
+                        "powerDeratingFactor": 0.0,
+                        "currentCollectionAvailable": False,
+                        "regenAvailable": False,
+                        "constraintReason": "POWER_SECTION_UNKNOWN",
+                    }
+                )
+                continue
             energized = section.energization_state == "ENERGIZED" and section.contact_rail_voltage > self.cutoff_dc_voltage
             undervoltage = energized and section.contact_rail_voltage < self.minimum_dc_voltage
             derating_factor = 0.5 if undervoltage else (1.0 if energized else 0.0)

@@ -6,6 +6,7 @@ import com.railwaysim.signal.vehicle.SignalVehicleCommand;
 import com.railwaysim.signal.vehicle.VehicleSignalStatus;
 import com.railwaysim.train.TrainManager;
 import com.railwaysim.train.TrainState;
+import com.railwaysim.vehicle.control.DriverCommandAcceptance;
 import com.railwaysim.vehicle.drivercab.DriverCabAdapter;
 import com.railwaysim.vehicle.drivercab.DriverCabPlcInputPacket;
 import com.railwaysim.vehicle.drivercab.DriverCabStateSnapshot;
@@ -47,18 +48,18 @@ public class DriverCabController {
         value = "/{trainId}/plc-input",
         consumes = MediaType.APPLICATION_OCTET_STREAM_VALUE
     )
-    public VehicleSignalStatus applyPlcInput(
+    public ResponseEntity<?> applyPlcInput(
         @PathVariable String trainId,
         @RequestBody byte[] payload
     ) {
-        DriverCabPlcInputPacket input = decodeInput(payload);
-        TrainState updated;
-        try {
-            updated = driverCabAdapter.applyPlcInput(trainId, input);
-        } catch (IllegalArgumentException ex) {
-            throw new ResponseStatusException(HttpStatus.NOT_FOUND, ex.getMessage(), ex);
+        DriverCommandAcceptance acceptance = driverCabAdapter.applyAndAccept(trainId, payload);
+        if (!acceptance.accepted()) {
+            HttpStatus status = "UNKNOWN_TRAIN".equals(acceptance.reasonCode())
+                ? HttpStatus.NOT_FOUND
+                : HttpStatus.BAD_REQUEST;
+            return ResponseEntity.status(status).body(acceptance);
         }
-        return VehicleSignalStatus.from(updated);
+        return ResponseEntity.ok(acceptance);
     }
 
     @GetMapping("/{trainId}/state")

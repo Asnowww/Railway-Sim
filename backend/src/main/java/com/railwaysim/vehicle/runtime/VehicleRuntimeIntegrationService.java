@@ -15,7 +15,13 @@ import com.railwaysim.vehicle.TrainStateReport;
 import com.railwaysim.vehicle.VehiclePhysicsClient;
 import com.railwaysim.vehicle.VehiclePhysicsInput;
 import com.railwaysim.vehicle.VehiclePhysicsOutput;
+import com.railwaysim.vehicle.control.DriverCommandHolder;
+import com.railwaysim.vehicle.control.DriverControlCommand;
+import com.railwaysim.vehicle.control.VehicleControlDecision;
+import com.railwaysim.vehicle.control.VehicleControlDecisionRepository;
+import com.railwaysim.vehicle.control.VehicleOperationMode;
 import com.railwaysim.vehicle.onboard.OnboardTrainControlInput;
+import com.railwaysim.vehicle.onboard.OnboardTrainControlOutput;
 import com.railwaysim.vehicle.onboard.OnboardTrainSubsystemManager;
 import java.time.Instant;
 import java.util.List;
@@ -23,6 +29,7 @@ import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Function;
 import java.util.stream.Collectors;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClientResponseException;
 
@@ -40,9 +47,34 @@ public class VehicleRuntimeIntegrationService implements VehiclePowerLoadForward
     private final VehicleRuntimeClient client;
     private final OnboardTrainSubsystemManager onboardTrainSubsystemManager;
     private final VehiclePhysicsClient vehiclePhysicsClient;
+    private final DriverCommandHolder driverCommandHolder;
+    private final VehicleControlDecisionRepository decisionRepository;
     private final AtomicBoolean bootstrapped = new AtomicBoolean();
     private volatile VehicleRuntimeHealth latestHealth = VehicleRuntimeHealth.local();
     private volatile List<VehicleRuntimeInstanceState> latestInstances = List.of();
+
+    @Autowired
+    public VehicleRuntimeIntegrationService(
+        VehicleRuntimeProperties properties,
+        ExternalPowerNetworkProperties externalPowerNetworkProperties,
+        SimulationProperties simulationProperties,
+        StaticInfrastructureCatalog infrastructureCatalog,
+        VehicleRuntimeClient client,
+        OnboardTrainSubsystemManager onboardTrainSubsystemManager,
+        VehiclePhysicsClient vehiclePhysicsClient,
+        DriverCommandHolder driverCommandHolder,
+        VehicleControlDecisionRepository decisionRepository
+    ) {
+        this.properties = properties;
+        this.externalPowerNetworkProperties = externalPowerNetworkProperties;
+        this.simulationProperties = simulationProperties;
+        this.infrastructureCatalog = infrastructureCatalog;
+        this.client = client;
+        this.onboardTrainSubsystemManager = onboardTrainSubsystemManager;
+        this.vehiclePhysicsClient = vehiclePhysicsClient;
+        this.driverCommandHolder = driverCommandHolder;
+        this.decisionRepository = decisionRepository;
+    }
 
     public VehicleRuntimeIntegrationService(
         VehicleRuntimeProperties properties,
@@ -53,13 +85,11 @@ public class VehicleRuntimeIntegrationService implements VehiclePowerLoadForward
         OnboardTrainSubsystemManager onboardTrainSubsystemManager,
         VehiclePhysicsClient vehiclePhysicsClient
     ) {
-        this.properties = properties;
-        this.externalPowerNetworkProperties = externalPowerNetworkProperties;
-        this.simulationProperties = simulationProperties;
-        this.infrastructureCatalog = infrastructureCatalog;
-        this.client = client;
-        this.onboardTrainSubsystemManager = onboardTrainSubsystemManager;
-        this.vehiclePhysicsClient = vehiclePhysicsClient;
+        this(
+            properties, externalPowerNetworkProperties, simulationProperties, infrastructureCatalog,
+            client, onboardTrainSubsystemManager, vehiclePhysicsClient,
+            new DriverCommandHolder(), new VehicleControlDecisionRepository()
+        );
     }
 
     public VehicleRuntimeStepResult stepFleet(
@@ -107,6 +137,8 @@ public class VehicleRuntimeIntegrationService implements VehiclePowerLoadForward
     public void clear() {
         bootstrapped.set(false);
         latestInstances = List.of();
+        driverCommandHolder.clear();
+        decisionRepository.clear();
         if (!usesExternalRuntime()) {
             latestHealth = VehicleRuntimeHealth.local();
             return;
@@ -209,7 +241,12 @@ public class VehicleRuntimeIntegrationService implements VehiclePowerLoadForward
             authorities,
             trackConstraints,
             dispatchConstraints,
-            powerConstraints
+            powerConstraints,
+            context.simulationRunId(),
+            trains.stream()
+                .map(train -> driverCommandHolder.latest(train.id()))
+                .filter(java.util.Objects::nonNull)
+                .toList()
         ));
         if (response.trainOutputs() == null || response.trainReports() == null || response.trainOutputs().size() != trains.size() || response.trainReports().size() != trains.size()) {
             throw new IllegalStateException("vehicle runtime returned incomplete fleet result");
@@ -224,6 +261,35 @@ public class VehicleRuntimeIntegrationService implements VehiclePowerLoadForward
         if (steps.stream().anyMatch(step -> step.output() == null || step.report() == null)) {
             throw new IllegalStateException("vehicle runtime result missing train output");
         }
+        for (VehicleRuntimeTrainStep step : steps) {
+            TrainStateReport report = step.report();
+            DriverControlCommand driver = driverCommandHolder.latest(step.trainId());
+            boolean driverSelected = driver != null
+                && report.dynamicsConstraintReason() != null
+                && report.dynamicsConstraintReason().startsWith("DRIVER_");
+            decisionRepository.store(new VehicleControlDecision(
+                null,
+                context.simulationRunId(),
+                context.tick(),
+                step.trainId(),
+                driverSelected ? VehicleOperationMode.MANUAL : VehicleOperationMode.AUTO,
+                driverSelected ? "DRIVER" : controlSource(report),
+                report.tractionCommand(),
+                report.brakeCommand(),
+                report.emergencyBrakeCommand(),
+                driver == null ? 0.0 : driver.direction(),
+                report.doorClosed(),
+                !"LOST".equals(report.currentCollectionStatus()),
+                report.tractionAvailable(),
+                report.brakeAvailable(),
+                List.of(),
+                report.dynamicsConstraintReason(),
+                driver == null ? response.sourceTimestamp() : driver.receivedAt(),
+                Instant.now(),
+                driver == null ? "runtime-" + context.tick() : driver.traceId(),
+                1
+            ));
+        }
         VehicleRuntimeHealth health = new VehicleRuntimeHealth(
             properties.getMode(),
             "UP",
@@ -234,6 +300,17 @@ public class VehicleRuntimeIntegrationService implements VehiclePowerLoadForward
             "OK"
         );
         return new VehicleRuntimeStepResult(steps, health, response.instanceStates() == null ? List.of() : response.instanceStates());
+    }
+
+    private String controlSource(TrainStateReport report) {
+        if (report.emergencyBrakeCommand()
+            || "MA_BRAKE".equals(report.dynamicsState())
+            || "SAFETY_BRAKE".equals(report.dynamicsState())
+            || "POWER_LOSS".equals(report.dynamicsState())
+            || "SELF_CHECK_BLOCKED".equals(report.dynamicsState())) {
+            return "SAFETY_LAYER";
+        }
+        return "RULE_ENGINE";
     }
 
     private VehicleRuntimeStepResult localStep(
@@ -250,14 +327,23 @@ public class VehicleRuntimeIntegrationService implements VehiclePowerLoadForward
         Map<String, DispatchConstraint> dispatchByTrain = index(dispatchConstraints, DispatchConstraint::trainId);
         Map<String, PowerConstraint> powerByTrain = index(powerConstraints, PowerConstraint::trainId);
         List<VehiclePhysicsInput> inputs = trains.stream()
-            .map(train -> onboardTrainSubsystemManager.control(new OnboardTrainControlInput(
-                train,
-                context,
-                authorityByTrain.get(train.id()),
-                trackByTrain.get(train.id()),
-                dispatchByTrain.get(train.id()),
-                powerByTrain.get(train.id())
-            )).physicsInput())
+            .map(train -> {
+                OnboardTrainControlOutput controlOutput = onboardTrainSubsystemManager.control(
+                    new OnboardTrainControlInput(
+                        train,
+                        context,
+                        authorityByTrain.get(train.id()),
+                        trackByTrain.get(train.id()),
+                        dispatchByTrain.get(train.id()),
+                        powerByTrain.get(train.id()),
+                        driverCommandHolder.latest(train.id())
+                    )
+                );
+                if (controlOutput.controlDecision() != null) {
+                    decisionRepository.store(controlOutput.controlDecision());
+                }
+                return controlOutput.physicsInput();
+            })
             .toList();
         Map<String, VehiclePhysicsInput> inputByTrain = index(inputs, VehiclePhysicsInput::trainId);
         Map<String, VehiclePhysicsOutput> outputByTrain = vehiclePhysicsClient.stepFleet(inputs).stream()

@@ -3,6 +3,7 @@ package com.railwaysim.vehicleruntime.runtime;
 import com.railwaysim.vehicleruntime.config.VehicleRuntimeProperties;
 import com.railwaysim.vehicleruntime.config.VehicleParameters;
 import com.railwaysim.vehicleruntime.model.DispatchConstraintSnapshot;
+import com.railwaysim.vehicleruntime.model.DriverControlCommandSnapshot;
 import com.railwaysim.vehicleruntime.model.MovementAuthoritySnapshot;
 import com.railwaysim.vehicleruntime.model.PowerConstraintSnapshot;
 import com.railwaysim.vehicleruntime.model.TrackConstraintSnapshot;
@@ -56,8 +57,7 @@ final class VehicleRuntimeInstance {
     }
 
     PreparedStep prepare(
-        long tick,
-        double deltaSeconds,
+        long tick, double deltaSeconds,
         TrainStateSnapshot train,
         MovementAuthoritySnapshot authority,
         TrackConstraintSnapshot track,
@@ -78,7 +78,9 @@ final class VehicleRuntimeInstance {
                 return null;
             }
             controlQueueStatus = "RUNNING";
-            VehiclePhysicsInputDto input = controlQueue.control(tick, deltaSeconds, train, authority, track, dispatch, power);
+            VehiclePhysicsInputDto input = controlQueue.control(
+                tick, deltaSeconds, train, authority, track, dispatch, power
+            );
             controlQueueStatus = "DONE";
             simulationQueueStatus = "PREPARED";
             return new PreparedStep(tick, train, input, startedAt);

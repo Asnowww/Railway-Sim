@@ -62,6 +62,10 @@ class Phase2ApiControllerTests {
         mockMvc.perform(get("/api/vehicle/maintenance-states"))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$", hasSize(2)));
+
+        mockMvc.perform(get("/api/operation-logs/health"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.status").exists());
     }
 
     @Test
@@ -309,12 +313,10 @@ class Phase2ApiControllerTests {
                 .contentType(MediaType.APPLICATION_OCTET_STREAM)
                 .content(inputPayload))
             .andExpect(status().isOk())
+            .andExpect(jsonPath("$.accepted").value(true))
             .andExpect(jsonPath("$.trainId").value("TR-001"))
-            .andExpect(jsonPath("$.faultCode").value("DRIVER_CAB_EMERGENCY_BRAKE"))
-            .andExpect(jsonPath("$.driverConsoleState.doorModeSwitchState").value("MANUAL"))
-            .andExpect(jsonPath("$.driverConsoleState.atoStartFlag").value(true))
-            .andExpect(jsonPath("$.driverConsoleState.modeDowngradeConfirmFlag").value(true))
-            .andExpect(jsonPath("$.driverConsoleState.masterHandleState").value("FAST_BRAKE"));
+            .andExpect(jsonPath("$.reasonCode").value("ACCEPTED"))
+            .andExpect(jsonPath("$.commandId").isNotEmpty());
 
         mockMvc.perform(get("/api/vehicle/driver-cabs/TR-001/state"))
             .andExpect(status().isOk())
@@ -323,5 +325,17 @@ class Phase2ApiControllerTests {
 
         mockMvc.perform(get("/api/vehicle/driver-cabs/TR-001/plc-output"))
             .andExpect(status().isOk());
+    }
+
+    @Test
+    void driverCabRejectsUnknownTrainBeforeCachingCommand() throws Exception {
+        byte[] inputPayload = new DriverCabPlcCodec().encodeInput(DriverCabPlcInputPacket.neutral());
+
+        mockMvc.perform(post("/api/vehicle/driver-cabs/TR-UNKNOWN/plc-input")
+                .contentType(MediaType.APPLICATION_OCTET_STREAM)
+                .content(inputPayload))
+            .andExpect(status().isNotFound())
+            .andExpect(jsonPath("$.accepted").value(false))
+            .andExpect(jsonPath("$.reasonCode").value("UNKNOWN_TRAIN"));
     }
 }

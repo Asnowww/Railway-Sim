@@ -149,7 +149,8 @@ public class SimulationRuntime {
             tick,
             simulationProperties.getTickMillis(),
             simulationProperties.getTickMillis() / 1000.0,
-            simulatedTime
+            simulatedTime,
+            dispatchService.simulationRunId()
         );
 
         List<TrainState> beforeTrainStates = trainManager.states();

@@ -9,6 +9,7 @@ import com.railwaysim.vehicleruntime.config.VehicleRuntimeProperties;
 import com.railwaysim.vehicleruntime.config.VehicleParameters;
 import com.railwaysim.vehicleruntime.config.VehicleParametersLoader;
 import com.railwaysim.vehicleruntime.model.MovementAuthoritySnapshot;
+import com.railwaysim.vehicleruntime.model.DriverControlCommandSnapshot;
 import com.railwaysim.vehicleruntime.model.PowerConstraintSnapshot;
 import com.railwaysim.vehicleruntime.model.TrackConstraintSnapshot;
 import com.railwaysim.vehicleruntime.model.TrainStateSnapshot;
@@ -183,6 +184,36 @@ class VehicleRuntimeManagerTests {
                 assertThat(report.currentCollectionStatus()).isEqualTo("LOST");
                 assertThat(report.faultLevel()).isEqualTo(3);
             });
+    }
+
+    @Test
+    void driverServiceBrakeControlsExternalRuntimePhysicsInput() {
+        // Store driver command in shared holder (PLC input → 9300 direct path)
+        DriverCommandHolder.getInstance().clear();
+        TrainStateSnapshot train = train("TR-DRIVER", 100, 8);
+        DriverControlCommandSnapshot command = new DriverControlCommandSnapshot(
+            "driver-1", train.id(), 1, Instant.now(), Instant.now().plusSeconds(5),
+            0.8, 0.7, false, 1, false, false, "MANUAL", "trace-driver"
+        );
+        DriverCommandHolder.getInstance().store(command);
+
+        VehicleRuntimeManager manager = manager();
+        VehicleRuntimeStepRequest request = new VehicleRuntimeStepRequest(
+            1, 0.1, Instant.now(), List.of(train),
+            List.of(new MovementAuthoritySnapshot(train.id(), 2_000, 22.2, "NORMAL")),
+            List.of(new TrackConstraintSnapshot(train.id(), "SEG-1", 22.2, 0, 1_000, 1_000_000)),
+            List.of(), List.of(energized()), "run-driver", List.of()
+        );
+
+        VehicleRuntimeStepResponse response = manager.stepFleet(request);
+
+        assertThat(response.trainOutputs()).singleElement().satisfies(output -> {
+            assertThat(output.tractionForceNewtons()).isZero();
+            assertThat(output.brakeForceNewtons()).isGreaterThan(0);
+        });
+        assertThat(response.trainReports()).singleElement().satisfies(report ->
+            assertThat(report.dynamicsConstraintReason()).isEqualTo("DRIVER_SERVICE_BRAKE")
+        );
     }
 
     @Test

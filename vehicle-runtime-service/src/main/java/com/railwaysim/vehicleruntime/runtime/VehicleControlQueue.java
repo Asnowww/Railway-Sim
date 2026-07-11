@@ -3,6 +3,7 @@ package com.railwaysim.vehicleruntime.runtime;
 import com.railwaysim.vehicleruntime.config.VehicleRuntimeProperties;
 import com.railwaysim.vehicleruntime.config.VehicleParameters;
 import com.railwaysim.vehicleruntime.model.DispatchConstraintSnapshot;
+import com.railwaysim.vehicleruntime.model.DriverControlCommandSnapshot;
 import com.railwaysim.vehicleruntime.model.MovementAuthoritySnapshot;
 import com.railwaysim.vehicleruntime.model.PowerConstraintSnapshot;
 import com.railwaysim.vehicleruntime.model.TrackConstraintSnapshot;
@@ -25,8 +26,9 @@ final class VehicleControlQueue {
     private final VehicleRuntimeProperties properties;
     private final VehicleLoadPolicy loadPolicy;
     private final VehicleParameters vehicleParameters;
+    private final DriverCommandHolder driverCommandHolder = DriverCommandHolder.getInstance();
 
-    /** 离站释放时的列车位置(m)，-1 表示不在离站保护窗口内。 */
+    /** 离站释放时的列车位置(m) */
     private double departureOriginMeters = -1;
 
     VehicleControlQueue(
@@ -41,8 +43,7 @@ final class VehicleControlQueue {
     }
 
     VehiclePhysicsInputDto control(
-        long tick,
-        double deltaSeconds,
+        long tick, double deltaSeconds,
         TrainStateSnapshot train,
         MovementAuthoritySnapshot authority,
         TrackConstraintSnapshot track,
@@ -53,12 +54,9 @@ final class VehicleControlQueue {
     }
 
     private VehiclePhysicsInputDto buildInput(
-        double deltaSeconds,
-        TrainStateSnapshot train,
-        MovementAuthoritySnapshot authority,
-        TrackConstraintSnapshot track,
-        DispatchConstraintSnapshot dispatch,
-        PowerConstraintSnapshot power
+        double deltaSeconds, TrainStateSnapshot train,
+        MovementAuthoritySnapshot authority, TrackConstraintSnapshot track,
+        DispatchConstraintSnapshot dispatch, PowerConstraintSnapshot power
     ) {
         double speedLimit = applyDispatchSpeed(resolveSpeedLimit(authority, track), dispatch);
         double maDistance = resolveMovementAuthorityDistance(train, authority);
@@ -122,11 +120,22 @@ final class VehicleControlQueue {
         PowerConstraintSnapshot power,
         boolean departing
     ) {
+        DriverControlCommandSnapshot driverCommand = driverCommandHolder.latest(train.id());
         double speed = train.speedMetersPerSecond();
         double loadMassKg = loadPolicy.loadMassKg(train.loadMassKg(), train.loadRate());
         double brakingFactor = loadPolicy.brakingDecelerationFactor(loadMassKg, train.availableBrakeCount());
         double stoppingDistance = stoppingDistanceMeters(speed, track == null ? 0 : track.gradient(), brakingFactor);
         double tractionCapacityFactor = loadPolicy.tractionCommandFactor(loadMassKg, train.availableTractionCount());
+
+        if (driverCommand != null && driverCommand.emergencyBrake()) {
+            return brakeDecision(
+                TrainDynamicsState.SAFETY_BRAKE,
+                "DRIVER_CAB_EMERGENCY_BRAKE",
+                speed,
+                stoppingDistance,
+                true
+            );
+        }
 
         if (!"IN_SERVICE".equals(nullTo(train.controlSessionState(), "IN_SERVICE"))) {
             return brakeDecision(TrainDynamicsState.SELF_CHECK_BLOCKED, "CONTROL_SESSION_" + train.controlSessionState(), speed, stoppingDistance, false);
@@ -165,6 +174,33 @@ final class VehicleControlQueue {
         double overspeed = speed - speedLimit;
         if (overspeed > 0) {
             return new DynamicsDecision(TrainDynamicsState.OVERSPEED_BRAKE, "SPEED_LIMIT_EXCEEDED", 0, clamp(overspeed / 3.0, 0.2, 1), false, stoppingDistance);
+        }
+
+        boolean manualCommand = driverCommand != null
+            && "MANUAL".equalsIgnoreCase(driverCommand.operationMode());
+        if (manualCommand) {
+            if (driverCommand.expired(java.time.Instant.now())) {
+                return new DynamicsDecision(
+                    TrainDynamicsState.SAFETY_BRAKE,
+                    "DRIVER_COMMAND_STALE",
+                    0,
+                    speed > 0.1 ? 0.5 : 0.6,
+                    false,
+                    stoppingDistance
+                );
+            }
+            double manualBrake = clamp(driverCommand.brakeCommand(), 0, 1);
+            double manualTraction = manualBrake > 0 || Math.abs(driverCommand.direction()) < 0.5
+                ? 0
+                : clamp(driverCommand.tractionCommand(), 0, 1) * tractionCapacityFactor;
+            return new DynamicsDecision(
+                manualBrake > 0 ? TrainDynamicsState.MA_BRAKE : TrainDynamicsState.ACCELERATING,
+                manualBrake > 0 ? "DRIVER_SERVICE_BRAKE" : "DRIVER_TRACTION",
+                manualTraction,
+                manualBrake,
+                false,
+                stoppingDistance
+            );
         }
 
         double speedMargin = speedLimit - speed;

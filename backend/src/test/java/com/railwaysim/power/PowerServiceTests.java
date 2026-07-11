@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.within;
 import com.railwaysim.config.ExternalPowerNetworkProperties;
 import com.railwaysim.config.SimulationProperties;
 import com.railwaysim.infrastructure.PowerConfigLoader;
+import com.railwaysim.infrastructure.OperationalPowerData;
 import com.railwaysim.infrastructure.SpreadsheetLineDataLoader;
 import com.railwaysim.infrastructure.StaticInfrastructureCatalog;
 import com.railwaysim.infrastructure.YamlLineDataLoader;
@@ -64,6 +65,32 @@ class PowerServiceTests {
         assertThat(constraint.powerAvailableWatts()).isZero();
         assertThat(constraint.constraintReason()).isEqualTo("DEENERGIZED");
         assertThat(eventBus.drain()).anySatisfy(event -> assertThat(event).isInstanceOf(PowerFaultStateChangedEvent.class));
+    }
+
+    @Test
+    void illegalTrainPositionsProduceUnknownSafeConstraint() {
+        StaticInfrastructureCatalog catalog = catalog();
+        PowerConstraintService constraintService = new PowerConstraintService(catalog);
+        double outOfRange = catalog.powerData().sections().stream()
+            .mapToDouble(OperationalPowerData.PowerSectionDefinition::endMeters)
+            .max()
+            .orElse(0) + 1;
+
+        List<PowerConstraint> constraints = constraintService.constraintsForTrains(
+            List.of(
+                new TrainEntity("TR-NEG", "demo-line-1", -1, 120).state(),
+                new TrainEntity("TR-END", "demo-line-1", outOfRange, 120).state(),
+                new TrainEntity("TR-INF", "demo-line-1", Double.POSITIVE_INFINITY, 120).state()
+            ),
+            constraintService.initializeStates(new PowerTopologyService(catalog).defaultSnapshot())
+        );
+
+        assertThat(constraints).allSatisfy(constraint -> {
+            assertThat(constraint.sectionId()).isEqualTo("UNKNOWN");
+            assertThat(constraint.powerAvailableWatts()).isZero();
+            assertThat(constraint.currentCollectionAvailable()).isFalse();
+            assertThat(constraint.constraintReason()).isEqualTo("POWER_SECTION_UNKNOWN");
+        });
     }
 
     @Test

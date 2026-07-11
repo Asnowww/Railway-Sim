@@ -12,6 +12,10 @@ import com.railwaysim.vehicle.TrainStateReport;
 import com.railwaysim.vehicle.VehicleLoadPolicy;
 import com.railwaysim.vehicle.VehiclePhysicsInput;
 import com.railwaysim.vehicle.VehiclePhysicsOutput;
+import com.railwaysim.vehicle.control.AutomaticControlCommand;
+import com.railwaysim.vehicle.control.VehicleControlArbiter;
+import com.railwaysim.vehicle.control.VehicleOperationMode;
+import java.util.Optional;
 
 class OnboardTrainSubsystem {
 
@@ -62,25 +66,38 @@ class OnboardTrainSubsystem {
         }
         double loadMassKg = VehicleLoadPolicy.loadMassKg(train.loadMassKg(), train.loadRate());
         DynamicsDecision decision = decideDynamicsState(
-            train,
-            speedLimit,
-            maDistance,
-            stationDistance,
-            doorClosed,
-            input.track(),
-            input.power(),
-            input.authority(),
-            stationReleaseWindowActive
+            train, speedLimit, maDistance, stationDistance, doorClosed,
+            input.track(), input.power(), input.authority(), stationReleaseWindowActive
+        );
+
+        // ── Arbiter: safety priority + driver command ──
+        boolean ebRequired = decision.state() == TrainDynamicsState.SAFETY_BRAKE;
+        boolean maRequired = decision.state() == TrainDynamicsState.MA_BRAKE;
+        boolean overspeed = decision.state() == TrainDynamicsState.OVERSPEED_BRAKE;
+        boolean powerAvail = input.power() == null || input.power().powerAvailableWatts() > 0;
+        boolean currentCollAvail = input.power() == null || input.power().energized();
+        boolean brakeAvail = train.brakeAvailable();
+        boolean tractionAndSelfCheckAvailable = train.tractionAvailable()
+            && !"FAIL".equals(train.selfCheckStatus())
+            && "IN_SERVICE".equals(train.controlSessionState());
+        var autoCmd = new AutomaticControlCommand(
+            "rule-" + input.context().tick(), trainId, "RULE_ENGINE",
+            decision.tractionCommand(), decision.brakeCommand(), decision.emergencyBrake(), 1.0, null
+        );
+        VehicleOperationMode mode = resolveOperationMode(input.driverCommand());
+        var arbiterDecision = VehicleControlArbiter.decide(
+            input.context().simulationRunId(), input.context().tick(), trainId,
+            Optional.ofNullable(input.driverCommand()), Optional.of(autoCmd),
+            ebRequired, maRequired, doorClosed, currentCollAvail,
+            tractionAndSelfCheckAvailable, brakeAvail, powerAvail, mode, overspeed
         );
 
         VehiclePhysicsInput physicsInput = new VehiclePhysicsInput(
-            train.id(),
-            train.positionMeters(),
-            train.speedMetersPerSecond(),
+            train.id(), train.positionMeters(), train.speedMetersPerSecond(),
             VehicleLoadPolicy.totalMassKg(loadMassKg),
-            decision.tractionCommand(),
-            decision.brakeCommand(),
-            decision.emergencyBrake(),
+            arbiterDecision.tractionCommand(),
+            arbiterDecision.brakeCommand(),
+            arbiterDecision.emergencyBrake(),
             speedLimit,
             maDistance,
             input.track() == null ? 0 : input.track().gradient(),
@@ -97,7 +114,20 @@ class OnboardTrainSubsystem {
             stationDistance,
             decision.stoppingDistanceMeters()
         );
-        return OnboardTrainControlOutput.from(subsystemId, physicsInput);
+        return OnboardTrainControlOutput.from(subsystemId, physicsInput, arbiterDecision);
+    }
+
+    private VehicleOperationMode resolveOperationMode(
+        com.railwaysim.vehicle.control.DriverControlCommand driverCommand
+    ) {
+        if (driverCommand == null || driverCommand.operationMode() == null) {
+            return VehicleOperationMode.AUTO;
+        }
+        try {
+            return VehicleOperationMode.valueOf(driverCommand.operationMode());
+        } catch (IllegalArgumentException exception) {
+            return VehicleOperationMode.AUTO;
+        }
     }
 
     TrainStateReport buildTrainStateReport(

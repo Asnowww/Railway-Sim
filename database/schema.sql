@@ -302,8 +302,19 @@ CREATE TABLE IF NOT EXISTS operation_log (
   operation_type VARCHAR(64) NOT NULL,
   target_ref VARCHAR(128) NOT NULL,
   detail_json JSON,
+  run_id VARCHAR(64) DEFAULT NULL,
+  tick BIGINT DEFAULT NULL,
+  trace_id VARCHAR(64) DEFAULT NULL,
+  before_state VARCHAR(1024) DEFAULT NULL,
+  after_state VARCHAR(1024) DEFAULT NULL,
+  reason VARCHAR(512) DEFAULT NULL,
+  status VARCHAR(32) NOT NULL DEFAULT 'PENDING',
+  retry_count INT NOT NULL DEFAULT 0,
+  error_text VARCHAR(1024) DEFAULT NULL,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  INDEX idx_operation_log_type_time (operation_type, created_at)
+  INDEX idx_operation_log_type_time (operation_type, created_at),
+  INDEX idx_operation_log_trace (trace_id),
+  INDEX idx_operation_log_run_tick (run_id, tick)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS protocol_packet_log (

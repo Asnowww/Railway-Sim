@@ -180,6 +180,12 @@ public class PowerConstraintService {
         return trains.stream()
             .map(train -> {
                 PowerSectionState section = sectionStateAt(sections, train.positionMeters());
+                if (section == null) {
+                    return new PowerConstraint(
+                        train.id(), "UNKNOWN", 0, 0, false, 0.0, false, false,
+                        "POWER_SECTION_UNKNOWN"
+                    );
+                }
                 boolean energized = currentCollectionAvailable(section.status());
                 return new PowerConstraint(
                     train.id(),
@@ -322,7 +328,8 @@ public class PowerConstraintService {
     private Map<String, SectionLoad> aggregateLoads(List<VehiclePhysicsOutput> outputs) {
         Map<String, SectionLoad> loads = new HashMap<>();
         for (VehiclePhysicsOutput output : outputs) {
-            String sectionId = sectionDefinitionAt(infrastructureCatalog.powerData().sections(), output.newPositionMeters()).id();
+            var def = sectionDefinitionAt(infrastructureCatalog.powerData().sections(), output.newPositionMeters());
+            String sectionId = def != null ? def.id() : "UNKNOWN";
             loads.merge(
                 sectionId,
                 new SectionLoad(
@@ -341,17 +348,30 @@ public class PowerConstraintService {
         List<OperationalPowerData.PowerSectionDefinition> sections,
         double positionMeters
     ) {
+        if (!validLinePosition(positionMeters)) {
+            return null;
+        }
         return sections.stream()
             .filter(section -> positionMeters >= section.startMeters() && positionMeters < section.endMeters())
             .findFirst()
-            .orElse(sections.get(sections.size() - 1));
+            .orElse(null);
     }
 
     private PowerSectionState sectionStateAt(List<PowerSectionState> sections, double positionMeters) {
+        if (!validLinePosition(positionMeters)) {
+            return null;
+        }
         return sections.stream()
             .filter(section -> positionMeters >= section.startMeters() && positionMeters < section.endMeters())
             .findFirst()
-            .orElse(sections.get(sections.size() - 1));
+            .orElse(null);
+    }
+
+    private boolean validLinePosition(double positionMeters) {
+        double lineLength = infrastructureCatalog.lineData().lineLengthMeters();
+        return Double.isFinite(positionMeters)
+            && positionMeters >= 0
+            && (lineLength <= 0 || positionMeters < lineLength);
     }
 
     private boolean currentCollectionAvailable(String status) {

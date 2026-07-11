@@ -130,6 +130,25 @@ class PowerCouplingTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "POWER_TICK_OUT_OF_ORDER"):
             self.model.step(1, load_payload("P01", ["TR-A"], 0, 0, 0), positions)
 
+    def test_invalid_and_gap_positions_return_unknown_safe_constraint(self) -> None:
+        gap_payload = two_section_payload()
+        gap_payload["sectionBindings"][1]["startMeters"] = 1_100.0
+        self.model.bootstrap(gap_payload)
+
+        constraints = self.model.constraints_for_positions([
+            {"trainId": "TR-NEG", "positionMeters": -1.0},
+            {"trainId": "TR-GAP", "positionMeters": 1_050.0},
+            {"trainId": "TR-END", "positionMeters": 2_000.0},
+            {"trainId": "TR-NAN", "positionMeters": "NaN"},
+        ])
+
+        self.assertEqual(4, len(constraints))
+        for constraint in constraints:
+            self.assertEqual("UNKNOWN", constraint["sectionId"])
+            self.assertEqual(0.0, constraint["powerAvailableWatts"])
+            self.assertFalse(constraint["currentCollectionAvailable"])
+            self.assertEqual("POWER_SECTION_UNKNOWN", constraint["constraintReason"])
+
 
 class PowerStepApiTests(unittest.TestCase):
     def setUp(self) -> None:

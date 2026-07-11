@@ -57,4 +57,3 @@ __pycache__/
 frontend/src/api/rest.ts
 frontend/src/api/ws.ts
 frontend/src/components/power-train/VehicleSelfControlDemo.vue
-frontend/src/types/simulation.ts

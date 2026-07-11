@@ -18,6 +18,7 @@ import com.railwaysim.vehicle.TrainStateReport;
 import com.railwaysim.vehicle.VehicleLoadPolicy;
 import com.railwaysim.vehicle.VehiclePhysicsInput;
 import com.railwaysim.vehicle.VehiclePhysicsOutput;
+import com.railwaysim.vehicle.control.DriverControlCommand;
 import com.railwaysim.vehicle.external.ExternalSegmentMapper;
 import com.railwaysim.vehicle.external.ExternalTrainCommand;
 import com.railwaysim.vehicle.external.ExternalVehicleCommandMapper;
@@ -25,6 +26,55 @@ import java.time.Instant;
 import org.junit.jupiter.api.Test;
 
 class OnboardTrainSubsystemControlTests {
+
+    @Test
+    void validDriverCommandControlsNextPhysicsInput() {
+        OnboardTrainSubsystemManager manager = manager();
+        TrainState train = movingTrainState(5.0);
+        DriverControlCommand command = new DriverControlCommand(
+            "driver-1", train.id(), 1, Instant.now(), Instant.now().plusSeconds(5),
+            0.65, 0, false, 1, false, false, "MANUAL", "trace-driver", null
+        );
+
+        OnboardTrainControlOutput output = manager.control(new OnboardTrainControlInput(
+            train,
+            new TickContext(10, 200, 0.2, Instant.now(), "run-driver"),
+            new com.railwaysim.signal.MovementAuthority(train.id(), 10_000, 20, "NORMAL", "SEG"),
+            new TrackConstraint(train.id(), "SEG", 20, 0, 1_000, 1_000_000),
+            null,
+            new PowerConstraint(train.id(), "P01", 1_500, 3_200_000, true),
+            command
+        ));
+
+        assertThat(output.physicsInput().tractionCommand()).isEqualTo(0.65);
+        assertThat(output.physicsInput().brakeCommand()).isZero();
+        assertThat(output.controlDecision().source()).isEqualTo("DRIVER");
+        assertThat(output.controlDecision().runId()).isEqualTo("run-driver");
+    }
+
+    @Test
+    void expiredDriverCommandProducesSafeBrakeInsteadOfAutomaticTakeover() {
+        OnboardTrainSubsystemManager manager = manager();
+        TrainState train = movingTrainState(5.0);
+        DriverControlCommand command = new DriverControlCommand(
+            "driver-stale", train.id(), 1, Instant.now().minusSeconds(10), Instant.now().minusSeconds(1),
+            0.9, 0, false, 1, false, false, "MANUAL", "trace-stale", null
+        );
+
+        OnboardTrainControlOutput output = manager.control(new OnboardTrainControlInput(
+            train,
+            new TickContext(11, 200, 0.2, Instant.now(), "run-driver"),
+            new com.railwaysim.signal.MovementAuthority(train.id(), 10_000, 20, "NORMAL", "SEG"),
+            new TrackConstraint(train.id(), "SEG", 20, 0, 1_000, 1_000_000),
+            null,
+            new PowerConstraint(train.id(), "P01", 1_500, 3_200_000, true),
+            command
+        ));
+
+        assertThat(output.physicsInput().tractionCommand()).isZero();
+        assertThat(output.physicsInput().brakeCommand()).isGreaterThanOrEqualTo(0.5);
+        assertThat(output.controlDecision().selectedReasonCode()).isEqualTo("DRIVER_COMMAND_STALE");
+    }
 
     @Test
     void deenergizedPowerConstraintCutsTractionAndReportsCurrentCollectionFailure() {

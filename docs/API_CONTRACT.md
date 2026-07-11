@@ -132,25 +132,35 @@ POST /api/signal/vehicles/telemetry/content-packet?trainCount=1
 
 ### 车辆-司机台 PLC 适配接口
 
-该接口属于车辆控制系统内部外设适配：`司机驾驶模拟台 PLC <-> DriverCabAdapter <-> 单车车辆控制子系统`。它不是调度、供电或中央主循环直接控制司机台的接口；信号侧的 MA/模式/门使能只作为车辆控制系统生成 PLC 输出报文的输入之一。
+该接口属于车辆控制系统内部外设适配：`司机驾驶模拟台 PLC <-> 单车车辆控制子系统`。不是调度、供电或中央主循环直接控制司机台的接口；信号侧的 MA/模式/门使能只作为 PLC 输出报文的输入之一。
+
+**架构分界（方案 A）：**
+
+| 端点 | 所属服务 | 端口 | 说明 |
+|---|---|---|---|
+| `POST .../plc-input` | vehicle-runtime-service | 9300 | PLC 输入编解码与命令存储 |
+| `GET .../state` | backend | 8080 | 司机台显示状态（来自信号系统） |
+| `GET .../plc-output` | backend | 8080 | PLC 输出报文编码 |
 
 协议模型：
 
-- `DriverCabPlcCodec`：实现司机台 PLC 第 7 章报文内容定义的小端编解码。
+- `DriverCabPlcCodec`：实现司机台 PLC 第 7 章报文内容定义的小端编解码。输入侧在 `vehicle-runtime-service:9300`，输出侧在 `backend:8080`。
 - `PLC -> 上位机`：46 字节，24 字节报文头 + 22 字节数据区，周期 100ms；当前解码钥匙、门模式、ATO 启动、模式升/降级确认、自动折返、方向手柄、主手柄、牵引/制动级位和紧急制动按钮。
-- `上位机 -> PLC`：26 字节，24 字节报文头 + 2 字节数据区；当前编码高断合、制动故障、开门灯、门关好、网络故障、ATO/自动折返可用与激活等指示量。
+- `上位机 -> PLC`：26 字节，24 字节报文头 + 2 字节数据区；由 backend 8080 编码，来源为 `TrainState` 与当前 `SignalVehicleCommand.cabDisplay`。
 
-前期无真实 TCP PLC 时使用 REST 二进制入口联调：
+后期无真实 TCP PLC 时使用 REST 二进制入口联调：
 
 ```http
-POST /api/vehicle/driver-cabs/{trainId}/plc-input
-GET /api/vehicle/driver-cabs/{trainId}/state
-GET /api/vehicle/driver-cabs/{trainId}/plc-output
+POST http://localhost:9300/api/vehicle/driver-cabs/{trainId}/plc-input
+GET  http://localhost:8080/api/vehicle/driver-cabs/{trainId}/state
+GET  http://localhost:8080/api/vehicle/driver-cabs/{trainId}/plc-output
 ```
 
-- `plc-input` 使用 `application/octet-stream`，提交 46 字节 PLC 输入报文；后端写入该单车 `DriverCabStateSnapshot`，并按钥匙、门按钮、快制/紧急制动更新本车控制状态。
-- `plc-output` 返回 `application/octet-stream`，生成 26 字节上位机到 PLC 报文；来源为 `TrainState` 与当前 `SignalVehicleCommand.cabDisplay`。
-- 后续接真实设备时，应在车辆控制系统侧新增 TCP 客户端连接 PLC 的 `192.168.100.123:8001/8002/8003`，REST 入口只保留为测试入口。
+- `POST plc-input` 由外部测试脚本或半实物仿真平台调用，使用 `application/octet-stream` 提交 46 字节 PLC 输入报文。IPv4 地址与端口为 `localhost:9300`（vehicle-runtime-service）。
+- 非法枚举码（门模式/方向手柄/主手柄）和越界百分比（0–100 范围外）将返回 `400` 和 `DriverCommandAcceptance{accepted:false, reasonCode: "DECODE_FAILED"}`，不再静默截断。
+- 合法报文返回 `DriverCommandAcceptance{accepted:true, commandId, trainId, reasonCode: "ACCEPTED", receivedAt, expiresAt}`。
+- `GET state/plc-output` 仍由 `backend:8080` 提供。
+- 后续接真实设备时，应在车辆控制系统侧（9300）新增 TCP 客户端连接 PLC 的 `192.168.100.123:8001/8002/8003`，REST 入口只保留为测试入口。
 
 视景适配接口用于把车辆侧运行态补齐到信号/ATS 视图，再由信号模块按 UDP 包发送给外部视景系统：
 
@@ -566,7 +576,14 @@ GET  /vehicle-runtime/events
 }
 ```
 
-`POST /vehicle-runtime/step-fleet` 请求包含 `tick`、`deltaSeconds`、`requestedAt`、`trains[]`、`movementAuthorities[]`、`trackConstraints[]`、`dispatchConstraints[]`。`split` 模式忽略中央传入的 `powerConstraints[]`：9300 自行向 9200 请求权威供电约束。9300先为全车准备控制输入，每个tick只调用一次9000 `/step-fleet`，再统一写回`trainOutputs[]`、`trainReports[]`和`instanceStates[]`。
+`POST /vehicle-runtime/step-fleet` 请求包含 `tick`、`deltaSeconds`、`requestedAt`、`trains[]`、`movementAuthorities[]`、`trackConstraints[]`、`dispatchConstraints[]`、`powerConstraints[]`、`simulationRunId`、`driverCommands[]`（已废弃，见下方说明）。`split` 模式忽略中央传入的 `powerConstraints[]`：9300 自行向 9200 请求权威供电约束。
+
+| 新增字段 | 类型 | 说明 |
+|---|---|---|
+| `simulationRunId` | string | 当前仿真运行 ID，贯穿 8080→9300→9200 用于时间线对齐 |
+| `driverCommands[]` | array of `DriverControlCommandSnapshot` | 已废弃。PLC 输入现已直接发往 9300(`POST :9300/.../plc-input`)，不再经 step request 转发。字段保留仅为向后兼容。 |
+
+9300 先为全车准备控制输入，每个 tick 只调用一次 9000 `/step-fleet`，再统一写回 `trainOutputs[]`、`trainReports[]` 和 `instanceStates[]`。
 
 `POST /vehicle-runtime/bootstrap` 还会携带供电仿真联动配置：
 

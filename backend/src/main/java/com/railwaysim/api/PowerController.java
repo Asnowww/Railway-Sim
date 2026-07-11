@@ -1,5 +1,6 @@
 package com.railwaysim.api;
 
+import com.railwaysim.api.dto.ApiError;
 import com.railwaysim.api.dto.FaultMutationRequest;
 import com.railwaysim.api.dto.ExternalPowerNetworkHealthResponse;
 import com.railwaysim.api.dto.IsolatorStateResponse;
@@ -17,7 +18,9 @@ import com.railwaysim.power.external.PowerNetworkOperationRequest;
 import com.railwaysim.power.external.PowerNetworkOperationResult;
 import java.time.Instant;
 import java.util.List;
+import org.springframework.dao.DataAccessException;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.CrossOrigin;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -164,65 +167,61 @@ public class PowerController {
     }
 
     @PostMapping("/operations")
-    public PowerNetworkOperationResult operate(@RequestBody PowerNetworkOperationRequest request) {
+    public ResponseEntity<?> operate(@RequestBody PowerNetworkOperationRequest request) {
         if (request == null || request.confirmToken() == null || !CONFIRM_TOKEN.equals(request.confirmToken())) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "confirmToken must be SIMULATION_CONFIRM");
         }
-        PowerNetworkOperationResult result = powerService.operate(request);
-        operationLogService.record(
-            request.normalizedOperator(),
-            "POWER_NETWORK_OPERATION",
-            request.targetType() + ":" + request.targetId(),
-            request.desiredState(),
-            result.resultState(),
-            request.normalizedReason(),
-            request.traceId()
-        );
-        return result;
+        try {
+            operationLogService.recordSync(
+                request.normalizedOperator(), "POWER_NETWORK_OPERATION",
+                request.targetType() + ":" + request.targetId(),
+                request.desiredState(), null,
+                request.normalizedReason(), request.traceId());
+        } catch (DataAccessException ex) {
+            return ResponseEntity.status(503).body(
+                ApiError.of("AUDIT_FAILED", "Audit log unavailable"));
+        }
+        return ResponseEntity.ok(powerService.operate(request));
     }
 
     @PostMapping("/sections/{sectionId}/faults")
-    public PowerSectionState injectFault(
+    public ResponseEntity<?> injectFault(
         @PathVariable String sectionId,
         @RequestBody FaultMutationRequest request
     ) {
         requireConfirm(request);
-        PowerSectionState before = section(sectionId);
+        try {
+            operationLogService.recordSync(
+                request.normalizedOperator(), "POWER_FAULT_INJECT",
+                "power-section:" + sectionId,
+                section(sectionId).status(), null,
+                request.normalizedReason(), request.normalizedTraceId());
+        } catch (DataAccessException ex) {
+            return ResponseEntity.status(503).body(
+                ApiError.of("AUDIT_FAILED", "Audit log unavailable"));
+        }
         powerService.injectPowerFault(sectionId, requiredFaultType(request));
-        PowerSectionState after = section(sectionId);
-        OperationLogEntry operation = operationLogService.record(
-            request.normalizedOperator(),
-            "POWER_FAULT_INJECT",
-            "power-section:" + sectionId,
-            before.status(),
-            after.status(),
-            request.normalizedReason(),
-            request.normalizedTraceId()
-        );
-        operationLogService.recordPowerOperation(operation, sectionId);
-        return after;
+        return ResponseEntity.ok(section(sectionId));
     }
 
     @PostMapping("/sections/{sectionId}/faults/clear")
-    public PowerSectionState clearFault(
+    public ResponseEntity<?> clearFault(
         @PathVariable String sectionId,
         @RequestBody FaultMutationRequest request
     ) {
         requireConfirm(request);
-        PowerSectionState before = section(sectionId);
+        try {
+            operationLogService.recordSync(
+                request.normalizedOperator(), "POWER_FAULT_CLEAR",
+                "power-section:" + sectionId,
+                section(sectionId).status(), null,
+                request.normalizedReason(), request.normalizedTraceId());
+        } catch (DataAccessException ex) {
+            return ResponseEntity.status(503).body(
+                ApiError.of("AUDIT_FAILED", "Audit log unavailable"));
+        }
         powerService.clearPowerFault(sectionId);
-        PowerSectionState after = section(sectionId);
-        OperationLogEntry operation = operationLogService.record(
-            request.normalizedOperator(),
-            "POWER_FAULT_CLEAR",
-            "power-section:" + sectionId,
-            before.status(),
-            after.status(),
-            request.normalizedReason(),
-            request.normalizedTraceId()
-        );
-        operationLogService.recordPowerOperation(operation, sectionId);
-        return after;
+        return ResponseEntity.ok(section(sectionId));
     }
 
     private PowerEnergyResponse energyResponse(List<PowerSectionState> sections) {

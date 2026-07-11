@@ -87,7 +87,7 @@ sections:
     substationId: SS05
     feederId: F05
     startMeters: 16600
-    endMeters: 47503
+    endMeters: 47504
     substationVoltage: 1500
     energized: true
     breakerStatus: CLOSED
@@ -238,7 +238,7 @@ substations:
   - id: SS05
     name: 车辆段牵引变电所
     startMeters: 16600
-    endMeters: 47503
+    endMeters: 47504
     supplyMode: SINGLE_END
     available: true
     feederIds: [F05]
@@ -309,7 +309,7 @@ thirdRailSections:
     name: 车辆段接触轨
     powerSectionId: P05
     startMeters: 16600
-    endMeters: 47503
+    endMeters: 47504
     isolatorIds: [ISO-P05-A, ISO-P05-B]
     returnCurrentDeviceId: RCD-P05
 
