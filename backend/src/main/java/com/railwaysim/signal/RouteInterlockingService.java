@@ -134,7 +134,9 @@ public class RouteInterlockingService {
                     "TRACK_FAULT:" + segId + " is in fault state");
             }
             Set<String> occupyingTrainIds = trackService.occupyingTrainIds(segId);
-            if (occupyingTrainIds.stream().anyMatch(occupyingTrainId -> !trainId.equals(occupyingTrainId))) {
+            // 正线进路允许多车追踪（MA 处理间距），仅非正线拒绝他车占用
+            boolean isMainRoute = isMainTypeRoute(routeId);
+            if (!isMainRoute && occupyingTrainIds.stream().anyMatch(id -> !trainId.equals(id))) {
                 return reject(route, RouteStatus.REJECTED,
                     "TRACK_OCCUPIED:" + segId + " is occupied by another train");
             }
@@ -404,6 +406,14 @@ public class RouteInterlockingService {
     private String reject(RouteState route, RouteStatus target, String reason) {
         transition(route, target);
         return reason;
+    }
+
+    private boolean isMainTypeRoute(String routeId) {
+        return infrastructureCatalog.lineData().routes().stream()
+            .filter(r -> r.id().equals(routeId))
+            .findFirst()
+            .map(r -> "MAIN".equalsIgnoreCase(r.typeCode()))
+            .orElse(false);
     }
 
     /**

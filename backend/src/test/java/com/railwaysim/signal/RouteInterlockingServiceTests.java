@@ -309,7 +309,7 @@ class RouteInterlockingServiceTests {
     private static OperationalLineData lineDataWithDirectRoute() {
         return lineData(List.of(
             route("R_MAIN", "Main", List.of("SEG-1", "SEG-2")),
-            route("R_BRANCH", "Branch", List.of("SEG-1", "SEG-3"))
+            routeBranch("R_BRANCH", "Branch", List.of("SEG-1", "SEG-3"))
         ));
     }
 
@@ -413,10 +413,18 @@ class RouteInterlockingServiceTests {
     }
 
     private static OperationalLineData.RouteDefinition route(String id, String name, List<String> segments) {
+        return newRoute(id, name, "MAIN", segments);
+    }
+
+    private static OperationalLineData.RouteDefinition routeBranch(String id, String name, List<String> segments) {
+        return newRoute(id, name, "BRANCH", segments);
+    }
+
+    private static OperationalLineData.RouteDefinition newRoute(String id, String name, String type, List<String> segments) {
         return new OperationalLineData.RouteDefinition(
             id,
             name,
-            "MAIN",
+            type,
             "SIG-" + segments.get(0),
             "SIG-" + segments.get(segments.size() - 1),
             segments,
