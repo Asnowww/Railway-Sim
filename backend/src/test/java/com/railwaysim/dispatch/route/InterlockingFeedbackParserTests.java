@@ -34,6 +34,53 @@ class InterlockingFeedbackParserTests {
         assertThat(parsed.retryable()).isFalse();
     }
 
+    @Test
+    void structuredFailureCodeOverridesGenericInterlockingRejection() {
+        DispatchCommand command = command("REQUEST_ROUTE");
+        InterlockingFeedback parsed = InterlockingFeedbackParser.parse(command, new DispatchCommandFeedback(
+            command.id(),
+            command.trainId(),
+            command.commandType(),
+            "SIGNAL_INTERLOCKING",
+            CommandStatus.SKIPPED,
+            "signal rejected",
+            Instant.EPOCH,
+            Map.of(
+                "accepted", false,
+                "resultCode", "INTERLOCKING_REJECTED",
+                "failureCode", "TRACK_OCCUPIED",
+                "retryable", true,
+                "rawReason", "TRACK_OCCUPIED:T02 is occupied by another train"
+            )
+        ));
+
+        assertThat(parsed.resultCode()).isEqualTo("TRACK_OCCUPIED");
+        assertThat(parsed.failureCategory()).isEqualTo("RESOURCE_CONFLICT");
+        assertThat(parsed.retryable()).isTrue();
+    }
+
+    @Test
+    void structuredRetryableFlagWinsOverDefaultFailureCodePolicy() {
+        DispatchCommand command = command("REQUEST_ROUTE");
+        InterlockingFeedback parsed = InterlockingFeedbackParser.parse(command, new DispatchCommandFeedback(
+            command.id(),
+            command.trainId(),
+            command.commandType(),
+            "SIGNAL_INTERLOCKING",
+            CommandStatus.SKIPPED,
+            "signal rejected",
+            Instant.EPOCH,
+            Map.of(
+                "accepted", false,
+                "failureCode", "TRACK_OCCUPIED",
+                "retryable", false
+            )
+        ));
+
+        assertThat(parsed.resultCode()).isEqualTo("TRACK_OCCUPIED");
+        assertThat(parsed.retryable()).isFalse();
+    }
+
     private static DispatchCommand command(String type) {
         return new DispatchCommand("DC-1", "TR-1", type, Map.of("routeId", "R_MAIN"),
             "test", CommandStatus.PENDING, Instant.EPOCH, null);

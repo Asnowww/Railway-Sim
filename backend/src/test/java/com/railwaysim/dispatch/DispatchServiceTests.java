@@ -134,6 +134,40 @@ class DispatchServiceTests {
     }
 
     @Test
+    void routeInterlockingFeedbackStoresStructuredFailureCodeAndRetryPolicy() {
+        dispatchService.submit(commandWithPayload("TR-1", "REQUEST_ROUTE", Map.of("routeId", "R_BRANCH")));
+
+        dispatchService.acceptFeedback(List.of(new DispatchCommandFeedback(
+            "DC-test-REQUEST_ROUTE",
+            "TR-1",
+            "REQUEST_ROUTE",
+            "SIGNAL_INTERLOCKING",
+            CommandStatus.SKIPPED,
+            "TRACK_OCCUPIED:T03 is occupied by another train",
+            Instant.parse("2026-07-09T00:00:00Z"),
+            Map.of(
+                "accepted", false,
+                "resultCode", "INTERLOCKING_REJECTED",
+                "failureCode", "TRACK_OCCUPIED",
+                "retryable", true,
+                "rawReason", "TRACK_OCCUPIED:T03 is occupied by another train"
+            )
+        )));
+
+        assertThat(dispatchService.snapshot().routeDecisions())
+            .extracting(DispatchSnapshot.RouteDecisionView::status)
+            .containsExactly(RouteDecisionStatus.REJECTED);
+        assertThat(dispatchService.snapshot().routeReservations())
+            .singleElement()
+            .satisfies(reservation -> {
+                assertThat(reservation.state()).isEqualTo(RouteReservationState.REJECTED);
+                assertThat(reservation.failureCode()).isEqualTo("TRACK_OCCUPIED");
+                assertThat(reservation.failureCategory()).isEqualTo("RESOURCE_CONFLICT");
+                assertThat(reservation.retryable()).isTrue();
+            });
+    }
+
+    @Test
     void routeReservationIsReleasedWhenInterlockingRouteIsNoLongerEstablished() {
         dispatchService.submit(commandWithPayload("TR-1", "REQUEST_ROUTE", Map.of("routeId", "R_BRANCH")));
         dispatchService.acceptFeedback(List.of(new DispatchCommandFeedback(
