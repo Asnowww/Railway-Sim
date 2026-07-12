@@ -279,39 +279,21 @@ const selectedLiveTrain = computed(() =>
 
 let unsubscribeSocket: (() => void) | undefined
 let snapshotPollTimer: number | undefined
-let demoTimer: number | undefined
 
 const liveTrain = computed<TrainState | null>(() => snapshot.value?.trains[0] ?? null)
 const liveTrackSegments = computed<TrackSegmentState[]>(() => {
-  if (snapshot.value?.trackSegments.length) {
-    return snapshot.value.trackSegments
-  }
-  return [
-    {
-      id: 'LOCAL-DEMO',
-      startMeters: 0,
-      endMeters: localConfig.lineLengthMeters,
-      speedLimitMetersPerSecond: localConfig.speedLimitKmh / 3.6,
-      occupancy: 'FREE',
-      fromNode: 'LOCAL-A',
-      toNode: 'LOCAL-B',
-      track: 'UP'
-    }
-  ]
+  return snapshot.value?.trackSegments ?? []
 })
 const livePowerSections = computed<PowerSectionState[]>(() => snapshot.value?.powerSections ?? [])
 const powerDiagramLength = computed(() => {
   const trackEnd = liveTrackSegments.value.reduce((max, segment) => Math.max(max, segment.endMeters), 0)
   const sectionEnd = livePowerSections.value.reduce((max, section) => Math.max(max, section.endMeters), 0)
-  return Math.max(localConfig.lineLengthMeters, trackEnd, sectionEnd, 1)
+  return Math.max(trackEnd, sectionEnd, 1)
 })
-const powerTrainPosition = computed(() => liveTrain.value?.positionMeters ?? demoTrain.positionMeters)
-const powerTrainPower = computed(() => liveTrain.value?.tractionPowerWatts ?? demoTrain.tractionPowerWatts)
+const powerTrainPosition = computed(() => selectedLiveTrain.value?.positionMeters ?? 0)
+const powerTrainPower = computed(() => selectedLiveTrain.value?.tractionPowerWatts ?? 0)
 const powerTrainCurrent = computed(() => {
-  if (liveTrain.value) {
-    return liveTrain.value.railCurrentAmps
-  }
-  return localConfig.railVoltage > 1 ? demoTrain.tractionPowerWatts / localConfig.railVoltage : 0
+  return selectedLiveTrain.value?.railCurrentAmps ?? 0
 })
 const powerQualitySummary = computed(() => {
   const qualities = [...new Set(livePowerSections.value.map((section) => section.externalDataQuality || section.dataQuality))]
@@ -345,13 +327,21 @@ const activeStateMeta = computed(() => stateDefinitions.find((item) => item.stat
 const reasonText = computed(() => reasonLabels[demoTrain.dynamicsConstraintReason] ?? demoTrain.dynamicsConstraintReason)
 const speedKmh = computed(() => demoTrain.speedMetersPerSecond * 3.6)
 const speedLimitKmh = computed(() => demoTrain.speedLimitMetersPerSecond * 3.6)
-const trainProgress = computed(() => percent(demoTrain.positionMeters / localConfig.lineLengthMeters))
-const stationProgress = computed(() => percent(localConfig.stationPositionMeters / localConfig.lineLengthMeters))
-const authorityProgress = computed(() => percent(localConfig.movementAuthorityEndMeters / localConfig.lineLengthMeters))
+const backendLineLength = computed(() => Math.max(
+  1,
+  ...liveTrackSegments.value.map((segment) => segment.endMeters)
+))
+const trainProgress = computed(() => percent(demoTrain.positionMeters / backendLineLength.value))
+const stationProgress = computed(() => percent(
+  (demoTrain.positionMeters + demoTrain.stationDistanceMeters) / backendLineLength.value
+))
+const authorityProgress = computed(() => percent(
+  (demoTrain.positionMeters + demoTrain.movementAuthorityDistanceMeters) / backendLineLength.value
+))
 const chartMaxSpeed = computed(() => {
   const observed = history.value.reduce(
     (max, point) => Math.max(max, point.speedMetersPerSecond, point.speedLimitMetersPerSecond),
-    localConfig.speedLimitKmh / 3.6
+    selectedLiveTrain.value?.speedLimitMetersPerSecond ?? 1
   )
   return Math.max(observed, 1)
 })
@@ -367,18 +357,12 @@ const constraintHealth = computed(() => [
 ])
 
 onMounted(() => {
-  applyScenario('departure')
   fetchSnapshot()
   unsubscribeSocket = simulationSocket.subscribe((nextSnapshot) => {
     acceptSnapshot(nextSnapshot, 'WebSocket')
   })
   simulationSocket.connect()
   snapshotPollTimer = window.setInterval(fetchSnapshot, 3_000)
-  demoTimer = window.setInterval(() => {
-    if (localConfig.autoRun) {
-      stepDemo()
-    }
-  }, DEMO_STEP_SECONDS * 1000)
 })
 
 onUnmounted(() => {
@@ -386,9 +370,6 @@ onUnmounted(() => {
   simulationSocket.disconnect()
   if (snapshotPollTimer !== undefined) {
     window.clearInterval(snapshotPollTimer)
-  }
-  if (demoTimer !== undefined) {
-    window.clearInterval(demoTimer)
   }
 })
 
@@ -417,6 +398,22 @@ async function runSimulationCommand(command: 'start' | 'pause' | 'reset') {
 
 function acceptSnapshot(nextSnapshot: SimulationSnapshot, source: string) {
   snapshot.value = nextSnapshot
+  if (!nextSnapshot.trains.some((train) => train.id === driverCabInput.selectedTrainId)) {
+    driverCabInput.selectedTrainId = nextSnapshot.trains[0]?.id ?? ''
+  }
+  const train = nextSnapshot.trains.find((item) => item.id === driverCabInput.selectedTrainId)
+  if (train) {
+    Object.assign(demoTrain, train)
+    history.value = [
+      ...history.value.slice(-119),
+      {
+        speedMetersPerSecond: train.speedMetersPerSecond,
+        speedLimitMetersPerSecond: train.speedLimitMetersPerSecond,
+        positionMeters: train.positionMeters,
+        dynamicsState: train.dynamicsState as DynamicsState
+      }
+    ]
+  }
   backendState.value = 'live'
   backendMessage.value = `${source} ${new Date().toLocaleTimeString()}`
 }
@@ -525,7 +522,7 @@ function stepDemo() {
     driverCabInput.emergencyBrakeButtonLocked ||
     driverCabInput.atoStartFlag;
 
-  let decision: DynamicsDecision;
+  let dynamicsDecision: DynamicsDecision;
   if (hasManualCommand) {
     // 手动模式：使用司机台输入替代ATO决策
     const speed = demoTrain.speedMetersPerSecond;
@@ -535,28 +532,28 @@ function stepDemo() {
     const stoppingDist = stoppingDistanceMeters(speed);
 
     if (driverCabInput.emergencyBrakeButtonLocked) {
-      decision = brakeDecision('SAFETY_BRAKE', 'DRIVER_CAB_EMERGENCY_BRAKE', speed, stoppingDist, maDistance, stationDistance, true);
+      dynamicsDecision = brakeDecision('SAFETY_BRAKE', 'DRIVER_CAB_EMERGENCY_BRAKE', speed, stoppingDist, maDistance, stationDistance, true);
     } else if (!driverCabInput.keySwitchLocked) {
-      decision = decision('SELF_CHECK_BLOCKED', 'DRIVER_CAB_KEY_OFF', 0, speed > 0.1 ? 0.6 : 0, false, stoppingDist);
+      dynamicsDecision = decision('SELF_CHECK_BLOCKED', 'DRIVER_CAB_KEY_OFF', 0, speed > 0.1 ? 0.6 : 0, false, stoppingDist);
     } else if (driverCabInput.masterHandleState === 'TRACTION') {
       const tractionCmd = driverCabInput.tractionNotchPercent / 100;
-      decision = decision('ACCELERATING', 'DRIVER_TRACTION', tractionCmd, 0, false, stoppingDist);
+      dynamicsDecision = decision('ACCELERATING', 'DRIVER_TRACTION', tractionCmd, 0, false, stoppingDist);
     } else if (driverCabInput.masterHandleState === 'BRAKE') {
       const brakeCmd = driverCabInput.brakeNotchPercent / 100;
-      decision = decision('MA_BRAKE', 'DRIVER_SERVICE_BRAKE', 0, brakeCmd, false, stoppingDist);
+      dynamicsDecision = decision('MA_BRAKE', 'DRIVER_SERVICE_BRAKE', 0, brakeCmd, false, stoppingDist);
     } else if (driverCabInput.masterHandleState === 'FAST_BRAKE') {
-      decision = decision('SAFETY_BRAKE', 'DRIVER_COMMAND_STALE', 0, 1, false, stoppingDist);
+      dynamicsDecision = decision('SAFETY_BRAKE', 'DRIVER_COMMAND_STALE', 0, 1, false, stoppingDist);
     } else {
-      decision = decideLocalDynamics();
+      dynamicsDecision = decideLocalDynamics();
     }
   } else {
-    decision = decideLocalDynamics();
+    dynamicsDecision = decideLocalDynamics();
   }
   const massKg = EMPTY_MASS_KG + MAX_LOAD_MASS_KG * LOAD_RATE
-  const tractionForce = decision.tractionCommand * 220_000
-  const brakeForce = decision.brakeCommand * (decision.emergencyBrake ? 300_000 : 235_000)
+  const tractionForce = dynamicsDecision.tractionCommand * 220_000
+  const brakeForce = dynamicsDecision.brakeCommand * (dynamicsDecision.emergencyBrake ? 300_000 : 235_000)
   const regenBrakeForce =
-    decision.brakeCommand > 0 && demoTrain.speedMetersPerSecond > 1 && localConfig.currentCollectionAvailable
+    dynamicsDecision.brakeCommand > 0 && demoTrain.speedMetersPerSecond > 1 && localConfig.currentCollectionAvailable
       ? Math.min(brakeForce * 0.58, 125_000)
       : 0
   const rollingResistance = 3_800 + demoTrain.speedMetersPerSecond * 260
@@ -580,9 +577,9 @@ function stepDemo() {
   demoTrain.positionMeters = nextPosition
   demoTrain.speedMetersPerSecond = nextSpeed
   demoTrain.accelerationMetersPerSecondSquared = nextSpeed <= 0.01 && acceleration < 0 ? 0 : acceleration
-  demoTrain.tractionCommand = decision.tractionCommand
-  demoTrain.brakeCommand = decision.brakeCommand
-  demoTrain.emergencyBrake = decision.emergencyBrake
+  demoTrain.tractionCommand = dynamicsDecision.tractionCommand
+  demoTrain.brakeCommand = dynamicsDecision.brakeCommand
+  demoTrain.emergencyBrake = dynamicsDecision.emergencyBrake
   demoTrain.tractionForceNewtons = tractionForce
   demoTrain.brakeForceNewtons = brakeForce
   demoTrain.regenBrakeForceNewtons = regenBrakeForce
@@ -590,12 +587,12 @@ function stepDemo() {
   demoTrain.regenPowerWatts = regenPower
   demoTrain.energyConsumedKwh += (tractionPower * DEMO_STEP_SECONDS) / 3_600_000
   demoTrain.energyRegeneratedKwh += (regenPower * DEMO_STEP_SECONDS) / 3_600_000
-  demoTrain.dynamicsState = decision.state
-  demoTrain.dynamicsConstraintReason = decision.reason
-  demoTrain.speedLimitMetersPerSecond = decision.speedLimitMetersPerSecond
-  demoTrain.movementAuthorityDistanceMeters = decision.movementAuthorityDistanceMeters
-  demoTrain.stationDistanceMeters = decision.stationDistanceMeters
-  demoTrain.stoppingDistanceMeters = decision.stoppingDistanceMeters
+  demoTrain.dynamicsState = dynamicsDecision.state
+  demoTrain.dynamicsConstraintReason = dynamicsDecision.reason
+  demoTrain.speedLimitMetersPerSecond = dynamicsDecision.speedLimitMetersPerSecond
+  demoTrain.movementAuthorityDistanceMeters = dynamicsDecision.movementAuthorityDistanceMeters
+  demoTrain.stationDistanceMeters = dynamicsDecision.stationDistanceMeters
+  demoTrain.stoppingDistanceMeters = dynamicsDecision.stoppingDistanceMeters
 
   history.value = [
     ...history.value.slice(-119),
@@ -818,7 +815,7 @@ function powerTrainMarkerStyle() {
 }
 
 function voltageBarStyle(value: number, section: PowerSectionState) {
-  const upper = Math.max(1, section.voltage, section.externalVoltage, localConfig.railVoltage)
+  const upper = Math.max(1, section.voltage, section.externalVoltage)
   return {
     width: percent(value / upper)
   }
@@ -941,7 +938,7 @@ function stateLabel(state: string) {
     <header class="topbar">
       <div>
         <p class="eyebrow">Railway-Sim / Vehicle Control</p>
-        <h1>车辆自身控制仿真展示</h1>
+        <h1>车辆后端控制与现场接入</h1>
       </div>
       <div class="topbar-actions">
         <span class="connection-pill" :class="backendState">{{ backendStateLabel }}</span>
@@ -965,7 +962,7 @@ function stateLabel(state: string) {
       <div class="live-metrics">
         <div>
           <span>仿真状态</span>
-          <strong>{{ snapshot?.status ?? 'LOCAL' }}</strong>
+          <strong>{{ snapshot?.status ?? '等待后端' }}</strong>
         </div>
         <div>
           <span>列车数</span>
@@ -973,11 +970,11 @@ function stateLabel(state: string) {
         </div>
         <div>
           <span>首车状态</span>
-          <strong>{{ liveTrain ? stateLabel(liveTrain.dynamicsState) : '本地预演' }}</strong>
+          <strong>{{ liveTrain ? stateLabel(liveTrain.dynamicsState) : '无后端列车' }}</strong>
         </div>
         <div>
           <span>首车速度</span>
-          <strong>{{ liveTrain ? formatSpeed(liveTrain.speedMetersPerSecond) : formatSpeed(demoTrain.speedMetersPerSecond) }}</strong>
+          <strong>{{ liveTrain ? formatSpeed(liveTrain.speedMetersPerSecond) : '—' }}</strong>
         </div>
       </div>
     </section>
@@ -986,7 +983,7 @@ function stateLabel(state: string) {
       <div class="section-heading compact">
         <div>
           <span>供电网络联动</span>
-          <h2>轨道拓扑支撑的虚拟电网闭环</h2>
+          <h2>后端轨道拓扑与供电闭环</h2>
         </div>
         <div class="power-summary">
           <span class="quality-pill">{{ powerQualitySummary }}</span>
@@ -1029,7 +1026,7 @@ function stateLabel(state: string) {
             </span>
             <span class="power-train-marker" :style="powerTrainMarkerStyle()">
               <i></i>
-              <b>{{ liveTrain?.id ?? demoTrain.id }}</b>
+              <b>{{ selectedLiveTrain?.id ?? '—' }}</b>
               <small>{{ formatPower(powerTrainPower) }} / {{ formatCurrent(powerTrainCurrent) }}</small>
             </span>
           </div>
@@ -1104,10 +1101,10 @@ function stateLabel(state: string) {
     </section>
 
     <section class="simulator-grid">
-      <div class="train-board">
+      <div v-if="selectedLiveTrain" class="train-board">
         <div class="section-heading">
           <div>
-            <span>TR-DEMO-01</span>
+            <span>{{ selectedLiveTrain.id }}</span>
             <h2>{{ activeStateMeta?.label ?? demoTrain.dynamicsState }}</h2>
           </div>
           <span class="state-badge" :class="activeStateMeta?.tone">{{ reasonText }}</span>
@@ -1116,7 +1113,7 @@ function stateLabel(state: string) {
         <div class="track-map">
           <div class="track-labels">
             <span>0 m</span>
-            <span>{{ formatDistance(localConfig.lineLengthMeters) }}</span>
+            <span>{{ formatDistance(backendLineLength) }}</span>
           </div>
           <div class="rail">
             <span class="authority-band" :style="{ width: authorityProgress }"></span>
@@ -1196,7 +1193,7 @@ function stateLabel(state: string) {
         </div>
       </div>
 
-      <aside class="control-board">
+      <aside v-if="false" class="control-board" aria-hidden="true">
         <div class="section-heading compact">
           <div>
             <span>车辆自控输入</span>

@@ -9,6 +9,8 @@ import com.railwaysim.vehicleruntime.model.VehicleRuntimeStepRequest;
 import com.railwaysim.vehicleruntime.model.VehicleRuntimeStepResponse;
 import java.time.Instant;
 import java.util.List;
+import java.util.UUID;
+import java.util.concurrent.atomic.AtomicBoolean;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -30,9 +32,12 @@ public class VehicleRuntimeTickClock {
 
     private final VehicleRuntimeManager manager;
     private final VehicleRuntimeProperties properties;
+    private final Object sessionLock = new Object();
+    private final AtomicBoolean tickInProgress = new AtomicBoolean();
 
     private volatile long autonomousTick = 0;
     private volatile boolean autonomousMode;
+    private volatile String autonomousRunId = "";
 
     @Autowired
     public VehicleRuntimeTickClock(VehicleRuntimeManager manager, VehicleRuntimeProperties properties) {
@@ -51,8 +56,31 @@ public class VehicleRuntimeTickClock {
         if (manager.instances().isEmpty()) {
             return;
         }
+        if (!tickInProgress.compareAndSet(false, true)) {
+            log.warn("[TickClock] skipped overlapping autonomous tick, runId={}, currentTick={}",
+                autonomousRunId, autonomousTick);
+            return;
+        }
+        try {
+            doAutonomousTick();
+        } finally {
+            tickInProgress.set(false);
+        }
+    }
+
+    private void doAutonomousTick() {
+        final long tick;
+        final String runId;
+        synchronized (sessionLock) {
+            if (!properties.isAutonomousTickEnabled()) {
+                return;
+            }
+            ensureAutonomousSessionLocked();
+            tick = ++autonomousTick;
+            runId = autonomousRunId;
+        }
         VehicleRuntimeStepResponse response = manager.stepFleet(new VehicleRuntimeStepRequest(
-            ++autonomousTick,
+            tick,
             0.1,
             Instant.now(),
             List.of(),
@@ -60,27 +88,40 @@ public class VehicleRuntimeTickClock {
             generateDefaultTracks(),
             generateDefaultDispatches(),
             generateDefaultPowers(),
-            "autonomous-run-" + autonomousTick,
+            runId,
             List.of()
         ));
         log.debug("[TickClock] autonomous tick {} complete: {} trains, dataQuality={}",
-            autonomousTick,
+            tick,
             response.trainStates() != null ? response.trainStates().size() : 0,
             response.dataQuality());
     }
 
     /** 启用自主模式。 */
     public void enable() {
-        this.autonomousMode = true;
-        properties.setAutonomousTickEnabled(true);
-        log.info("[TickClock] autonomous mode ENABLED");
+        synchronized (sessionLock) {
+            if (properties.isAutonomousTickEnabled() && !autonomousRunId.isBlank()) {
+                return;
+            }
+            autonomousTick = 0;
+            autonomousRunId = newAutonomousRunId();
+            autonomousMode = true;
+            properties.setAutonomousTickEnabled(true);
+        }
+        log.info("[TickClock] autonomous mode ENABLED, runId={}", autonomousRunId);
     }
 
     /** 禁用自主模式。 */
     public void disable() {
-        this.autonomousMode = false;
-        properties.setAutonomousTickEnabled(false);
-        log.info("[TickClock] autonomous mode DISABLED");
+        String stoppedRunId;
+        synchronized (sessionLock) {
+            stoppedRunId = autonomousRunId;
+            autonomousMode = false;
+            properties.setAutonomousTickEnabled(false);
+            autonomousRunId = "";
+            autonomousTick = 0;
+        }
+        log.info("[TickClock] autonomous mode DISABLED, runId={}", stoppedRunId);
     }
 
     public boolean isAutonomousMode() {
@@ -89,6 +130,24 @@ public class VehicleRuntimeTickClock {
 
     public long getCurrentTick() {
         return autonomousTick;
+    }
+
+    String getCurrentRunId() {
+        return autonomousRunId;
+    }
+
+    private void ensureAutonomousSessionLocked() {
+        if (autonomousRunId.isBlank()) {
+            autonomousTick = 0;
+            autonomousRunId = newAutonomousRunId();
+            autonomousMode = true;
+            log.info("[TickClock] autonomous session initialized from configuration, runId={}",
+                autonomousRunId);
+        }
+    }
+
+    private String newAutonomousRunId() {
+        return "autonomous-run-" + UUID.randomUUID();
     }
 
     // ========== 默认约束生成 ==========

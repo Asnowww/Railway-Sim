@@ -336,6 +336,67 @@ class VehicleRuntimeManagerTests {
     }
 
     @Test
+    void autonomousClockKeepsOneRunIdAcrossSuccessiveTicks() {
+        VehicleRuntimeManager manager = manager();
+        manager.register(train("TR-AUTO", 100, 0));
+        VehicleRuntimeProperties properties = new VehicleRuntimeProperties();
+        VehicleRuntimeTickClock clock = new VehicleRuntimeTickClock(manager, properties);
+
+        clock.enable();
+        String runId = clock.getCurrentRunId();
+        clock.autonomousTick();
+        clock.autonomousTick();
+        clock.autonomousTick();
+
+        assertThat(runId).startsWith("autonomous-run-");
+        assertThat(clock.getCurrentRunId()).isEqualTo(runId);
+        assertThat(clock.getCurrentTick()).isEqualTo(3);
+        assertThat(manager.health().simulationRunId()).isEqualTo(runId);
+        assertThat(manager.health().lastAcceptedTick()).isEqualTo(3);
+    }
+
+    @Test
+    void repeatedEnableIsIdempotentButReenableAfterDisableStartsNewRun() {
+        VehicleRuntimeManager manager = manager();
+        manager.register(train("TR-AUTO-RESTART", 100, 0));
+        VehicleRuntimeTickClock clock = new VehicleRuntimeTickClock(manager, new VehicleRuntimeProperties());
+
+        clock.enable();
+        String firstRunId = clock.getCurrentRunId();
+        clock.autonomousTick();
+        clock.enable();
+        assertThat(clock.getCurrentRunId()).isEqualTo(firstRunId);
+        assertThat(clock.getCurrentTick()).isEqualTo(1);
+
+        clock.disable();
+        clock.enable();
+        String secondRunId = clock.getCurrentRunId();
+        clock.autonomousTick();
+
+        assertThat(secondRunId).isNotEqualTo(firstRunId);
+        assertThat(clock.getCurrentTick()).isEqualTo(1);
+        assertThat(manager.health().simulationRunId()).isEqualTo(secondRunId);
+    }
+
+    @Test
+    void configuredAutonomousModeLazilyCreatesStableSession() {
+        VehicleRuntimeManager manager = manager();
+        manager.register(train("TR-AUTO-CONFIG", 100, 0));
+        VehicleRuntimeProperties properties = new VehicleRuntimeProperties();
+        properties.setAutonomousTickEnabled(true);
+        VehicleRuntimeTickClock clock = new VehicleRuntimeTickClock(manager, properties);
+
+        clock.autonomousTick();
+        String runId = clock.getCurrentRunId();
+        clock.autonomousTick();
+
+        assertThat(runId).startsWith("autonomous-run-");
+        assertThat(clock.getCurrentRunId()).isEqualTo(runId);
+        assertThat(clock.getCurrentTick()).isEqualTo(2);
+        assertThat(manager.health().simulationRunId()).isEqualTo(runId);
+    }
+
+    @Test
     void powerLossForcesControlQueueToBrakeAndReportCurrentCollectionLost() {
         VehicleRuntimeManager manager = manager();
 
