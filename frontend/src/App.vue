@@ -162,18 +162,21 @@ const trains = ref<TrainMonitorState[]>([
   { id: 'T509', serviceNo: 'G509', positionPercent: 89, speedKph: 44, loadRate: 37, faultCode: '', section: '会展中心-机场北' }
 ])
 
+// 6站正线均分0~6250m (maxPositionMeters=6250) → 每段百分比 = 里程/6250*100
+// T01:0-1250m→2-19%  T02:1250-2500m→19-38%  T03:2500-3750m→38-57%
+// T04:3750-5000m→57-76%  T05:5000-6250m→76-96%
 const trackSegments = ref<TrackSegmentState[]>([
-  { id: 'T01', name: '上京南-科创园', startPercent: 4, widthPercent: 21, occupancy: 'FREE', speedLimitKph: 72 },
-  { id: 'T02', name: '科创园-中央公园', startPercent: 25, widthPercent: 21, occupancy: 'FREE', speedLimitKph: 80 },
-  { id: 'T03', name: '中央公园-北城', startPercent: 50, widthPercent: 21, occupancy: 'FREE', speedLimitKph: 80 },
-  { id: 'T04', name: '北城-会展中心', startPercent: 64, widthPercent: 12, occupancy: 'FREE', speedLimitKph: 72 },
-  { id: 'T05', name: '会展中心-上京北', startPercent: 80, widthPercent: 16, occupancy: 'FREE', speedLimitKph: 80 }
+  { id: 'T01', name: '上京南-科创园', startPercent: 2, widthPercent: 17, occupancy: 'FREE', speedLimitKph: 72 },
+  { id: 'T02', name: '科创园-中央公园', startPercent: 19, widthPercent: 19, occupancy: 'FREE', speedLimitKph: 80 },
+  { id: 'T03', name: '中央公园-北城', startPercent: 38, widthPercent: 19, occupancy: 'FREE', speedLimitKph: 80 },
+  { id: 'T04', name: '北城-会展中心', startPercent: 57, widthPercent: 19, occupancy: 'FREE', speedLimitKph: 72 },
+  { id: 'T05', name: '会展中心-上京北', startPercent: 76, widthPercent: 20, occupancy: 'FREE', speedLimitKph: 80 }
 ])
 
 const powerSections = ref<PowerSectionState[]>([
-  { id: 'P01', name: '南段供电', startPercent: 4, widthPercent: 36, status: 'ENERGIZED', affectedTrains: [] },
-  { id: 'P02', name: '中段供电', startPercent: 40, widthPercent: 36, status: 'ENERGIZED', affectedTrains: [] },
-  { id: 'P03', name: '北段供电', startPercent: 80, widthPercent: 16, status: 'ENERGIZED', affectedTrains: [] }
+  { id: 'P01', name: '南段供电(0-2500m)', startPercent: 2, widthPercent: 36, status: 'ENERGIZED', affectedTrains: [] },
+  { id: 'P02', name: '中段供电(2500-5000m)', startPercent: 38, widthPercent: 38, status: 'ENERGIZED', affectedTrains: [] },
+  { id: 'P03', name: '北段供电(5000-6250m)', startPercent: 76, widthPercent: 20, status: 'ENERGIZED', affectedTrains: [] }
 ])
 
 const topologyNodes: TopologyNode[] = [
