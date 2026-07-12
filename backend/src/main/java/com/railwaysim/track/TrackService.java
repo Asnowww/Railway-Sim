@@ -389,7 +389,7 @@ public class TrackService {
                     stationControlDistance
                 );
             })
-            .toList();
+            .collect(java.util.stream.Collectors.toCollection(ArrayList::new));
     }
 
     /**
