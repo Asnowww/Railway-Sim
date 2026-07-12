@@ -209,6 +209,53 @@ switches:
     reverse_target: T12
     default_position: NORMAL
 
+signals:
+  - id: SIG-T01
+    name: 上京南出站
+    position_meters: 50
+    direction: FORWARD
+    segment_id: T01
+  - id: SIG-T02
+    name: 科创园进站
+    position_meters: 1200
+    direction: FORWARD
+    segment_id: T02
+  - id: SIG-T03
+    name: 中央公园进站
+    position_meters: 2450
+    direction: FORWARD
+    segment_id: T03
+  - id: SIG-T04
+    name: 北城进站
+    position_meters: 3700
+    direction: FORWARD
+    segment_id: T04
+  - id: SIG-T05
+    name: 会展中心出站
+    position_meters: 5050
+    direction: FORWARD
+    segment_id: T05
+  - id: SIG-T06
+    name: 北侧绕行入口
+    position_meters: 1280
+    direction: FORWARD
+    segment_id: T06
+  - id: SIG-T10
+    name: 北侧绕行出口
+    position_meters: 4950
+    direction: FORWARD
+    segment_id: T10
+  - id: SIG-T11
+    name: 试车线入口
+    position_meters: 20
+    direction: FORWARD
+    segment_id: T11
+  - id: SIG-T16
+    name: 支线口终端
+    position_meters: 4650
+    direction: FORWARD
+    segment_id: T16
+
 routes:
   - id: R_MAIN
     name: 正线进路

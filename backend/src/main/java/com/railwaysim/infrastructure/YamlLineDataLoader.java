@@ -150,14 +150,27 @@ public class YamlLineDataLoader {
             }
         }
 
-        // ---- 8. 组装 ----
+        // ---- 8. 信号机 ----
+        List<OperationalLineData.SignalDefinition> signals = new ArrayList<>();
+        if (lineFile.signals != null) {
+            for (YamlSignal sig : lineFile.signals) {
+                String direction = sig.direction != null ? sig.direction : "FORWARD";
+                signals.add(new OperationalLineData.SignalDefinition(
+                    sig.id, sig.name != null ? sig.name : sig.id,
+                    null, null, sig.segmentId,
+                    sig.positionMeters, direction, null, null
+                ));
+            }
+        }
+
+        // ---- 9. 组装 ----
         String lineId = lineFile.line == null || lineFile.line.id == null ? "demo-line" : lineFile.line.id;
         String lineName = lineFile.line == null || lineFile.line.name == null ? lineId : lineFile.line.name;
 
         return new OperationalLineData(
             lineId, lineName,
             points, segments, speedZones, List.of(),
-            switches, stations, List.of(), List.of(), List.of(),
+            switches, stations, List.of(), signals, List.of(),
             routes
         );
     }
@@ -178,6 +191,7 @@ public class YamlLineDataLoader {
         public List<YamlSegment> segments;
         public List<YamlRoute> routes;
         public List<YamlSwitch> switches;
+        public List<YamlSignal> signals;
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
@@ -231,5 +245,14 @@ public class YamlLineDataLoader {
         @JsonProperty("normal_target") public String normalTarget;
         @JsonProperty("reverse_target") public String reverseTarget;
         @JsonProperty("default_position") public String defaultPosition;
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    static final class YamlSignal {
+        public String id;
+        public String name;
+        @JsonProperty("position_meters") public double positionMeters;
+        @JsonProperty("direction") public String direction;
+        @JsonProperty("segment_id") public String segmentId;
     }
 }
