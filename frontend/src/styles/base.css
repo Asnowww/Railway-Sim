@@ -275,6 +275,16 @@ h3 {
   vector-effect: non-scaling-stroke;
 }
 
+.topology-edge.free {
+  stroke: #22c55e;
+  stroke-width: 1.8;
+}
+
+.topology-edge.reserved {
+  stroke: #eab308;
+  stroke-width: 2.0;
+}
+
 .topology-edge.occupied {
   stroke: #f59e0b;
   stroke-width: 2.2;

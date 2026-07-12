@@ -31,7 +31,7 @@ interface TrackSegmentState {
   name: string
   startPercent: number
   widthPercent: number
-  occupancy: 'FREE' | 'OCCUPIED' | 'FAULT'
+  occupancy: 'FREE' | 'RESERVED' | 'OCCUPIED' | 'FAULT'
   speedLimitKph: number
 }
 
@@ -553,7 +553,8 @@ function updateThresholds(): void {
 }
 
 function mapTrackOccupancy(occupancy: string): TrackSegmentState['occupancy'] {
-  if (occupancy === 'OCCUPIED' || occupancy === 'RESERVED') return 'OCCUPIED'
+  if (occupancy === 'OCCUPIED') return 'OCCUPIED'
+  if (occupancy === 'RESERVED') return 'RESERVED'
   if (occupancy === 'FAULT' || occupancy === 'BLOCKED') return 'FAULT'
   return 'FREE'
 }
