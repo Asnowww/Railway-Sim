@@ -46,7 +46,7 @@ public class SignalService {
     /** 每列车当前是否在站台停车中 */
     private final Map<String, Boolean> atStationStop = new LinkedHashMap<>();
     /** 默认站台停站秒数（仅在没有调度停站时间时使用） */
-    private static final int DEFAULT_DWELL_SECONDS = 25;
+    private static final int DEFAULT_DWELL_SECONDS = 5;
 
     public SignalService(
         SimulationProperties simulationProperties,
