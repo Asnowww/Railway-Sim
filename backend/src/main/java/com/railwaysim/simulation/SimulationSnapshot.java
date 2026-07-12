@@ -14,6 +14,7 @@ import java.time.Instant;
 import java.util.List;
 
 public record SimulationSnapshot(
+    String simulationRunId,
     long tick,
     Instant simulatedTime,
     SimulationStatus status,

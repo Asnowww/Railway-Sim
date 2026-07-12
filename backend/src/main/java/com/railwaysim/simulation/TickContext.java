@@ -6,7 +6,10 @@ public record TickContext(
     long tick,
     long stepMillis,
     double deltaSeconds,
-    Instant simulatedTime
+    Instant simulatedTime,
+    String simulationRunId
 ) {
+    public TickContext(long tick, long stepMillis, double deltaSeconds, Instant simulatedTime) {
+        this(tick, stepMillis, deltaSeconds, simulatedTime, "");
+    }
 }
-

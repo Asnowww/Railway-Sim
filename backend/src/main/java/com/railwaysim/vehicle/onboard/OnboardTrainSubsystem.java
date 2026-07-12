@@ -1,6 +1,7 @@
 package com.railwaysim.vehicle.onboard;
 
 import com.railwaysim.config.SimulationProperties;
+import com.railwaysim.config.StoppingControlProperties;
 import com.railwaysim.dispatch.DispatchConstraint;
 import com.railwaysim.infrastructure.StaticInfrastructureCatalog;
 import com.railwaysim.power.PowerConstraint;
@@ -12,14 +13,16 @@ import com.railwaysim.vehicle.TrainStateReport;
 import com.railwaysim.vehicle.VehicleLoadPolicy;
 import com.railwaysim.vehicle.VehiclePhysicsInput;
 import com.railwaysim.vehicle.VehiclePhysicsOutput;
+import com.railwaysim.vehicle.control.AutomaticControlCommand;
+import com.railwaysim.vehicle.control.VehicleControlArbiter;
+import com.railwaysim.vehicle.control.VehicleOperationMode;
+import java.util.Optional;
 
 class OnboardTrainSubsystem {
 
     private static final double DEFAULT_ADHESION = 0.9;
     private static final double GRAVITY = 9.81;
-    private static final double SERVICE_BRAKE_DECELERATION = 1.0;
     private static final double REFERENCE_PEAK_TRACTION_GRID_POWER_WATTS = 4_916_250;
-    private static final double STATION_STOP_WINDOW_METERS = 8.0;
     private static final double STATION_EXIT_WINDOW_METERS = 30.0;
     private static final double STATION_RELEASE_DISTANCE_METERS = 40.0;
     private static final double NO_STATION_DISTANCE_METERS = 1_000_000;
@@ -28,18 +31,21 @@ class OnboardTrainSubsystem {
     private final String subsystemId;
     private final SimulationProperties simulationProperties;
     private final StaticInfrastructureCatalog infrastructureCatalog;
+    private final StoppingControlProperties stoppingProperties;
     private String releasedStationId;
     private double releasedStationPositionMeters = Double.NaN;
 
     OnboardTrainSubsystem(
         String trainId,
         SimulationProperties simulationProperties,
-        StaticInfrastructureCatalog infrastructureCatalog
+        StaticInfrastructureCatalog infrastructureCatalog,
+        StoppingControlProperties stoppingProperties
     ) {
         this.trainId = trainId;
         this.subsystemId = "ONBOARD-" + trainId;
         this.simulationProperties = simulationProperties;
         this.infrastructureCatalog = infrastructureCatalog;
+        this.stoppingProperties = stoppingProperties;
     }
 
     OnboardTrainRegistration registration() {
@@ -62,25 +68,38 @@ class OnboardTrainSubsystem {
         }
         double loadMassKg = VehicleLoadPolicy.loadMassKg(train.loadMassKg(), train.loadRate());
         DynamicsDecision decision = decideDynamicsState(
-            train,
-            speedLimit,
-            maDistance,
-            stationDistance,
-            doorClosed,
-            input.track(),
-            input.power(),
-            input.authority(),
-            stationReleaseWindowActive
+            train, speedLimit, maDistance, stationDistance, doorClosed,
+            input.track(), input.power(), input.authority(), stationReleaseWindowActive
+        );
+
+        // ── Arbiter: safety priority + driver command ──
+        boolean ebRequired = decision.state() == TrainDynamicsState.SAFETY_BRAKE;
+        boolean maRequired = decision.state() == TrainDynamicsState.MA_BRAKE;
+        boolean overspeed = decision.state() == TrainDynamicsState.OVERSPEED_BRAKE;
+        boolean powerAvail = input.power() == null || input.power().powerAvailableWatts() > 0;
+        boolean currentCollAvail = input.power() == null || input.power().energized();
+        boolean brakeAvail = train.brakeAvailable();
+        boolean tractionAndSelfCheckAvailable = train.tractionAvailable()
+            && !"FAIL".equals(train.selfCheckStatus())
+            && "IN_SERVICE".equals(train.controlSessionState());
+        var autoCmd = new AutomaticControlCommand(
+            "rule-" + input.context().tick(), trainId, "RULE_ENGINE",
+            decision.tractionCommand(), decision.brakeCommand(), decision.emergencyBrake(), 1.0, null
+        );
+        VehicleOperationMode mode = resolveOperationMode(input.driverCommand());
+        var arbiterDecision = VehicleControlArbiter.decide(
+            input.context().simulationRunId(), input.context().tick(), trainId,
+            Optional.ofNullable(input.driverCommand()), Optional.of(autoCmd),
+            ebRequired, maRequired, doorClosed, currentCollAvail,
+            tractionAndSelfCheckAvailable, brakeAvail, powerAvail, mode, overspeed
         );
 
         VehiclePhysicsInput physicsInput = new VehiclePhysicsInput(
-            train.id(),
-            train.positionMeters(),
-            train.speedMetersPerSecond(),
+            train.id(), train.positionMeters(), train.speedMetersPerSecond(),
             VehicleLoadPolicy.totalMassKg(loadMassKg),
-            decision.tractionCommand(),
-            decision.brakeCommand(),
-            decision.emergencyBrake(),
+            arbiterDecision.tractionCommand(),
+            arbiterDecision.brakeCommand(),
+            arbiterDecision.emergencyBrake(),
             speedLimit,
             maDistance,
             input.track() == null ? 0 : input.track().gradient(),
@@ -97,7 +116,20 @@ class OnboardTrainSubsystem {
             stationDistance,
             decision.stoppingDistanceMeters()
         );
-        return OnboardTrainControlOutput.from(subsystemId, physicsInput);
+        return OnboardTrainControlOutput.from(subsystemId, physicsInput, arbiterDecision);
+    }
+
+    private VehicleOperationMode resolveOperationMode(
+        com.railwaysim.vehicle.control.DriverControlCommand driverCommand
+    ) {
+        if (driverCommand == null || driverCommand.operationMode() == null) {
+            return VehicleOperationMode.AUTO;
+        }
+        try {
+            return VehicleOperationMode.valueOf(driverCommand.operationMode());
+        } catch (IllegalArgumentException exception) {
+            return VehicleOperationMode.AUTO;
+        }
     }
 
     TrainStateReport buildTrainStateReport(
@@ -144,7 +176,10 @@ class OnboardTrainSubsystem {
             input.emergencyBrakeCommand(),
             input.railVoltage(),
             input.powerAvailableWatts(),
-            output.faultCode()
+            output.faultCode(),
+            "CONTROL_OR_SAFETY",
+            null,
+            null
         );
     }
 
@@ -236,7 +271,8 @@ class OnboardTrainSubsystem {
             );
         }
 
-        if (stationDistance <= STATION_STOP_WINDOW_METERS && speed <= 0.2) {
+        if (stationDistance <= stoppingProperties.getStationStopWindowMeters()
+            && speed <= stoppingProperties.getZeroSpeedMetersPerSecond()) {
             return new DynamicsDecision(
                 TrainDynamicsState.STATION_STOPPED,
                 "STATION_STOP_WINDOW",
@@ -558,15 +594,20 @@ class OnboardTrainSubsystem {
     private double stoppingDistanceMeters(double speedMetersPerSecond, double gradient, double brakingFactor) {
         double planningGradient = clamp(gradient, -0.04, 0.04);
         double effectiveDeceleration = clamp(
-            SERVICE_BRAKE_DECELERATION * clamp(brakingFactor, 0.2, 1.2) + planningGradient * GRAVITY,
-            0.35,
-            1.25
+            stoppingProperties.getServiceBrakeDecelerationMetersPerSecondSquared()
+                * clamp(brakingFactor, 0.2, 1.2) + planningGradient * GRAVITY,
+            stoppingProperties.getMinimumEffectiveDecelerationMetersPerSecondSquared(),
+            stoppingProperties.getMaximumEffectiveDecelerationMetersPerSecondSquared()
         );
         return speedMetersPerSecond * speedMetersPerSecond / (2 * effectiveDeceleration);
     }
 
     private double stationApproachBufferMeters(double speedMetersPerSecond) {
-        return clamp(Math.max(30, speedMetersPerSecond * 6), 30, 140);
+        return clamp(
+            Math.max(stoppingProperties.getMinimumApproachBufferMeters(),
+                speedMetersPerSecond * stoppingProperties.getApproachBufferSeconds()),
+            stoppingProperties.getMinimumApproachBufferMeters(),
+            stoppingProperties.getMaximumApproachBufferMeters());
     }
 
     private record DynamicsDecision(

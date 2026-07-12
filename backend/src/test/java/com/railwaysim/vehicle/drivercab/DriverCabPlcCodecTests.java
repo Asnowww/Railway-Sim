@@ -92,4 +92,15 @@ class DriverCabPlcCodecTests {
             .isInstanceOf(IllegalArgumentException.class)
             .hasMessageContaining("identify header");
     }
+
+    @Test
+    void rejectsOutOfRangeNotchInsteadOfClamping() {
+        byte[] payload = codec.encodeInput(DriverCabPlcInputPacket.neutral());
+        payload[40] = 101;
+        payload[41] = 0;
+
+        assertThatThrownBy(() -> codec.decodeInput(payload))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("tractionNotchPercent must be in 0..100");
+    }
 }

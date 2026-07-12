@@ -2,6 +2,9 @@ package com.railwaysim.monitor;
 
 import com.railwaysim.dispatch.DispatchSnapshot;
 import com.railwaysim.power.PowerSectionState;
+import com.railwaysim.power.external.PowerNetworkStateSnapshot;
+import com.railwaysim.power.external.ExternalPowerNetworkHealth;
+import com.railwaysim.power.external.ExternalPowerNetworkMode;
 import com.railwaysim.signal.MovementAuthority;
 import com.railwaysim.signal.RouteState;
 import com.railwaysim.signal.SignalState;
@@ -27,7 +30,18 @@ import org.springframework.stereotype.Service;
 @Service
 public class MonitorService {
 
+    private final AlarmLifecycleService alarmLifecycleService;
+    private final ServiceHealthService serviceHealthService;
+
+    public MonitorService(
+        AlarmLifecycleService alarmLifecycleService, ServiceHealthService serviceHealthService
+    ) {
+        this.alarmLifecycleService = alarmLifecycleService;
+        this.serviceHealthService = serviceHealthService;
+    }
+
     public SimulationSnapshot buildSnapshot(
+        String simulationRunId,
         long tick,
         Instant simulatedTime,
         SimulationStatus status,
@@ -39,10 +53,14 @@ public class MonitorService {
         List<RouteState> routeStates,
         List<PowerSectionState> powerSections,
         VehicleRuntimeHealth vehicleRuntime,
+        PowerNetworkStateSnapshot powerNetwork,
+        ExternalPowerNetworkHealth powerHealth,
         List<DomainEvent> events,
         DispatchSnapshot dispatch
     ) {
+        observeServiceHealth(simulationRunId, tick, vehicleRuntime, powerNetwork, powerHealth);
         return new SimulationSnapshot(
+            simulationRunId,
             tick,
             simulatedTime,
             status,
@@ -54,9 +72,58 @@ public class MonitorService {
             routeStates,
             powerSections,
             vehicleRuntime,
-            buildAlarms(tick, simulatedTime, trains, trackSegments, authorities, powerSections, events),
+            alarmLifecycleService.reconcile(
+                simulationRunId,
+                buildAlarms(tick, simulatedTime, trains, trackSegments, authorities, powerSections, events),
+                simulatedTime
+            ),
             dispatch
         );
+    }
+
+    private void observeServiceHealth(
+        String simulationRunId, long tick, VehicleRuntimeHealth vehicleRuntime,
+        PowerNetworkStateSnapshot powerNetwork, ExternalPowerNetworkHealth powerHealth
+    ) {
+        Instant now = Instant.now();
+        boolean externalVehicle = vehicleRuntime.mode()
+            != com.railwaysim.vehicle.runtime.VehicleRuntimeMode.LOCAL;
+        ServiceHealthRecord vehicleHealthRecord = serviceHealthService.observe(new ServiceHealthObservation(
+            "vehicle-runtime-9300", externalVehicle, vehicleRuntime.heartbeatStatus(),
+            vehicleRuntime.dataQuality(), vehicleRuntime.sourceTimestamp(),
+            externalVehicle ? vehicleRuntime.simulationRunId() : simulationRunId,
+            externalVehicle ? vehicleRuntime.lastAcceptedTick() : tick,
+            externalVehicle ? vehicleRuntime.topologyHash() : "NOT_APPLICABLE",
+            externalVehicle ? vehicleRuntime.configHash() : "LOCAL",
+            externalVehicle ? vehicleRuntime.fmuModelVersion() : "LOCAL_JAVA",
+            externalVehicle
+                ? vehicleRuntime.parameterSetId() + "/" + vehicleRuntime.stoppingParameterVersion()
+                : "LOCAL",
+            vehicleRuntime.reason()), now);
+        autoCheckRecovery(vehicleHealthRecord, simulationRunId, tick, now);
+
+        boolean externalPower = powerHealth != null && powerHealth.mode() != ExternalPowerNetworkMode.LOCAL;
+        if (powerNetwork != null && powerHealth != null) {
+            ServiceHealthRecord powerHealthRecord = serviceHealthService.observe(new ServiceHealthObservation(
+                "power-network-9200", externalPower, powerHealth.heartbeatStatus(),
+                powerHealth.dataQuality(), powerHealth.lastPacketAt(),
+                externalPower ? powerNetwork.simulationRunId() : simulationRunId,
+                externalPower ? powerNetwork.lastAcceptedTick() : tick,
+                externalPower ? powerNetwork.topologyHash() : "LOCAL",
+                externalPower ? powerNetwork.configHash() : "LOCAL",
+                externalPower ? powerNetwork.modelVersion() : "LOCAL_POWER",
+                externalPower ? powerNetwork.parameterVersion() : "LOCAL",
+                powerHealth.heartbeatStatus()), now);
+            autoCheckRecovery(powerHealthRecord, simulationRunId, tick, now);
+        }
+    }
+
+    private void autoCheckRecovery(
+        ServiceHealthRecord record, String expectedRunId, long expectedTick, Instant now
+    ) {
+        if (record.state() == ServiceHealthState.RECOVERING) {
+            serviceHealthService.checkRecovery(record.serviceId(), expectedRunId, expectedTick, now);
+        }
     }
 
     private List<Alarm> buildAlarms(
@@ -72,7 +139,7 @@ public class MonitorService {
         trains.stream()
             .filter(train -> !"OK".equals(train.faultCode()) || train.faultLevel() > 0)
             .map(train -> new Alarm(
-                "TRAIN-" + tick + "-" + train.id(),
+                "TRAIN_FAULT:" + train.id() + ":" + train.faultCode(),
                 "train",
                 train.id(),
                 train.faultLevel() <= 0 ? 2 : train.faultLevel(),
@@ -98,7 +165,7 @@ public class MonitorService {
         authorities.stream()
             .filter(authority -> authority.authorityEndMeters() <= 0 || "前方安全距离不足".equals(authority.reason()))
             .map(authority -> new Alarm(
-                "SIGNAL-" + tick + "-" + authority.trainId(),
+                "SIGNAL_MA_LIMIT:" + authority.trainId(),
                 "signal",
                 authority.trainId(),
                 3,
@@ -111,7 +178,7 @@ public class MonitorService {
         powerSections.stream()
             .filter(section -> !"ENERGIZED".equals(section.status()))
             .map(section -> new Alarm(
-                "POWER-" + tick + "-" + section.id(),
+                "POWER_STATE:" + section.id() + ":" + section.status(),
                 "power",
                 section.id(),
                 "DEENERGIZED".equals(section.status()) ? 3 : 2,
@@ -122,16 +189,16 @@ public class MonitorService {
             ))
             .forEach(alarms::add);
         events.stream()
-            .map(event -> alarmFromEvent(tick, simulatedTime, event))
+            .map(event -> alarmFromEvent(simulatedTime, event))
             .filter(alarm -> alarm != null)
             .forEach(alarms::add);
         return alarms;
     }
 
-    private Alarm alarmFromEvent(long tick, Instant simulatedTime, DomainEvent event) {
+    private Alarm alarmFromEvent(Instant simulatedTime, DomainEvent event) {
         if (event instanceof FmuStepFailedEvent fmuStepFailed) {
             return new Alarm(
-                "FMU-FAILED-" + tick + "-" + fmuStepFailed.trainId(),
+                "FMU_STEP_FAILED:" + fmuStepFailed.trainId(),
                 "vehicle",
                 fmuStepFailed.trainId(),
                 3,
@@ -143,7 +210,7 @@ public class MonitorService {
         }
         if (event instanceof FmuFallbackActivatedEvent fallbackActivated) {
             return new Alarm(
-                "FMU-FALLBACK-" + tick,
+                "FMU_FALLBACK:" + fallbackActivated.scope(),
                 "vehicle",
                 fallbackActivated.scope(),
                 2,
@@ -155,7 +222,7 @@ public class MonitorService {
         }
         if (event instanceof PowerLimitTriggeredEvent powerLimit) {
             return new Alarm(
-                "POWER-LIMIT-" + tick + "-" + powerLimit.sectionId(),
+                "POWER_LIMIT:" + powerLimit.sectionId(),
                 "power",
                 powerLimit.sectionId(),
                 powerLimit.voltage() < 900 ? 3 : 2,
@@ -166,8 +233,11 @@ public class MonitorService {
             );
         }
         if (event instanceof PowerFaultStateChangedEvent powerFault) {
+            if ("CLEARED".equals(powerFault.state())) {
+                return null;
+            }
             return new Alarm(
-                "POWER-FAULT-" + tick + "-" + powerFault.sectionId(),
+                "POWER_FAULT:" + powerFault.sectionId() + ":" + powerFault.faultType(),
                 "power",
                 powerFault.sectionId(),
                 3,
@@ -178,8 +248,11 @@ public class MonitorService {
             );
         }
         if (event instanceof PowerMaintenanceLockChangedEvent maintenanceLock) {
+            if ("NONE".equals(maintenanceLock.maintenanceState())) {
+                return null;
+            }
             return new Alarm(
-                "POWER-LOCK-" + tick + "-" + maintenanceLock.sectionId(),
+                "POWER_LOCK:" + maintenanceLock.sectionId(),
                 "power",
                 maintenanceLock.sectionId(),
                 2,
@@ -191,7 +264,7 @@ public class MonitorService {
         }
         if (event instanceof RegenerativeEnergyAbsorbedEvent regenerativeEnergy && regenerativeEnergy.unabsorbedPowerWatts() > 0) {
             return new Alarm(
-                "REGEN-UNABSORBED-" + tick + "-" + regenerativeEnergy.sectionId(),
+                "REGEN_UNABSORBED:" + regenerativeEnergy.sectionId(),
                 "power",
                 regenerativeEnergy.sectionId(),
                 1,
@@ -202,8 +275,11 @@ public class MonitorService {
             );
         }
         if (event instanceof TrainFaultStateChangedEvent trainFault) {
+            if ("CLEARED".equals(trainFault.state())) {
+                return null;
+            }
             return new Alarm(
-                "TRAIN-FAULT-" + tick + "-" + trainFault.trainId(),
+                "TRAIN_FAULT_EVENT:" + trainFault.trainId() + ":" + trainFault.faultCode(),
                 "vehicle",
                 trainFault.trainId(),
                 "CLEARED".equals(trainFault.state()) ? 1 : 3,

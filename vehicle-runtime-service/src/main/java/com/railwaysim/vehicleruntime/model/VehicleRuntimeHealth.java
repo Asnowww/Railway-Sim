@@ -18,6 +18,11 @@ public record VehicleRuntimeHealth(
     long totalFleetTickCount,
     long missedDeadlineCount,
     long fallbackEventCount,
-    long fmiErrorCount
+    long fmiErrorCount,
+    String simulationRunId,
+    long lastAcceptedTick,
+    String topologyHash,
+    String configHash,
+    String stoppingParameterVersion
 ) {
 }

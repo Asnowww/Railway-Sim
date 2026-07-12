@@ -163,6 +163,7 @@ class PowerIntegrationServiceTests {
               "sourceTimestamp": "2026-07-09T00:00:00Z",
               "heartbeatStatus": "UP",
               "dataQuality": "GOOD",
+              "bootstrapped": true,
               "substations": [
                 {
                   "id": "SS01",

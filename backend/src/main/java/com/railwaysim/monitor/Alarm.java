@@ -10,7 +10,13 @@ public record Alarm(
     String title,
     String detail,
     Instant raisedAt,
-    boolean confirmed
+    boolean confirmed,
+    FaultImpact impact
 ) {
+    public Alarm(
+        String id, String sourceModule, String locationRef, int level, String title,
+        String detail, Instant raisedAt, boolean confirmed
+    ) {
+        this(id, sourceModule, locationRef, level, title, detail, raisedAt, confirmed, null);
+    }
 }
-

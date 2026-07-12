@@ -17,6 +17,8 @@ import com.railwaysim.simulation.event.TrainFaultStateChangedEvent;
 import com.railwaysim.simulation.event.VehiclePhysicsUpdatedEvent;
 import com.railwaysim.track.TrackConstraint;
 import com.railwaysim.vehicle.VehiclePhysicsOutput;
+import com.railwaysim.vehicle.control.DriverCommandHolder;
+import com.railwaysim.vehicle.control.DriverControlCommand;
 import com.railwaysim.vehicle.drivercab.DriverCabPlcInputPacket;
 import com.railwaysim.vehicle.onboard.OnboardTrainSubsystemManager;
 import com.railwaysim.vehicle.protocol.TrainOperationalTelemetry;
@@ -51,6 +53,7 @@ public class TrainManager {
     private final VehicleSpecificationCatalog vehicleSpecificationCatalog;
     private final Map<String, RuntimeVehicleMetadata> vehicleMetadata = new LinkedHashMap<>();
     private final List<TrainFaultRecord> faultRecords = new ArrayList<>();
+    private final DriverCommandHolder driverCommandHolder;
 
     @Autowired
     public TrainManager(
@@ -59,7 +62,8 @@ public class TrainManager {
         StaticInfrastructureCatalog infrastructureCatalog,
         RealtimeStateCache realtimeStateCache,
         SimpleEventBus eventBus,
-        VehicleSpecificationCatalog vehicleSpecificationCatalog
+        VehicleSpecificationCatalog vehicleSpecificationCatalog,
+        DriverCommandHolder driverCommandHolder
     ) {
         this.onboardTrainSubsystemManager = onboardTrainSubsystemManager;
         this.vehicleRuntimeIntegrationService = vehicleRuntimeIntegrationService;
@@ -67,6 +71,7 @@ public class TrainManager {
         this.realtimeStateCache = realtimeStateCache;
         this.eventBus = eventBus;
         this.vehicleSpecificationCatalog = vehicleSpecificationCatalog;
+        this.driverCommandHolder = driverCommandHolder;
     }
 
     public TrainManager(
@@ -82,7 +87,8 @@ public class TrainManager {
             infrastructureCatalog,
             realtimeStateCache,
             eventBus,
-            new VehicleSpecificationCatalog("config/train_params.yaml")
+            new VehicleSpecificationCatalog("config/train_params.yaml"),
+            new DriverCommandHolder()
         );
     }
 
@@ -92,6 +98,7 @@ public class TrainManager {
     }
 
     public synchronized void reset() {
+        driverCommandHolder.clear();
         String routeId = infrastructureCatalog.lineData().lineId();
         double lineLengthMeters = infrastructureCatalog.lineData().lineLengthMeters();
         if (lineLengthMeters <= 0) {
@@ -294,6 +301,14 @@ public class TrainManager {
         TrainEntity train = trainEntity(trainId);
         train.applyDriverCabInput(input);
         return train.state(controlSessions.get(train.id()));
+    }
+
+    public void storeDriverCommand(DriverControlCommand cmd) {
+        driverCommandHolder.store(cmd.trainId(), cmd);
+    }
+
+    public DriverControlCommand latestDriverCommand(String trainId) {
+        return driverCommandHolder.latest(trainId);
     }
 
     public synchronized List<TrainState> states() {

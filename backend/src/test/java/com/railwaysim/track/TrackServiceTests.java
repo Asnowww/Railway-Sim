@@ -89,6 +89,34 @@ class TrackServiceTests {
         assertThat(occupancy(trackService, "T02")).isEqualTo(TrackOccupancy.RESERVED);
     }
 
+    @Test
+    void occupancyUsesAssignedTopologyPathInsteadOfEveryOverlappingMileageRange() {
+        TrackService trackService = trackService(lineWithParallelTracks());
+        TrainState mainTrain = train("TR-MAIN", 100);
+        TrainState depotTrain = train("TR-DEPOT", 100);
+        trackService.assignTrainToSegment("TR-MAIN", "T01");
+        trackService.assignTrainToSegment("TR-DEPOT", "T11");
+
+        trackService.updateOccupancy(List.of(mainTrain, depotTrain));
+
+        assertThat(trackService.occupyingTrainIds("T01")).containsExactly("TR-MAIN");
+        assertThat(trackService.occupyingTrainIds("T11")).containsExactly("TR-DEPOT");
+        assertThat(trackService.segmentForTrain(depotTrain).id()).isEqualTo("T11");
+    }
+
+    @Test
+    void assignedTrainFollowsConnectedSegmentAcrossBoundary() {
+        TrackService trackService = trackService(lineWithParallelTracks());
+        trackService.assignTrainToSegment("TR-DEPOT", "T11");
+
+        TrainState train = train("TR-DEPOT", 430);
+        trackService.updateOccupancy(List.of(train));
+
+        assertThat(trackService.segmentForTrain(train).id()).isEqualTo("T12");
+        assertThat(trackService.occupyingTrainIds("T12")).containsExactly("TR-DEPOT");
+        assertThat(trackService.occupyingTrainIds("T01")).isEmpty();
+    }
+
     private static TrackService trackService(OperationalLineData lineData) {
         StaticInfrastructureCatalog catalog = new StaticInfrastructureCatalog(lineData, emptyPowerData());
         SimulationProperties properties = new SimulationProperties();
@@ -193,6 +221,19 @@ class TrackServiceTests {
 
     private static TrainState train(String id, double positionMeters) {
         return new TrainEntity(id, "branch-demo", positionMeters, 20).state();
+    }
+
+    private static OperationalLineData lineWithParallelTracks() {
+        return new OperationalLineData(
+            "parallel-demo", "Parallel Demo", List.of(),
+            List.of(
+                segment("T01", 1, 0, 500, List.of("T02"), "N1", "N2", "main", 20),
+                segment("T02", 2, 500, 1000, List.of(), "N2", "N3", "main", 20),
+                segment("T11", 11, 0, 420, List.of("T12"), "D1", "D2", "depot", 10),
+                segment("T12", 12, 420, 1000, List.of(), "D2", "N2", "depot", 12)
+            ),
+            List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of()
+        );
     }
 
     private static TrackOccupancy occupancy(TrackService trackService, String segmentId) {
