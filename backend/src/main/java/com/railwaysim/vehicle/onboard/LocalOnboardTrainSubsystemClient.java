@@ -10,6 +10,8 @@ import com.railwaysim.vehicle.VehiclePhysicsOutput;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
+/** @deprecated LOCAL mode only. */
+@Deprecated(forRemoval=true, since="2.0")
 class LocalOnboardTrainSubsystemClient implements OnboardTrainSubsystemClient {
 
     private final SimulationProperties simulationProperties;

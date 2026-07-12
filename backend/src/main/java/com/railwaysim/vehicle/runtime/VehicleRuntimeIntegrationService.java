@@ -162,6 +162,11 @@ public class VehicleRuntimeIntegrationService implements VehiclePowerLoadForward
         return status().health();
     }
 
+    /** 转发司控台 PLC 输入到 9300（仅 EXTERNAL_HTTP 模式使用）。 */
+    public void forwardPlcInput(String trainId, byte[] payload) {
+        client.forwardPlcInput(trainId, payload);
+    }
+
     @Override
     public boolean ownsPowerLoadForwarding() {
         // 只有外部车辆运行时真实在线时，中央才让出供电负荷写入权，避免启动初期误判。
@@ -175,6 +180,11 @@ public class VehicleRuntimeIntegrationService implements VehiclePowerLoadForward
     public boolean isConfiguredPowerLoadForwardingOwner() {
         return properties.getMode() == VehicleRuntimeMode.EXTERNAL_HTTP
             && externalPowerNetworkProperties.getMode() == ExternalPowerNetworkMode.EXTERNAL_HTTP;
+    }
+
+    /** 当前是否使用外部车辆运行时（EXTERNAL_HTTP 或 DUAL_SHADOW）。 */
+    public boolean isExternalMode() {
+        return properties.getMode() == VehicleRuntimeMode.EXTERNAL_HTTP || properties.getMode() == VehicleRuntimeMode.DUAL_SHADOW;
     }
 
     /** In split mode 8080 sends only signal/track/dispatch control; 9300 obtains power from 9200. */

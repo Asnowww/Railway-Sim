@@ -294,6 +294,10 @@ public class TrainEntity {
         return "RUNNING";
     }
 
+    /**
+     * @deprecated Authority moved to 9300's TrainStateHolder.applyDriverCabInput(). Retained only for LOCAL mode fallback.
+     */
+    @Deprecated(forRemoval=true)
     public void applyDriverCabInput(DriverCabPlcInputPacket input) {
         if (input == null) {
             throw new IllegalArgumentException("driver cab PLC input is required");

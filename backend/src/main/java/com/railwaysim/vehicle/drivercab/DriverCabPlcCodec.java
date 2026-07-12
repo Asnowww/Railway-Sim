@@ -4,6 +4,8 @@ import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.time.LocalDateTime;
 
+/** @deprecated LOCAL mode only. EXTERNAL_HTTP mode uses 9300's DriverCabPlcCodec. */
+@Deprecated(forRemoval=true, since="2.0")
 public class DriverCabPlcCodec {
 
     public static final int PLC_TO_UPPER_BYTES = 46;

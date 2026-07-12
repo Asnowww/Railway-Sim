@@ -6,6 +6,8 @@ package com.railwaysim.vehicle.control;
  * 当前自动命令由规则推断（状态机 `decideDynamicsState`），
  * 此处预留结构以便未来注入 ATO 系统的显式命令。
  */
+/** @deprecated LOCAL mode only. */
+@Deprecated(forRemoval=true, since="2.0")
 public record AutomaticControlCommand(
     String commandId,
     String trainId,
