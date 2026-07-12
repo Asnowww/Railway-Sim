@@ -1,6 +1,7 @@
 package com.railwaysim.dispatch.plan;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 
 import com.railwaysim.dispatch.config.DispatchProperties;
 import java.time.Instant;
@@ -37,5 +38,18 @@ class OperationPlanLoaderTest {
         CurrentRunPlan plan = loader.resolve(eight);
         assertEquals("PEAK", plan.periodType());
         assertEquals(180, plan.departureIntervalSec());
+    }
+
+    @Test
+    void loadsFormalServicesAndCirculations() {
+        assertEquals(4, loader.services().size());
+        assertEquals(4, loader.circulations().size());
+        TrainServicePlan first = loader.services().getFirst();
+        assertEquals("SVC-001", first.serviceId());
+        assertEquals("CIRC-001", first.circulationId());
+        assertEquals("TR-001", first.trainId());
+        assertEquals("S01", first.origin().stationId());
+        assertEquals("S05", first.terminus().stationId());
+        assertFalse(first.stops().isEmpty());
     }
 }

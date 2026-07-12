@@ -44,13 +44,13 @@ public class StrategySelector {
             }
             DispatchCommand command = switch (event.disturbanceType()) {
                 case DWELL_EXTENDED -> dwellCommand(
-                    simulationRunId, simulatedAt, target.trainId(), -5, TrainRegulationAction.CATCH_UP, event);
+                    simulationRunId, simulatedAt, target, -5, TrainRegulationAction.CATCH_UP, event);
                 case TRAIN_REGULATION, HEADWAY_VIOLATION -> trainRegulationCommand(
-                    simulationRunId, simulatedAt, target.trainId(), event);
+                    simulationRunId, simulatedAt, target, event);
                 case HEADWAY_SHRINK -> dwellCommand(
-                    simulationRunId, simulatedAt, target.trainId(), 5, TrainRegulationAction.SLOW_DOWN, event);
+                    simulationRunId, simulatedAt, target, 5, TrainRegulationAction.SLOW_DOWN, event);
                 case HEADWAY_EXPAND, DEPARTURE_DELAY -> dwellCommand(
-                    simulationRunId, simulatedAt, target.trainId(), -3, TrainRegulationAction.CATCH_UP, event);
+                    simulationRunId, simulatedAt, target, -3, TrainRegulationAction.CATCH_UP, event);
                 case CROWDING -> headwayCommand(simulationRunId, simulatedAt, plan, event);
             };
             commands.add(command);
@@ -89,25 +89,27 @@ public class StrategySelector {
     private DispatchCommand trainRegulationCommand(
         String simulationRunId,
         Instant simulatedAt,
-        String trainId,
+        TrainRunProfile target,
         DisturbanceEvent event
     ) {
+        int adjustment = scaledDwellAdjustment(event);
         if ("TOO_SHORT".equals(event.headwayDirection())) {
             return dwellCommand(
-                simulationRunId, simulatedAt, trainId, 5, TrainRegulationAction.SLOW_DOWN, event);
+                simulationRunId, simulatedAt, target, adjustment, TrainRegulationAction.SLOW_DOWN, event);
         }
         return dwellCommand(
-            simulationRunId, simulatedAt, trainId, -3, TrainRegulationAction.CATCH_UP, event);
+            simulationRunId, simulatedAt, target, -adjustment, TrainRegulationAction.CATCH_UP, event);
     }
 
     private DispatchCommand dwellCommand(
         String simulationRunId,
         Instant simulatedAt,
-        String trainId,
+        TrainRunProfile target,
         int delta,
         String regulationAction,
         DisturbanceEvent event
     ) {
+        String trainId = target.trainId();
         String type = delta >= 0 ? "EXTEND_DWELL" : "SHORTEN_DWELL";
         Map<String, Object> payload = new HashMap<>();
         payload.put("deltaDwellSec", delta);
@@ -117,6 +119,12 @@ public class StrategySelector {
         payload.put("regulationAction", regulationAction);
         payload.put("regulationSource", event.disturbanceType().name());
         payload.put("executeOnNextDwell", true);
+        payload.put("strategyLevel", strategyLevel(Math.abs(delta)));
+        payload.put("effectConfirmationStandard", "NEXT_STATION_HEADWAY_IMPROVED_OR_WITHIN_TOLERANCE");
+        if (event.actualHeadwaySec() != null && event.targetHeadwaySec() != null) {
+            payload.put("baselineHeadwayErrorSec", event.actualHeadwaySec() - event.targetHeadwaySec());
+        }
+        payload.put("baselineDepartureDelaySec", target.departureDelaySec());
         if (event.stationId() != null && !event.stationId().isBlank()) {
             payload.put("targetStationId", event.stationId());
         }
@@ -131,6 +139,23 @@ public class StrategySelector {
             simulatedAt,
             null
         );
+    }
+
+    private int scaledDwellAdjustment(DisturbanceEvent event) {
+        double violation = event.violationSec() == null
+            ? Math.abs(event.deviationValue())
+            : Math.abs(event.violationSec());
+        return Math.max(3, Math.min(10, (int) Math.ceil(violation / 30.0)));
+    }
+
+    private String strategyLevel(int adjustmentSec) {
+        if (adjustmentSec >= 8) {
+            return "SEVERE";
+        }
+        if (adjustmentSec >= 5) {
+            return "MODERATE";
+        }
+        return "MINOR";
     }
 
     private DispatchCommand headwayCommand(

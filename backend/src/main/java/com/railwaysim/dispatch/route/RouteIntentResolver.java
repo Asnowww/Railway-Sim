@@ -91,6 +91,7 @@ public class RouteIntentResolver {
             distance,
             etaSeconds,
             priority,
+            0,
             simulatedAt,
             simulatedAt.plusSeconds(Math.max(5, properties.getRouteIntentValiditySeconds()))
         );

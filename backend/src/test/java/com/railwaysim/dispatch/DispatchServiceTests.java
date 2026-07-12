@@ -239,6 +239,104 @@ class DispatchServiceTests {
     }
 
     @Test
+    void dispatchGeneratesDepartureCommandsFromFormalServicePlan() {
+        DispatchService service = dispatchService();
+        Instant due = Instant.now().plusSeconds(1_400);
+
+        service.evaluate(tick(1, due), List.of(), List.of());
+
+        assertThat(service.pendingCommands())
+            .filteredOn(command -> "DEPART".equals(command.commandType()))
+            .hasSize(4)
+            .allSatisfy(command -> assertThat(command.payload())
+                .containsKeys("serviceId", "circulationId", "plannedDepartureAt", "fromStation", "toStation")
+                .containsEntry("source", "FORMAL_SERVICE_PLAN"));
+        assertThat(service.snapshot().services())
+            .extracting(DispatchSnapshot.ServicePlanView::departureStatus)
+            .containsOnly(CommandStatus.PENDING);
+    }
+
+    @Test
+    void pendingRouteRequestTimesOutAtDispatchAcknowledgementDeadline() {
+        DispatchService service = dispatchService();
+        Instant now = Instant.now();
+        DispatchCommand request = new DispatchCommand(
+            "DC-route-timeout", "TR-1", "REQUEST_ROUTE", Map.of("routeId", "R_BRANCH"),
+            "test", CommandStatus.PENDING, now, null
+        );
+        service.submit(request);
+
+        service.evaluate(tick(1, now.plusSeconds(31)), List.of(), List.of());
+
+        assertThat(service.snapshot().routeReservations()).singleElement().satisfies(reservation -> {
+            assertThat(reservation.state()).isEqualTo(RouteReservationState.TIMEOUT);
+            assertThat(reservation.failureCode()).isEqualTo("INTERLOCKING_ACK_TIMEOUT");
+            assertThat(reservation.retryable()).isTrue();
+            assertThat(reservation.timedOutAt()).isNotNull();
+        });
+        assertThat(service.commands()).filteredOn(command -> command.id().equals("DC-route-timeout"))
+            .extracting(DispatchCommand::status).containsExactly(CommandStatus.TIMEOUT);
+    }
+
+    @Test
+    void cancellingAcceptedRouteQueuesRealInterlockingCancellationCommand() {
+        DispatchService service = dispatchService();
+        Instant now = Instant.now();
+        DispatchCommand request = service.submit(new DispatchCommand(
+            "DC-route-cancel", "TR-1", "REQUEST_ROUTE", Map.of("routeId", "R_BRANCH"),
+            "test", CommandStatus.PENDING, now, null
+        ));
+        service.acceptFeedback(List.of(new DispatchCommandFeedback(
+            request.id(), request.trainId(), request.commandType(), "SIGNAL_INTERLOCKING",
+            CommandStatus.EFFECT_CONFIRMED, "route established", now,
+            Map.of("accepted", true, "routeId", "R_BRANCH", "resultCode", "ROUTE_ESTABLISHED")
+        )));
+
+        service.cancelCommand(request.id());
+
+        assertThat(service.pendingCommands())
+            .filteredOn(command -> "CANCEL_ROUTE".equals(command.commandType()))
+            .singleElement()
+            .satisfies(command -> assertThat(command.payload())
+                .containsEntry("routeId", "R_BRANCH")
+                .containsKey("reservationId"));
+        assertThat(service.snapshot().routeReservations()).singleElement()
+            .satisfies(reservation -> assertThat(reservation.cancelCommandId()).isNotBlank());
+
+        DispatchCommand cancellation = service.drainCommandsOfType("CANCEL_ROUTE").getFirst();
+        service.acceptFeedback(List.of(new DispatchCommandFeedback(
+            cancellation.id(), cancellation.trainId(), cancellation.commandType(), "SIGNAL_INTERLOCKING",
+            CommandStatus.EFFECT_CONFIRMED, "route cancelled", now.plusSeconds(1),
+            Map.of("accepted", true, "routeId", "R_BRANCH", "resultCode", "ROUTE_CANCELLED")
+        )));
+        assertThat(service.snapshot().routeReservations())
+            .extracting(DispatchSnapshot.RouteReservationView::state)
+            .containsExactly(RouteReservationState.CANCELLED);
+    }
+
+    @Test
+    void acceptedRouteHoldTimeoutAutomaticallyQueuesCancellation() {
+        DispatchService service = dispatchService();
+        Instant now = Instant.now();
+        DispatchCommand request = service.submit(new DispatchCommand(
+            "DC-route-hold-timeout", "TR-1", "REQUEST_ROUTE", Map.of("routeId", "R_BRANCH"),
+            "test", CommandStatus.PENDING, now, null
+        ));
+        service.acceptFeedback(List.of(new DispatchCommandFeedback(
+            request.id(), request.trainId(), request.commandType(), "SIGNAL_INTERLOCKING",
+            CommandStatus.EFFECT_CONFIRMED, "route established", now,
+            Map.of("accepted", true, "routeId", "R_BRANCH", "resultCode", "ROUTE_ESTABLISHED")
+        )));
+
+        service.evaluate(tick(1, now.plusSeconds(121)), List.of(), List.of());
+
+        assertThat(service.pendingCommands())
+            .filteredOn(command -> "CANCEL_ROUTE".equals(command.commandType()))
+            .singleElement()
+            .satisfies(command -> assertThat(command.reason()).isEqualTo("ROUTE_HOLD_TIMEOUT"));
+    }
+
+    @Test
     void automaticRouteArbitrationSelectsOneTrainAndRecordsTheWaitingTrain() {
         DispatchService service = dispatchService(routeLineData());
         Instant now = Instant.parse("2026-07-09T00:00:00Z");
@@ -280,6 +378,39 @@ class DispatchServiceTests {
         assertThat(service.commands())
             .filteredOn(command -> "REQUEST_ROUTE".equals(command.commandType()))
             .hasSize(1);
+    }
+
+    @Test
+    void waitingTimeBonusAllowsPreviouslyWaitingTrainToWinNextArbitration() {
+        DispatchService service = dispatchService(routeLineData());
+        Instant now = Instant.parse("2026-07-09T00:00:00Z");
+        List<TrainState> trains = List.of(
+            runningTrainAt("TR-1", 100, 8),
+            runningTrainAt("TR-2", 150, 8)
+        );
+        List<MovementAuthority> authorities = List.of(
+            new MovementAuthority("TR-1", 500, 15, "TEST", "T01", "T02", "TEST"),
+            new MovementAuthority("TR-2", 500, 15, "TEST", "T01", "T02", "TEST")
+        );
+
+        service.evaluate(tick(1, now), trains, authorities);
+        DispatchCommand first = service.drainCommandsOfType("REQUEST_ROUTE").getFirst();
+        assertThat(first.trainId()).isEqualTo("TR-2");
+        service.acceptFeedback(List.of(new DispatchCommandFeedback(
+            first.id(), first.trainId(), first.commandType(), "SIGNAL_INTERLOCKING", CommandStatus.SKIPPED,
+            "Route R_MAIN conflicts with an occupied route", now,
+            Map.of("accepted", false, "rawReason", "Route R_MAIN conflicts with an occupied route")
+        )));
+
+        service.evaluate(tick(2, now.plusSeconds(21)), trains, authorities);
+
+        assertThat(service.pendingCommands())
+            .filteredOn(command -> "REQUEST_ROUTE".equals(command.commandType()))
+            .singleElement()
+            .satisfies(command -> {
+                assertThat(command.trainId()).isEqualTo("TR-1");
+                assertThat(command.payload().get("waitingSeconds")).isEqualTo(21.0);
+            });
     }
 
     @Test
@@ -350,6 +481,33 @@ class DispatchServiceTests {
         assertThat(service.snapshot().routeReservations())
             .extracting(DispatchSnapshot.RouteReservationView::retryCount)
             .containsExactly(0, 1);
+    }
+
+    @Test
+    void nonRetryableRouteConfigurationErrorDoesNotGenerateAnotherRequest() {
+        DispatchService service = dispatchService(routeLineData());
+        Instant now = Instant.parse("2026-07-09T00:00:00Z");
+        List<MovementAuthority> authorities = List.of(
+            new MovementAuthority("TR-1", 500, 15, "TEST", "T01", "T02", "TEST")
+        );
+        service.evaluate(tick(1, now), List.of(runningTrainAt("TR-1", 100, 8)), authorities);
+        DispatchCommand first = service.drainCommandsOfType("REQUEST_ROUTE").getFirst();
+        String reason = "No matching route for detail=R_MAIN";
+        service.acceptFeedback(List.of(new DispatchCommandFeedback(
+            first.id(), first.trainId(), first.commandType(), "SIGNAL_INTERLOCKING", CommandStatus.SKIPPED,
+            reason, now, Map.of("accepted", false, "rawReason", reason)
+        )));
+
+        service.evaluate(tick(2, now.plusSeconds(60)),
+            List.of(runningTrainAt("TR-1", 120, 8)), authorities);
+
+        assertThat(service.pendingCommands())
+            .filteredOn(command -> "REQUEST_ROUTE".equals(command.commandType()))
+            .isEmpty();
+        assertThat(service.snapshot().routeReservations()).singleElement().satisfies(reservation -> {
+            assertThat(reservation.failureCode()).isEqualTo("ROUTE_NOT_FOUND");
+            assertThat(reservation.retryable()).isFalse();
+        });
     }
 
     @Test

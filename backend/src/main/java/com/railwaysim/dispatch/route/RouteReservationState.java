@@ -8,6 +8,7 @@ public final class RouteReservationState {
     public static final String EXPIRED = "EXPIRED";
     public static final String REJECTED = "REJECTED";
     public static final String CANCELLED = "CANCELLED";
+    public static final String TIMEOUT = "TIMEOUT";
 
     private RouteReservationState() {
     }

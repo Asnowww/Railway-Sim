@@ -87,11 +87,16 @@ public class RouteDispatchRecordStore {
             reservationState,
             command.id(),
             rejected ? rejectReason : null,
+            rejected ? "COMMAND_VALIDATION_REJECTED" : null,
+            rejected ? "INVALID_REQUEST" : null,
+            false,
             retryCount,
             rejected ? null : now,
             null,
             null,
             expiresAt,
+            null,
+            null,
             now
         );
 
@@ -156,7 +161,8 @@ public class RouteDispatchRecordStore {
             : CommandStatus.CANCELLED.equals(feedback.feedbackStatus())
                 ? RouteReservationState.CANCELLED
                 : RouteReservationState.REJECTED;
-        String rejectReason = accepted ? null : feedback.reason();
+        InterlockingFeedback parsed = InterlockingFeedbackParser.parse(command, feedback);
+        String rejectReason = accepted ? null : parsed.reason();
 
         RouteDispatchDecision decision = decisionsById.get(decisionId);
         if (decision != null) {
@@ -188,11 +194,16 @@ public class RouteDispatchRecordStore {
                 reservationState,
                 reservation.commandId(),
                 rejectReason,
+                accepted ? null : parsed.resultCode(),
+                accepted ? null : parsed.failureCategory(),
+                !accepted && parsed.retryable(),
                 reservation.retryCount(),
                 reservation.requestedAt(),
                 accepted ? now : reservation.acceptedAt(),
                 reservation.releasedAt(),
                 reservation.expiresAt(),
+                reservation.timedOutAt(),
+                reservation.cancelCommandId(),
                 now
             ));
         }
@@ -258,11 +269,16 @@ public class RouteDispatchRecordStore {
             RouteReservationState.RELEASED,
             reservation.commandId(),
             reservation.rejectReason(),
+            reservation.failureCode(),
+            reservation.failureCategory(),
+            reservation.retryable(),
             reservation.retryCount(),
             reservation.requestedAt(),
             reservation.acceptedAt(),
             now,
             reservation.expiresAt(),
+            reservation.timedOutAt(),
+            reservation.cancelCommandId(),
             now
         ));
         return true;
@@ -291,11 +307,16 @@ public class RouteDispatchRecordStore {
                 RouteReservationState.EXPIRED,
                 reservation.commandId(),
                 "route request validity expired",
+                "ROUTE_REQUEST_EXPIRED",
+                "TIMEOUT",
+                true,
                 reservation.retryCount(),
                 reservation.requestedAt(),
                 reservation.acceptedAt(),
                 reservation.releasedAt(),
                 reservation.expiresAt(),
+                simulatedAt,
+                reservation.cancelCommandId(),
                 simulatedAt
             ));
             RouteDispatchDecision decision = decisionsById.get(reservation.decisionId());
@@ -338,12 +359,119 @@ public class RouteDispatchRecordStore {
                 || !reservation.updatedAt().isBefore(notBefore));
     }
 
+    public synchronized RouteReservation reservationForCommand(String commandId) {
+        String reservationId = reservationIdByCommandId.get(commandId);
+        return reservationId == null ? null : reservationsById.get(reservationId);
+    }
+
+    public synchronized RouteReservation reservation(String reservationId) {
+        return reservationsById.get(reservationId);
+    }
+
+    public synchronized boolean canRetry(
+        String simulationRunId,
+        String trainId,
+        String routeId,
+        int maxRetries
+    ) {
+        RouteReservation latest = reservationsById.values().stream()
+            .filter(reservation -> simulationRunId == null || simulationRunId.equals(reservation.simulationRunId()))
+            .filter(reservation -> trainId.equals(reservation.trainId()) && routeId.equals(reservation.routeId()))
+            .max(java.util.Comparator.comparing(RouteReservation::updatedAt))
+            .orElse(null);
+        if (latest == null) {
+            return true;
+        }
+        if (isActiveReservation(latest.state())) {
+            return false;
+        }
+        if (RouteReservationState.REJECTED.equals(latest.state()) && !latest.retryable()) {
+            return false;
+        }
+        return latest.retryCount() < Math.max(0, maxRetries);
+    }
+
+    public synchronized String markRequestedTimeout(String commandId, Instant timedOutAt) {
+        RouteReservation reservation = reservationForCommand(commandId);
+        if (reservation == null || !RouteReservationState.REQUESTED.equals(reservation.state())) {
+            return null;
+        }
+        Instant now = timedOutAt == null ? Instant.now() : timedOutAt;
+        reservationsById.put(reservation.reservationId(), new RouteReservation(
+            reservation.reservationId(), reservation.simulationRunId(), reservation.trainId(), reservation.routeId(),
+            reservation.decisionId(), RouteReservationState.TIMEOUT, reservation.commandId(),
+            "interlocking acknowledgement timeout", "INTERLOCKING_ACK_TIMEOUT", "TIMEOUT", true,
+            reservation.retryCount(), reservation.requestedAt(), reservation.acceptedAt(), reservation.releasedAt(),
+            reservation.expiresAt(), now, reservation.cancelCommandId(), now
+        ));
+        RouteDispatchDecision decision = decisionsById.get(reservation.decisionId());
+        if (decision != null) {
+            decisionsById.put(decision.decisionId(), new RouteDispatchDecision(
+                decision.decisionId(), decision.simulationRunId(), decision.selectedTrainId(),
+                decision.selectedRouteId(), decision.waitingTrainIds(), decision.priorityScores(), decision.reason(),
+                RouteDecisionStatus.TIMEOUT, decision.routeCommandId(), decision.waitingCommandIds(),
+                "interlocking acknowledgement timeout", decision.createdAt(), now
+            ));
+        }
+        return reservation.reservationId();
+    }
+
+    public synchronized void linkCancellation(String reservationId, String cancelCommandId, Instant updatedAt) {
+        RouteReservation reservation = reservationsById.get(reservationId);
+        if (reservation == null) {
+            return;
+        }
+        Instant now = updatedAt == null ? Instant.now() : updatedAt;
+        reservationsById.put(reservationId, new RouteReservation(
+            reservation.reservationId(), reservation.simulationRunId(), reservation.trainId(), reservation.routeId(),
+            reservation.decisionId(), reservation.state(), reservation.commandId(), reservation.rejectReason(),
+            reservation.failureCode(), reservation.failureCategory(), reservation.retryable(), reservation.retryCount(),
+            reservation.requestedAt(), reservation.acceptedAt(), reservation.releasedAt(), reservation.expiresAt(),
+            reservation.timedOutAt(), cancelCommandId, now
+        ));
+    }
+
+    public synchronized void updateCancellationFeedback(
+        String reservationId,
+        DispatchCommand cancelCommand,
+        DispatchCommandFeedback feedback
+    ) {
+        RouteReservation reservation = reservationsById.get(reservationId);
+        if (reservation == null) {
+            return;
+        }
+        InterlockingFeedback parsed = InterlockingFeedbackParser.parse(cancelCommand, feedback);
+        Instant now = feedback.feedbackAt() == null ? Instant.now() : feedback.feedbackAt();
+        reservationsById.put(reservationId, new RouteReservation(
+            reservation.reservationId(), reservation.simulationRunId(), reservation.trainId(), reservation.routeId(),
+            reservation.decisionId(), parsed.accepted() ? RouteReservationState.CANCELLED : reservation.state(),
+            reservation.commandId(), parsed.accepted() ? null : parsed.reason(),
+            parsed.accepted() ? null : parsed.resultCode(), parsed.accepted() ? null : parsed.failureCategory(),
+            !parsed.accepted() && parsed.retryable(), reservation.retryCount(), reservation.requestedAt(),
+            reservation.acceptedAt(), reservation.releasedAt(), reservation.expiresAt(), reservation.timedOutAt(),
+            cancelCommand.id(), now
+        ));
+        RouteDispatchDecision decision = decisionsById.get(reservation.decisionId());
+        if (decision != null && parsed.accepted()) {
+            decisionsById.put(decision.decisionId(), new RouteDispatchDecision(
+                decision.decisionId(), decision.simulationRunId(), decision.selectedTrainId(),
+                decision.selectedRouteId(), decision.waitingTrainIds(), decision.priorityScores(), decision.reason(),
+                RouteDecisionStatus.CANCELLED, decision.routeCommandId(), decision.waitingCommandIds(), null,
+                decision.createdAt(), now
+            ));
+        }
+    }
+
     public static boolean isRouteCommand(DispatchCommand command) {
         return command != null && isRouteCommand(command.commandType());
     }
 
     public static boolean isRouteCommand(String commandType) {
         return "REQUEST_ROUTE".equals(commandType) || "REROUTE".equals(commandType);
+    }
+
+    public static boolean isRouteCancellation(String commandType) {
+        return "CANCEL_ROUTE".equals(commandType);
     }
 
     public static String routeIdFrom(DispatchCommand command) {

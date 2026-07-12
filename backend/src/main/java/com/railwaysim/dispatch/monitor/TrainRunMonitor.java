@@ -3,6 +3,7 @@ package com.railwaysim.dispatch.monitor;
 import com.railwaysim.dispatch.plan.CurrentRunPlan;
 import com.railwaysim.dispatch.plan.OperationPlanLoader;
 import com.railwaysim.dispatch.plan.PlannedScheduleCalculator;
+import com.railwaysim.dispatch.plan.TrainServicePlan;
 import com.railwaysim.dispatch.strategy.TrainRegulationAction;
 import com.railwaysim.train.TrainState;
 import java.time.Instant;
@@ -25,6 +26,7 @@ public class TrainRunMonitor {
     private final Map<String, Integer> latestDepartureDelayByTrain = new HashMap<>();
     private final Map<String, String> latestDepartureStationByTrain = new HashMap<>();
     private final Map<String, Instant> latestDepartureAtByTrain = new HashMap<>();
+    private final Map<String, StationHeadwayObservation> latestStationHeadwayByTrain = new HashMap<>();
     private Instant simulationStart = Instant.now();
 
     public TrainRunMonitor(
@@ -43,6 +45,7 @@ public class TrainRunMonitor {
         latestDepartureDelayByTrain.clear();
         latestDepartureStationByTrain.clear();
         latestDepartureAtByTrain.clear();
+        latestStationHeadwayByTrain.clear();
     }
 
     public List<TrainRunProfile> update(
@@ -54,6 +57,7 @@ public class TrainRunMonitor {
         for (TrainState train : trains) {
             detectStationEvents(simulationRunId, plan, train, simulatedAt);
         }
+        rebuildStationHeadwayObservations(simulationRunId, plan);
 
         Map<String, List<TrainState>> trainsByOperationalGroup = new LinkedHashMap<>();
         for (TrainState train : trains) {
@@ -75,9 +79,13 @@ public class TrainRunMonitor {
                     parseInstant(train.lastDepartureAt()).orElse(null)
                 );
 
-                Double headwayActual = null;
-                int headwayDeviation = 0;
-                if (lastDeparture != null
+                StationHeadwayObservation stationObservation = latestStationHeadwayByTrain.get(train.id());
+                String referenceTrainId = stationObservation == null ? frontTrainId : stationObservation.frontTrainId();
+                Double headwayActual = stationObservation == null ? null : stationObservation.actualHeadwaySec();
+                int headwayDeviation = stationObservation == null
+                    ? 0
+                    : (int) Math.round(stationObservation.headwayErrorSec());
+                if (stationObservation == null && lastDeparture != null
                     && frontDeparture != null
                     && departedFromSameStation(train.id(), frontTrainId)) {
                     headwayActual = (double) (lastDeparture.getEpochSecond() - frontDeparture.getEpochSecond());
@@ -88,14 +96,14 @@ public class TrainRunMonitor {
                 int observedDwellElapsed = dwelling ? train.dwellElapsedSeconds() : 0;
                 int plannedDwell = plan.defaultDwellTimeSec();
                 int dwellDeviation = Math.max(0, observedDwellElapsed - plannedDwell);
-                HeadwayObservation headwayObservation = classifyHeadway(frontTrainId, headwayActual, headwayDeviation, plan);
+                HeadwayObservation headwayObservation = classifyHeadway(referenceTrainId, headwayActual, headwayDeviation, plan);
                 int departureDelay = latestDepartureDelayByTrain.getOrDefault(train.id(), 0);
-                String regulationAction = frontTrainId == null && departureDelay > 0
+                String regulationAction = referenceTrainId == null && departureDelay > 0
                     ? TrainRegulationAction.CATCH_UP
                     : headwayObservation.action();
                 profiles.add(new TrainRunProfile(
                     train.id(),
-                    frontTrainId,
+                    referenceTrainId,
                     train.positionMeters(),
                     train.speedMetersPerSecond(),
                     train.loadRate(),
@@ -116,6 +124,68 @@ public class TrainRunMonitor {
             }
         }
         return profiles;
+    }
+
+    public List<StationHeadwayObservation> latestStationHeadways() {
+        return latestStationHeadwayByTrain.values().stream()
+            .sorted(Comparator.comparing(StationHeadwayObservation::departureAt))
+            .toList();
+    }
+
+    public StationHeadwayObservation latestStationHeadway(String trainId) {
+        return latestStationHeadwayByTrain.get(trainId);
+    }
+
+    private void rebuildStationHeadwayObservations(String simulationRunId, CurrentRunPlan plan) {
+        Map<String, List<TrainStationEvent>> departuresByStationDirection = new LinkedHashMap<>();
+        for (TrainStationEvent event : stationRecordStore.list(simulationRunId)) {
+            if (event.eventType() != TrainStationEvent.EventType.DEPARTURE) {
+                continue;
+            }
+            String direction = normalizedDirection(event.direction());
+            departuresByStationDirection
+                .computeIfAbsent(event.stationId() + "|" + direction, ignored -> new ArrayList<>())
+                .add(event);
+        }
+        latestStationHeadwayByTrain.clear();
+        int tolerance = Math.max(5, plan.departureIntervalSec() / 10);
+        for (List<TrainStationEvent> stationDepartures : departuresByStationDirection.values()) {
+            List<TrainStationEvent> ordered = stationDepartures.stream()
+                .sorted(Comparator.comparing(TrainStationEvent::simulatedAt)
+                    .thenComparing(TrainStationEvent::trainId))
+                .toList();
+            for (int i = 1; i < ordered.size(); i++) {
+                TrainStationEvent front = ordered.get(i - 1);
+                TrainStationEvent current = ordered.get(i);
+                double actual = current.simulatedAt().getEpochSecond() - front.simulatedAt().getEpochSecond();
+                double error = actual - plan.departureIntervalSec();
+                String state = error < -tolerance ? "TOO_SHORT" : error > tolerance ? "TOO_LONG" : "ON_TARGET";
+                String action = error < -tolerance
+                    ? TrainRegulationAction.SLOW_DOWN
+                    : error > tolerance ? TrainRegulationAction.CATCH_UP : TrainRegulationAction.NORMAL;
+                StationHeadwayObservation observation = new StationHeadwayObservation(
+                    current.stationId(),
+                    normalizedDirection(current.direction()),
+                    current.trainId(),
+                    front.trainId(),
+                    front.simulatedAt(),
+                    current.simulatedAt(),
+                    plan.departureIntervalSec(),
+                    actual,
+                    error,
+                    state,
+                    action
+                );
+                StationHeadwayObservation previous = latestStationHeadwayByTrain.get(current.trainId());
+                if (previous == null || previous.departureAt().isBefore(observation.departureAt())) {
+                    latestStationHeadwayByTrain.put(current.trainId(), observation);
+                }
+            }
+        }
+    }
+
+    private String normalizedDirection(String direction) {
+        return direction == null || direction.isBlank() ? "UNKNOWN" : direction.toUpperCase();
     }
 
     private String operationalGroupKey(TrainState train) {
@@ -170,6 +240,10 @@ public class TrainRunMonitor {
         TrainState train,
         Instant simulatedAt
     ) {
+        TrainServicePlan service = planLoader.serviceByTrainId(train.id());
+        String serviceId = service == null ? null : service.serviceId();
+        String circulationId = service == null ? null : service.circulationId();
+        String direction = service == null ? train.direction() : service.direction();
         String previousStation = dwellingStationByTrain.get(train.id());
         boolean dwelling = "DWELLING".equals(train.status()) && train.currentStationId() != null && !train.currentStationId().isBlank();
         if (dwelling && previousStation == null) {
@@ -194,7 +268,10 @@ public class TrainRunMonitor {
                 TrainStationEvent.EventType.ARRIVAL,
                 simulatedAt,
                 plannedArrival,
-                delay
+                delay,
+                serviceId,
+                circulationId,
+                direction
             ));
         } else if (!dwelling && previousStation != null) {
             Optional<Instant> plannedDeparture = Optional.ofNullable(
@@ -217,7 +294,10 @@ public class TrainRunMonitor {
                 TrainStationEvent.EventType.DEPARTURE,
                 simulatedAt,
                 plannedDeparture,
-                delay
+                delay,
+                serviceId,
+                circulationId,
+                direction
             ));
             latestDepartureDelayByTrain.put(train.id(), delay);
             latestDepartureStationByTrain.put(train.id(), previousStation);

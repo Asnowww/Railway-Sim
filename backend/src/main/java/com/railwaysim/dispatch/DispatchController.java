@@ -51,7 +51,13 @@ public class DispatchController {
         List<PeriodView> periods = planLoader.periods().stream()
             .map(PeriodView::from)
             .toList();
-        return new PlanResponse(planLoader.planId(), planLoader.lineId(), periods);
+        return new PlanResponse(
+            planLoader.planId(),
+            planLoader.lineId(),
+            periods,
+            planLoader.circulations(),
+            planLoader.services()
+        );
     }
 
     @GetMapping("/plan/current")
@@ -137,7 +143,13 @@ public class DispatchController {
     ) {
     }
 
-    public record PlanResponse(String planId, String lineId, List<PeriodView> periods) {
+    public record PlanResponse(
+        String planId,
+        String lineId,
+        List<PeriodView> periods,
+        List<com.railwaysim.dispatch.plan.CirculationPlan> circulations,
+        List<com.railwaysim.dispatch.plan.TrainServicePlan> services
+    ) {
     }
 
     public record PeriodView(

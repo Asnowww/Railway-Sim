@@ -56,3 +56,71 @@ segments:
     startMeters: 3750
     endMeters: 5000
     speedLimitMps: 20
+
+circulations:
+  - id: CIRC-001
+    rollingStockId: STOCK-001
+    serviceIds: [SVC-001]
+  - id: CIRC-002
+    rollingStockId: STOCK-002
+    serviceIds: [SVC-002]
+  - id: CIRC-003
+    rollingStockId: STOCK-003
+    serviceIds: [SVC-003]
+  - id: CIRC-004
+    rollingStockId: STOCK-004
+    serviceIds: [SVC-004]
+
+services:
+  - serviceId: SVC-001
+    circulationId: CIRC-001
+    trainId: TR-001
+    trainNo: 1
+    linkId: 1
+    offsetMeters: 0
+    direction: DOWN
+    stops:
+      - { stationId: S01, arrivalOffsetSec: 0, departureOffsetSec: 15 }
+      - { stationId: S02, arrivalOffsetSec: 94, departureOffsetSec: 119 }
+      - { stationId: S03, arrivalOffsetSec: 189, departureOffsetSec: 214 }
+      - { stationId: S04, arrivalOffsetSec: 284, departureOffsetSec: 309 }
+      - { stationId: S05, arrivalOffsetSec: 403, departureOffsetSec: 403 }
+  - serviceId: SVC-002
+    circulationId: CIRC-002
+    trainId: TR-002
+    trainNo: 2
+    linkId: 1
+    offsetMeters: 0
+    direction: DOWN
+    stops:
+      - { stationId: S01, arrivalOffsetSec: 300, departureOffsetSec: 315 }
+      - { stationId: S02, arrivalOffsetSec: 394, departureOffsetSec: 419 }
+      - { stationId: S03, arrivalOffsetSec: 489, departureOffsetSec: 514 }
+      - { stationId: S04, arrivalOffsetSec: 584, departureOffsetSec: 609 }
+      - { stationId: S05, arrivalOffsetSec: 703, departureOffsetSec: 703 }
+  - serviceId: SVC-003
+    circulationId: CIRC-003
+    trainId: TR-003
+    trainNo: 3
+    linkId: 1
+    offsetMeters: 0
+    direction: DOWN
+    stops:
+      - { stationId: S01, arrivalOffsetSec: 600, departureOffsetSec: 615 }
+      - { stationId: S02, arrivalOffsetSec: 694, departureOffsetSec: 719 }
+      - { stationId: S03, arrivalOffsetSec: 789, departureOffsetSec: 814 }
+      - { stationId: S04, arrivalOffsetSec: 884, departureOffsetSec: 909 }
+      - { stationId: S05, arrivalOffsetSec: 1003, departureOffsetSec: 1003 }
+  - serviceId: SVC-004
+    circulationId: CIRC-004
+    trainId: TR-004
+    trainNo: 4
+    linkId: 1
+    offsetMeters: 0
+    direction: DOWN
+    stops:
+      - { stationId: S01, arrivalOffsetSec: 900, departureOffsetSec: 915 }
+      - { stationId: S02, arrivalOffsetSec: 994, departureOffsetSec: 1019 }
+      - { stationId: S03, arrivalOffsetSec: 1089, departureOffsetSec: 1114 }
+      - { stationId: S04, arrivalOffsetSec: 1184, departureOffsetSec: 1209 }
+      - { stationId: S05, arrivalOffsetSec: 1303, departureOffsetSec: 1303 }

@@ -9,6 +9,8 @@ public record DispatchSnapshot(
     String planId,
     int targetHeadwaySeconds,
     int defaultDwellSeconds,
+    List<ServicePlanView> services,
+    List<StationHeadwayView> stationHeadways,
     boolean interventionActive,
     List<TrainProfileView> trainProfiles,
     List<DisturbanceView> openDisturbances,
@@ -18,6 +20,8 @@ public record DispatchSnapshot(
     List<RouteReservationView> routeReservations
 ) {
     public DispatchSnapshot {
+        services = services == null ? List.of() : List.copyOf(services);
+        stationHeadways = stationHeadways == null ? List.of() : List.copyOf(stationHeadways);
         routeDecisions = routeDecisions == null ? List.of() : List.copyOf(routeDecisions);
         routeReservations = routeReservations == null ? List.of() : List.copyOf(routeReservations);
     }
@@ -66,12 +70,39 @@ public record DispatchSnapshot(
     ) {
     }
 
+    public record ServicePlanView(
+        String serviceId,
+        String circulationId,
+        String trainId,
+        String originStationId,
+        String terminusStationId,
+        Instant plannedDepartureAt,
+        String departureStatus,
+        String departureCommandId
+    ) {
+    }
+
+    public record StationHeadwayView(
+        String stationId,
+        String direction,
+        String trainId,
+        String frontTrainId,
+        Instant departureAt,
+        int targetHeadwaySeconds,
+        double actualHeadwaySeconds,
+        double headwayErrorSeconds,
+        String state,
+        String regulationAction
+    ) {
+    }
+
     public record RouteDecisionView(
         String decisionId,
         String selectedTrainId,
         String selectedRouteId,
         List<String> waitingTrainIds,
         Map<String, Double> priorityScores,
+        double waitingSeconds,
         String status,
         String routeCommandId,
         String reason,
@@ -91,8 +122,14 @@ public record DispatchSnapshot(
         String state,
         String commandId,
         String rejectReason,
+        String failureCode,
+        String failureCategory,
+        boolean retryable,
         int retryCount,
-        Instant expiresAt
+        Instant expiresAt,
+        Instant nextRetryAt,
+        Instant timedOutAt,
+        String cancelCommandId
     ) {
     }
 
@@ -102,6 +139,8 @@ public record DispatchSnapshot(
             "",
             300,
             25,
+            List.of(),
+            List.of(),
             false,
             List.of(),
             List.of(),

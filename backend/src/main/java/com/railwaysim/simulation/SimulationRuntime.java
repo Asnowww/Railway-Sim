@@ -7,8 +7,6 @@ import com.railwaysim.dispatch.DispatchCommandFeedback;
 import com.railwaysim.dispatch.DispatchConstraint;
 import com.railwaysim.dispatch.DispatchService;
 import com.railwaysim.dispatch.command.CommandStatus;
-import com.railwaysim.dispatch.monitor.StationInfo;
-import com.railwaysim.dispatch.plan.CurrentRunPlan;
 import com.railwaysim.dispatch.integration.DispatchCommandPublisher;
 import com.railwaysim.monitor.MonitorService;
 import com.railwaysim.power.PowerConstraint;
@@ -29,9 +27,7 @@ import com.railwaysim.vehicle.external.ExternalTrainDirection;
 import com.railwaysim.vehicle.runtime.VehicleRuntimeIntegrationService;
 import java.time.Instant;
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.HashSet;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -63,9 +59,6 @@ public class SimulationRuntime {
     private SimulationStatus status = SimulationStatus.STOPPED;
     private Instant simulatedTime = Instant.now();
     private long lastPushAtMillis;
-    private Instant lastDepartureTime = Instant.now();
-    private int nextServiceNo = 3; // TR-001/TR-002 pre-loaded on reset
-    private final Map<String, Instant> lastStationDepartures = new LinkedHashMap<>();
     private final Set<String> appliedFeedbackSent = new HashSet<>();
 
     public SimulationRuntime(
@@ -135,10 +128,7 @@ public class SimulationRuntime {
         realtimeStateCache.clear();
         eventBus.drain();
         lastEvents = List.of();
-        lastDepartureTime = simulatedTime;
-        lastStationDepartures.clear();
         appliedFeedbackSent.clear();
-        nextServiceNo = 3;
         return buildSnapshot();
     }
 
@@ -161,11 +151,28 @@ public class SimulationRuntime {
         // 一次性进路指令在约束计算前交给联锁处理。
         List<DispatchCommand> routeCommands = new ArrayList<>(dispatchService.drainCommandsOfType("REROUTE"));
         routeCommands.addAll(dispatchService.drainCommandsOfType("REQUEST_ROUTE"));
+        routeCommands.addAll(dispatchService.drainCommandsOfType("CANCEL_ROUTE"));
         List<DispatchCommandFeedback> routeFeedbacks = new ArrayList<>();
         for (DispatchCommand cmd : routeCommands) {
             var result = interlockingService.applyDispatchCommand(cmd.commandType(), commandDetail(cmd), cmd.trainId());
             if (!result.accepted()) {
                 log.warn("[Runtime] 联锁拒绝调度指令 {}: {}", cmd.id(), result.rejectReason());
+            }
+            String routeId = cmd.payload() == null || cmd.payload().get("routeId") == null
+                ? commandDetail(cmd)
+                : cmd.payload().get("routeId").toString();
+            Map<String, Object> feedbackDetails = new java.util.LinkedHashMap<>();
+            feedbackDetails.put("accepted", result.accepted());
+            feedbackDetails.put("routeId", routeId);
+            feedbackDetails.put("resultCode", result.accepted()
+                ? ("CANCEL_ROUTE".equals(cmd.commandType()) ? "ROUTE_CANCELLED" : "ROUTE_ESTABLISHED")
+                : "INTERLOCKING_REJECTED");
+            if (result.rejectReason() != null) {
+                feedbackDetails.put("rawReason", result.rejectReason());
+            }
+            var routeState = interlockingService.state(routeId);
+            if (routeState != null && routeState.status() != null) {
+                feedbackDetails.put("interlockingState", routeState.status().name());
             }
             routeFeedbacks.add(new DispatchCommandFeedback(
                 cmd.id(),
@@ -175,15 +182,12 @@ public class SimulationRuntime {
                 result.accepted() ? CommandStatus.EFFECT_CONFIRMED : CommandStatus.SKIPPED,
                 result.accepted() ? "route established" : result.rejectReason(),
                 context.simulatedTime(),
-                Map.of("accepted", result.accepted())
+                feedbackDetails
             ));
         }
         if (!routeFeedbacks.isEmpty()) {
             dispatchService.acceptFeedback(routeFeedbacks);
         }
-
-        // 按时刻表自动发车 — 信号层读调度时刻表，到点自动创建列车
-        autoDispatchTrains(context);
 
         // 发车指令 — 调度→信号→车辆：联锁检查进路→创建列车→列车进场自动建进路
         handleDepartures(dispatchService.drainCommandsOfType("DEPART"));
@@ -228,46 +232,6 @@ public class SimulationRuntime {
             lastPushAtMillis = nowMillis;
         }
         return snapshot;
-    }
-
-    /**
-     * Per-station auto dispatch triggered by schedule intervals.
-     */
-    private void autoDispatchTrains(TickContext context) {
-        CurrentRunPlan plan = dispatchService.currentPlan();
-        if (plan == null || plan.departureIntervalSec() <= 0) return;
-        long intervalMs = plan.departureIntervalSec() * 1000L;
-
-        List<StationInfo> stations = dispatchService.stations();
-        if (stations.isEmpty()) return;
-        Instant now = context.simulatedTime();
-
-        for (StationInfo origin : stations) {
-            Instant lastFromStation = lastStationDepartures.getOrDefault(origin.id(), lastDepartureTime);
-            if (lastFromStation.toEpochMilli() + intervalMs > now.toEpochMilli()) continue;
-
-            // find furthest station from this origin
-            StationInfo terminus = stations.stream()
-                .max(Comparator.comparingDouble(s -> Math.abs(s.positionMeters() - origin.positionMeters())))
-                .orElse(null);
-
-            Map<String, Object> payload = new LinkedHashMap<>();
-            payload.put("trainNo", nextServiceNo);
-            payload.put("linkId", 1);
-            payload.put("offsetMeters", origin.positionMeters());
-            payload.put("fromStation", origin.id());
-            if (terminus != null) payload.put("toStation", terminus.id());
-            payload.put("direction", "DOWN");
-
-            DispatchCommand cmd = new DispatchCommand("AUTO-DEPART-" + nextServiceNo,
-                "TR-%03d".formatted(nextServiceNo), "DEPART", payload,
-                "AUTO_DEPART_SCHEDULE", "PENDING", now, null);
-
-            handleDepartures(List.of(cmd));
-            lastStationDepartures.put(origin.id(), now);
-            lastDepartureTime = now;
-            nextServiceNo++;
-        }
     }
 
     private String commandDetail(DispatchCommand command) {
@@ -365,18 +329,29 @@ public class SimulationRuntime {
      * }</pre>
      */
     private void handleDepartures(List<DispatchCommand> departCommands) {
+        if (departCommands == null || departCommands.isEmpty()) {
+            return;
+        }
+        dispatchService.markCommandsSent(departCommands);
+        List<DispatchCommandFeedback> feedbacks = new ArrayList<>();
         for (DispatchCommand cmd : departCommands) {
             Map<String, Object> payload = cmd.payload();
             if (payload == null) {
                 log.warn("[Runtime] DEPART command {} has no payload, skipped", cmd.id());
+                feedbacks.add(departureFeedback(cmd, CommandStatus.SKIPPED,
+                    "DEPART_PAYLOAD_MISSING", "departure payload is missing", Map.of()));
                 continue;
             }
             int trainNo = intFromPayload(payload, "trainNo", 0);
             if (trainNo <= 0) {
                 log.warn("[Runtime] DEPART command {} missing trainNo", cmd.id());
+                feedbacks.add(departureFeedback(cmd, CommandStatus.SKIPPED,
+                    "DEPART_TRAIN_NO_INVALID", "trainNo must be positive", Map.of()));
                 continue;
             }
-            String trainId = "TR-%03d".formatted(trainNo);
+            String trainId = cmd.trainId() == null || cmd.trainId().isBlank()
+                ? "TR-%03d".formatted(trainNo)
+                : cmd.trainId();
             int linkId = intFromPayload(payload, "linkId", 1);
             double offsetMeters = doubleFromPayload(payload, "offsetMeters", 0);
             String dirStr = stringFromPayload(payload, "direction", "DOWN");
@@ -386,6 +361,8 @@ public class SimulationRuntime {
             // 安全门：如果列车已存在，跳过
             if (trainManager.states().stream().anyMatch(t -> t.id().equals(trainId))) {
                 log.info("[Runtime] Train {} already exists, skip DEPART", trainId);
+                feedbacks.add(departureFeedback(cmd, CommandStatus.EFFECT_CONFIRMED,
+                    "TRAIN_ALREADY_ACTIVE", "train already active", Map.of("trainId", trainId)));
                 continue;
             }
 
@@ -393,11 +370,15 @@ public class SimulationRuntime {
             // 若无信号机数据或进路表为空，跳过此检查（列车进场后 touchRoutes 自动建）
             String fromStation = stringFromPayload(payload, "fromStation", null);
             String toStation = stringFromPayload(payload, "toStation", null);
+            boolean routeAccepted = true;
+            String routeReason = null;
             if (fromStation != null && toStation != null
                 && !interlockingService.states().isEmpty()) {
                 String routeDetail = "{\"fromStation\":\"%s\",\"toStation\":\"%s\"}".formatted(fromStation, toStation);
                 var result = interlockingService.applyDispatchCommand("REROUTE", routeDetail, trainId);
                 if (!result.accepted()) {
+                    routeAccepted = false;
+                    routeReason = result.rejectReason();
                     log.warn("[Runtime] 联锁拒绝发车 {}: {}", trainId, result.rejectReason());
                     // 允许车辆上线接入，但由信号保持零速，直到进路真正建立。
                     interlockingService.holdTrainUntilRouteEstablished(trainId, result.rejectReason());
@@ -412,11 +393,40 @@ public class SimulationRuntime {
                 trainManager.applyLifecycleCommand(SignalTrainLifecycleCommand.add(List.of(spec)));
                 log.info("[Runtime] 发车 {} — trainNo={} linkId={} offset={}m direction={}",
                     trainId, trainNo, linkId, offsetMeters, direction);
+                Map<String, Object> details = new java.util.LinkedHashMap<>();
+                details.put("trainId", trainId);
+                details.put("serviceId", stringFromPayload(payload, "serviceId", ""));
+                details.put("circulationId", stringFromPayload(payload, "circulationId", ""));
+                details.put("routeAccepted", routeAccepted);
+                if (routeReason != null) {
+                    details.put("routeRestrictionReason", routeReason);
+                }
+                feedbacks.add(departureFeedback(cmd, CommandStatus.EFFECT_CONFIRMED,
+                    "TRAIN_CREATED", routeAccepted ? "train created" : "train created under route hold", details));
             } catch (Exception e) {
                 interlockingService.clearRouteHold(trainId);
                 log.error("[Runtime] 发车失败 {}: {}", trainId, e.getMessage());
+                feedbacks.add(departureFeedback(cmd, CommandStatus.SKIPPED,
+                    "TRAIN_CREATION_FAILED", e.getMessage(), Map.of("trainId", trainId)));
             }
         }
+        dispatchService.acceptFeedback(feedbacks);
+    }
+
+    private DispatchCommandFeedback departureFeedback(
+        DispatchCommand command,
+        String status,
+        String resultCode,
+        String reason,
+        Map<String, Object> details
+    ) {
+        Map<String, Object> structured = new java.util.LinkedHashMap<>(details);
+        structured.put("resultCode", resultCode);
+        structured.put("accepted", CommandStatus.EFFECT_CONFIRMED.equals(status));
+        return new DispatchCommandFeedback(
+            command.id(), command.trainId(), command.commandType(), "SIMULATION_RUNTIME",
+            status, reason == null ? resultCode : reason, simulatedTime, structured
+        );
     }
 
     private static int intFromPayload(Map<String, Object> payload, String key, int fallback) {

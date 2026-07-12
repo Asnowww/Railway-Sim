@@ -6,15 +6,23 @@ import java.time.Instant;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 @Component
 public class PlannedScheduleCalculator {
 
     private final DispatchProperties properties;
+    private final OperationPlanLoader planLoader;
 
     public PlannedScheduleCalculator(DispatchProperties properties) {
+        this(properties, null);
+    }
+
+    @Autowired
+    public PlannedScheduleCalculator(DispatchProperties properties, OperationPlanLoader planLoader) {
         this.properties = properties;
+        this.planLoader = planLoader;
     }
 
     public Map<String, Instant> plannedArrivals(
@@ -24,6 +32,14 @@ public class PlannedScheduleCalculator {
         List<SegmentEntry> segments,
         List<com.railwaysim.dispatch.monitor.StationInfo> stations
     ) {
+        TrainServicePlan formalService = serviceFor(trainId, stations);
+        if (formalService != null) {
+            Map<String, Instant> formal = new HashMap<>();
+            for (PlannedStop stop : formalService.stops()) {
+                formal.put(stop.stationId(), simulationStart.plusSeconds(stop.arrivalOffsetSec()));
+            }
+            return formal;
+        }
         Map<String, Instant> arrivals = new HashMap<>();
         if (stations.isEmpty()) {
             return arrivals;
@@ -48,6 +64,14 @@ public class PlannedScheduleCalculator {
         List<SegmentEntry> segments,
         List<com.railwaysim.dispatch.monitor.StationInfo> stations
     ) {
+        TrainServicePlan formalService = serviceFor(trainId, stations);
+        if (formalService != null) {
+            Map<String, Instant> formal = new HashMap<>();
+            for (PlannedStop stop : formalService.stops()) {
+                formal.put(stop.stationId(), simulationStart.plusSeconds(stop.departureOffsetSec()));
+            }
+            return formal;
+        }
         Map<String, Instant> departures = new HashMap<>();
         Map<String, Instant> arrivals = plannedArrivals(trainId, simulationStart, plan, segments, stations);
         for (com.railwaysim.dispatch.monitor.StationInfo station : stations) {
@@ -87,5 +111,12 @@ public class PlannedScheduleCalculator {
             return 0;
         }
         return Math.max(0, Integer.parseInt(suffix) - 1);
+    }
+
+    private TrainServicePlan serviceFor(
+        String trainId,
+        List<com.railwaysim.dispatch.monitor.StationInfo> stations
+    ) {
+        return planLoader == null || trainId == null ? null : planLoader.serviceByTrainId(trainId);
     }
 }

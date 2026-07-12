@@ -9,6 +9,7 @@ public record TrainRouteIntent(
     double distanceToEntryMeters,
     double etaToEntrySeconds,
     double priorityScore,
+    double waitingSeconds,
     Instant createdAt,
     Instant validUntil
 ) {

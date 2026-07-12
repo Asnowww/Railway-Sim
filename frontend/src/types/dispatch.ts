@@ -65,6 +65,7 @@ export interface DispatchRouteDecision {
   selectedRouteId: string
   waitingTrainIds: string[]
   priorityScores: Record<string, number>
+  waitingSeconds: number
   status: string
   routeCommandId: string
   reason: string
@@ -79,8 +80,38 @@ export interface DispatchRouteReservation {
   state: string
   commandId: string
   rejectReason: string | null
+  failureCode: string | null
+  failureCategory: string | null
+  retryable: boolean
   retryCount: number
   expiresAt: string | null
+  nextRetryAt: string | null
+  timedOutAt: string | null
+  cancelCommandId: string | null
+}
+
+export interface DispatchServicePlanView {
+  serviceId: string
+  circulationId: string
+  trainId: string
+  originStationId: string | null
+  terminusStationId: string | null
+  plannedDepartureAt: string | null
+  departureStatus: string
+  departureCommandId: string | null
+}
+
+export interface DispatchStationHeadway {
+  stationId: string
+  direction: string
+  trainId: string
+  frontTrainId: string
+  departureAt: string
+  targetHeadwaySeconds: number
+  actualHeadwaySeconds: number
+  headwayErrorSeconds: number
+  state: string
+  regulationAction: string
 }
 
 export interface DispatchSnapshot {
@@ -88,6 +119,8 @@ export interface DispatchSnapshot {
   planId: string
   targetHeadwaySeconds: number
   defaultDwellSeconds: number
+  services: DispatchServicePlanView[]
+  stationHeadways: DispatchStationHeadway[]
   interventionActive: boolean
   trainProfiles: DispatchTrainProfile[]
   openDisturbances: DispatchDisturbance[]
@@ -109,6 +142,31 @@ export interface RunPlanResponse {
   planId: string
   lineId: string
   periods: RunPlanPeriod[]
+  circulations: CirculationPlan[]
+  services: TrainServicePlan[]
+}
+
+export interface CirculationPlan {
+  id: string
+  rollingStockId: string
+  serviceIds: string[]
+}
+
+export interface PlannedStop {
+  stationId: string
+  arrivalOffsetSec: number
+  departureOffsetSec: number
+}
+
+export interface TrainServicePlan {
+  serviceId: string
+  circulationId: string
+  trainId: string
+  trainNo: number
+  linkId: number
+  offsetMeters: number
+  direction: string
+  stops: PlannedStop[]
 }
 
 export interface TrainStationEvent {

@@ -2,6 +2,9 @@
 import { computed, onMounted, ref } from 'vue'
 import { dispatchApi } from '../../api/dispatch'
 import { useSimulation } from '../../composables/useSimulation'
+import RunPlanPanel from '../../components/dispatch/RunPlanPanel.vue'
+import StationHeadwayPanel from '../../components/dispatch/StationHeadwayPanel.vue'
+import RouteClosurePanel from '../../components/dispatch/RouteClosurePanel.vue'
 import type { DispatchDisturbance, DispatchRouteInfo } from '../../types/dispatch'
 import type { TrainState } from '../../types/simulation'
 
@@ -611,6 +614,19 @@ function formatDelta(current: number | null | undefined, baseline: number | null
       </article>
     </section>
 
+    <section class="closure-overview-grid">
+      <RunPlanPanel
+        :plan="plan"
+        :run-mode="dispatch.runMode"
+        :target-headway-seconds="dispatch.targetHeadwaySeconds"
+      />
+      <StationHeadwayPanel :observations="dispatch.stationHeadways" />
+      <RouteClosurePanel
+        :decisions="dispatch.routeDecisions"
+        :reservations="dispatch.routeReservations"
+      />
+    </section>
+
     <section class="headway-focus" :data-state="headwayViolation.state">
       <div class="panel-title">
         <h2>运行间隔关键指标</h2>
@@ -1162,6 +1178,13 @@ small {
   gap: 10px;
 }
 
+.closure-overview-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+  margin-bottom: 16px;
+}
+
 .headway-kpi {
   display: grid;
   align-content: start;
@@ -1505,6 +1528,7 @@ th {
 
   .metric-grid,
   .headway-kpi-grid,
+  .closure-overview-grid,
   .debug-grid,
   .debug-grid.three,
   .comparison-grid {

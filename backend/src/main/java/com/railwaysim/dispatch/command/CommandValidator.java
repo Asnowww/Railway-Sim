@@ -34,7 +34,8 @@ public class CommandValidator {
         List<MovementAuthority> authorities,
         Instant effectiveAt
     ) {
-        if (RouteDispatchRecordStore.isRouteCommand(command)) {
+        if (RouteDispatchRecordStore.isRouteCommand(command)
+            || RouteDispatchRecordStore.isRouteCancellation(command.commandType())) {
             if (command.trainId() == null || command.trainId().isBlank()) {
                 return skip(command, "route command requires trainId");
             }
