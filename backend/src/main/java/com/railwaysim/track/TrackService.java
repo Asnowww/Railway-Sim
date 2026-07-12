@@ -7,6 +7,7 @@ import com.railwaysim.train.TrainState;
 import jakarta.annotation.PostConstruct;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -385,9 +386,11 @@ public class TrackService {
      * 按公里标查询所在区段。
      */
     public synchronized TrackSegmentState segmentAt(double positionMeters) {
+        // 并行支线与正线里程重叠时，优先返回正线(main)，避免列车位置跳到侧线
         return segments.stream()
             .filter(seg -> positionMeters >= seg.startMeters() && positionMeters < seg.endMeters())
-            .findFirst()
+            .min(Comparator.comparingInt((TrackSegmentState s) -> "main".equals(s.track()) ? 0 : 1)
+                .thenComparingDouble(TrackSegmentState::startMeters))
             .orElseGet(() -> segments.isEmpty()
                 ? fallbackSegment()
                 : segments.get(segments.size() - 1));
