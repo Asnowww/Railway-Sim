@@ -554,6 +554,13 @@ public class SignalService {
 
         int dwellTicks = stationDwellTicks.getOrDefault(dwellKey, 0);
         int targetDwellTicks = targetDwellTicks();
+        // 调度停站调整：deltaDwellSec正→延长, 负→缩短（本次生效）
+        if (dispatch != null && dispatch.deltaDwellSec() != null) {
+            int delta = dispatch.deltaDwellSec();
+            long tickMillis = Math.max(1, simulationProperties.getTickMillis());
+            int deltaTicks = Math.max(0, (int) Math.ceil(Math.abs(delta) * 1000.0 / tickMillis));
+            targetDwellTicks = delta >= 0 ? targetDwellTicks + deltaTicks : Math.max(1, targetDwellTicks - deltaTicks);
+        }
         int dwellElapsedSec = (int) Math.floor(dwellTicks * simulationProperties.getTickMillis() / 1000.0);
 
         // 站停未完成 → MA 截到站台位置
