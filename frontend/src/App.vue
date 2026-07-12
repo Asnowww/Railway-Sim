@@ -315,11 +315,12 @@ const topologyNodeById = computed(() => new Map(topologyNodes.map((node) => [nod
 
 const backendTopologyEdges = computed<TopologyEdge[]>(() => {
   if (!backendConnected.value || trackSegments.value.length === 0) return topologyEdges
-  return topologyEdges.map((edge, edgeIndex) => {
-    const segment = trackSegments.value[edgeIndex % trackSegments.value.length]
+  const segById = new Map(trackSegments.value.map(s => [s.id, s]))
+  return topologyEdges.map((edge) => {
+    const segment = segById.get(edge.segmentId)
+    if (!segment) return edge
     return {
       ...edge,
-      segmentId: segment.id,
       status: segment.occupancy,
       speedLimitKph: segment.speedLimitKph,
       detailCount: Math.max(1, Math.round(segment.widthPercent))
@@ -342,7 +343,8 @@ const visibleTopologyEdges = computed(() => {
     })
   }
 
-  return sourceEdges.filter((edge) => edge.detailCount >= 10 || edge.routeIds.includes('R01'))
+  // 后端已连接时显示全部边（均有真实段对应），离线时保留原过滤
+  return backendConnected.value ? sourceEdges : sourceEdges.filter((edge) => edge.detailCount >= 10 || edge.routeIds.includes('R01'))
 })
 const visibleTopologyEdgeIds = computed(() => new Set(visibleTopologyEdges.value.map((edge) => edge.id)))
 
@@ -814,7 +816,7 @@ onBeforeUnmount(() => {
               :title="`${train.serviceNo} ${train.speedKph}km/h 满载率${train.loadRate}%`"
             >
               <img :src="topologyTrainUrl" alt="" class="train-sprite" aria-hidden="true" />
-              <span class="train-code">{{ train.serviceNo }}</span>
+              <span class="train-code">{{ train.serviceNo }} {{ train.speedKph }}km/h</span>
             </button>
           </div>
         </div>
