@@ -70,7 +70,7 @@ class SignalServiceTests {
         );
 
         MovementAuthority approachMa = authorityFor(f.signalService.authorities(), "TR-1");
-        assertThat(approachMa.authorityEndMeters()).isEqualTo(1260);
+        assertThat(approachMa.authorityEndMeters()).isEqualTo(1275);
         assertThat(approachMa.speedLimitMetersPerSecond()).isGreaterThan(0);
 
         TrainState stoppedAtStation = train("TR-1", 1250);
