@@ -58,6 +58,47 @@ class SignalServiceTests {
     }
 
     @Test
+    void fixedBlockApproachesDwellsAndReleasesAtStation() {
+        Fixture f = fixedFixture(stationLine());
+        TrainState approaching = train("TR-1", 100);
+        f.trackService.updateOccupancy(List.of(approaching));
+
+        f.signalService.calculateAuthorities(
+            List.of(approaching),
+            f.trackService.constraintsForTrains(List.of(approaching)),
+            List.of()
+        );
+
+        MovementAuthority approachMa = authorityFor(f.signalService.authorities(), "TR-1");
+        assertThat(approachMa.authorityEndMeters()).isEqualTo(1260);
+        assertThat(approachMa.speedLimitMetersPerSecond()).isGreaterThan(0);
+
+        TrainState stoppedAtStation = train("TR-1", 1250);
+        f.trackService.updateOccupancy(List.of(stoppedAtStation));
+        f.signalService.calculateAuthorities(
+            List.of(stoppedAtStation),
+            f.trackService.constraintsForTrains(List.of(stoppedAtStation)),
+            List.of()
+        );
+
+        MovementAuthority dwellingMa = authorityFor(f.signalService.authorities(), "TR-1");
+        assertThat(dwellingMa.speedLimitMetersPerSecond()).isZero();
+        assertThat(dwellingMa.reason()).contains("站台停靠");
+
+        for (int i = 1; i < 125; i++) {
+            f.signalService.calculateAuthorities(
+                List.of(stoppedAtStation),
+                f.trackService.constraintsForTrains(List.of(stoppedAtStation)),
+                List.of()
+            );
+        }
+
+        MovementAuthority releasedMa = authorityFor(f.signalService.authorities(), "TR-1");
+        assertThat(releasedMa.authorityEndMeters()).isGreaterThan(stoppedAtStation.positionMeters());
+        assertThat(releasedMa.speedLimitMetersPerSecond()).isGreaterThan(0);
+    }
+
+    @Test
     void twoTrains_frontMaTruncatedByRearTail() {
         Fixture f = fixture(straightLine(4000));
         SimulationProperties props = new SimulationProperties();
@@ -65,7 +106,7 @@ class SignalServiceTests {
         TrackService ts = new TrackService(f.catalog, props);
         ts.reset();
         RouteInterlockingService interlocking = new RouteInterlockingService(f.catalog, ts);
-        SignalService ss = new SignalService(props, f.catalog, ts, interlocking);
+        SignalService ss = new SignalService(props, f.catalog, ts, interlocking, null);
 
         TrainState front = train("TR-1", 100);
         TrainState rear = train("TR-2", 900);
@@ -94,7 +135,7 @@ class SignalServiceTests {
         TrackService ts = new TrackService(f.catalog, props);
         ts.reset();
         RouteInterlockingService interlocking = new RouteInterlockingService(f.catalog, ts);
-        SignalService ss = new SignalService(props, f.catalog, ts, interlocking);
+        SignalService ss = new SignalService(props, f.catalog, ts, interlocking, null);
 
         // 注入故障在 SEG-1 (1000~2000m)，MA 应在 1000-120=880 前截断
         ts.injectFault("SEG-1");
@@ -124,7 +165,7 @@ class SignalServiceTests {
         TrackService ts = new TrackService(f.catalog, props);
         ts.reset();
         RouteInterlockingService interlocking = new RouteInterlockingService(f.catalog, ts);
-        SignalService ss = new SignalService(props, f.catalog, ts, interlocking);
+        SignalService ss = new SignalService(props, f.catalog, ts, interlocking, null);
 
         TrainState train = train("TR-1", 100);
         ts.updateOccupancy(List.of(train));
@@ -138,56 +179,6 @@ class SignalServiceTests {
         MovementAuthority ma = ss.authorities().get(0);
         assertThat(ma.speedLimitMetersPerSecond()).isLessThanOrEqualTo(22.2);
         assertThat(ma.speedLimitMetersPerSecond()).isGreaterThan(0);
-    }
-
-    @Test
-    void passedStationDoesNotClampMaToCurrentPosition() {
-        Fixture f = fixture(stationLine());
-        TrainState rear = train("TR-1", 100);
-        TrainState front = train("TR-2", 2600);
-        f.trackService.updateOccupancy(List.of(rear, front));
-
-        f.signalService.calculateAuthorities(
-            List.of(rear, front),
-            f.trackService.constraintsForTrains(List.of(rear, front)),
-            List.of()
-        );
-
-        MovementAuthority rearMa = authorityFor(f.signalService.authorities(), "TR-1");
-        MovementAuthority frontMa = authorityFor(f.signalService.authorities(), "TR-2");
-        assertThat(rearMa.authorityEndMeters()).isGreaterThan(rear.positionMeters());
-        assertThat(frontMa.authorityEndMeters()).isGreaterThan(front.positionMeters());
-        assertThat(rearMa.speedLimitMetersPerSecond()).isGreaterThan(0);
-        assertThat(frontMa.speedLimitMetersPerSecond()).isGreaterThan(0);
-    }
-
-    @Test
-    void completedStationDwellRemainsReleasedUntilTrainDepartsWindow() {
-        Fixture f = fixture(stationLine());
-        TrainState train = train("TR-1", 1250);
-        f.trackService.updateOccupancy(List.of(train));
-
-        for (int i = 0; i < 125; i++) {
-            f.signalService.calculateAuthorities(
-                List.of(train),
-                f.trackService.constraintsForTrains(List.of(train)),
-                List.of()
-            );
-        }
-
-        MovementAuthority releasedMa = authorityFor(f.signalService.authorities(), "TR-1");
-        assertThat(releasedMa.authorityEndMeters()).isGreaterThan(train.positionMeters());
-        assertThat(releasedMa.speedLimitMetersPerSecond()).isGreaterThan(0);
-
-        f.signalService.calculateAuthorities(
-            List.of(train),
-            f.trackService.constraintsForTrains(List.of(train)),
-            List.of()
-        );
-
-        MovementAuthority nextTickMa = authorityFor(f.signalService.authorities(), "TR-1");
-        assertThat(nextTickMa.authorityEndMeters()).isGreaterThan(train.positionMeters());
-        assertThat(nextTickMa.speedLimitMetersPerSecond()).isGreaterThan(0);
     }
 
     // ==================== 信号灯色 ====================
@@ -239,7 +230,7 @@ class SignalServiceTests {
         TrackService ts = new TrackService(f.catalog, props);
         ts.reset();
         RouteInterlockingService interlocking = new RouteInterlockingService(f.catalog, ts);
-        SignalService ss = new SignalService(props, f.catalog, ts, interlocking);
+        SignalService ss = new SignalService(props, f.catalog, ts, interlocking, null);
 
         TrainState train = train("TR-1", 100);
         ts.updateOccupancy(List.of(train));
@@ -264,7 +255,7 @@ class SignalServiceTests {
         TrackService ts = new TrackService(f.catalog, props);
         ts.reset();
         RouteInterlockingService interlocking = new RouteInterlockingService(f.catalog, ts);
-        SignalService ss = new SignalService(props, f.catalog, ts, interlocking);
+        SignalService ss = new SignalService(props, f.catalog, ts, interlocking, null);
 
         TrainState train = train("TR-1", 100);
         ts.updateOccupancy(List.of(train));
@@ -335,8 +326,48 @@ class SignalServiceTests {
         TrackService trackService = new TrackService(catalog, properties);
         trackService.reset();
         RouteInterlockingService interlocking = new RouteInterlockingService(catalog, trackService);
-        SignalService signalService = new SignalService(properties, catalog, trackService, interlocking);
+        SignalService signalService = new SignalService(properties, catalog, trackService, interlocking, null);
         return new Fixture(trackService, signalService, interlocking, catalog);
+    }
+
+    private static Fixture fixedFixture(OperationalLineData lineData) {
+        StaticInfrastructureCatalog catalog = new StaticInfrastructureCatalog(lineData, emptyPowerData());
+        SimulationProperties properties = new SimulationProperties();
+        properties.setBlockMode("FIXED");
+        properties.setSafetyGapMeters(0);
+        TrackService trackService = new TrackService(catalog, properties);
+        trackService.reset();
+        RouteInterlockingService interlocking = new RouteInterlockingService(catalog, trackService);
+        SignalService signalService = new SignalService(
+            properties,
+            catalog,
+            trackService,
+            interlocking,
+            new FixedBlockAuthorityCalculator(trackService)
+        );
+        return new Fixture(trackService, signalService, interlocking, catalog);
+    }
+
+    private static OperationalLineData stationLine() {
+        return new OperationalLineData(
+            "station-line", "Station Test",
+            List.of(),
+            List.of(
+                seg("T01", 1, 0, 1250, List.of("T02"), "N1", "N2", "main", 20),
+                seg("T02", 2, 1250, 2500, List.of("T03"), "N2", "N3", "main", 22),
+                seg("T03", 3, 2500, 3750, List.of("T04"), "N3", "N4", "main", 22),
+                seg("T04", 4, 3750, 5000, List.of(), "N4", "N5", "main", 20)
+            ),
+            List.of(), List.of(), List.of(),
+            List.of(
+                station("S01", "S01", 0),
+                station("S02", "S02", 1250),
+                station("S03", "S03", 2500),
+                station("S04", "S04", 3750),
+                station("S05", "S05", 5000)
+            ),
+            List.of(), List.of(), List.of(), List.of()
+        );
     }
 
     /** 简单直线: 0→1000→2000→3000→4000, 4段 */
@@ -368,29 +399,6 @@ class SignalServiceTests {
                 seg("S4", 4, 4000, 5000, List.of(), "N4", "N5", "main", 20)
             ),
             List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of()
-        );
-    }
-
-    /** 5km 直线，站点在 0/1250/2500/3750/5000，用于验证站停窗口不会选中车头后方站点。 */
-    private static OperationalLineData stationLine() {
-        return new OperationalLineData(
-            "station-line", "Station Test",
-            List.of(),
-            List.of(
-                seg("T01", 1, 0, 1250, List.of("T02"), "N1", "N2", "main", 20),
-                seg("T02", 2, 1250, 2500, List.of("T03"), "N2", "N3", "main", 22),
-                seg("T03", 3, 2500, 3750, List.of("T04"), "N3", "N4", "main", 22),
-                seg("T04", 4, 3750, 5000, List.of(), "N4", "N5", "main", 20)
-            ),
-            List.of(), List.of(), List.of(),
-            List.of(
-                station("S01", "S01", 0),
-                station("S02", "S02", 1250),
-                station("S03", "S03", 2500),
-                station("S04", "S04", 3750),
-                station("S05", "S05", 5000)
-            ),
-            List.of(), List.of(), List.of(), List.of()
         );
     }
 

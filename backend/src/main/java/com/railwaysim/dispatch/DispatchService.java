@@ -23,7 +23,6 @@ import com.railwaysim.dispatch.route.TrainRouteIntent;
 import com.railwaysim.dispatch.strategy.StrategySelector;
 import com.railwaysim.signal.MovementAuthority;
 import com.railwaysim.signal.RouteState;
-import com.railwaysim.signal.RouteStatus;
 import com.railwaysim.simulation.TickContext;
 import com.railwaysim.train.TrainState;
 import java.time.Instant;
@@ -282,7 +281,7 @@ public class DispatchService {
             }
             RouteState routeState = routeStateById.get(reservation.routeId());
             boolean stillEstablished = routeState != null
-                && routeState.status() == RouteStatus.ESTABLISHED
+                && routeState.status().holdsInterlockingResources()
                 && reservation.trainId().equals(routeState.establishedByTrainId());
             if (!stillEstablished) {
                 changed |= routeDispatchRecordStore.releaseReservation(reservation.reservationId(), simulatedAt);

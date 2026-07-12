@@ -54,6 +54,41 @@ class TrackServiceTests {
         assertThat(constraint.stationDistanceMeters()).isInfinite();
     }
 
+    @Test
+    void faultMutationsAreIdempotentAndIgnoreUnknownSegments() {
+        TrackService trackService = trackService(lineWithMidStation());
+
+        assertThat(trackService.segmentExists("T01")).isTrue();
+        assertThat(trackService.injectFault("T01")).isTrue();
+        assertThat(trackService.injectFault("T01")).isFalse();
+        assertThat(trackService.clearFault("T01")).isTrue();
+        assertThat(trackService.clearFault("T01")).isFalse();
+        assertThat(trackService.injectFault("UNKNOWN")).isFalse();
+        assertThat(trackService.faultSegmentIds()).doesNotContain("UNKNOWN");
+    }
+
+    @Test
+    void clearingAFaultRestoresActualOccupancy() {
+        TrackService trackService = trackService(lineWithMidStation());
+        trackService.updateOccupancy(List.of(train("TR-1", 200)));
+        trackService.injectFault("T01");
+
+        trackService.clearFault("T01");
+
+        assertThat(occupancy(trackService, "T01")).isEqualTo(TrackOccupancy.OCCUPIED);
+    }
+
+    @Test
+    void clearingAFaultRestoresAnExistingReservation() {
+        TrackService trackService = trackService(lineWithMidStation());
+        trackService.applyReservations(java.util.Set.of("T02"));
+        trackService.injectFault("T02");
+
+        trackService.clearFault("T02");
+
+        assertThat(occupancy(trackService, "T02")).isEqualTo(TrackOccupancy.RESERVED);
+    }
+
     private static TrackService trackService(OperationalLineData lineData) {
         StaticInfrastructureCatalog catalog = new StaticInfrastructureCatalog(lineData, emptyPowerData());
         SimulationProperties properties = new SimulationProperties();
@@ -158,5 +193,13 @@ class TrackServiceTests {
 
     private static TrainState train(String id, double positionMeters) {
         return new TrainEntity(id, "branch-demo", positionMeters, 20).state();
+    }
+
+    private static TrackOccupancy occupancy(TrackService trackService, String segmentId) {
+        return trackService.states().stream()
+            .filter(segment -> segment.id().equals(segmentId))
+            .map(TrackSegmentState::occupancy)
+            .findFirst()
+            .orElseThrow();
     }
 }

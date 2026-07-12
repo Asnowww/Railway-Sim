@@ -22,7 +22,7 @@ class ExternalTrainControlSessionTests {
         assertThat(session.state()).isEqualTo(ExternalTrainControlSessionState.SIGNAL_ATTACHING);
         assertThat(session.signalNetworkStatus()).isEqualTo("ATTACHING");
 
-        session.advance(new MovementAuthority("TR-003", 1_000, 13.33, "route ready", "S1"), null);
+        session.advance(new MovementAuthority("TR-003", 1_000, 13.33, "route ready", "S1", "S2", "NORMAL"), null);
         assertThat(session.state()).isEqualTo(ExternalTrainControlSessionState.POWER_ATTACHING);
         assertThat(session.signalNetworkStatus()).isEqualTo("ATTACHED");
 

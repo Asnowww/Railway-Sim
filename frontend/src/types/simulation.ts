@@ -75,27 +75,48 @@ export interface MovementAuthority {
   speedLimitMetersPerSecond: number
   reason: string
   currentSegmentId: string
+  endSegmentId?: string
+  reasonCode?: string
 }
+
+export type SignalAspect = 'RED' | 'YELLOW' | 'GREEN'
 
 export interface SignalState {
   signalId: string
   segmentId: string
   positionMeters: number
-  aspect: string
+  aspect: SignalAspect | string
   reasonTrainId?: string | null
 }
+
+export type SwitchPosition = 'NORMAL' | 'REVERSE'
 
 export interface SwitchState {
   id: string
   nodeId: string
-  position: string
+  position: SwitchPosition | string
   locked: boolean
   activeSegmentId: string
 }
 
+export type RouteStatus =
+  | 'AVAILABLE'
+  | 'VALIDATING'
+  | 'SETTING_SWITCHES'
+  | 'LOCKED'
+  | 'OCCUPIED'
+  | 'RELEASING'
+  | 'RELEASED'
+  | 'CONFLICTED'
+  | 'REJECTED'
+  | 'FAILED'
+  | 'CANCELLED'
+  | 'EXPIRED_BY_RESET'
+  | string
+
 export interface RouteState {
   routeId: string
-  status: string
+  status: RouteStatus
   lockedSwitchIds: string[]
   establishedByTrainId?: string | null
   axleSegmentIds: string[]
@@ -138,6 +159,34 @@ export interface PowerSectionState {
   updatedAt: string
 }
 
+export interface VehicleRuntimeHealth {
+  mode?: string
+  heartbeatStatus: string
+  sourceTimestamp?: string
+  latencyMillis: number
+  dataQuality?: string
+  instanceCount?: number
+  reason?: string
+  [key: string]: unknown
+}
+
+export interface VehicleRuntimeInstanceState {
+  trainId: string
+  lifecycleState: string
+  controlQueueStatus: string
+  simulationQueueStatus: string
+  lastTick: number
+  latencyMillis: number
+  dataQuality: string
+  reason: string
+  updatedAt: string
+}
+
+export interface VehicleRuntimeStatusResponse {
+  health: VehicleRuntimeHealth
+  instances: VehicleRuntimeInstanceState[]
+}
+
 export interface Alarm {
   id: string
   sourceModule: string
@@ -149,10 +198,12 @@ export interface Alarm {
   confirmed: boolean
 }
 
-export interface VehicleRuntimeHealth {
-  heartbeatStatus: string
-  latencyMillis: number
-  [key: string]: unknown
+export interface DispatchCommand {
+  id: string
+  trainId: string
+  commandType: string
+  detail: string | null
+  createdAt: string
 }
 
 export interface SimulationSnapshot {

@@ -43,6 +43,7 @@ const dispatchRouteList = ref<DispatchRouteInfo[]>([])
 const selectedRouteId = ref('')
 const selectedRouteTrainId = ref('')
 const routeOperationMessage = ref('')
+const routeRequestPending = ref(false)
 const headwayShrinkRatio = 0.7
 const headwayExpandRatio = 1.5
 
@@ -125,6 +126,9 @@ const comparisonWarnings = computed(() => {
   }
   return warnings
 })
+const routeReservationByDecision = computed(() =>
+  new Map(dispatch.value.routeReservations.map((reservation) => [reservation.decisionId, reservation]))
+)
 const comparisonRows = computed(() => {
   const baseline = comparisonBaseline.value
   if (!baseline) return []
@@ -310,8 +314,17 @@ const signalAspectLabel = (aspect: string) => {
 const routeStatusLabel = (routeStatus: string) => {
   const labels: Record<string, string> = {
     AVAILABLE: '可用',
-    ESTABLISHED: '已建立',
+    VALIDATING: '校验中',
+    SETTING_SWITCHES: '设置道岔',
+    LOCKED: '已锁闭',
+    OCCUPIED: '列车占用',
+    RELEASING: '释放中',
+    RELEASED: '已释放',
     CONFLICTED: '冲突',
+    REJECTED: '已拒绝',
+    FAILED: '执行失败',
+    CANCELLED: '已取消',
+    EXPIRED_BY_RESET: '重置终止',
   }
   return labels[routeStatus] ?? routeStatus
 }
@@ -390,26 +403,51 @@ async function establishSelectedRoute() {
   const routeId = selectedRouteId.value
   const trainId = selectedRouteTrainId.value || trains.value[0]?.id || ''
   if (!routeId || !trainId) return
-  const result = await dispatchApi.establishRoute(routeId, trainId)
-  routeOperationMessage.value = result.accepted
-    ? `进路 ${result.routeId} 已为 ${result.trainId} 建立`
-    : `进路 ${result.routeId} 建立失败：${result.rejectReason ?? '未知原因'}`
-  await runSimulation('tick')
+  const response = await dispatchApi.establishRoute(routeId, trainId)
+  routeOperationMessage.value = response.accepted
+    ? `联锁已直接为 ${trainId} 建立进路 ${routeId}`
+    : `联锁拒绝 ${routeId}：${response.rejectReason ?? '未知原因'}`
   await loadDispatchRoutes()
 }
 
 async function requestSelectedRoute() {
   const routeId = selectedRouteId.value
   const trainId = selectedRouteTrainId.value || trains.value[0]?.id || ''
-  if (!routeId || !trainId) return
-  const command = await dispatchApi.submitCommand({
-    trainId,
-    commandType: 'REQUEST_ROUTE',
-    routeId
-  })
-  routeOperationMessage.value = `调度已为 ${trainId} 申请进路 ${routeId}，命令 ${command.id}`
-  await runSimulation('tick')
-  await loadDispatchRoutes()
+  if (!routeId || !trainId || routeRequestPending.value) return
+
+  routeRequestPending.value = true
+  try {
+    const command = await dispatchApi.submitCommand({
+      trainId,
+      commandType: 'REQUEST_ROUTE',
+      routeId
+    })
+    const decisionId = textPayloadValue(command.payload?.decisionId)
+    const reservationId = textPayloadValue(command.payload?.reservationId)
+    routeOperationMessage.value = `进路申请已入队：指令 ${command.id} / 决策 ${decisionId} / 预留 ${reservationId}`
+
+    await runSimulation('tick')
+    await loadDispatchRoutes()
+
+    const currentCommand = dispatch.value.activeCommands.find((item) => item.id === command.id)
+    const decision = dispatch.value.routeDecisions.find((item) => item.routeCommandId === command.id)
+    const reservation = decision ? routeReservationByDecision.value.get(decision.decisionId) : undefined
+    const interlocking = routes.value.find((route) => route.routeId === routeId)
+    routeOperationMessage.value = [
+      `指令 ${command.id}（${commandStatusLabel(currentCommand?.status ?? command.status)}）`,
+      `决策 ${decision?.decisionId ?? decisionId}（${decision?.status ?? '等待处理'}）`,
+      `预留 ${reservation?.reservationId ?? reservationId}（${reservation?.state ?? '等待处理'}）`,
+      `联锁 ${routeStatusLabel(interlocking?.status ?? 'AVAILABLE')}`
+    ].join(' / ')
+  } catch (error) {
+    routeOperationMessage.value = error instanceof Error ? `进路申请失败：${error.message}` : '进路申请失败'
+  } finally {
+    routeRequestPending.value = false
+  }
+}
+
+function textPayloadValue(value: unknown) {
+  return typeof value === 'string' && value.length > 0 ? value : '-'
 }
 
 onMounted(loadDispatchRoutes)
@@ -810,8 +848,13 @@ function formatDelta(current: number | null | undefined, baseline: number | null
             <option value="">默认首列车</option>
             <option v-for="train in trains" :key="train.id" :value="train.id">{{ train.id }}</option>
           </select>
-          <button type="button" class="demo-button" :disabled="!selectedRouteId || trains.length === 0" @click="requestSelectedRoute">
-            调度申请进路
+          <button
+            type="button"
+            class="demo-button"
+            :disabled="!selectedRouteId || trains.length === 0 || routeRequestPending"
+            @click="requestSelectedRoute"
+          >
+            {{ routeRequestPending ? '提交中' : '调度申请进路' }}
           </button>
           <button type="button" :disabled="!selectedRouteId || trains.length === 0" @click="establishSelectedRoute">
             联锁直接建路

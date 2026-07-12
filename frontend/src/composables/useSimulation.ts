@@ -36,7 +36,14 @@ export function useSimulation() {
     snapshot.value = payload
     status.value = payload.status
     tick.value = payload.tick
-    dispatch.value = payload.dispatch ?? emptyDispatch
+    dispatch.value = payload.dispatch
+      ? {
+          ...emptyDispatch,
+          ...payload.dispatch,
+          routeDecisions: payload.dispatch.routeDecisions ?? [],
+          routeReservations: payload.dispatch.routeReservations ?? []
+        }
+      : emptyDispatch
     backendReady.value = true
   }
 
