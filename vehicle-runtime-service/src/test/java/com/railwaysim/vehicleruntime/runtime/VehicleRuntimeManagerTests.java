@@ -45,6 +45,25 @@ class VehicleRuntimeManagerTests {
     }
 
     @Test
+    void registeredSnapshotSeedsAuthoritativeStateForTrainlessFleetTicks() {
+        VehicleRuntimeManager manager = manager();
+        TrainStateSnapshot initial = train("TR-SEEDED", 432.0, 0);
+        manager.register(initial);
+        VehicleRuntimeStepRequest request = new VehicleRuntimeStepRequest(
+            1, 0.1, Instant.now(), List.of(),
+            List.of(new MovementAuthoritySnapshot("TR-SEEDED", 2_000, 22.2, "NORMAL")),
+            List.of(new TrackConstraintSnapshot("TR-SEEDED", "SEG-1", 22.2, 0, 1_000, 1_000_000)),
+            List.of(), List.of(), "run-seeded", List.of());
+
+        VehicleRuntimeStepResponse response = manager.stepFleet(request);
+
+        assertThat(response.trainOutputs()).singleElement()
+            .satisfies(output -> assertThat(output.newPositionMeters()).isGreaterThan(432.0));
+        assertThat(response.trainStates()).singleElement()
+            .satisfies(state -> assertThat(state.id()).isEqualTo("TR-SEEDED"));
+    }
+
+    @Test
     void healthReportsBootstrapStateOnlyAfterCentralConfigurationIsApplied() {
         VehicleRuntimeManager manager = manager();
 
@@ -54,6 +73,22 @@ class VehicleRuntimeManagerTests {
             5_000, 22.2, 120, "http://localhost:9200", true));
 
         assertThat(manager.health().bootstrapped()).isTrue();
+    }
+
+    @Test
+    void stationTopologyParticipatesInRuntimeConfigIdentity() {
+        VehicleRuntimeManager first = manager();
+        VehicleRuntimeManager second = manager();
+        first.bootstrap(new VehicleRuntimeBootstrapRequest(
+            5_000, 22.2, 120, "http://localhost:9200", true,
+            List.of(new VehicleRuntimeBootstrapRequest.StationTarget(
+                "S01", "Station", 1_250, List.of("P-S01")))));
+        second.bootstrap(new VehicleRuntimeBootstrapRequest(
+            5_000, 22.2, 120, "http://localhost:9200", true,
+            List.of(new VehicleRuntimeBootstrapRequest.StationTarget(
+                "S01", "Station", 1_300, List.of("P-S01")))));
+
+        assertThat(first.health().configHash()).isNotEqualTo(second.health().configHash());
     }
 
     @Test
@@ -272,7 +307,10 @@ class VehicleRuntimeManagerTests {
 
     @Test
     void registerRejectsPathAndBodyTrainIdMismatch() {
-        VehicleRuntimeController controller = new VehicleRuntimeController(manager());
+        VehicleRuntimeManager manager = manager();
+        VehicleRuntimeController controller = new VehicleRuntimeController(
+            manager, DriverCommandHolder.getInstance(),
+            new VehicleRuntimeTickClock(manager, new VehicleRuntimeProperties()));
 
         assertThatThrownBy(() -> controller.register("TR-PATH", train("TR-BODY", 100, 0)))
             .isInstanceOfSatisfying(ResponseStatusException.class, exception ->

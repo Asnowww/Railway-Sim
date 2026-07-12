@@ -87,14 +87,14 @@ public class TrainStateHolder {
         String trainId,
         VehicleParameters vehicleParameters,
         VehicleLoadPolicy loadPolicy,
-        double defaultLineLengthMeters
+        List<StationDef> stationDefinitions
     ) {
         this.trainId = trainId;
         this.routeId = "ROUTE_DEFAULT";
         this.lengthMeters = vehicleParameters.lengthMeters();
         this.vehicleParameters = vehicleParameters;
         this.loadPolicy = loadPolicy;
-        this.stations = buildDefaultStations(defaultLineLengthMeters);
+        this.stations = stationDefinitions == null ? List.of() : List.copyOf(stationDefinitions);
     }
 
     // ========== 初始化 ==========
@@ -494,18 +494,12 @@ public class TrainStateHolder {
         return nearestDistance <= 30 ? nearest : null;
     }
 
-    /** 内部车站定义（替代中央 OperationalLineData.StationDefinition）。 */
-    public record StationDef(String id, double centerMeters) {}
-
-    private static List<StationDef> buildDefaultStations(double lineLengthMeters) {
-        if (lineLengthMeters <= 0) lineLengthMeters = 5_000;
-        int stationCount = 6;
-        double spacing = lineLengthMeters / (stationCount + 1);
-        List<StationDef> list = new ArrayList<>(stationCount);
-        String[] ids = {"S01", "S02", "S03", "S04", "S05", "S06"};
-        for (int i = 0; i < Math.min(stationCount, ids.length); i++) {
-            list.add(new StationDef(ids[i], spacing * (i + 1)));
+    /** 由线路权威配置下发的只读车站目标；9300 不创建或修改基础设施。 */
+    public record StationDef(
+        String id, String name, double centerMeters, List<String> platformIds
+    ) {
+        public StationDef {
+            platformIds = platformIds == null ? List.of() : List.copyOf(platformIds);
         }
-        return list;
     }
 }

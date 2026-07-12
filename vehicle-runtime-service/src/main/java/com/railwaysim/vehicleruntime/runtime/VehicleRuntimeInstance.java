@@ -15,6 +15,7 @@ import com.railwaysim.vehicleruntime.model.VehiclePhysicsOutputDto;
 import com.railwaysim.vehicleruntime.model.VehicleRuntimeInstanceState;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
@@ -43,7 +44,8 @@ final class VehicleRuntimeInstance {
         VehicleRuntimeProperties properties,
         VehicleParameters vehicleParameters,
         DriverCommandHolder driverCommandHolder,
-        StoppingControlProperties stoppingProperties
+        StoppingControlProperties stoppingProperties,
+        List<TrainStateHolder.StationDef> stationDefinitions
     ) {
         this.trainId = trainId;
         this.vehicleParameters = vehicleParameters;
@@ -51,7 +53,7 @@ final class VehicleRuntimeInstance {
         this.controlQueue = new VehicleControlQueue(
             properties, loadPolicy, vehicleParameters, driverCommandHolder, stoppingProperties);
         this.trainState = new TrainStateHolder(
-            trainId, vehicleParameters, loadPolicy, properties.getDefaultLineLengthMeters());
+            trainId, vehicleParameters, loadPolicy, stationDefinitions);
     }
 
     /** 从注册快照初始化 TrainStateHolder。 */

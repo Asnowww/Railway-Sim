@@ -139,6 +139,7 @@ class PowerNetworkModel:
     isolators: dict[str, IsolatorState] = field(default_factory=dict)
     stray_monitors: dict[str, StrayMonitorState] = field(default_factory=dict)
     section_loads: dict[str, SectionLoad] = field(default_factory=dict)
+    section_faults: dict[str, str] = field(default_factory=dict)
     events: list[dict[str, Any]] = field(default_factory=list)
     source_timestamp: str = field(default_factory=now_iso)
     last_step_tick: int | None = None
@@ -251,6 +252,7 @@ class PowerNetworkModel:
             section.power_section_id: SectionLoad(section.power_section_id)
             for section in self.third_rail_sections.values()
         }
+        self.section_faults = {}
         self._solve_network()
         self._append_event("BOOTSTRAPPED", "POWER_NETWORK", self.line_id, "INFO", "power network model bootstrapped")
         return {"accepted": True, "lineId": self.line_id, "generatedAt": self.source_timestamp}
@@ -419,9 +421,11 @@ class PowerNetworkModel:
                     }
                 )
                 continue
+            fault = self.section_faults.get(section.power_section_id, "")
             energized = section.energization_state == "ENERGIZED" and section.contact_rail_voltage > self.cutoff_dc_voltage
             undervoltage = energized and section.contact_rail_voltage < self.minimum_dc_voltage
-            derating_factor = 0.5 if undervoltage else (1.0 if energized else 0.0)
+            overcurrent = energized and fault == "OVERCURRENT"
+            derating_factor = 0.25 if overcurrent else (0.5 if undervoltage else (1.0 if energized else 0.0))
             available_power = (
                 section.contact_rail_voltage * self.max_traction_current_amps * derating_factor
                 if energized
@@ -432,7 +436,7 @@ class PowerNetworkModel:
                 if energized and not undervoltage
                 else 0.0
             )
-            reason = "UNDERVOLTAGE" if undervoltage else ("NORMAL" if energized else "POWER_UNAVAILABLE")
+            reason = fault if fault else ("UNDERVOLTAGE" if undervoltage else ("NORMAL" if energized else "POWER_UNAVAILABLE"))
             constraints.append(
                 {
                     "trainId": train_id,
@@ -486,6 +490,12 @@ class PowerNetworkModel:
         elif target_type in {"STRAY_MONITOR", "STRAIN_MONITOR"} and target_id in self.stray_monitors:
             self.stray_monitors[target_id].cabinet_state = desired_state or "ABNORMAL"
             executed = True
+        elif target_type == "POWER_SECTION" and self.third_rail_sections_by_power_section(target_id) is not None:
+            if payload.get("operationType") == "CLEAR_FAULT" or desired_state in {"", "NORMAL", "CLEARED"}:
+                self.section_faults.pop(target_id, None)
+            else:
+                self.section_faults[target_id] = desired_state
+            executed = True
 
         self._solve_network()
         result_state = "EXECUTED" if executed else "REJECTED"
@@ -531,6 +541,31 @@ class PowerNetworkModel:
         section.unabsorbed_regen_watts = max(0.0, load.regen_power_watts - section.absorbed_regen_watts)
         section.regen_budget_watts = 0.0
         section.traction_current_amps = self._effective_current(load)
+        fault = self.section_faults.get(section.power_section_id)
+        if fault in {"DEENERGIZED", "BREAKER_TRIP", "MAINTENANCE_LOCK", "ISOLATED"}:
+            section.energization_state = "DEENERGIZED"
+            section.feeder_state = fault
+            section.recommended_supply_mode = "OUTAGE"
+            section.contact_rail_voltage = 0.0
+            section.support_reason = f"injected fault: {fault}"
+            return
+        if fault == "UNDERVOLTAGE":
+            section.energization_state = "ENERGIZED"
+            section.feeder_state = "UNDERVOLTAGE"
+            section.recommended_supply_mode = "DERATED"
+            section.contact_rail_voltage = max(
+                self.cutoff_dc_voltage + 1.0,
+                self.minimum_dc_voltage - max(1.0, self.minimum_dc_voltage * 0.1),
+            )
+            section.support_reason = "injected fault: UNDERVOLTAGE"
+            return
+        if fault == "OVERCURRENT":
+            section.energization_state = "ENERGIZED"
+            section.feeder_state = "OVERCURRENT"
+            section.recommended_supply_mode = "DERATED"
+            section.contact_rail_voltage = max(self.minimum_dc_voltage, self.nominal_dc_voltage * 0.9)
+            section.support_reason = "injected fault: OVERCURRENT"
+            return
         if open_isolator:
             section.energization_state = "DEENERGIZED"
             section.feeder_state = "ISOLATED"

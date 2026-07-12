@@ -519,7 +519,39 @@ function resetDemo() {
 }
 
 function stepDemo() {
-  const decision = decideLocalDynamics()
+  // 检查是否有人工驾驶指令（司机台手柄不在零位、紧急制动激活、或ATO发车标志）
+  const hasManualCommand =
+    driverCabInput.masterHandleState !== 'ZERO' ||
+    driverCabInput.emergencyBrakeButtonLocked ||
+    driverCabInput.atoStartFlag;
+
+  let decision: DynamicsDecision;
+  if (hasManualCommand) {
+    // 手动模式：使用司机台输入替代ATO决策
+    const speed = demoTrain.speedMetersPerSecond;
+    const speedLimit = Math.max(0, localConfig.speedLimitKmh / 3.6);
+    const maDistance = Math.max(0, localConfig.movementAuthorityEndMeters - demoTrain.positionMeters);
+    const stationDistance = Math.max(0, localConfig.stationPositionMeters - demoTrain.positionMeters);
+    const stoppingDist = stoppingDistanceMeters(speed);
+
+    if (driverCabInput.emergencyBrakeButtonLocked) {
+      decision = brakeDecision('SAFETY_BRAKE', 'DRIVER_CAB_EMERGENCY_BRAKE', speed, stoppingDist, maDistance, stationDistance, true);
+    } else if (!driverCabInput.keySwitchLocked) {
+      decision = decision('SELF_CHECK_BLOCKED', 'DRIVER_CAB_KEY_OFF', 0, speed > 0.1 ? 0.6 : 0, false, stoppingDist);
+    } else if (driverCabInput.masterHandleState === 'TRACTION') {
+      const tractionCmd = driverCabInput.tractionNotchPercent / 100;
+      decision = decision('ACCELERATING', 'DRIVER_TRACTION', tractionCmd, 0, false, stoppingDist);
+    } else if (driverCabInput.masterHandleState === 'BRAKE') {
+      const brakeCmd = driverCabInput.brakeNotchPercent / 100;
+      decision = decision('MA_BRAKE', 'DRIVER_SERVICE_BRAKE', 0, brakeCmd, false, stoppingDist);
+    } else if (driverCabInput.masterHandleState === 'FAST_BRAKE') {
+      decision = decision('SAFETY_BRAKE', 'DRIVER_COMMAND_STALE', 0, 1, false, stoppingDist);
+    } else {
+      decision = decideLocalDynamics();
+    }
+  } else {
+    decision = decideLocalDynamics();
+  }
   const massKg = EMPTY_MASS_KG + MAX_LOAD_MASS_KG * LOAD_RATE
   const tractionForce = decision.tractionCommand * 220_000
   const brakeForce = decision.brakeCommand * (decision.emergencyBrake ? 300_000 : 235_000)
@@ -2368,7 +2400,3 @@ button:disabled {
   }
 }
 </style>
-<<<<<<< HEAD
-
-=======
->>>>>>> 3f3347648baf2fb973f4ad776bb1a9fd90fb93a4

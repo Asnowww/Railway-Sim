@@ -69,6 +69,7 @@ public class VehicleRuntimeManager {
     private String currentRunId = "";
     private long lastAcceptedTick = -1;
     private boolean bootstrapped;
+    private List<TrainStateHolder.StationDef> stationDefinitions = List.of();
 
     @Autowired
     public VehicleRuntimeManager(
@@ -168,6 +169,10 @@ public class VehicleRuntimeManager {
             properties.setSafetyGapMeters(request.safetyGapMeters());
             properties.setPowerNetworkBaseUrl(request.powerNetworkBaseUrl());
             properties.setForwardPowerLoads(request.forwardPowerLoads());
+            stationDefinitions = request.stations().stream()
+                .map(station -> new TrainStateHolder.StationDef(
+                    station.id(), station.name(), station.positionMeters(), station.platformIds()))
+                .toList();
             bootstrapped = true;
         }
         recordEvent("runtime", "BOOTSTRAP", "external vehicle runtime bootstrapped");
@@ -183,8 +188,10 @@ public class VehicleRuntimeManager {
         VehicleRuntimeInstance instance = instances.computeIfAbsent(
             trainId,
             id -> new VehicleRuntimeInstance(
-                id, properties, vehicleParameters, driverCommandHolder, stoppingProperties)
+                id, properties, vehicleParameters, driverCommandHolder, stoppingProperties,
+                stationDefinitions)
         );
+        instance.initializeState(train);
         instance.launch();
         recordEvent(trainId, "REGISTER", "vehicle runtime instance registered");
         return instance.state();
@@ -198,7 +205,8 @@ public class VehicleRuntimeManager {
         VehicleRuntimeInstance instance = instances.computeIfAbsent(
             trainId,
             id -> new VehicleRuntimeInstance(
-                id, properties, vehicleParameters, driverCommandHolder, stoppingProperties)
+                id, properties, vehicleParameters, driverCommandHolder, stoppingProperties,
+                stationDefinitions)
         );
         // 启动顺序固定：先创建车辆仿真实例，再唤醒本车控制实例，最后向中央登记镜像。
         instance.launch();
@@ -313,20 +321,24 @@ public class VehicleRuntimeManager {
         // 构建参与本次 tick 的列车 ID 集合
         List<String> activeTrainIds;
         if (hasExplicitTrains) {
-            // 旧模式：从 request.trains 确定列车列表，初始化 TrainStateHolder
-            activeTrainIds = new ArrayList<>();
+            // 先完整校验再创建实例，避免非法批次留下半初始化权威状态。
+            java.util.LinkedHashSet<String> validatedTrainIds = new java.util.LinkedHashSet<>();
             for (TrainStateSnapshot train : request.trains()) {
                 if (train == null || train.id() == null || train.id().isBlank()) {
                     throw new IllegalArgumentException("every train must have a trainId");
                 }
-                if (activeTrainIds.contains(train.id())) {
+                if (!validatedTrainIds.add(train.id())) {
                     throw new IllegalArgumentException("duplicate trainId in fleet step: " + train.id());
                 }
-                activeTrainIds.add(train.id());
+            }
+            // 旧模式：从 request.trains 确定列车列表，初始化 TrainStateHolder
+            activeTrainIds = new ArrayList<>(validatedTrainIds);
+            for (TrainStateSnapshot train : request.trains()) {
                 VehicleRuntimeInstance instance = instances.computeIfAbsent(
                     train.id(),
                     id -> new VehicleRuntimeInstance(
-                        id, properties, vehicleParameters, driverCommandHolder, stoppingProperties)
+                        id, properties, vehicleParameters, driverCommandHolder, stoppingProperties,
+                        stationDefinitions)
                 );
                 instance.initializeState(train);
             }
@@ -650,6 +662,10 @@ public class VehicleRuntimeManager {
             properties.getFmuModelVersion(),
             vehicleParameters.parameterSetId(),
             stoppingProperties.getParameterVersion(),
+            stationDefinitions.stream()
+                .map(station -> station.id() + ":" + station.centerMeters() + ":"
+                    + String.join(",", station.platformIds()))
+                .collect(java.util.stream.Collectors.joining(";")),
             Double.toString(stoppingProperties.getServiceBrakeDecelerationMetersPerSecondSquared()),
             Double.toString(stoppingProperties.getStationStopWindowMeters()),
             Double.toString(properties.getSafetyGapMeters()));

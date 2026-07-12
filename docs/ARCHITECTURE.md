@@ -13,6 +13,7 @@
 本项目的列车状态权威持有者为 **`vehicle-runtime-service:9300`**（`TrainStateHolder`），中央 `backend:8080` 持有镜像状态。
 
 - **9300** 持有 `TrainStateHolder`（等效 `TrainEntity` 的 40+ 可变字段），是列车位置、速度、牵引力、能耗、TCMS 诊断等状态的权威源。
+- **线路基础设施仍由 8080 静态配置域持有**：车站/站台 ID 与里程只在 bootstrap 时作为只读拓扑下发。9300 用它执行停车、到站识别和停站计时，但不得自行生成车站。
 - **中央** 的 `TrainEntity` 在 `EXTERNAL_HTTP` 模式下为 9300 的状态镜像，在 `LOCAL` 模式下为本地计算状态。
 - `SimulationRuntime` 提供中央统一仿真时钟；9300 在自主模式下有独立 `@Scheduled` 时钟。
 - 调度、信号、轨道在 `backend:8080` 内协作；拆分部署时，单车控制/状态/物理由 `vehicle-runtime-service:9300` 权威执行，权威供电计算由 `power-network-service:9200` 执行。
@@ -195,6 +196,7 @@ vehicle-runtime-service:9300（列车状态权威持有者）
 ### 9300 核心特性
 
 - **权威状态持有**：`TrainStateHolder` 包含等效 `TrainEntity` 的 40+ 可变字段（位置、速度、力、能耗、TCMS 诊断、司控台状态、车站追踪），通过 `snapshot()` 生成 `TrainStateSnapshot` 供中央消费。
+- **只读停车拓扑**：`TrainStateHolder` 的车站表来自 8080 bootstrap 的当前线路配置；已删除按线路长度构造 6 个等距站的兼容逻辑。静态拓扑来源不改变 9300 对列车控制和动态状态的权威性。
 - **自主时钟**：`VehicleRuntimeTickClock` 提供 `@Scheduled` 定时推进，不依赖中央驱动。通过 `POST /autonomous/enable|disable` 切换。
 - **手动控制**：每列车可通过 `POST /trains/{id}/manual-control` 独立设置牵引/制动/紧急制动/方向命令，下个 tick 通过 `DriverCommandHolder` 生效。`VehicleControlQueue.decideDynamicsState()` 已有 manualCommand 分支。
 - **司控台 PLC**：`DriverCabInputController` 接收 46 字节 PLC 二进制输入，解码后存入 `DriverCommandHolder` 并应用状态变更到 `TrainStateHolder`。

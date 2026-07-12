@@ -738,6 +738,9 @@ GET  /vehicle-runtime/events
 |---|---|
 | `powerNetworkBaseUrl` | 中央配置的外部供电仿真地址，默认 `http://localhost:9200`。 |
 | `forwardPowerLoads` | 是否启用 9300 -> 9200 的权威供电闭环。启用时使用 `/constraints/query` 与 `/step`。 |
+| `stations[]` | 8080 从当前线路 YAML/工作簿解析出的只读车站目标，包含 `id/name/positionMeters/platformIds`。9300 只消费该静态拓扑做停车和到站判断，不创建或修改车站。 |
+
+`stations[]` 只在 bootstrap/恢复时传输，不属于逐 tick 车辆状态同步。9300 的 `configHash` 包含车站 ID、里程和站台 ID；车站拓扑不一致时恢复门禁不得进入 `UP`。
 
 当 `vehicle-runtime-service` 处于 `EXTERNAL_HTTP` 模式且 `forwardPowerLoads=true` 时，闭环为：`9300 -> POST 9200/constraints/query -> 车辆控制/单次批量FMU动力学 -> POST 9200/step -> 下一周期供电约束`。中央 `PowerIntegrationService` 只调用 `GET 9200/power-network/state` 拉取镜像，绝不补写负荷；该写入权按部署配置固定，不因某车FMU降级而切回中央，从而避免双写。只有非拆分部署的`LOCAL`或`DUAL_SHADOW`模式保留兼容路径`PowerIntegrationService.refreshSnapshot(sectionLoads) -> POST /power-network/state/query`。
 

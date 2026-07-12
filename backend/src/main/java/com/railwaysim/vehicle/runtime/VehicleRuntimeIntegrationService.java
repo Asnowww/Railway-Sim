@@ -242,7 +242,7 @@ public class VehicleRuntimeIntegrationService implements VehiclePowerLoadForward
         List<DispatchConstraint> dispatchConstraints,
         List<PowerConstraint> powerConstraints
     ) {
-        bootstrapIfNeeded();
+        bootstrapIfNeeded(trains);
         // 新模式：不发列车状态给 9300，9300 从本地 TrainStateHolder 读取权威状态
         VehicleRuntimeStepResponse response = client.stepFleet(VehicleRuntimeStepRequest.withoutTrains(
             context.tick(),
@@ -416,15 +416,21 @@ public class VehicleRuntimeIntegrationService implements VehiclePowerLoadForward
     }
 
     private synchronized void bootstrapIfNeeded() {
+        bootstrapIfNeeded(List.of());
+    }
+
+    private synchronized void bootstrapIfNeeded(List<TrainState> recoveryStates) {
         if (!properties.isAutoBootstrap()) {
             return;
         }
+        boolean remoteRestarted = false;
         if (bootstrapped.get()) {
             latestHealth = client.health();
             if (latestHealth.bootstrapped()) {
                 return;
             }
             bootstrapped.set(false);
+            remoteRestarted = true;
         }
         double lineLength = infrastructureCatalog.lineData().lineLengthMeters() > 0
             ? infrastructureCatalog.lineData().lineLengthMeters()
@@ -436,10 +442,20 @@ public class VehicleRuntimeIntegrationService implements VehiclePowerLoadForward
             simulationProperties.getSafetyGapMeters(),
             externalPowerNetworkProperties.getBaseUrl(),
             properties.getMode() == VehicleRuntimeMode.EXTERNAL_HTTP
-                && externalPowerNetworkProperties.getMode() != ExternalPowerNetworkMode.LOCAL
+                && externalPowerNetworkProperties.getMode() != ExternalPowerNetworkMode.LOCAL,
+            infrastructureCatalog.lineData().stations().stream()
+                .map(station -> new VehicleRuntimeBootstrapRequest.StationTarget(
+                    station.id(), station.name(), station.centerMeters(), station.platformIds()))
+                .toList()
         ));
         // 只有 bootstrap 成功后才置位；失败保持可重试，避免外部运行时长期使用默认供电配置。
         bootstrapped.set(true);
+        if (remoteRestarted && recoveryStates != null) {
+            for (TrainState state : recoveryStates) {
+                VehicleRuntimeInstanceState recovered = client.registerTrain(state);
+                latestInstances = mergeInstance(recovered);
+            }
+        }
     }
 
     private boolean usesExternalRuntime() {

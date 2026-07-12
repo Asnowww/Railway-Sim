@@ -9,6 +9,24 @@ CREATE TABLE IF NOT EXISTS simulation_run (
   end_reason VARCHAR(255)
 );
 
+CREATE TABLE IF NOT EXISTS operation_log (
+  id BIGINT AUTO_INCREMENT PRIMARY KEY,
+  operator_name VARCHAR(64) NOT NULL,
+  operation_type VARCHAR(64) NOT NULL,
+  target_ref VARCHAR(128) NOT NULL,
+  detail_json JSON,
+  run_id VARCHAR(64),
+  tick BIGINT,
+  trace_id VARCHAR(64),
+  before_state VARCHAR(1024),
+  after_state VARCHAR(1024),
+  reason VARCHAR(512),
+  status VARCHAR(32) NOT NULL DEFAULT 'PENDING',
+  retry_count INT NOT NULL DEFAULT 0,
+  error_text VARCHAR(1024),
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE TABLE IF NOT EXISTS vehicle_control_command_log (
   id BIGINT AUTO_INCREMENT PRIMARY KEY,
   simulation_run_id VARCHAR(64) NOT NULL,

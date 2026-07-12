@@ -53,6 +53,9 @@ class VehicleRuntimeIntegrationServiceTests {
 
             assertThat(bootstrapBody.get()).contains("\"powerNetworkBaseUrl\":\"http://localhost:9200\"");
             assertThat(bootstrapBody.get()).contains("\"forwardPowerLoads\":true");
+            assertThat(bootstrapBody.get()).contains(
+                "\"stations\":[{\"id\":\"S01\",\"name\":\"Station 01\",\"positionMeters\":1250.0,\"platformIds\":[\"P-S01\"]}]"
+            );
             assertThat(requestBody.get()).contains("\"powerConstraints\"");
             assertThat(requestBody.get()).contains("\"movementAuthorities\"");
             assertThat(requestBody.get()).contains("\"dispatchConstraints\"");
@@ -169,6 +172,11 @@ class VehicleRuntimeIntegrationServiceTests {
             exchange.getRequestBody().readAllBytes();
             writeJson(exchange, 200, stepResponseJson("OK", "GOOD", 321.0));
         });
+        AtomicReference<String> recoveredTrain = new AtomicReference<>("");
+        server.createContext("/vehicle-runtime/trains/TR-201", exchange -> {
+            recoveredTrain.set(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
+            writeJson(exchange, 200, "{\"trainId\":\"TR-201\",\"lifecycleState\":\"CONTROL_AWAKE\",\"controlQueueStatus\":\"READY\",\"simulationQueueStatus\":\"READY\",\"lastTick\":-1,\"latencyMillis\":0,\"dataQuality\":\"GOOD\",\"reason\":\"CONTROL_INSTANCE_AWAKE\",\"updatedAt\":\"2026-07-12T00:00:00Z\"}");
+        });
         server.start();
         try {
             VehicleRuntimeIntegrationService service = service(
@@ -181,6 +189,7 @@ class VehicleRuntimeIntegrationServiceTests {
 
             assertThat(bootstrapCalls.get()).isEqualTo(2);
             assertThat(recovered.health().bootstrapped()).isTrue();
+            assertThat(recoveredTrain.get()).contains("\"id\":\"TR-201\"");
         } finally {
             server.stop(0);
         }
@@ -240,7 +249,8 @@ class VehicleRuntimeIntegrationServiceTests {
             List.of(),
             List.of(),
             List.of(),
-            List.of(),
+            List.of(new OperationalLineData.StationDefinition(
+                "S01", "Station 01", 1_250, List.of("P-S01"))),
             List.of(),
             List.of(),
             List.of(),

@@ -29,7 +29,8 @@ public class FaultImpactCatalog {
     private String safetyAction(String code) {
         if (code.startsWith("SIGNAL_MA_LIMIT")) return "TRACTION_CUTOFF_AND_SAFE_BRAKE";
         if (code.startsWith("TRACK_FAULT")) return "STOP_BEFORE_FAULTED_SEGMENT_AND_SET_SIGNAL_RED";
-        if (code.startsWith("POWER_STATE") || code.startsWith("POWER_FAULT")) {
+        if (code.startsWith("POWER_STATE") || code.startsWith("POWER_FAULT")
+            || code.startsWith("POWER_LIMIT")) {
             return "POWER_DERATE_OR_TRACTION_CUTOFF";
         }
         if (code.startsWith("POWER_LOCK")) return "INHIBIT_ENERGIZATION";
