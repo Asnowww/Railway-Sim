@@ -134,7 +134,7 @@ public class SimulationRuntime {
      */
     public synchronized void advanceScheduledTick() {
         if (status == SimulationStatus.RUNNING) {
-            advanceOneTick();
+            advanceWithFailureTracking();
         }
     }
 
