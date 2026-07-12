@@ -14,6 +14,11 @@ export const simulationApi = {
   start: () => request<SimulationSnapshot>('/simulation/start', { method: 'POST' }),
   pause: () => request<SimulationSnapshot>('/simulation/pause', { method: 'POST' }),
   reset: () => request<SimulationSnapshot>('/simulation/reset', { method: 'POST' }),
-  tick: () => request<SimulationSnapshot>('/simulation/tick', { method: 'POST' })
+  tick: () => request<SimulationSnapshot>('/simulation/tick', { method: 'POST' }),
+  acknowledgeAlarm: (alarmId: string) => request<unknown>(`/alarms/${encodeURIComponent(alarmId)}/acknowledge`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ operator: 'monitor-console' })
+  })
 }
 

@@ -128,6 +128,16 @@ public class SimulationRuntime {
         return advanceWithFailureTracking();
     }
 
+    /**
+     * Advances the shared simulation clock only while the runtime is running.
+     * Browser clients remain read-only, so opening more pages cannot accelerate time.
+     */
+    public synchronized void advanceScheduledTick() {
+        if (status == SimulationStatus.RUNNING) {
+            advanceOneTick();
+        }
+    }
+
     public synchronized SimulationSnapshot pause() {
         status = SimulationStatus.PAUSED;
         simulationRunService.pause(dispatchService.simulationRunId(), tick);

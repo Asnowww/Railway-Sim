@@ -143,7 +143,8 @@ const selectedLocation = ref('人民广场')
 const trainCrowdThreshold = ref(80)
 const stationCrowdThreshold = ref(80)
 const predictionWindowMinutes = ref(15)
-const simulationClock = ref('08:35:24')
+const simulationClock = ref(new Date().toLocaleTimeString('zh-CN', { hour12: false }))
+const backendLastPacketClock = ref('--:--:--')
 const topologyView = ref<TopologyView>('overview')
 const selectedRouteId = ref('R01')
 const activePage = ref<ActivePage>('monitor')
@@ -151,6 +152,9 @@ const backendConnected = ref(false)
 const backendErrorMessage = ref('')
 const backendTick = ref(0)
 const backendStatus = ref('STOPPED')
+const alarmActionMessage = ref('')
+const acknowledgedAlarmKeys = ref(readAlarmActionIds('railway-sim.acknowledged-alarms'))
+const mutedAlarmKeys = ref(readAlarmActionIds('railway-sim.muted-alarms'))
 
 const stations = ['上京南', '科技园', '人民广场', '金融城', '会展中心', '机场北']
 
@@ -272,6 +276,7 @@ const linkStates = ref<LinkState[]>([
 ])
 
 const trendChartRef = ref<HTMLDivElement | null>(null)
+const mapPanelRef = ref<HTMLElement | null>(null)
 let trendChart: echarts.ECharts | null = null
 let trendChartResizeObserver: ResizeObserver | null = null
 let clockTimer = 0
@@ -473,24 +478,59 @@ function selectTopologyNode(node: TopologyNode): void {
   if (node.stationName) selectedLocation.value = node.stationName
 }
 
-function acknowledgeAlarm(alarmId: string): void {
-  const alarm = alarms.value.find((item) => item.id === alarmId)
-  if (alarm) alarm.confirmed = true
+function readAlarmActionIds(storageKey: string): Set<string> {
+  try {
+    const storedIds = JSON.parse(window.sessionStorage.getItem(storageKey) ?? '[]')
+    return new Set(Array.isArray(storedIds) ? storedIds.filter((id): id is string => typeof id === 'string') : [])
+  } catch {
+    return new Set()
+  }
 }
 
-function muteAlarm(alarmId: string): void {
-  const alarm = alarms.value.find((item) => item.id === alarmId)
-  if (alarm) alarm.muted = true
+function persistAlarmActionIds(storageKey: string, alarmIds: Set<string>): void {
+  window.sessionStorage.setItem(storageKey, JSON.stringify([...alarmIds]))
+}
+
+function alarmActionKey(alarm: Pick<UnifiedAlarm, 'source' | 'location' | 'description'>): string {
+  return `${alarm.source}|${alarm.location}|${alarm.description}`
+}
+
+async function acknowledgeAlarm(alarm: UnifiedAlarm): Promise<void> {
+  if (backendConnected.value) {
+    try {
+      await simulationApi.acknowledgeAlarm(alarm.id)
+    } catch (error) {
+      alarmActionMessage.value = error instanceof Error ? `确认失败：${error.message}` : '确认失败，请检查后端连接'
+      return
+    }
+  }
+  acknowledgedAlarmKeys.value.add(alarmActionKey(alarm))
+  persistAlarmActionIds('railway-sim.acknowledged-alarms', acknowledgedAlarmKeys.value)
+  alarm.confirmed = true
+  alarmActionMessage.value = `告警 ${alarm.id} 已确认`
+}
+
+function muteAlarm(alarm: UnifiedAlarm): void {
+  mutedAlarmKeys.value.add(alarmActionKey(alarm))
+  persistAlarmActionIds('railway-sim.muted-alarms', mutedAlarmKeys.value)
+  alarm.muted = true
+  alarmActionMessage.value = `告警 ${alarm.id} 已屏蔽`
 }
 
 function resolveAlarmStation(alarm: UnifiedAlarm): string {
   if (stations.includes(alarm.location)) return alarm.location
 
   const relatedTrain = trains.value.find((train) => train.id === alarm.location || train.serviceNo === alarm.location)
-  if (relatedTrain) return relatedTrain.section.split('-')[0]
+  if (relatedTrain) {
+    const stationIndex = Math.round((relatedTrain.positionPercent / 100) * (stations.length - 1))
+    return stations[Math.min(stations.length - 1, Math.max(0, stationIndex))]!
+  }
 
   const relatedTrack = trackSegments.value.find((segment) => segment.name === alarm.location || segment.id === alarm.location)
-  if (relatedTrack) return relatedTrack.name.split('-')[0]
+  if (relatedTrack) {
+    const segmentIndex = trackSegments.value.indexOf(relatedTrack)
+    return stations[Math.min(stations.length - 1, Math.max(0, segmentIndex))]!
+  }
 
   const relatedPower = powerSections.value.find((section) => section.name === alarm.location || section.id === alarm.location)
   if (relatedPower?.affectedTrains.length) {
@@ -505,7 +545,11 @@ function resolveAlarmStation(alarm: UnifiedAlarm): string {
 }
 
 function focusAlarm(alarm: UnifiedAlarm): void {
-  selectedLocation.value = resolveAlarmStation(alarm)
+  const targetStation = resolveAlarmStation(alarm)
+  selectedLocation.value = targetStation
+  topologyView.value = 'station'
+  alarmActionMessage.value = `已定位 ${alarm.location}，关联车站：${targetStation}`
+  void nextTick(() => mapPanelRef.value?.scrollIntoView({ behavior: 'smooth', block: 'center' }))
 }
 
 function updateThresholds(): void {
@@ -529,7 +573,7 @@ function applyBackendSnapshot(snapshot: SimulationSnapshot): void {
   backendErrorMessage.value = ''
   backendTick.value = snapshot.tick
   backendStatus.value = snapshot.status
-  simulationClock.value = new Date(snapshot.simulatedTime).toLocaleTimeString('zh-CN', { hour12: false })
+  backendLastPacketClock.value = new Date().toLocaleTimeString('zh-CN', { hour12: false })
 
   const maxPositionMeters = Math.max(1, ...snapshot.trackSegments.map((segment) => segment.endMeters), ...snapshot.trains.map((train) => train.positionMeters))
 
@@ -570,8 +614,8 @@ function applyBackendSnapshot(snapshot: SimulationSnapshot): void {
     level: Math.min(Math.max(alarm.level, 1), 3) as AlarmLevel,
     description: alarm.title,
     impact: alarm.detail,
-    confirmed: alarm.confirmed,
-    muted: false
+    confirmed: alarm.confirmed || acknowledgedAlarmKeys.value.has(`${alarm.sourceModule}|${alarm.locationRef}|${alarm.title}`),
+    muted: mutedAlarmKeys.value.has(`${alarm.sourceModule}|${alarm.locationRef}|${alarm.title}`)
   }))
 
   dispatchCommands.value = snapshot.dispatch.activeCommands.map((command) => ({
@@ -583,10 +627,10 @@ function applyBackendSnapshot(snapshot: SimulationSnapshot): void {
   }))
 
   linkStates.value = [
-    { name: '后端仿真', status: '在线', latencyMs: 0, lastPacket: simulationClock.value },
-    { name: '车辆运行时', status: snapshot.vehicleRuntime.heartbeatStatus === 'UP' ? '在线' : '延迟', latencyMs: snapshot.vehicleRuntime.latencyMillis, lastPacket: simulationClock.value },
-    { name: 'WebSocket', status: '在线', latencyMs: 0, lastPacket: simulationClock.value },
-    { name: '调度模块', status: snapshot.dispatch.interventionActive ? '延迟' : '在线', latencyMs: 0, lastPacket: simulationClock.value }
+    { name: '后端仿真', status: '在线', latencyMs: 0, lastPacket: backendLastPacketClock.value },
+    { name: '车辆运行时', status: snapshot.vehicleRuntime.heartbeatStatus === 'UP' ? '在线' : '延迟', latencyMs: snapshot.vehicleRuntime.latencyMillis, lastPacket: backendLastPacketClock.value },
+    { name: 'WebSocket', status: '在线', latencyMs: 0, lastPacket: backendLastPacketClock.value },
+    { name: '调度模块', status: snapshot.dispatch.interventionActive ? '延迟' : '在线', latencyMs: 0, lastPacket: backendLastPacketClock.value }
   ]
 }
 
@@ -613,13 +657,6 @@ async function loadBackendSnapshot(): Promise<void> {
     backendConnected.value = false
     backendErrorMessage.value = error instanceof Error ? error.message : '后端快照加载失败'
   }
-}
-
-async function runSimulationTick(): Promise<void> {
-  if (backendStatus.value !== 'RUNNING') {
-    try { backendStatus.value = (await simulationApi.start()).status } catch { return }
-  }
-  try { applyBackendSnapshot(await simulationApi.tick()) } catch { /* WS covers */ }
 }
 
 function resizeTrendChart(): void {
@@ -663,16 +700,10 @@ onMounted(() => {
   simulationSocket.connect()
   simulationSocket.subscribe(applyBackendSnapshot)
   clockTimer = window.setInterval(() => {
-    if (!backendConnected.value) {
-      simulationClock.value = new Date().toLocaleTimeString('zh-CN', { hour12: false })
-    }
+    simulationClock.value = new Date().toLocaleTimeString('zh-CN', { hour12: false })
   }, 1000)
   dataTimer = window.setInterval(() => {
-    if (backendConnected.value) {
-      void runSimulationTick()
-    } else {
-      tickMockData()
-    }
+    if (!backendConnected.value) tickMockData()
   }, 2000)
   trendChartResizeObserver = new ResizeObserver(resizeTrendChart)
   if (trendChartRef.value) trendChartResizeObserver.observe(trendChartRef.value)
@@ -699,11 +730,22 @@ onBeforeUnmount(() => {
         <h1>上京地铁运营态势监控</h1>
       </section>
       <section class="topbar-actions" aria-label="仿真状态">
-        <span :class="['status-pill', { running: backendConnected }]">
-          {{ backendConnected ? `后端已连接 · ${backendStatus} · Tick ${backendTick}` : '本地演示数据' }}
-        </span>
+        <div :class="['connection-box', { connected: backendConnected }]">
+          <span class="connection-dot" aria-hidden="true"></span>
+          <span>{{ backendConnected ? '后端已连接' : '后端未连接' }}</span>
+        </div>
+        <div class="runtime-readout tick-readout" aria-label="仿真 Tick">
+          <span class="readout-label">SIMULATION TICK</span>
+          <div class="readout-value-row">
+            <strong>{{ backendConnected ? String(backendTick).padStart(6, '0') : '------' }}</strong>
+            <span :class="['runtime-state', backendStatus.toLowerCase()]">{{ backendStatus }}</span>
+          </div>
+        </div>
+        <div class="runtime-readout clock-readout" aria-label="系统时间">
+          <span class="readout-label">SYSTEM TIME</span>
+          <strong>{{ simulationClock }}</strong>
+        </div>
         <span v-if="backendErrorMessage" class="backend-error">{{ backendErrorMessage }}</span>
-        <span>{{ simulationClock }}</span>
         <button type="button" :class="['sound-button', { off: !soundEnabled }]" @click="soundEnabled = !soundEnabled">
           {{ soundEnabled ? '声警开启' : '声警关闭' }}
         </button>
@@ -725,7 +767,7 @@ onBeforeUnmount(() => {
     </section>
 
     <section class="workspace-grid">
-      <section class="panel map-panel">
+      <section ref="mapPanelRef" class="panel map-panel">
         <div class="panel-title">
           <div>
             <h2>线路综合态势图</h2>
@@ -844,6 +886,7 @@ onBeforeUnmount(() => {
           </select>
         </div>
         <div class="alarm-list">
+          <p v-if="alarmActionMessage" class="alarm-action-message" role="status">{{ alarmActionMessage }}</p>
           <article v-for="alarm in filteredAlarms" :key="alarm.id" :class="['alarm-item', `level-${alarm.level}`, { confirmed: alarm.confirmed, muted: alarm.muted }]">
             <div>
               <span>{{ alarm.time }}</span>
@@ -853,8 +896,8 @@ onBeforeUnmount(() => {
             <small>{{ alarm.impact }}</small>
             <footer>
               <button type="button" @click="focusAlarm(alarm)">定位</button>
-              <button type="button" :disabled="alarm.confirmed" @click="acknowledgeAlarm(alarm.id)">确认</button>
-              <button type="button" :disabled="alarm.muted" @click="muteAlarm(alarm.id)">屏蔽</button>
+              <button type="button" :disabled="alarm.confirmed" @click="acknowledgeAlarm(alarm)">{{ alarm.confirmed ? '已确认' : '确认' }}</button>
+              <button type="button" :disabled="alarm.muted" @click="muteAlarm(alarm)">{{ alarm.muted ? '已屏蔽' : '屏蔽' }}</button>
             </footer>
           </article>
         </div>
