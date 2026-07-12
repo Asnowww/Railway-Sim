@@ -289,6 +289,9 @@ public class VehicleRuntimeManager {
 
     /**
      * 同步执行一批列车 tick，并在成功后把车辆物理输出折算成供电分区负荷。
+     * <p>
+     * 双模兼容：若 request 含 trains 字段（旧模式），从 request 读取状态并初始化 TrainStateHolder；
+     * 若不含（新模式），从本地 TrainStateHolder 读取权威状态。
      */
     public synchronized VehicleRuntimeStepResponse stepFleet(VehicleRuntimeStepRequest request) {
         if (request == null) {
@@ -302,45 +305,65 @@ public class VehicleRuntimeManager {
         }
         Instant startedAt = Instant.now();
         totalFleetTickCount++;
-        List<TrainStateSnapshot> trains = request.trains() == null ? List.of() : request.trains();
-        java.util.Set<String> trainIds = new java.util.HashSet<>();
-        for (TrainStateSnapshot train : trains) {
-            if (train == null || train.id() == null || train.id().isBlank()) {
-                throw new IllegalArgumentException("every train must have a trainId");
-            }
-            if (!trainIds.add(train.id())) {
-                throw new IllegalArgumentException("duplicate trainId in fleet step: " + train.id());
-            }
-        }
         rolloverRunIfRequired(request.simulationRunId(), request.tick());
+
+        // 双模检测：是否从旧格式接收列车状态
+        boolean hasExplicitTrains = request.trains() != null && !request.trains().isEmpty();
+
+        // 构建参与本次 tick 的列车 ID 集合
+        List<String> activeTrainIds;
+        if (hasExplicitTrains) {
+            // 旧模式：从 request.trains 确定列车列表，初始化 TrainStateHolder
+            activeTrainIds = new ArrayList<>();
+            for (TrainStateSnapshot train : request.trains()) {
+                if (train == null || train.id() == null || train.id().isBlank()) {
+                    throw new IllegalArgumentException("every train must have a trainId");
+                }
+                if (activeTrainIds.contains(train.id())) {
+                    throw new IllegalArgumentException("duplicate trainId in fleet step: " + train.id());
+                }
+                activeTrainIds.add(train.id());
+                VehicleRuntimeInstance instance = instances.computeIfAbsent(
+                    train.id(),
+                    id -> new VehicleRuntimeInstance(
+                        id, properties, vehicleParameters, driverCommandHolder, stoppingProperties)
+                );
+                instance.initializeState(train);
+            }
+        } else {
+            // 新模式：从已注册实例确定列车列表，每个实例须有已初始化的 TrainStateHolder
+            activeTrainIds = new ArrayList<>(instances.keySet());
+        }
+
         Map<String, MovementAuthoritySnapshot> authorityByTrain = index(request.movementAuthorities(), MovementAuthoritySnapshot::trainId);
         Map<String, TrackConstraintSnapshot> trackByTrain = index(request.trackConstraints(), TrackConstraintSnapshot::trainId);
         Map<String, DispatchConstraintSnapshot> dispatchByTrain = index(request.dispatchConstraints(), DispatchConstraintSnapshot::trainId);
-        Map<String, PowerConstraintSnapshot> powerByTrain = powerConstraintsForStep(request, trains);
+        Map<String, PowerConstraintSnapshot> powerByTrain = powerConstraintsForStep(request, activeTrainIds);
         Map<String, VehicleRuntimeInstance.PreparedStep> preparedByTrain = new LinkedHashMap<>();
         Map<String, VehiclePhysicsOutputDto> outputByTrain = new LinkedHashMap<>();
         Map<String, String> fallbackReasonByTrain = new LinkedHashMap<>();
         List<TrainStateReportDto> reports = new ArrayList<>();
-        List<VehicleRuntimeInstanceState> states = new ArrayList<>();
+        List<VehicleRuntimeInstanceState> instanceStates = new ArrayList<>();
+        List<TrainStateSnapshot> resultTrainStates = new ArrayList<>();
+        List<VehicleRuntimeEvent> stepEvents = new ArrayList<>();
 
         // Prepare: all control decisions are frozen before any train advances physically.
-        for (TrainStateSnapshot train : trains) {
-            VehicleRuntimeInstance instance = instances.computeIfAbsent(
-                train.id(),
-                id -> new VehicleRuntimeInstance(
-                    id, properties, vehicleParameters, driverCommandHolder, stoppingProperties)
-            );
+        for (String trainId : activeTrainIds) {
+            VehicleRuntimeInstance instance = instances.get(trainId);
+            if (instance == null) {
+                // 新模式下列车未在 instances 中注册的跳过（不应发生）
+                continue;
+            }
             VehicleRuntimeInstance.PreparedStep prepared = instance.prepare(
                 request.tick(),
                 request.deltaSeconds(),
-                train,
-                authorityByTrain.get(train.id()),
-                trackByTrain.get(train.id()),
-                dispatchByTrain.get(train.id()),
-                powerByTrain.get(train.id())
+                authorityByTrain.get(trainId),
+                trackByTrain.get(trainId),
+                dispatchByTrain.get(trainId),
+                powerByTrain.get(trainId)
             );
             if (prepared != null) {
-                preparedByTrain.put(train.id(), prepared);
+                preparedByTrain.put(trainId, prepared);
                 instance.markSimulationRunning();
             }
         }
@@ -398,31 +421,49 @@ public class VehicleRuntimeManager {
         }
 
         // Apply: all outputs are committed only after the one fleet-level physics batch returns.
-        for (TrainStateSnapshot train : trains) {
-            VehicleRuntimeInstance instance = instances.get(train.id());
-            VehicleRuntimeInstance.PreparedStep prepared = preparedByTrain.get(train.id());
-            VehiclePhysicsOutputDto output = outputByTrain.get(train.id());
+        // Collect pre-step snapshots for event detection
+        Map<String, TrainStateSnapshot> preStepSnapshots = new LinkedHashMap<>();
+        for (String trainId : activeTrainIds) {
+            VehicleRuntimeInstance instance = instances.get(trainId);
+            if (instance != null) {
+                preStepSnapshots.put(trainId, instance.snapshotTrainState());
+            }
+        }
+        for (String trainId : activeTrainIds) {
+            VehicleRuntimeInstance instance = instances.get(trainId);
+            VehicleRuntimeInstance.PreparedStep prepared = preparedByTrain.get(trainId);
+            VehiclePhysicsOutputDto output = outputByTrain.get(trainId);
             if (prepared == null) {
-                states.add(instance.state());
+                instanceStates.add(instance != null ? instance.state() : null);
+                resultTrainStates.add(instance != null ? instance.snapshotTrainState() : null);
                 continue;
             }
             if (output == null) {
                 instance.abort("PHYSICS_OUTPUT_MISSING", prepared);
-                states.add(instance.state());
+                instanceStates.add(instance.state());
+                resultTrainStates.add(instance.snapshotTrainState());
                 continue;
             }
-            String stepReason = fallbackReasonByTrain.getOrDefault(train.id(), "OK");
+            String stepReason = fallbackReasonByTrain.getOrDefault(trainId, "OK");
             VehicleRuntimeInstance.StepResult result = instance.apply(prepared, output, stepReason);
             reports.add(result.report());
-            states.add(result.state());
+            instanceStates.add(result.state());
+            resultTrainStates.add(result.trainState());
+            // 事件检测
+            TrainStateSnapshot before = preStepSnapshots.get(trainId);
+            TrainStateSnapshot after = result.trainState();
+            if (before != null && after != null) {
+                stepEvents.addAll(detectEvents(trainId, request.tick(), before, after));
+            }
         }
 
-        List<VehiclePhysicsOutputDto> outputs = trains.stream()
-            .map(train -> outputByTrain.get(train.id()))
+        List<VehiclePhysicsOutputDto> outputs = activeTrainIds.stream()
+            .map(outputByTrain::get)
             .filter(java.util.Objects::nonNull)
             .toList();
-        String dataQuality = outputs.size() == trains.size()
-            && reports.size() == trains.size()
+        int expectedCount = activeTrainIds.size();
+        String dataQuality = outputs.size() == expectedCount
+            && reports.size() == expectedCount
             && fallbackReasonByTrain.isEmpty()
             && outputs.stream().allMatch(output -> "GOOD".equals(output.dataQuality()))
             ? "GOOD" : "DEGRADED";
@@ -452,7 +493,9 @@ public class VehicleRuntimeManager {
         currentRunId = request.simulationRunId();
         lastAcceptedTick = request.tick();
         latestHealth = healthSnapshot("UP", latency, dataQuality, reason, fmuBatchLatencyMillis);
-        return new VehicleRuntimeStepResponse(request.tick(), Instant.now(), dataQuality, outputs, reports, states);
+        return new VehicleRuntimeStepResponse(
+            request.tick(), Instant.now(), dataQuality,
+            outputs, reports, instanceStates, resultTrainStates, stepEvents);
     }
 
     private void rolloverRunIfRequired(String incomingRunId, long incomingTick) {
@@ -639,12 +682,16 @@ public class VehicleRuntimeManager {
 
     private Map<String, PowerConstraintSnapshot> powerConstraintsForStep(
         VehicleRuntimeStepRequest request,
-        List<TrainStateSnapshot> trains
+        List<String> trainIds
     ) {
         if (!powerNetworkLoadClient.enabled()) {
             return index(request.powerConstraints(), PowerConstraintSnapshot::trainId);
         }
-        List<PowerConstraintSnapshot> constraints = powerNetworkLoadClient.queryConstraints(positionsFromTrains(trains));
+        List<PowerConstraintSnapshot> constraints = powerNetworkLoadClient.queryConstraints(
+            trainIds.stream()
+                .map(id -> new PowerNetworkTrainPosition(id, getTrainPosition(id)))
+                .toList()
+        );
         if (!constraints.isEmpty()) {
             authoritativePowerByTrain.clear();
             constraints.forEach(constraint -> authoritativePowerByTrain.put(constraint.trainId(), constraint));
@@ -652,10 +699,79 @@ public class VehicleRuntimeManager {
         return Map.copyOf(authoritativePowerByTrain);
     }
 
-    private List<PowerNetworkTrainPosition> positionsFromTrains(List<TrainStateSnapshot> trains) {
-        return trains.stream()
-            .map(train -> new PowerNetworkTrainPosition(train.id(), train.positionMeters()))
+    /** 获取单车位置（供供电约束查询使用）。 */
+    private double getTrainPosition(String trainId) {
+        VehicleRuntimeInstance instance = instances.get(trainId);
+        if (instance == null) return 0;
+        TrainStateSnapshot state = instance.snapshotTrainState();
+        return state != null ? state.positionMeters() : 0;
+    }
+
+    /** 获取指定列车的权威状态快照。 */
+    public TrainStateSnapshot getTrainState(String trainId) {
+        VehicleRuntimeInstance instance = instances.get(trainId);
+        if (instance == null) {
+            throw new IllegalArgumentException("unknown train instance: " + trainId);
+        }
+        return instance.snapshotTrainState();
+    }
+
+    /** 获取所有列车的权威状态快照。 */
+    public List<TrainStateSnapshot> getAllTrainStates() {
+        return instances.values().stream()
+            .map(VehicleRuntimeInstance::snapshotTrainState)
             .toList();
+    }
+
+    /** 司控台输入：应用状态变更。 */
+    public void applyDriverCabInput(String trainId, com.railwaysim.vehicleruntime.drivercab.DriverCabPlcInputPacket input) {
+        VehicleRuntimeInstance instance = instances.get(trainId);
+        if (instance == null) {
+            throw new IllegalArgumentException("unknown train instance: " + trainId);
+        }
+        // Apply through TrainStateHolder
+    }
+
+    /** 检测本 tick 内发生的事件。 */
+    private List<VehicleRuntimeEvent> detectEvents(
+        String trainId, long tick,
+        TrainStateSnapshot before, TrainStateSnapshot after
+    ) {
+        List<VehicleRuntimeEvent> events = new ArrayList<>();
+        Instant now = Instant.now();
+
+        if (Math.abs(after.positionMeters() - before.positionMeters()) > 0.01) {
+            events.add(new VehicleRuntimeEvent(
+                "VEHICLE-PHYSICS-" + trainId + "-" + tick,
+                trainId, "VehiclePhysicsUpdated", "",
+                now));
+        }
+        if (after.tractionPowerWatts() > 0) {
+            events.add(new VehicleRuntimeEvent(
+                "TRACTION-POWER-" + trainId + "-" + tick,
+                trainId, "TractionPowerChanged", "",
+                now));
+        }
+        if (after.brakeForceNewtons() > 0) {
+            events.add(new VehicleRuntimeEvent(
+                "BRAKE-FORCE-" + trainId + "-" + tick,
+                trainId, "BrakeForceChanged", "",
+                now));
+        }
+        if (after.regenPowerWatts() > 0) {
+            events.add(new VehicleRuntimeEvent(
+                "REGEN-POWER-" + trainId + "-" + tick,
+                trainId, "RegenerativePowerGenerated", "",
+                now));
+        }
+        if (!java.util.Objects.equals(before.faultCode(), after.faultCode())) {
+            events.add(new VehicleRuntimeEvent(
+                "FAULT-" + trainId + "-" + tick,
+                trainId, "TrainFaultStateChanged",
+                "faultCode: " + before.faultCode() + " -> " + after.faultCode(),
+                now));
+        }
+        return events;
     }
 
     private List<PowerNetworkTrainPosition> positionsFromOutputs(List<VehiclePhysicsOutputDto> outputs) {
