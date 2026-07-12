@@ -9,6 +9,8 @@ import com.railwaysim.track.TrackSegmentState;
 import com.railwaysim.track.TrackService;
 import com.railwaysim.train.TrainState;
 import jakarta.annotation.PostConstruct;
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -335,7 +337,11 @@ public class RouteInterlockingService {
             }
         }
 
-        for (TrainState train : trains) {
+        // 前车优先建立进路：避免后车因前车占用区段被拒，而前车未及时建路
+        List<TrainState> sorted = new ArrayList<>(trains);
+        sorted.sort(Comparator.comparingDouble(TrainState::positionMeters).reversed());
+
+        for (TrainState train : sorted) {
             for (RouteState route : List.copyOf(routeStates.values())) {
                 if (route.status() != RouteStatus.AVAILABLE) {
                     continue;
@@ -398,6 +404,21 @@ public class RouteInterlockingService {
     private String reject(RouteState route, RouteStatus target, String reason) {
         transition(route, target);
         return reason;
+    }
+
+    /**
+     * 判断占用列车是否在前方同线追踪（允许MA处理间距，不需拒绝进路）。
+     */
+    private boolean isTrainOnRoutePath(String occupyingTrainId, Set<String> routeSegs, String requestingTrainId) {
+        // 只对同线路追踪放行：占用列车与请求列车在同一进路区段集合内
+        for (TrackSegmentState seg : trackService.states()) {
+            if (routeSegs.contains(seg.id())
+                && seg.occupancy() == TrackOccupancy.OCCUPIED
+                && trackService.occupyingTrainIds(seg.id()).contains(occupyingTrainId)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private void completeRelease(RouteState route) {
