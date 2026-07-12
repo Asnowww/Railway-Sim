@@ -233,33 +233,59 @@ public class VehicleRuntimeIntegrationService implements VehiclePowerLoadForward
         List<PowerConstraint> powerConstraints
     ) {
         bootstrapIfNeeded();
-        VehicleRuntimeStepResponse response = client.stepFleet(new VehicleRuntimeStepRequest(
+        // 新模式：不发列车状态给 9300，9300 从本地 TrainStateHolder 读取权威状态
+        VehicleRuntimeStepResponse response = client.stepFleet(VehicleRuntimeStepRequest.withoutTrains(
             context.tick(),
             context.deltaSeconds(),
             Instant.now(),
-            trains,
             authorities,
             trackConstraints,
             dispatchConstraints,
             powerConstraints,
-            context.simulationRunId(),
-            List.of()
+            context.simulationRunId()
         ));
-        if (response.trainOutputs() == null || response.trainReports() == null || response.trainOutputs().size() != trains.size() || response.trainReports().size() != trains.size()) {
-            throw new IllegalStateException("vehicle runtime returned incomplete fleet result");
-        }
-        Map<String, VehiclePhysicsOutput> outputByTrain = response.trainOutputs().stream()
-            .collect(Collectors.toMap(VehiclePhysicsOutput::trainId, Function.identity(), (left, right) -> right));
-        Map<String, TrainStateReport> reportByTrain = response.trainReports().stream()
-            .collect(Collectors.toMap(TrainStateReport::trainId, Function.identity(), (left, right) -> right));
-        List<VehicleRuntimeTrainStep> steps = trains.stream()
-            .map(train -> new VehicleRuntimeTrainStep(train.id(), outputByTrain.get(train.id()), reportByTrain.get(train.id())))
-            .toList();
-        if (steps.stream().anyMatch(step -> step.output() == null || step.report() == null)) {
-            throw new IllegalStateException("vehicle runtime result missing train output");
+        List<TrainState> resultTrainStates = response.trainStates() == null ? List.of() : response.trainStates();
+        boolean hasAuthoritativeStates = !resultTrainStates.isEmpty();
+
+        List<VehicleRuntimeTrainStep> steps;
+        if (hasAuthoritativeStates) {
+            // 9300 返回了权威状态快照 → 用 trainStates 构建 step（输出/report 可能不完全匹配，状态以 trainStates 为准）
+            Map<String, TrainState> stateByTrain = resultTrainStates.stream()
+                .collect(Collectors.toMap(TrainState::id, Function.identity(), (left, right) -> right));
+            Map<String, VehiclePhysicsOutput> outputByTrain = response.trainOutputs() == null ? Map.of()
+                : response.trainOutputs().stream()
+                    .collect(Collectors.toMap(VehiclePhysicsOutput::trainId, Function.identity(), (left, right) -> right));
+            Map<String, TrainStateReport> reportByTrain = response.trainReports() == null ? Map.of()
+                : response.trainReports().stream()
+                    .collect(Collectors.toMap(TrainStateReport::trainId, Function.identity(), (left, right) -> right));
+            steps = resultTrainStates.stream()
+                .map(state -> new VehicleRuntimeTrainStep(
+                    state.id(),
+                    outputByTrain.get(state.id()),
+                    reportByTrain.get(state.id())
+                ))
+                .toList();
+        } else {
+            // 旧模式兼容（9300 未返回 trainStates）：用 trains 列表构建
+            if (response.trainOutputs() == null || response.trainReports() == null
+                || response.trainOutputs().size() != trains.size()
+                || response.trainReports().size() != trains.size()) {
+                throw new IllegalStateException("vehicle runtime returned incomplete fleet result");
+            }
+            Map<String, VehiclePhysicsOutput> outputByTrain = response.trainOutputs().stream()
+                .collect(Collectors.toMap(VehiclePhysicsOutput::trainId, Function.identity(), (left, right) -> right));
+            Map<String, TrainStateReport> reportByTrain = response.trainReports().stream()
+                .collect(Collectors.toMap(TrainStateReport::trainId, Function.identity(), (left, right) -> right));
+            steps = trains.stream()
+                .map(train -> new VehicleRuntimeTrainStep(train.id(), outputByTrain.get(train.id()), reportByTrain.get(train.id())))
+                .toList();
+            if (steps.stream().anyMatch(step -> step.output() == null || step.report() == null)) {
+                throw new IllegalStateException("vehicle runtime result missing train output");
+            }
         }
         for (VehicleRuntimeTrainStep step : steps) {
             TrainStateReport report = step.report();
+            if (report == null) continue;
             boolean driverSelected = "DRIVER".equals(report.decisionSource());
             decisionRepository.store(new VehicleControlDecision(
                 null,
@@ -284,6 +310,9 @@ public class VehicleRuntimeIntegrationService implements VehiclePowerLoadForward
                 1
             ));
         }
+
+        List<VehicleRuntimeEvent> responseEvents = response.events() == null ? List.of() : response.events();
+
         VehicleRuntimeHealth health = new VehicleRuntimeHealth(
             properties.getMode(),
             "UP",
@@ -302,7 +331,9 @@ public class VehicleRuntimeIntegrationService implements VehiclePowerLoadForward
             latestHealth.stoppingParameterVersion(),
             latestHealth.bootstrapped()
         );
-        return new VehicleRuntimeStepResult(steps, health, response.instanceStates() == null ? List.of() : response.instanceStates());
+        return new VehicleRuntimeStepResult(steps, health,
+            response.instanceStates() == null ? List.of() : response.instanceStates(),
+            resultTrainStates, responseEvents);
     }
 
     private String controlSource(TrainStateReport report) {

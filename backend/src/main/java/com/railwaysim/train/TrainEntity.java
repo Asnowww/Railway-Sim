@@ -238,6 +238,62 @@ public class TrainEntity {
         vehicleFaultSpeedLimitMetersPerSecond = telemetry.faultSpeedLimitMetersPerSecond();
     }
 
+    /**
+     * 从 9300 的权威状态快照批量更新镜像状态（EXTERNAL_HTTP 模式）。
+     * 9300 是权威，本方法做全量覆写以避免状态漂移。
+     */
+    public void applyExternalSnapshot(TrainState snapshot) {
+        this.positionMeters = snapshot.positionMeters();
+        this.speedMetersPerSecond = snapshot.speedMetersPerSecond();
+        this.accelerationMetersPerSecondSquared = snapshot.accelerationMetersPerSecondSquared();
+        this.tractionForceNewtons = snapshot.tractionForceNewtons();
+        this.brakeForceNewtons = snapshot.brakeForceNewtons();
+        this.regenBrakeForceNewtons = snapshot.regenBrakeForceNewtons();
+        this.railCurrentAmps = snapshot.railCurrentAmps();
+        this.tractionPowerWatts = snapshot.tractionPowerWatts();
+        this.regenPowerWatts = snapshot.regenPowerWatts();
+        this.energyConsumedKwh = snapshot.energyConsumedKwh();
+        this.energyRegeneratedKwh = snapshot.energyRegeneratedKwh();
+        this.faultCode = snapshot.faultCode();
+        this.operationMode = snapshot.operationMode();
+        this.doorState = snapshot.doorState();
+        this.tractionState = snapshot.tractionState();
+        this.brakeState = snapshot.brakeState();
+        this.currentCollectionStatus = snapshot.currentCollectionStatus();
+        this.tractionAvailable = snapshot.tractionAvailable();
+        this.brakeAvailable = snapshot.brakeAvailable();
+        this.selfCheckStatus = snapshot.selfCheckStatus();
+        this.faultLevel = snapshot.faultLevel();
+        this.availableOperationMode = snapshot.availableOperationMode();
+        this.dataQuality = snapshot.dataQuality();
+        this.loadMassKg = snapshot.loadMassKg();
+        this.loadRate = snapshot.loadRate();
+        this.overloadStatus = snapshot.overloadStatus();
+        this.availableTractionCount = snapshot.availableTractionCount();
+        this.availableBrakeCount = snapshot.availableBrakeCount();
+        this.vehicleProtectionReason = snapshot.vehicleProtectionReason();
+        this.dynamicsState = snapshot.dynamicsState();
+        this.dynamicsConstraintReason = snapshot.dynamicsConstraintReason();
+        this.speedLimitMetersPerSecond = snapshot.speedLimitMetersPerSecond();
+        this.movementAuthorityDistanceMeters = snapshot.movementAuthorityDistanceMeters();
+        this.stationDistanceMeters = snapshot.stationDistanceMeters();
+        this.stoppingDistanceMeters = snapshot.stoppingDistanceMeters();
+        this.currentStationId = snapshot.currentStationId();
+        this.dwellElapsedSeconds = snapshot.dwellElapsedSeconds();
+        this.lastDepartureAt = snapshot.lastDepartureAt();
+        this.status = resolveStatusFromSnapshot(snapshot);
+        if (snapshot.driverCabState() != null) {
+            this.driverCabState = snapshot.driverCabState();
+        }
+    }
+
+    private String resolveStatusFromSnapshot(TrainState snapshot) {
+        if (snapshot.faultLevel() >= 3) return "FAULT";
+        if (snapshot.faultLevel() > 0) return "DEGRADED";
+        if ("STATION_STOPPED".equals(snapshot.dynamicsState()) && snapshot.speedMetersPerSecond() <= 0.2) return "DWELLING";
+        return "RUNNING";
+    }
+
     public void applyDriverCabInput(DriverCabPlcInputPacket input) {
         if (input == null) {
             throw new IllegalArgumentException("driver cab PLC input is required");
