@@ -499,19 +499,12 @@ public class SignalService {
 
         boolean stopped = Math.abs(head - nextStation.centerMeters()) <= STATION_STOP_WINDOW_METERS && train.zeroSpeed();
         if (releasedStationStops.contains(dwellKey)) {
-            // 列车已离开站台 → 清除释放标记（允许下次到站重新触发停站）
+            // 已释放的站: 列车离开窗口后清除标记, 否则保持释放不干扰
             if (head > nextStation.centerMeters() + STATION_STOP_WINDOW_METERS) {
                 releasedStationStops.remove(dwellKey);
-            } else if (stopped) {
-                // 列车仍在站台但已停 → 重入时不重计dwell, 直接完成释放让MA延伸
-                releasedStationStops.remove(dwellKey);
-                stationDwellTicks.remove(dwellKey);
-                atStationStop.remove(train.id());
-                return result;
-            } else {
-                atStationStop.remove(train.id());
-                return result;
             }
+            atStationStop.remove(train.id());
+            return result; // 不截断MA, 让列车自由通过
         }
         int tickCount = stationDwellTicks.getOrDefault(dwellKey, 0);
 
