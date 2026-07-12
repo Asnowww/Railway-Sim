@@ -10,6 +10,7 @@ import com.railwaysim.infrastructure.StaticInfrastructureCatalog;
 import com.railwaysim.infrastructure.YamlLineDataLoader;
 import com.railwaysim.power.external.ExternalPowerNetworkMode;
 import com.railwaysim.power.external.PowerNetworkStateSnapshot;
+import com.railwaysim.power.external.PowerNetworkOperationRequest;
 import com.sun.net.httpserver.HttpServer;
 import java.io.IOException;
 import java.net.InetSocketAddress;
@@ -114,6 +115,35 @@ class PowerIntegrationServiceTests {
 
             assertThat(queryBody.get()).isEmpty();
             assertThat(snapshot.thirdRailSections().get(0).tractionPowerWatts()).isZero();
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    void externalFaultOperationBootstrapsAndTargetsAuthoritativePowerSection() throws Exception {
+        AtomicReference<String> operationBody = new AtomicReference<>("");
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/power-network/bootstrap", exchange -> send(exchange, 200, "{\"accepted\":true}"));
+        server.createContext("/power-network/operations", exchange -> {
+            operationBody.set(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
+            send(exchange, 200, "{\"accepted\":true,\"executed\":true,\"targetId\":\"P01\",\"resultState\":\"EXECUTED\",\"reason\":\"\",\"traceId\":\"fault-trace\",\"executedAt\":\"2026-07-12T00:00:00Z\"}");
+        });
+        server.createContext("/power-network/state", exchange -> send(exchange, 200, externalSnapshot()));
+        server.start();
+        try {
+            PowerIntegrationService integrationService = integrationService(server, true);
+
+            var result = integrationService.operate(new PowerNetworkOperationRequest(
+                "INJECT_FAULT", "POWER_SECTION", "P01", "DEENERGIZED",
+                "tester", "acceptance", "fault-trace", "SIMULATION_CONFIRM"));
+
+            assertThat(result.executed()).isTrue();
+            assertThat(operationBody.get()).contains(
+                "\"operationType\":\"INJECT_FAULT\"",
+                "\"targetType\":\"POWER_SECTION\"",
+                "\"targetId\":\"P01\"",
+                "\"desiredState\":\"DEENERGIZED\"");
         } finally {
             server.stop(0);
         }

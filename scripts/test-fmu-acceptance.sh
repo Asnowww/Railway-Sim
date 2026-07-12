@@ -41,11 +41,22 @@ docker compose --env-file "${ENV_FILE}" config --quiet
 docker compose --env-file "${ENV_FILE}" build
 docker compose --env-file "${ENV_FILE}" up -d --wait --wait-timeout 240
 
+# A fresh 9200/9300 process deliberately starts unbootstrapped. Drive one
+# authoritative central tick so 8080 reapplies topology/runtime configuration.
+curl -fsS -X POST "${CENTRAL_BASE_URL}/api/simulation/tick" >/dev/null
+
 python3 scripts/check-deployment.py \
   --vehicle "${VEHICLE_URL}" \
   --power "${POWER_URL}" \
   --fmu "${FMU_URL}" \
   --output "${REPORT_DIR}/wp7-health.json"
+
+python3 scripts/test-p1-end-to-end.py \
+  --env-file "${ENV_FILE}" \
+  --backend "${CENTRAL_BASE_URL}" \
+  --vehicle "${VEHICLE_URL}" \
+  --power "${POWER_URL}" \
+  --output "${REPORT_DIR}/p1-end-to-end.json"
 
 python3 scripts/test-deployment-recovery.py \
   --env-file "${ENV_FILE}" \
@@ -58,8 +69,12 @@ python3 scripts/test-deployment-recovery.py \
 docker compose --env-file "${ENV_FILE}" down
 docker compose --env-file "${ENV_FILE}" up -d --wait --wait-timeout 240
 
+# Prove process-restart recovery rather than relying on stale central bootstrap state.
+curl -fsS -X POST "${CENTRAL_BASE_URL}/api/simulation/tick" >/dev/null
+
 python3 scripts/test-vehicle-runtime-performance.py \
   --vehicle "${VEHICLE_URL}" \
+  --power "${POWER_URL}" \
   --samples "${BENCHMARK_SAMPLES:-100}" \
   --warmup "${BENCHMARK_WARMUP:-10}" \
   --endurance-ticks "${ENDURANCE_TICKS:-6000}" \

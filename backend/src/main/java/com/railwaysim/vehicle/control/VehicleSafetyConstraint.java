@@ -11,6 +11,8 @@ package com.railwaysim.vehicle.control;
  *   <li>POWER_CONSTRAINT — 供电约束（失电/欠压/降额）</li>
  * </ol>
  */
+/** @deprecated LOCAL mode only. */
+@Deprecated(forRemoval=true, since="2.0")
 public enum VehicleSafetyConstraint {
     EMERGENCY_BRAKE(0),
     MA_ATP(1),

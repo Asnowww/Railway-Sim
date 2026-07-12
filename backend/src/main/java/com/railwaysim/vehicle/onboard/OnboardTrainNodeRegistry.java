@@ -6,6 +6,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
+/** @deprecated LOCAL mode only. */
+@Deprecated(forRemoval=true, since="2.0")
 class OnboardTrainNodeRegistry {
 
     private final Map<String, NodeRecord> nodes = new ConcurrentHashMap<>();

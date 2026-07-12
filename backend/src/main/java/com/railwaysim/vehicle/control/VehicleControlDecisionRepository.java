@@ -13,6 +13,8 @@ import org.springframework.stereotype.Service;
  * 车辆控制决策存储 — 内存实现，支持按 trainId/runId/tick 查询。
  */
 @Service
+/** @deprecated LOCAL mode only. */
+@Deprecated(forRemoval=true, since="2.0")
 public class VehicleControlDecisionRepository {
 
     private final Map<String, List<VehicleControlDecision>> decisionsByTrain = new ConcurrentHashMap<>();

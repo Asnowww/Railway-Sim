@@ -9,7 +9,8 @@ import java.nio.file.Path;
 import org.springframework.stereotype.Component;
 
 @Component
-@Deprecated(forRemoval = false)
+/** @deprecated LOCAL mode only. EXTERNAL_HTTP mode uses 9300 with real FMU or JavaFallback. */
+@Deprecated(forRemoval=true, since="2.0")
 public class SimpleVehicleDynamicsModel {
 
     private static final double GRAVITY = 9.81;

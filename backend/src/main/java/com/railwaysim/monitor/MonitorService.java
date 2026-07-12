@@ -74,7 +74,7 @@ public class MonitorService {
             vehicleRuntime,
             alarmLifecycleService.reconcile(
                 simulationRunId,
-                buildAlarms(tick, simulatedTime, trains, trackSegments, authorities, powerSections, events),
+                buildAlarms(simulatedTime, trains, trackSegments, authorities, powerSections, events),
                 simulatedTime
             ),
             dispatch
@@ -127,7 +127,6 @@ public class MonitorService {
     }
 
     private List<Alarm> buildAlarms(
-        long tick,
         Instant simulatedTime,
         List<TrainState> trains,
         List<TrackSegmentState> trackSegments,
@@ -152,7 +151,7 @@ public class MonitorService {
         trackSegments.stream()
             .filter(seg -> seg.occupancy() == com.railwaysim.track.TrackOccupancy.FAULT)
             .map(seg -> new Alarm(
-                "TRACK-FAULT-" + tick + "-" + seg.id(),
+                "TRACK_FAULT:" + seg.id(),
                 "track",
                 seg.id(),
                 3,
@@ -185,17 +184,23 @@ public class MonitorService {
                 "接触轨供电异常",
                 "供电分区电压 " + section.voltage() + " V，状态 " + section.status() + "，影响列车 " + section.affectedTrainIds(),
                 simulatedTime,
-                false
+                false,
+                powerImpact(
+                    section.affectedTrainIds(), section.id(),
+                    "POWER_DERATE_OR_TRACTION_CUTOFF",
+                    "POWER_SECTION_ENERGIZED_AND_PROTECTION_RESET")
             ))
             .forEach(alarms::add);
         events.stream()
-            .map(event -> alarmFromEvent(simulatedTime, event))
+            .map(event -> alarmFromEvent(simulatedTime, event, powerSections))
             .filter(alarm -> alarm != null)
             .forEach(alarms::add);
         return alarms;
     }
 
-    private Alarm alarmFromEvent(Instant simulatedTime, DomainEvent event) {
+    private Alarm alarmFromEvent(
+        Instant simulatedTime, DomainEvent event, List<PowerSectionState> powerSections
+    ) {
         if (event instanceof FmuStepFailedEvent fmuStepFailed) {
             return new Alarm(
                 "FMU_STEP_FAILED:" + fmuStepFailed.trainId(),
@@ -229,7 +234,10 @@ public class MonitorService {
                 "接触轨牵引受限",
                 powerLimit.reason(),
                 simulatedTime,
-                false
+                false,
+                powerImpact(
+                    affectedTrains(powerSections, powerLimit.sectionId()), powerLimit.sectionId(),
+                    "POWER_DERATE_OR_TRACTION_CUTOFF", "POWER_LIMIT_CONDITION_CLEARED")
             );
         }
         if (event instanceof PowerFaultStateChangedEvent powerFault) {
@@ -244,7 +252,11 @@ public class MonitorService {
                 "供电故障状态变化",
                 "故障类型 " + powerFault.faultType() + "，状态 " + powerFault.state(),
                 simulatedTime,
-                false
+                false,
+                powerImpact(
+                    affectedTrains(powerSections, powerFault.sectionId()), powerFault.sectionId(),
+                    "POWER_DERATE_OR_TRACTION_CUTOFF",
+                    "POWER_SECTION_ENERGIZED_AND_PROTECTION_RESET")
             );
         }
         if (event instanceof PowerMaintenanceLockChangedEvent maintenanceLock) {
@@ -259,7 +271,10 @@ public class MonitorService {
                 "供电检修闭锁状态变化",
                 "闭锁状态 " + maintenanceLock.lockoutState() + "，检修状态 " + maintenanceLock.maintenanceState(),
                 simulatedTime,
-                false
+                false,
+                powerImpact(
+                    affectedTrains(powerSections, maintenanceLock.sectionId()), maintenanceLock.sectionId(),
+                    "INHIBIT_ENERGIZATION", "MAINTENANCE_LOCK_NONE")
             );
         }
         if (event instanceof RegenerativeEnergyAbsorbedEvent regenerativeEnergy && regenerativeEnergy.unabsorbedPowerWatts() > 0) {
@@ -290,5 +305,23 @@ public class MonitorService {
             );
         }
         return null;
+    }
+
+    private FaultImpact powerImpact(
+        List<String> trainIds, String sectionId, String safetyAction, String clearCondition
+    ) {
+        return new FaultImpact(
+            "CRITICAL", trainIds, List.of(sectionId), safetyAction, clearCondition,
+            "RUN_TICK_TOPOLOGY_CONFIG_MATCH");
+    }
+
+    private List<String> affectedTrains(
+        List<PowerSectionState> powerSections, String sectionId
+    ) {
+        return powerSections.stream()
+            .filter(section -> section.id().equals(sectionId))
+            .findFirst()
+            .map(PowerSectionState::affectedTrainIds)
+            .orElse(List.of());
     }
 }

@@ -25,6 +25,7 @@ import org.springframework.web.bind.annotation.RestController;
 public class DriverCabInputController {
 
     private final DriverCabPlcCodec codec = new DriverCabPlcCodec();
+    private static final byte[] IDENTIFY = {0x55, (byte) 0xaa, 0x55, (byte) 0xaa};
     private final DriverCommandHolder commandHolder;
     private final VehicleRuntimeManager runtimeManager;
     private final ConcurrentMap<String, Integer> sequenceNumbers = new ConcurrentHashMap<>();
@@ -62,8 +63,12 @@ public class DriverCabInputController {
 
         int seqNo = sequenceNumbers.merge(trainId, 1, (old, v) -> old + 1);
         Instant now = Instant.now();
-        double traction = input.tractionNotchPercent() / 100.0;
-        double brake = input.brakeNotchPercent() / 100.0;
+        double traction = input.masterHandleState()
+            == com.railwaysim.vehicleruntime.drivercab.DriverCabMasterHandleState.TRACTION
+            ? input.tractionNotchPercent() / 100.0 : 0.0;
+        double brake = input.masterHandleState()
+            == com.railwaysim.vehicleruntime.drivercab.DriverCabMasterHandleState.BRAKE
+            ? input.brakeNotchPercent() / 100.0 : 0.0;
         boolean eb = input.emergencyBrakeRequested();
         double direction = switch (input.directionHandleState()) {
             case FORWARD -> 1.0; case BACKWARD -> -1.0; default -> 0.0;
@@ -74,7 +79,6 @@ public class DriverCabInputController {
             traction, brake, eb, direction, input.openDoorRequested(),
             input.atoStartFlag(), "MANUAL", null
         );
-        // Use reflection or a builder to set commandId — let's rebuild
         var accepted = new DriverControlCommandSnapshot(
             "PLC-" + trainId + "-" + seqNo, cmd.trainId(), cmd.sequenceNo(),
             cmd.receivedAt(), cmd.expiresAt(), cmd.tractionCommand(),
@@ -84,6 +88,44 @@ public class DriverCabInputController {
         );
 
         commandHolder.store(accepted);
+        runtimeManager.applyDriverCabInput(trainId, input);
         return ResponseEntity.ok(DriverCommandAcceptance.accepted(accepted));
+    }
+
+    @PostMapping(
+        value = "/{trainId}/traction-cut",
+        consumes = MediaType.APPLICATION_OCTET_STREAM_VALUE
+    )
+    public ResponseEntity<?> applyTractionCut(
+        @PathVariable String trainId,
+        @RequestBody byte[] payload
+    ) {
+        if (!runtimeManager.hasInstance(trainId)) {
+            return ResponseEntity.notFound().build();
+        }
+        try {
+            validateNetworkScreenInput(payload);
+            int cutMask = Byte.toUnsignedInt(payload[24]) & 0x3f;
+            runtimeManager.applyTractionCut(trainId, cutMask != 0);
+            return ResponseEntity.ok().body(java.util.Map.of(
+                "trainId", trainId, "tractionCutMask", cutMask, "tractionCut", cutMask != 0));
+        } catch (IllegalArgumentException ex) {
+            return ResponseEntity.badRequest().body(java.util.Map.of("error", ex.getMessage()));
+        }
+    }
+
+    private void validateNetworkScreenInput(byte[] payload) {
+        if (payload == null || payload.length != 26) {
+            throw new IllegalArgumentException("network screen input length is invalid: expected 26 bytes");
+        }
+        for (int i = 0; i < IDENTIFY.length; i++) {
+            if (payload[i] != IDENTIFY[i]) {
+                throw new IllegalArgumentException("network screen input identify bytes are invalid");
+            }
+        }
+        var header = java.nio.ByteBuffer.wrap(payload).order(java.nio.ByteOrder.LITTLE_ENDIAN);
+        if (Short.toUnsignedInt(header.getShort(4)) != 26 || Short.toUnsignedInt(header.getShort(6)) != 2) {
+            throw new IllegalArgumentException("network screen input length fields are invalid");
+        }
     }
 }

@@ -5,6 +5,7 @@ import argparse
 import json
 import math
 import time
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -18,11 +19,13 @@ ROOT = Path(__file__).resolve().parents[1]
 def main() -> None:
     parser = argparse.ArgumentParser(description="Benchmark 9300+9000+9200 fleet stepping")
     parser.add_argument("--vehicle", default="http://127.0.0.1:9300")
+    parser.add_argument("--power", default="http://127.0.0.1:9200")
     parser.add_argument("--samples", type=int, default=100)
     parser.add_argument("--warmup", type=int, default=10)
     parser.add_argument("--endurance-ticks", type=int, default=6000)
     parser.add_argument("--output", default=str(ROOT / "docs/真实FMU集成实施计划/验收记录/wp8-performance.json"))
     args = parser.parse_args()
+    run_id = f"wp8-performance-{uuid.uuid4()}"
 
     # Interleave trains across the five real YAML power sections. The endurance
     # benchmark measures normal fleet throughput; same-section overload and
@@ -38,6 +41,9 @@ def main() -> None:
     tick = 0
     errors: list[str] = []
     benchmarks: dict[str, Any] = {}
+    _, initial_power_state = request_json(f"{args.power}/power-network/state")
+    assert isinstance(initial_power_state, dict)
+    initial_accepted_steps = int(initial_power_state.get("acceptedStepCount", 0))
 
     def run_steps(count: int, samples: int, collect: bool) -> dict[str, Any]:
         nonlocal tick
@@ -60,7 +66,7 @@ def main() -> None:
             _, response = request_json(
                 f"{args.vehicle}/vehicle-runtime/step-fleet",
                 method="POST",
-                payload=fleet_request(tick, trains),
+                payload=fleet_request(tick, trains, run_id),
                 timeout=15.0,
             )
             wall_ms = (time.perf_counter() - step_started) * 1000.0
@@ -68,10 +74,16 @@ def main() -> None:
             update_train_states(trains, response)
             _, health = request_json(f"{args.vehicle}/vehicle-runtime/health")
             assert isinstance(health, dict)
+            _, power_state = request_json(f"{args.power}/power-network/state")
+            assert isinstance(power_state, dict)
             deadline_misses_after = int(health.get("missedDeadlineCount", 0))
             fmi_errors_after = int(health.get("fmiErrorCount", 0))
             if response.get("dataQuality") != "GOOD":
                 degraded += 1
+            if health.get("simulationRunId") != run_id or health.get("lastAcceptedTick") != tick:
+                errors.append(f"tick {tick}: vehicle runtime runId/tick drift")
+            if power_state.get("simulationRunId") != run_id or power_state.get("lastAcceptedTick") != tick:
+                errors.append(f"tick {tick}: power network runId/tick drift")
             if health.get("fallbackTrainCount") != 0:
                 fallback_ticks += 1
             if len(response.get("trainOutputs", [])) != count or len(response.get("trainReports", [])) != count:
@@ -93,6 +105,8 @@ def main() -> None:
                 for field in numeric_fields
             ):
                 errors.append(f"tick {tick}: output contains missing, NaN or infinite physical values")
+            if any(float(output.get("newSpeedMetersPerSecond", -1)) < 0 for output in outputs):
+                errors.append(f"tick {tick}: output contains negative speed")
             if collect:
                 wall_latencies.append(wall_ms)
                 runtime_latencies.append(float(health.get("latencyMillis", 0)))
@@ -133,8 +147,15 @@ def main() -> None:
         errors.append("20-train endurance vehicle+power p95 exceeds 80 ms")
 
     _, final_health = request_json(f"{args.vehicle}/vehicle-runtime/health")
+    _, final_power_state = request_json(f"{args.power}/power-network/state")
     if final_health.get("fallbackTrainCount") != 0 or final_health.get("fmiErrorCount") != 0:
         errors.append("final runtime health contains fallback or FMI errors")
+    expected_steps = tick
+    accepted_steps = int(final_power_state.get("acceptedStepCount", 0)) - initial_accepted_steps
+    if accepted_steps != expected_steps:
+        errors.append(
+            f"power network accepted {accepted_steps} writes for {expected_steps} vehicle ticks"
+        )
 
     report = {
         "status": "PASS" if not errors else "FAIL",
@@ -147,9 +168,12 @@ def main() -> None:
             "enduranceSimulatedSeconds": args.endurance_ticks * 0.1,
         },
         "errors": errors,
+        "simulationRunId": run_id,
         "benchmarks": benchmarks,
         "endurance": endurance,
         "finalHealth": final_health,
+        "finalPowerState": final_power_state,
+        "powerAcceptedStepDelta": accepted_steps,
     }
     rendered = json.dumps(report, ensure_ascii=False, indent=2)
     print(rendered)

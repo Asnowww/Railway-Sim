@@ -17,7 +17,7 @@ import com.railwaysim.train.TrainManager;
 import com.railwaysim.train.TrainState;
 import com.railwaysim.vehicle.drivercab.DriverCabAdapter;
 import com.railwaysim.vehicle.drivercab.DriverCabPlcCodec;
-import com.railwaysim.vehicle.drivercab.DriverCabPlcInputPacket;
+import com.railwaysim.vehicle.control.DriverCommandAcceptance;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -133,14 +133,23 @@ public class DriverCabTcpAdapter implements LocalNetAdapter {
     public LocalNetReplayResult replay(byte[] payload) {
         try {
             if (payload.length == DriverCabPlcCodec.PLC_TO_UPPER_BYTES) {
-                DriverCabPlcInputPacket packet = driverCabAdapter.decodePlcInput(payload);
-                TrainState updated = driverCabAdapter.applyPlcInput("TR-001", packet);
-                String summary = "driver cab PLC replay applied train=" + updated.id();
+                DriverCommandAcceptance acceptance = driverCabAdapter.applyAndAccept("TR-001", payload);
+                if (!acceptance.accepted()) {
+                    throw new IllegalArgumentException("PLC replay rejected: " + acceptance.reasonCode());
+                }
+                String summary = "driver cab PLC replay forwarded train=" + acceptance.trainId();
                 record(PacketDirection.REPLAY, payload.length, summary, "OK", "");
                 return new LocalNetReplayResult(id(), family(), true, summary, "", Instant.now());
             }
             if (screenCodec.isNetworkScreenPacket(payload)) {
                 String summary = "driver cab network screen replay bytes=" + payload.length;
+                record(PacketDirection.REPLAY, payload.length, summary, "OK", "");
+                return new LocalNetReplayResult(id(), family(), true, summary, "", Instant.now());
+            }
+            if (payload.length == DriverCabScreenPacketCodec.NETWORK_SCREEN_INPUT_BYTES) {
+                int mask = screenCodec.decodeTractionCutMask(payload);
+                driverCabAdapter.forwardTractionCut("TR-001", payload);
+                String summary = "driver cab network screen traction-cut mask=" + mask;
                 record(PacketDirection.REPLAY, payload.length, summary, "OK", "");
                 return new LocalNetReplayResult(id(), family(), true, summary, "", Instant.now());
             }
@@ -190,9 +199,12 @@ public class DriverCabTcpAdapter implements LocalNetAdapter {
                 }
                 offset += read;
                 if (offset == DriverCabPlcCodec.PLC_TO_UPPER_BYTES) {
-                    DriverCabPlcInputPacket packet = driverCabAdapter.decodePlcInput(buffer);
-                    TrainState updated = driverCabAdapter.applyPlcInput(config.trainId(), packet);
-                    record(PacketDirection.INBOUND, offset, "PLC input applied train=" + updated.id(), "OK", "");
+                    DriverCommandAcceptance acceptance = driverCabAdapter.applyAndAccept(config.trainId(), buffer.clone());
+                    if (!acceptance.accepted()) {
+                        throw new IllegalArgumentException("PLC input rejected: " + acceptance.reasonCode());
+                    }
+                    record(PacketDirection.INBOUND, offset,
+                        "PLC input forwarded train=" + acceptance.trainId(), "OK", "");
                     offset = 0;
                 }
             } catch (SocketTimeoutException ignored) {
@@ -204,12 +216,16 @@ public class DriverCabTcpAdapter implements LocalNetAdapter {
                 output.flush();
                 record(PacketDirection.OUTBOUND, response.get().length, "PLC output train=" + config.trainId(), "OK", "");
             }
-            sleep(config.cycleMillis());
         }
     }
 
     private void handleScreen(DriverCabConnectionConfig config, Socket socket) throws IOException {
+        InputStream input = socket.getInputStream();
         OutputStream output = socket.getOutputStream();
+        byte[] inputFrame = config.role() == DriverCabRole.NETWORK_SCREEN
+            ? new byte[DriverCabScreenPacketCodec.NETWORK_SCREEN_INPUT_BYTES]
+            : null;
+        int inputOffset = 0;
         while (running.get() && !socket.isClosed()) {
             Optional<TrainState> train = trainManager.state(config.trainId());
             if (train.isPresent()) {
@@ -220,6 +236,22 @@ public class DriverCabTcpAdapter implements LocalNetAdapter {
                 output.write(payload);
                 output.flush();
                 record(PacketDirection.OUTBOUND, payload.length, config.role() + " output train=" + config.trainId(), "OK", "");
+            }
+            if (inputFrame != null && input.available() > 0) {
+                try {
+                    int read = input.read(inputFrame, inputOffset, inputFrame.length - inputOffset);
+                    if (read < 0) {
+                        break;
+                    }
+                    inputOffset += read;
+                    if (inputOffset == inputFrame.length) {
+                        int mask = screenCodec.decodeTractionCutMask(inputFrame);
+                        driverCabAdapter.forwardTractionCut(config.trainId(), inputFrame.clone());
+                        record(PacketDirection.INBOUND, inputFrame.length,
+                            "NETWORK_SCREEN traction-cut train=" + config.trainId() + " mask=" + mask, "OK", "");
+                        inputOffset = 0;
+                    }
+                } catch (SocketTimeoutException ignored) { }
             }
             sleep(config.cycleMillis());
         }

@@ -81,14 +81,22 @@ public class PowerConstraintService {
             double absorbedCurrent = substationVoltage > 1 ? absorbedRegenPower / substationVoltage : 0;
             double netCurrent = Math.max(0, load.currentAmps() - absorbedCurrent);
             double voltageDropPerAmp = powerData.currentToVoltageDrop() + sectionResistance(section);
-            double voltage = Math.max(0, substationVoltage - netCurrent * voltageDropPerAmp);
-            ExternalVoltageComparison externalComparison = compareExternalVoltage(voltage, thirdRailState, snapshot);
+            double calculatedVoltage = Math.max(0, substationVoltage - netCurrent * voltageDropPerAmp);
+            ExternalVoltageComparison externalComparison = compareExternalVoltage(
+                calculatedVoltage, thirdRailState, snapshot);
+            boolean externalAuthoritative = thirdRailState != null
+                && !"LOCAL".equals(snapshot.heartbeatStatus())
+                && !"FALLBACK".equals(snapshot.dataQuality());
+            double voltage = externalAuthoritative
+                ? thirdRailState.contactRailVoltage() : calculatedVoltage;
+            double current = externalAuthoritative
+                ? thirdRailState.tractionCurrentAmps() : netCurrent;
             String lockoutState = maintenanceLockBySection.getOrDefault(section.id(), section.lockoutState());
             String maintenanceState = maintenanceState(section, maintenanceLockBySection.get(section.id()));
             String status = resolveStatus(
                 section.id(),
                 voltage,
-                netCurrent,
+                current,
                 breakerStatus,
                 isolatorStatus,
                 maintenanceState,
@@ -109,7 +117,7 @@ public class PowerConstraintService {
                 section.startMeters(),
                 section.endMeters(),
                 voltage,
-                netCurrent,
+                current,
                 status,
                 load.tractionPowerWatts(),
                 load.regenPowerWatts(),
