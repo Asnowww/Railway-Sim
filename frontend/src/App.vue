@@ -640,7 +640,13 @@ async function runSimulationTick(): Promise<void> {
   if (backendStatus.value !== 'RUNNING') {
     try { backendStatus.value = (await simulationApi.start()).status } catch { return }
   }
-  try { applyBackendSnapshot(await simulationApi.tick()) } catch { /* WS covers */ }
+  // 每次跑10帧，只渲染最后一帧
+  for (let i = 0; i < 10; i++) {
+    try {
+      const snapshot = await simulationApi.tick()
+      if (i === 9) applyBackendSnapshot(snapshot)
+    } catch { return }
+  }
 }
 
 function resizeTrendChart(): void {
