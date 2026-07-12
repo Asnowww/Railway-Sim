@@ -236,7 +236,6 @@ const commandLabel = (type: string) => {
     DEPART: '发车',
     REQUEST_ROUTE: '申请进路',
     REROUTE: '重排进路',
-    REQUEST_ROUTE: '申请进路',
     HEADWAY_TOO_SHORT: '拉开后车间隔',
     HEADWAY_TOO_LONG: '催发后车追赶',
   }
