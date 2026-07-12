@@ -104,8 +104,6 @@ railway:
         speed-tolerance-meters-per-second: 0.5
         acceleration-tolerance-meters-per-second-squared: 0.3
         distance-tolerance-meters: 2.0
-  dispatch:
-    plan-location: classpath:config/dispatch-plan.yaml
     average-speed-ratio: 0.8
     dwell-tolerance-sec: 15
     departure-delay-sec: 30
@@ -122,3 +120,6 @@ railway:
     base-cruise-speed-mps: 15
     min-dwell-sec: 15
     max-dwell-sec: 60
+
+  dispatch:
+    plan-location: classpath:config/dispatch-plan-demo.yaml

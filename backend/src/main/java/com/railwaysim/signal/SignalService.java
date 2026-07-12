@@ -192,8 +192,13 @@ public class SignalService {
             double nextTrainTailLimit = Double.POSITIVE_INFINITY;
             if (i + 1 < ordered.size()) {
                 TrainState nextTrain = ordered.get(i + 1);
-                double linearLimit = nextTrain.positionMeters() - nextTrain.lengthMeters() - effectiveSafetyGap;
-                nextTrainTailLimit = linearLimit;
+                // 终点站已停列车不再阻挡后车: 到终点的车视为"已清出线路"
+                if (nextTrain.positionMeters() >= lineLengthMeters - 10 && nextTrain.zeroSpeed()) {
+                    nextTrainTailLimit = Double.POSITIVE_INFINITY;
+                } else {
+                    double linearLimit = nextTrain.positionMeters() - nextTrain.lengthMeters() - effectiveSafetyGap;
+                    nextTrainTailLimit = linearLimit;
+                }
             }
             // 拓扑感知（移动闭塞）：沿本车路径查找前方障碍
             if ("MOVING".equalsIgnoreCase(simulationProperties.getBlockMode())) {

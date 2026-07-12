@@ -142,6 +142,11 @@ public class TrackService {
 
         // ② 全车长范围覆盖 → OCCUPIED (仅同轨道线的区段，避免并行支线误标)
         for (TrainState train : trains) {
+            // 终点站已停列车不再标记占用——后车可跟随进站
+            if (train.positionMeters() >= infrastructureCatalog.lineData().lineLengthMeters() - 10
+                && train.zeroSpeed()) {
+                continue;
+            }
             double tail = train.positionMeters() - train.lengthMeters();
             double head = train.positionMeters();
             TrackSegmentState primarySeg = segmentAt(train.positionMeters());
