@@ -167,6 +167,10 @@ public class VehicleRuntimeIntegrationService implements VehiclePowerLoadForward
         client.forwardPlcInput(trainId, payload);
     }
 
+    public void forwardTractionCut(String trainId, byte[] payload) {
+        client.forwardTractionCut(trainId, payload);
+    }
+
     @Override
     public boolean ownsPowerLoadForwarding() {
         // 只有外部车辆运行时真实在线时，中央才让出供电负荷写入权，避免启动初期误判。

@@ -51,6 +51,7 @@ public class TrainStateHolder {
     private String brakeState = "RELEASED";
     private String currentCollectionStatus = "NORMAL";
     private boolean tractionAvailable = true;
+    private boolean driverCabTractionCut;
     private boolean brakeAvailable = true;
     private String selfCheckStatus = "PASS";
     private int faultLevel;
@@ -309,6 +310,20 @@ public class TrainStateHolder {
         }
     }
 
+    public void applyTractionCut(boolean requested) {
+        driverCabTractionCut = requested;
+        if (requested) {
+            tractionState = "IDLE";
+            vehicleProtectionReason = "DRIVER_CAB_TRACTION_CUT";
+            faultCode = "DRIVER_CAB_TRACTION_CUT";
+            faultLevel = Math.max(faultLevel, 2);
+        } else if ("DRIVER_CAB_TRACTION_CUT".equals(faultCode)) {
+            vehicleProtectionReason = "NONE";
+            faultCode = "OK";
+            faultLevel = 0;
+        }
+    }
+
     // ========== 故障注入 ==========
 
     public void injectFault(String faultCode) {
@@ -432,11 +447,12 @@ public class TrainStateHolder {
     }
 
     private boolean effectiveTractionAvailable() {
-        return injectedFaultCode == null || !"TRACTION_UNAVAILABLE".equals(injectedFaultCode);
+        return tractionAvailable && !driverCabTractionCut
+            && !"TRACTION_UNAVAILABLE".equals(injectedFaultCode);
     }
 
     private boolean effectiveBrakeAvailable() {
-        return injectedFaultCode == null || !"BRAKE_UNAVAILABLE".equals(injectedFaultCode);
+        return brakeAvailable && !"BRAKE_UNAVAILABLE".equals(injectedFaultCode);
     }
 
     private int effectiveAvailableTractionCount() {

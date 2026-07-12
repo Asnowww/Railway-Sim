@@ -11,7 +11,7 @@ public class DriverCabPlcCodec {
     public static final int PLC_TO_UPPER_BYTES = 46;
     public static final int UPPER_TO_PLC_BYTES = 26;
     public static final int HEADER_BYTES = 24;
-    private static final byte[] PLC_TO_UPPER_IDENTIFY = {(byte) 0xaa, 0x55, (byte) 0xaa, 0x55};
+    private static final byte[] PLC_TO_UPPER_IDENTIFY = {0x55, (byte) 0xaa, 0x55, (byte) 0xaa};
     private static final byte[] UPPER_TO_PLC_IDENTIFY = {0x55, (byte) 0xaa, 0x55, (byte) 0xaa};
 
     private final ByteOrder byteOrder;
@@ -25,8 +25,9 @@ public class DriverCabPlcCodec {
     }
 
     public DriverCabPlcInputPacket decodeInput(byte[] payload) {
-        requireMinLength(payload, PLC_TO_UPPER_BYTES, "driver cab PLC input");
-        validateIdentify(payload, PLC_TO_UPPER_IDENTIFY, "driver cab PLC input");
+        requireExactLength(payload, PLC_TO_UPPER_BYTES, "driver cab PLC input");
+        validateHeader(payload, PLC_TO_UPPER_IDENTIFY, PLC_TO_UPPER_BYTES,
+            PLC_TO_UPPER_BYTES - HEADER_BYTES, "driver cab PLC input");
         ByteBuffer buffer = ByteBuffer.wrap(payload).order(byteOrder);
         int doorModeCode = unsignedShort(buffer.getShort(32));
         int directionCode = unsignedShort(buffer.getShort(36));
@@ -94,8 +95,9 @@ public class DriverCabPlcCodec {
     }
 
     public DriverCabPlcOutputPacket decodeOutput(byte[] payload) {
-        requireMinLength(payload, UPPER_TO_PLC_BYTES, "driver cab PLC output");
-        validateIdentify(payload, UPPER_TO_PLC_IDENTIFY, "driver cab PLC output");
+        requireExactLength(payload, UPPER_TO_PLC_BYTES, "driver cab PLC output");
+        validateHeader(payload, UPPER_TO_PLC_IDENTIFY, UPPER_TO_PLC_BYTES,
+            UPPER_TO_PLC_BYTES - HEADER_BYTES, "driver cab PLC output");
         return new DriverCabPlcOutputPacket(
             bit(payload, 24, 1),
             bit(payload, 24, 2),
@@ -159,9 +161,20 @@ public class DriverCabPlcCodec {
         }
     }
 
-    private void requireMinLength(byte[] payload, int minLength, String label) {
-        if (payload == null || payload.length < minLength) {
-            throw new IllegalArgumentException(label + " packet too short: expected at least " + minLength + " bytes");
+    private void requireExactLength(byte[] payload, int expectedLength, String label) {
+        if (payload == null || payload.length != expectedLength) {
+            throw new IllegalArgumentException(label + " length is invalid: expected " + expectedLength + " bytes");
+        }
+    }
+
+    private void validateHeader(byte[] payload, byte[] expected, int totalLength, int dataLength, String label) {
+        validateIdentify(payload, expected, label);
+        ByteBuffer header = ByteBuffer.wrap(payload).order(byteOrder);
+        if (Short.toUnsignedInt(header.getShort(4)) != totalLength) {
+            throw new IllegalArgumentException(label + " total length is invalid");
+        }
+        if (Short.toUnsignedInt(header.getShort(6)) != dataLength) {
+            throw new IllegalArgumentException(label + " data length is invalid");
         }
     }
 

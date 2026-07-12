@@ -104,6 +104,23 @@ class VehicleRuntimeManagerTests {
         var accepted = controller.applyPlcInput("TR-PLC", neutral);
         assertThat(accepted.getStatusCode().is2xxSuccessful()).isTrue();
         assertThat(holder.latest("TR-PLC")).isNotNull();
+        assertThat(holder.latest("TR-PLC").tractionCommand()).isZero();
+        assertThat(holder.latest("TR-PLC").brakeCommand()).isZero();
+        assertThat(manager.getTrainState("TR-PLC").operationMode()).isNotEqualTo("STANDBY");
+    }
+
+    @Test
+    void networkScreenTractionCutIsAppliedByRuntime() {
+        VehicleRuntimeManager manager = manager();
+        manager.register(train("TR-HMI", 100, 0));
+
+        manager.applyTractionCut("TR-HMI", true);
+        assertThat(manager.getTrainState("TR-HMI").tractionAvailable()).isFalse();
+        assertThat(manager.getTrainState("TR-HMI").vehicleProtectionReason())
+            .isEqualTo("DRIVER_CAB_TRACTION_CUT");
+
+        manager.applyTractionCut("TR-HMI", false);
+        assertThat(manager.getTrainState("TR-HMI").tractionAvailable()).isTrue();
     }
 
     @Test

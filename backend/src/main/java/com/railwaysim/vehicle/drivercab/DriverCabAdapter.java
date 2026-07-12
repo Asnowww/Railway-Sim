@@ -90,6 +90,13 @@ public class DriverCabAdapter {
         return trainManager.applyDriverCabInput(trainId, input);
     }
 
+    public void forwardTractionCut(String trainId, byte[] payload) {
+        if (!vehicleRuntimeIntegrationService.isExternalMode()) {
+            throw new IllegalStateException("network-screen traction cut requires EXTERNAL_HTTP vehicle runtime");
+        }
+        vehicleRuntimeIntegrationService.forwardTractionCut(trainId, payload);
+    }
+
     public byte[] encodePlcOutput(TrainState train, SignalCabDisplayState display) {
         return codec.encodeOutput(toOutputPacket(train, display));
     }

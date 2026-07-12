@@ -745,7 +745,16 @@ public class VehicleRuntimeManager {
         if (instance == null) {
             throw new IllegalArgumentException("unknown train instance: " + trainId);
         }
-        // Apply through TrainStateHolder
+        instance.applyDriverCabInput(input);
+    }
+
+    /** 网络屏牵引切除请求：在 9300 权威运行时状态中生效。 */
+    public void applyTractionCut(String trainId, boolean requested) {
+        VehicleRuntimeInstance instance = instances.get(trainId);
+        if (instance == null) {
+            throw new IllegalArgumentException("unknown train instance: " + trainId);
+        }
+        instance.applyTractionCut(requested);
     }
 
     /** 检测本 tick 内发生的事件。 */

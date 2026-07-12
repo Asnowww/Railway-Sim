@@ -23,4 +23,8 @@ public interface VehicleRuntimeClient {
     default void forwardPlcInput(String trainId, byte[] payload) {
         // 默认空实现，子类按需覆盖
     }
+
+    default void forwardTractionCut(String trainId, byte[] payload) {
+        // 默认空实现，子类按需覆盖
+    }
 }

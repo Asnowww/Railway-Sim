@@ -12,6 +12,7 @@ import java.util.List;
 public class DriverCabScreenPacketCodec {
 
     public static final int NETWORK_SCREEN_BYTES = 572;
+    public static final int NETWORK_SCREEN_INPUT_BYTES = 26;
     public static final int SIGNAL_SCREEN_BYTES = 66;
     private static final byte[] IDENTIFY = {0x55, (byte) 0xaa, 0x55, (byte) 0xaa};
     private static final int HEADER_BYTES = 24;
@@ -89,6 +90,11 @@ public class DriverCabScreenPacketCodec {
         return hasIdentify(payload) && payload.length >= NETWORK_SCREEN_BYTES;
     }
 
+    public int decodeTractionCutMask(byte[] payload) {
+        validateCommonHeader(payload, NETWORK_SCREEN_INPUT_BYTES, 2, "network screen input");
+        return Byte.toUnsignedInt(payload[24]) & 0x3f;
+    }
+
     public boolean isSignalScreenPacket(byte[] payload) {
         return hasIdentify(payload) && payload.length >= SIGNAL_SCREEN_BYTES;
     }
@@ -124,6 +130,19 @@ public class DriverCabScreenPacketCodec {
             }
         }
         return true;
+    }
+
+    private void validateCommonHeader(byte[] payload, int totalLength, int dataLength, String label) {
+        if (payload == null || payload.length != totalLength || !hasIdentify(payload)) {
+            throw new IllegalArgumentException(label + " identify or total frame length is invalid");
+        }
+        ByteBuffer header = ByteBuffer.wrap(payload).order(byteOrder);
+        if (Short.toUnsignedInt(header.getShort(4)) != totalLength) {
+            throw new IllegalArgumentException(label + " total length is invalid");
+        }
+        if (Short.toUnsignedInt(header.getShort(6)) != dataLength) {
+            throw new IllegalArgumentException(label + " data length is invalid");
+        }
     }
 
     private short boundedShort(double value) {

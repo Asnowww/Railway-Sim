@@ -66,6 +66,14 @@ final class VehicleRuntimeInstance {
         return trainState.snapshot();
     }
 
+    void applyDriverCabInput(com.railwaysim.vehicleruntime.drivercab.DriverCabPlcInputPacket input) {
+        trainState.applyDriverCabInput(input);
+    }
+
+    void applyTractionCut(boolean requested) {
+        trainState.applyTractionCut(requested);
+    }
+
     void launch() {
         // 车辆仿真实例启动时同步唤醒本车控制队列，后续 tick 才能直接执行控制决策。
         lifecycleState = "CONTROL_AWAKE";

@@ -5,14 +5,16 @@ import java.nio.ByteOrder;
 
 public class DriverCabPlcCodec {
 
-    private static final int PLC_TO_UPPER_BYTES = 46;
-    private static final int PLC_TO_UPPER_IDENTIFY = 0xAA;
+    public static final int PLC_TO_UPPER_BYTES = 46;
+    public static final int HEADER_BYTES = 24;
+    private static final byte[] IDENTIFY = {0x55, (byte) 0xaa, 0x55, (byte) 0xaa};
 
     private final ByteOrder byteOrder = ByteOrder.LITTLE_ENDIAN;
 
     public DriverCabPlcInputPacket decodeInput(byte[] payload) {
-        requireMinLength(payload, PLC_TO_UPPER_BYTES, "driver cab PLC input");
-        validateIdentify(payload, PLC_TO_UPPER_IDENTIFY, "driver cab PLC input");
+        requireExactLength(payload, PLC_TO_UPPER_BYTES, "driver cab PLC input");
+        validateHeader(payload, PLC_TO_UPPER_BYTES, PLC_TO_UPPER_BYTES - HEADER_BYTES,
+            "driver cab PLC input");
         ByteBuffer buffer = ByteBuffer.wrap(payload).order(byteOrder);
         int doorModeCode = unsignedShort(buffer.getShort(32));
         int directionCode = unsignedShort(buffer.getShort(36));
@@ -26,8 +28,8 @@ public class DriverCabPlcCodec {
         requirePercent("brakeNotchPercent", brakePercent);
         return new DriverCabPlcInputPacket(
             bit(payload, 24, 1), bit(payload, 24, 5), bit(payload, 24, 6), bit(payload, 24, 7),
-            bit(payload, 25, 0), bit(payload, 28, 0), bit(payload, 28, 1), bit(payload, 28, 2),
-            bit(payload, 28, 4), bit(payload, 28, 5), bit(payload, 29, 1), bit(payload, 29, 2),
+            bit(payload, 25, 0), bit(payload, 25, 2), bit(payload, 25, 3), bit(payload, 28, 0),
+            bit(payload, 29, 0), bit(payload, 29, 1), bit(payload, 29, 2), bit(payload, 29, 3),
             DriverCabDoorModeSwitch.fromProtocolCode(doorModeCode),
             bit(payload, 34, 2), bit(payload, 34, 3), bit(payload, 34, 5), bit(payload, 34, 7),
             bit(payload, 35, 1),
@@ -38,31 +40,33 @@ public class DriverCabPlcCodec {
     }
 
     public byte[] encodeInput(DriverCabPlcInputPacket packet) {
+        DriverCabPlcInputPacket input = packet == null ? DriverCabPlcInputPacket.neutral() : packet;
         byte[] payload = new byte[PLC_TO_UPPER_BYTES];
         ByteBuffer buffer = ByteBuffer.wrap(payload).order(byteOrder);
-        payload[0] = (byte) PLC_TO_UPPER_IDENTIFY;
-        setBit(payload, 24, 1, packet.highVoltageClosedIndicator());
-        setBit(payload, 24, 5, packet.doorsClosedLockedIndicator());
-        setBit(payload, 24, 6, packet.networkFaultIndicator());
-        setBit(payload, 24, 7, packet.automaticTurnbackAvailable());
-        setBit(payload, 25, 0, packet.atoModeAvailable());
-        setBit(payload, 28, 0, packet.atoModeActive());
-        setBit(payload, 28, 1, packet.automaticTurnbackActive());
-        setBit(payload, 28, 2, packet.emergencyBrakeButtonLocked());
-        setBit(payload, 28, 4, packet.openLeftDoorFlag());
-        setBit(payload, 28, 5, packet.openRightDoorFlag());
-        setBit(payload, 29, 1, packet.closeLeftDoorFlag());
-        setBit(payload, 29, 2, packet.closeRightDoorFlag());
-        buffer.putShort(32, (short) packet.doorModeSwitchState().protocolCode());
-        setBit(payload, 34, 2, packet.modeUpgradeConfirmFlag());
-        setBit(payload, 34, 3, packet.modeDowngradeConfirmFlag());
-        setBit(payload, 34, 5, packet.automaticTurnbackFlag());
-        setBit(payload, 34, 7, packet.atoStartFlag());
-        setBit(payload, 35, 1, packet.keySwitchLocked());
-        buffer.putShort(36, (short) packet.directionHandleState().protocolCode());
-        buffer.putShort(38, (short) packet.masterHandleState().protocolCode());
-        buffer.putShort(40, (short) clampPercent(packet.tractionNotchPercent()));
-        buffer.putShort(42, (short) clampPercent(packet.brakeNotchPercent()));
+        buffer.put(IDENTIFY).putShort((short) PLC_TO_UPPER_BYTES)
+            .putShort((short) (PLC_TO_UPPER_BYTES - HEADER_BYTES));
+        setBit(payload, 24, 1, input.highVoltageClosedIndicator());
+        setBit(payload, 24, 5, input.doorsClosedLockedIndicator());
+        setBit(payload, 24, 6, input.networkFaultIndicator());
+        setBit(payload, 24, 7, input.automaticTurnbackAvailable());
+        setBit(payload, 25, 0, input.atoModeAvailable());
+        setBit(payload, 25, 2, input.atoModeActive());
+        setBit(payload, 25, 3, input.automaticTurnbackActive());
+        setBit(payload, 28, 0, input.emergencyBrakeButtonLocked());
+        setBit(payload, 29, 0, input.openLeftDoorFlag());
+        setBit(payload, 29, 1, input.openRightDoorFlag());
+        setBit(payload, 29, 2, input.closeLeftDoorFlag());
+        setBit(payload, 29, 3, input.closeRightDoorFlag());
+        buffer.putShort(32, (short) input.doorModeSwitchState().protocolCode());
+        setBit(payload, 34, 2, input.modeUpgradeConfirmFlag());
+        setBit(payload, 34, 3, input.modeDowngradeConfirmFlag());
+        setBit(payload, 34, 5, input.automaticTurnbackFlag());
+        setBit(payload, 34, 7, input.atoStartFlag());
+        setBit(payload, 35, 1, input.keySwitchLocked());
+        buffer.putShort(36, (short) input.directionHandleState().protocolCode());
+        buffer.putShort(38, (short) input.masterHandleState().protocolCode());
+        buffer.putShort(40, (short) clampPercent(input.tractionNotchPercent()));
+        buffer.putShort(42, (short) clampPercent(input.brakeNotchPercent()));
         return payload;
     }
 
@@ -78,14 +82,24 @@ public class DriverCabPlcCodec {
     private int unsignedShort(short value) { return value & 0xFFFF; }
     private int clampPercent(int value) { return Math.max(0, Math.min(100, value)); }
 
-    private void validateIdentify(byte[] payload, int expectedIdentify, String label) {
-        if ((payload[0] & 0xFF) != expectedIdentify)
-            throw new IllegalArgumentException(label + " has missing or invalid identify header");
+    private void validateHeader(byte[] payload, int totalLength, int dataLength, String label) {
+        for (int i = 0; i < IDENTIFY.length; i++) {
+            if (payload[i] != IDENTIFY[i]) {
+                throw new IllegalArgumentException(label + " identify bytes are invalid");
+            }
+        }
+        ByteBuffer header = ByteBuffer.wrap(payload).order(byteOrder);
+        if (unsignedShort(header.getShort(4)) != totalLength) {
+            throw new IllegalArgumentException(label + " total length is invalid");
+        }
+        if (unsignedShort(header.getShort(6)) != dataLength) {
+            throw new IllegalArgumentException(label + " data length is invalid");
+        }
     }
 
-    private void requireMinLength(byte[] payload, int min, String label) {
-        if (payload == null || payload.length < min)
-            throw new IllegalArgumentException(label + " packet too short: expected " + min + " bytes");
+    private void requireExactLength(byte[] payload, int expected, String label) {
+        if (payload == null || payload.length != expected)
+            throw new IllegalArgumentException(label + " length is invalid: expected " + expected + " bytes");
     }
 
     private void requireAllowedCode(String field, int actual, int... allowed) {

@@ -107,6 +107,16 @@ public class HttpVehicleRuntimeClient implements VehicleRuntimeClient {
             .toBodilessEntity();
     }
 
+    @Override
+    public void forwardTractionCut(String trainId, byte[] payload) {
+        restClient.post()
+            .uri("/api/vehicle/driver-cabs/{trainId}/traction-cut", trainId)
+            .contentType(MediaType.APPLICATION_OCTET_STREAM)
+            .body(payload)
+            .retrieve()
+            .toBodilessEntity();
+    }
+
     private SimpleClientHttpRequestFactory requestFactory(long timeoutMillis) {
         SimpleClientHttpRequestFactory requestFactory = new SimpleClientHttpRequestFactory();
         Duration timeout = Duration.ofMillis(Math.max(1, timeoutMillis));

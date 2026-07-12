@@ -48,6 +48,17 @@ class DriverCabScreenPacketCodecTests {
         assertThat(Short.toUnsignedInt(buffer.getShort(60))).isEqualTo(1);
     }
 
+    @Test
+    void decodesNetworkScreenTractionCutRequest() {
+        ByteBuffer buffer = ByteBuffer.allocate(DriverCabScreenPacketCodec.NETWORK_SCREEN_INPUT_BYTES)
+            .order(ByteOrder.LITTLE_ENDIAN);
+        buffer.put(new byte[] {0x55, (byte) 0xaa, 0x55, (byte) 0xaa});
+        buffer.putShort((short) 26).putShort((short) 2);
+        buffer.put(24, (byte) 0b0010_0101);
+
+        assertThat(codec.decodeTractionCutMask(buffer.array())).isEqualTo(0b0010_0101);
+    }
+
     private TrainState train() {
         return new TrainState(
             "TR-001",
