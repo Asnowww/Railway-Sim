@@ -8,6 +8,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.railwaysim.infrastructure.StaticInfrastructureCatalog;
 import com.railwaysim.train.VehicleSpecificationCatalog;
 import com.railwaysim.vehicle.external.ExternalTrainDirection;
 import com.railwaysim.vehicle.protocol.SignalTrainContentCodec;
@@ -40,6 +41,9 @@ class Phase2ApiControllerTests {
 
     @Autowired
     private VehicleSpecificationCatalog vehicleSpecificationCatalog;
+
+    @Autowired
+    private StaticInfrastructureCatalog infrastructureCatalog;
 
     @Autowired
     private ObjectMapper objectMapper;
@@ -160,6 +164,7 @@ class Phase2ApiControllerTests {
 
     @Test
     void requestRouteCommandRunsThroughDispatchQueueAndInterlockingFeedback() throws Exception {
+        String validRouteId = infrastructureCatalog.lineData().routes().get(0).id();
         mockMvc.perform(post("/api/simulation/reset"))
             .andExpect(status().isOk());
 
@@ -210,9 +215,9 @@ class Phase2ApiControllerTests {
                     {
                       "trainId": "TR-001",
                       "commandType": "REQUEST_ROUTE",
-                      "routeId": "R_D1"
+                      "routeId": "%s"
                     }
-                    """))
+                    """.formatted(validRouteId)))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.status").value("PENDING"))
             .andExpect(jsonPath("$.payload.decisionId").isNotEmpty())
@@ -242,6 +247,27 @@ class Phase2ApiControllerTests {
             .andExpect(jsonPath("$[0].payload.reservationId").value(reservationId))
             .andExpect(jsonPath("$[0].payload.lastFeedbackSource").value("SIGNAL_INTERLOCKING"))
             .andExpect(jsonPath("$[0].payload.lastFeedbackDetails.accepted").value(true));
+
+        mockMvc.perform(post("/api/dispatch/commands")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "trainId": "TR-001",
+                      "commandType": "REQUEST_ROUTE",
+                      "routeId": "R_NOT_FOUND"
+                    }
+                    """))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.status").value("PENDING"));
+
+        mockMvc.perform(post("/api/simulation/tick"))
+            .andExpect(status().isOk());
+
+        mockMvc.perform(get("/api/dispatch/commands"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$", hasSize(2)))
+            .andExpect(jsonPath("$[1].status").value("SKIPPED"))
+            .andExpect(jsonPath("$[1].payload.lastFeedbackDetails.accepted").value(false));
     }
 
     @Test
