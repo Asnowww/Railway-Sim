@@ -1,8 +1,9 @@
-package com.railwaysim.config;
+package com.railwaysim.vehicleruntime.config;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
-@ConfigurationProperties(prefix = "railway.simulation.stopping-control")
+/** Mirrors the versioned stopping-control contract used by the central fallback controller. */
+@ConfigurationProperties(prefix = "vehicle-runtime.stopping-control")
 public class StoppingControlProperties {
     private double serviceBrakeDecelerationMetersPerSecondSquared = 0.9;
     private double stationStopWindowMeters = 10.0;
@@ -12,9 +13,6 @@ public class StoppingControlProperties {
     private double minimumEffectiveDecelerationMetersPerSecondSquared = 0.35;
     private double maximumEffectiveDecelerationMetersPerSecondSquared = 1.25;
     private double zeroSpeedMetersPerSecond = 0.2;
-    private int stableSeconds = 2;
-    private double successToleranceMeters = 1.0;
-    private double overrunThresholdMeters = 1.0;
     private String parameterVersion = "STOPPING_V1";
 
     public double getServiceBrakeDecelerationMetersPerSecondSquared() {
@@ -48,15 +46,13 @@ public class StoppingControlProperties {
         maximumEffectiveDecelerationMetersPerSecondSquared = positive(value, 1.25);
     }
     public double getZeroSpeedMetersPerSecond() { return zeroSpeedMetersPerSecond; }
-    public void setZeroSpeedMetersPerSecond(double value) { zeroSpeedMetersPerSecond = value; }
-    public int getStableSeconds() { return stableSeconds; }
-    public void setStableSeconds(int value) { stableSeconds = value; }
-    public double getSuccessToleranceMeters() { return successToleranceMeters; }
-    public void setSuccessToleranceMeters(double value) { successToleranceMeters = value; }
-    public double getOverrunThresholdMeters() { return overrunThresholdMeters; }
-    public void setOverrunThresholdMeters(double value) { overrunThresholdMeters = value; }
+    public void setZeroSpeedMetersPerSecond(double value) {
+        zeroSpeedMetersPerSecond = positive(value, 0.2);
+    }
     public String getParameterVersion() { return parameterVersion; }
-    public void setParameterVersion(String value) { parameterVersion = value; }
+    public void setParameterVersion(String value) {
+        parameterVersion = value == null || value.isBlank() ? "STOPPING_V1" : value;
+    }
 
     private double positive(double value, double fallback) {
         return Double.isFinite(value) && value > 0 ? value : fallback;

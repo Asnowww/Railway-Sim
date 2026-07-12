@@ -2,6 +2,9 @@ package com.railwaysim.monitor;
 
 import com.railwaysim.dispatch.DispatchSnapshot;
 import com.railwaysim.power.PowerSectionState;
+import com.railwaysim.power.external.PowerNetworkStateSnapshot;
+import com.railwaysim.power.external.ExternalPowerNetworkHealth;
+import com.railwaysim.power.external.ExternalPowerNetworkMode;
 import com.railwaysim.signal.MovementAuthority;
 import com.railwaysim.signal.RouteState;
 import com.railwaysim.signal.SignalState;
@@ -28,9 +31,13 @@ import org.springframework.stereotype.Service;
 public class MonitorService {
 
     private final AlarmLifecycleService alarmLifecycleService;
+    private final ServiceHealthService serviceHealthService;
 
-    public MonitorService(AlarmLifecycleService alarmLifecycleService) {
+    public MonitorService(
+        AlarmLifecycleService alarmLifecycleService, ServiceHealthService serviceHealthService
+    ) {
         this.alarmLifecycleService = alarmLifecycleService;
+        this.serviceHealthService = serviceHealthService;
     }
 
     public SimulationSnapshot buildSnapshot(
@@ -46,9 +53,12 @@ public class MonitorService {
         List<RouteState> routeStates,
         List<PowerSectionState> powerSections,
         VehicleRuntimeHealth vehicleRuntime,
+        PowerNetworkStateSnapshot powerNetwork,
+        ExternalPowerNetworkHealth powerHealth,
         List<DomainEvent> events,
         DispatchSnapshot dispatch
     ) {
+        observeServiceHealth(simulationRunId, tick, vehicleRuntime, powerNetwork, powerHealth);
         return new SimulationSnapshot(
             simulationRunId,
             tick,
@@ -69,6 +79,51 @@ public class MonitorService {
             ),
             dispatch
         );
+    }
+
+    private void observeServiceHealth(
+        String simulationRunId, long tick, VehicleRuntimeHealth vehicleRuntime,
+        PowerNetworkStateSnapshot powerNetwork, ExternalPowerNetworkHealth powerHealth
+    ) {
+        Instant now = Instant.now();
+        boolean externalVehicle = vehicleRuntime.mode()
+            != com.railwaysim.vehicle.runtime.VehicleRuntimeMode.LOCAL;
+        ServiceHealthRecord vehicleHealthRecord = serviceHealthService.observe(new ServiceHealthObservation(
+            "vehicle-runtime-9300", externalVehicle, vehicleRuntime.heartbeatStatus(),
+            vehicleRuntime.dataQuality(), vehicleRuntime.sourceTimestamp(),
+            externalVehicle ? vehicleRuntime.simulationRunId() : simulationRunId,
+            externalVehicle ? vehicleRuntime.lastAcceptedTick() : tick,
+            externalVehicle ? vehicleRuntime.topologyHash() : "NOT_APPLICABLE",
+            externalVehicle ? vehicleRuntime.configHash() : "LOCAL",
+            externalVehicle ? vehicleRuntime.fmuModelVersion() : "LOCAL_JAVA",
+            externalVehicle
+                ? vehicleRuntime.parameterSetId() + "/" + vehicleRuntime.stoppingParameterVersion()
+                : "LOCAL",
+            vehicleRuntime.reason()), now);
+        autoCheckRecovery(vehicleHealthRecord, simulationRunId, tick, now);
+
+        boolean externalPower = powerHealth != null && powerHealth.mode() != ExternalPowerNetworkMode.LOCAL;
+        if (powerNetwork != null && powerHealth != null) {
+            ServiceHealthRecord powerHealthRecord = serviceHealthService.observe(new ServiceHealthObservation(
+                "power-network-9200", externalPower, powerHealth.heartbeatStatus(),
+                powerHealth.dataQuality(), powerHealth.lastPacketAt(),
+                externalPower ? powerNetwork.simulationRunId() : simulationRunId,
+                externalPower ? powerNetwork.lastAcceptedTick() : tick,
+                externalPower ? powerNetwork.topologyHash() : "LOCAL",
+                externalPower ? powerNetwork.configHash() : "LOCAL",
+                externalPower ? powerNetwork.modelVersion() : "LOCAL_POWER",
+                externalPower ? powerNetwork.parameterVersion() : "LOCAL",
+                powerHealth.heartbeatStatus()), now);
+            autoCheckRecovery(powerHealthRecord, simulationRunId, tick, now);
+        }
+    }
+
+    private void autoCheckRecovery(
+        ServiceHealthRecord record, String expectedRunId, long expectedTick, Instant now
+    ) {
+        if (record.state() == ServiceHealthState.RECOVERING) {
+            serviceHealthService.checkRecovery(record.serviceId(), expectedRunId, expectedTick, now);
+        }
     }
 
     private List<Alarm> buildAlarms(

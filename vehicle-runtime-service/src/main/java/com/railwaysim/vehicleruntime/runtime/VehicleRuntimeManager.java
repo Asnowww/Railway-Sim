@@ -3,6 +3,7 @@ package com.railwaysim.vehicleruntime.runtime;
 import com.railwaysim.vehicleruntime.config.VehicleParameters;
 import com.railwaysim.vehicleruntime.config.VehiclePhysicsMode;
 import com.railwaysim.vehicleruntime.config.VehicleRuntimeProperties;
+import com.railwaysim.vehicleruntime.config.StoppingControlProperties;
 import com.railwaysim.vehicleruntime.model.DispatchConstraintSnapshot;
 import com.railwaysim.vehicleruntime.model.DriverControlCommandSnapshot;
 import com.railwaysim.vehicleruntime.model.MovementAuthoritySnapshot;
@@ -26,6 +27,9 @@ import com.railwaysim.vehicleruntime.model.VehicleRuntimeStepRequest;
 import com.railwaysim.vehicleruntime.model.VehicleRuntimeStepResponse;
 import java.time.Duration;
 import java.time.Instant;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
@@ -52,6 +56,7 @@ public class VehicleRuntimeManager {
     private final FmuHttpVehiclePhysicsExecutor fmuExecutor;
     private final JavaFallbackVehiclePhysicsExecutor javaFallbackExecutor;
     private final DriverCommandHolder driverCommandHolder;
+    private final StoppingControlProperties stoppingProperties;
     private final Map<String, VehicleRuntimeInstance> instances = new ConcurrentHashMap<>();
     private final Map<String, FmuInstanceSessionState> fmuSessions = new ConcurrentHashMap<>();
     private final Map<String, PowerConstraintSnapshot> authoritativePowerByTrain = new ConcurrentHashMap<>();
@@ -61,6 +66,8 @@ public class VehicleRuntimeManager {
     private long missedDeadlineCount;
     private long fallbackEventCount;
     private long fmiErrorCount;
+    private String currentRunId = "";
+    private long lastAcceptedTick = -1;
 
     @Autowired
     public VehicleRuntimeManager(
@@ -70,7 +77,8 @@ public class VehicleRuntimeManager {
         CentralTrainRegistrationClient centralTrainRegistrationClient,
         FmuHttpVehiclePhysicsExecutor fmuExecutor,
         JavaFallbackVehiclePhysicsExecutor javaFallbackExecutor,
-        DriverCommandHolder driverCommandHolder
+        DriverCommandHolder driverCommandHolder,
+        StoppingControlProperties stoppingProperties
     ) {
         this.properties = properties;
         this.vehicleParameters = vehicleParameters;
@@ -79,6 +87,7 @@ public class VehicleRuntimeManager {
         this.fmuExecutor = fmuExecutor;
         this.javaFallbackExecutor = javaFallbackExecutor;
         this.driverCommandHolder = driverCommandHolder;
+        this.stoppingProperties = stoppingProperties;
         this.latestHealth = healthSnapshot("UP", 0, "GOOD", "READY", 0);
     }
 
@@ -91,7 +100,8 @@ public class VehicleRuntimeManager {
         JavaFallbackVehiclePhysicsExecutor javaFallbackExecutor
     ) {
         this(properties, vehicleParameters, powerNetworkLoadClient, centralTrainRegistrationClient,
-            fmuExecutor, javaFallbackExecutor, DriverCommandHolder.getInstance());
+            fmuExecutor, javaFallbackExecutor, DriverCommandHolder.getInstance(),
+            new StoppingControlProperties());
     }
 
     public VehicleRuntimeHealth health() {
@@ -111,7 +121,12 @@ public class VehicleRuntimeManager {
             totalFleetTickCount,
             missedDeadlineCount,
             fallbackEventCount,
-            fmiErrorCount
+            fmiErrorCount,
+            currentRunId,
+            lastAcceptedTick,
+            "NOT_APPLICABLE",
+            configHash(),
+            stoppingProperties.getParameterVersion()
         );
     }
 
@@ -164,7 +179,8 @@ public class VehicleRuntimeManager {
         }
         VehicleRuntimeInstance instance = instances.computeIfAbsent(
             trainId,
-            id -> new VehicleRuntimeInstance(id, properties, vehicleParameters, driverCommandHolder)
+            id -> new VehicleRuntimeInstance(
+                id, properties, vehicleParameters, driverCommandHolder, stoppingProperties)
         );
         instance.launch();
         recordEvent(trainId, "REGISTER", "vehicle runtime instance registered");
@@ -178,7 +194,8 @@ public class VehicleRuntimeManager {
         String trainId = request.normalizedTrainId();
         VehicleRuntimeInstance instance = instances.computeIfAbsent(
             trainId,
-            id -> new VehicleRuntimeInstance(id, properties, vehicleParameters, driverCommandHolder)
+            id -> new VehicleRuntimeInstance(
+                id, properties, vehicleParameters, driverCommandHolder, stoppingProperties)
         );
         // 启动顺序固定：先创建车辆仿真实例，再唤醒本车控制实例，最后向中央登记镜像。
         instance.launch();
@@ -224,6 +241,8 @@ public class VehicleRuntimeManager {
         instances.clear();
         fmuSessions.clear();
         javaFallbackExecutor.resetAll();
+        currentRunId = "";
+        lastAcceptedTick = -1;
         if (properties.getPhysicsMode() == VehiclePhysicsMode.FMU_HTTP) {
             try {
                 fmuExecutor.resetAll();
@@ -290,6 +309,7 @@ public class VehicleRuntimeManager {
                 throw new IllegalArgumentException("duplicate trainId in fleet step: " + train.id());
             }
         }
+        rolloverRunIfRequired(request.simulationRunId(), request.tick());
         Map<String, MovementAuthoritySnapshot> authorityByTrain = index(request.movementAuthorities(), MovementAuthoritySnapshot::trainId);
         Map<String, TrackConstraintSnapshot> trackByTrain = index(request.trackConstraints(), TrackConstraintSnapshot::trainId);
         Map<String, DispatchConstraintSnapshot> dispatchByTrain = index(request.dispatchConstraints(), DispatchConstraintSnapshot::trainId);
@@ -304,7 +324,8 @@ public class VehicleRuntimeManager {
         for (TrainStateSnapshot train : trains) {
             VehicleRuntimeInstance instance = instances.computeIfAbsent(
                 train.id(),
-                id -> new VehicleRuntimeInstance(id, properties, vehicleParameters, driverCommandHolder)
+                id -> new VehicleRuntimeInstance(
+                    id, properties, vehicleParameters, driverCommandHolder, stoppingProperties)
             );
             VehicleRuntimeInstance.PreparedStep prepared = instance.prepare(
                 request.tick(),
@@ -425,8 +446,34 @@ public class VehicleRuntimeManager {
         if (latency > FLEET_DEADLINE_MILLIS) {
             missedDeadlineCount++;
         }
+        currentRunId = request.simulationRunId();
+        lastAcceptedTick = request.tick();
         latestHealth = healthSnapshot("UP", latency, dataQuality, reason, fmuBatchLatencyMillis);
         return new VehicleRuntimeStepResponse(request.tick(), Instant.now(), dataQuality, outputs, reports, states);
+    }
+
+    private void rolloverRunIfRequired(String incomingRunId, long incomingTick) {
+        if (currentRunId.isBlank()) {
+            currentRunId = incomingRunId;
+            return;
+        }
+        if (currentRunId.equals(incomingRunId)) {
+            return;
+        }
+        if (incomingTick > 1) {
+            throw new IllegalArgumentException(
+                "VEHICLE_RUN_ID_MISMATCH: new simulation run must start at tick 0 or 1"
+            );
+        }
+        String previousRunId = currentRunId;
+        currentRunId = incomingRunId;
+        lastAcceptedTick = -1;
+        authoritativePowerByTrain.clear();
+        driverCommandHolder.clear();
+        instances.values().forEach(VehicleRuntimeInstance::rolloverRun);
+        instances.keySet().forEach(trainId -> fmuSessions.put(trainId, FmuInstanceSessionState.RESYNC_PENDING));
+        javaFallbackExecutor.resetAll();
+        recordEvent("runtime", "RUN_ROLLOVER", previousRunId + " -> " + incomingRunId);
     }
 
     public synchronized List<VehicleRuntimeEvent> events() {
@@ -541,8 +588,31 @@ public class VehicleRuntimeManager {
             totalFleetTickCount,
             missedDeadlineCount,
             fallbackEventCount,
-            fmiErrorCount
+            fmiErrorCount,
+            currentRunId,
+            lastAcceptedTick,
+            "NOT_APPLICABLE",
+            configHash(),
+            stoppingProperties.getParameterVersion()
         );
+    }
+
+    private String configHash() {
+        String canonical = String.join("|",
+            properties.getPhysicsMode().name(),
+            properties.getFmuModelVersion(),
+            vehicleParameters.parameterSetId(),
+            stoppingProperties.getParameterVersion(),
+            Double.toString(stoppingProperties.getServiceBrakeDecelerationMetersPerSecondSquared()),
+            Double.toString(stoppingProperties.getStationStopWindowMeters()),
+            Double.toString(properties.getSafetyGapMeters()));
+        try {
+            byte[] digest = MessageDigest.getInstance("SHA-256")
+                .digest(canonical.getBytes(StandardCharsets.UTF_8));
+            return java.util.HexFormat.of().formatHex(digest);
+        } catch (NoSuchAlgorithmException ex) {
+            throw new IllegalStateException("SHA-256 unavailable", ex);
+        }
     }
 
     private int fallbackTrainCount() {

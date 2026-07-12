@@ -94,21 +94,35 @@ public class PowerIntegrationService {
 
     /** Bootstrap only establishes topology; it never writes vehicle load. */
     public synchronized void ensureExternalBootstrap() {
-        if (properties.getMode() == ExternalPowerNetworkMode.LOCAL || !properties.isAutoBootstrap() || bootstrapped) {
+        if (properties.getMode() == ExternalPowerNetworkMode.LOCAL || !properties.isAutoBootstrap()) {
             return;
         }
-        var bootstrapRequest = powerTopologyService.buildBootstrapRequest();
-        log.info(
-            "Bootstrapping external power network: mode={}, baseUrl={}, lineId={}, topologySegments={}, sectionBindings={}",
-            properties.getMode(),
-            properties.getBaseUrl(),
-            bootstrapRequest.lineId(),
-            bootstrapRequest.topologySegments().size(),
-            bootstrapRequest.sectionBindings().size()
-        );
-        externalClient.bootstrap(bootstrapRequest);
-        bootstrapped = true;
-        log.info("External power network bootstrap completed");
+        try {
+            if (bootstrapped) {
+                latestSnapshot = externalClient.currentState();
+                if (latestSnapshot.bootstrapped()) {
+                    return;
+                }
+                bootstrapped = false;
+                log.warn("External power network lost bootstrap state; topology will be reapplied");
+            }
+            var bootstrapRequest = powerTopologyService.buildBootstrapRequest();
+            log.info(
+                "Bootstrapping external power network: mode={}, baseUrl={}, lineId={}, topologySegments={}, sectionBindings={}",
+                properties.getMode(),
+                properties.getBaseUrl(),
+                bootstrapRequest.lineId(),
+                bootstrapRequest.topologySegments().size(),
+                bootstrapRequest.sectionBindings().size()
+            );
+            externalClient.bootstrap(bootstrapRequest);
+            bootstrapped = true;
+            log.info("External power network bootstrap completed");
+        } catch (RuntimeException exception) {
+            bootstrapped = false;
+            health = ExternalPowerNetworkHealth.fallback(properties.getMode(), summarize(exception));
+            throw exception;
+        }
     }
 
     private List<PowerNetworkSectionLoadRequest> toExternalLoads(List<PowerSectionLoadSnapshot> loads) {

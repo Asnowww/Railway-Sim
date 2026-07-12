@@ -27,7 +27,9 @@ class AlarmLifecycleServiceTests {
               level TINYINT NOT NULL, title VARCHAR(128) NOT NULL, detail_text VARCHAR(512) NOT NULL,
               state VARCHAR(32) NOT NULL, confirmed BOOLEAN NOT NULL,
               raised_at TIMESTAMP NOT NULL, last_seen_at TIMESTAMP NOT NULL,
-              acknowledged_at TIMESTAMP NULL, acknowledged_by VARCHAR(64), cleared_at TIMESTAMP NULL
+              acknowledged_at TIMESTAMP NULL, acknowledged_by VARCHAR(64), cleared_at TIMESTAMP NULL,
+              affected_train_ids_json JSON, affected_section_ids_json JSON,
+              safety_action VARCHAR(128), clear_condition VARCHAR(255), recovery_condition VARCHAR(255)
             )
             """);
         service = new AlarmLifecycleService(jdbc);
@@ -54,6 +56,10 @@ class AlarmLifecycleServiceTests {
         });
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM alarm_record", Integer.class)).isEqualTo(1);
         assertThat(jdbc.queryForObject("SELECT state FROM alarm_record", String.class)).isEqualTo("CLEARED");
+        assertThat(service.records("run-alarm").get(0).impact().affectedSectionIds())
+            .containsExactly("P01");
+        assertThat(service.records("run-alarm").get(0).impact().safetyAction())
+            .isEqualTo("POWER_DERATE_OR_TRACTION_CUTOFF");
     }
 
     @Test
@@ -68,5 +74,25 @@ class AlarmLifecycleServiceTests {
         assertThat(second).isNotEqualTo(first);
         assertThat(service.records("run-alarm")).hasSize(2);
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM alarm_record", Integer.class)).isEqualTo(2);
+    }
+
+    @Test
+    void persistedAlarmHistoryAndActiveOccurrenceAreRestoredAfterRestart() {
+        Instant now = Instant.parse("2026-07-11T00:00:00Z");
+        Alarm candidate = new Alarm(
+            "TRAIN_FAULT:TR-1:X", "train", "TR-1", 2, "fault", "x", now, false);
+        String id = service.reconcile("run-restart", List.of(candidate), now).get(0).id();
+
+        AlarmLifecycleService restarted = new AlarmLifecycleService(jdbc);
+        restarted.loadPersistedRecords();
+
+        assertThat(restarted.records("run-restart")).singleElement().satisfies(record -> {
+            assertThat(record.id()).isEqualTo(id);
+            assertThat(record.impact().affectedTrainIds()).containsExactly("TR-1");
+        });
+        assertThat(restarted.reconcile("run-restart", List.of(candidate), now.plusSeconds(1)))
+            .singleElement().satisfies(alarm -> assertThat(alarm.id()).isEqualTo(id));
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM alarm_record", Integer.class))
+            .isEqualTo(1);
     }
 }

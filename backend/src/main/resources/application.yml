@@ -40,11 +40,21 @@ railway:
     dispatch-step-millis: 1000
     persistence-step-millis: 5000
     stopping-control:
+      service-brake-deceleration-meters-per-second-squared: 0.9
+      station-stop-window-meters: 10.0
+      minimum-approach-buffer-meters: 30.0
+      maximum-approach-buffer-meters: 140.0
+      approach-buffer-seconds: 6.0
+      minimum-effective-deceleration-meters-per-second-squared: 0.35
+      maximum-effective-deceleration-meters-per-second-squared: 1.25
       zero-speed-meters-per-second: 0.2
       stable-seconds: 2
       success-tolerance-meters: 1.0
       overrun-threshold-meters: 1.0
       parameter-version: STOPPING_V1
+    recovery:
+      stale-after-millis: 1000
+      maximum-tick-lag: 1
     fmu-service-enabled: false
     fmu-service-url: http://localhost:9000
     fmu-service-timeout-millis: 500

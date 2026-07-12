@@ -1,6 +1,7 @@
 package com.railwaysim.vehicleruntime.runtime;
 
 import com.railwaysim.vehicleruntime.config.VehicleRuntimeProperties;
+import com.railwaysim.vehicleruntime.config.StoppingControlProperties;
 import com.railwaysim.vehicleruntime.config.VehicleParameters;
 import com.railwaysim.vehicleruntime.model.DispatchConstraintSnapshot;
 import com.railwaysim.vehicleruntime.model.DriverControlCommandSnapshot;
@@ -17,8 +18,6 @@ final class VehicleControlQueue {
 
     private static final double DEFAULT_ADHESION = 0.9;
     private static final double GRAVITY = 9.81;
-    private static final double SERVICE_BRAKE_DECELERATION = 0.9;
-    private static final double STATION_STOP_WINDOW_METERS = 10.0;
     private static final double NO_STATION_DISTANCE_METERS = 1_000_000;
     private static final double DEPARTURE_WINDOW_METERS = 40.0;
 
@@ -27,6 +26,7 @@ final class VehicleControlQueue {
     private final VehicleLoadPolicy loadPolicy;
     private final VehicleParameters vehicleParameters;
     private final DriverCommandHolder driverCommandHolder;
+    private final StoppingControlProperties stoppingProperties;
 
     /** 离站释放时的列车位置(m) */
     private double departureOriginMeters = -1;
@@ -35,13 +35,15 @@ final class VehicleControlQueue {
         VehicleRuntimeProperties properties,
         VehicleLoadPolicy loadPolicy,
         VehicleParameters vehicleParameters,
-        DriverCommandHolder driverCommandHolder
+        DriverCommandHolder driverCommandHolder,
+        StoppingControlProperties stoppingProperties
     ) {
         this.queue = new VehicleRuntimeQueue(properties.getQueueCapacity());
         this.properties = properties;
         this.loadPolicy = loadPolicy;
         this.vehicleParameters = vehicleParameters;
         this.driverCommandHolder = driverCommandHolder;
+        this.stoppingProperties = stoppingProperties;
     }
 
     VehiclePhysicsInputDto control(
@@ -170,7 +172,8 @@ final class VehicleControlQueue {
                 stoppingDistance
             );
         }
-        if (stationDistance <= STATION_STOP_WINDOW_METERS && speed <= 0.2) {
+        if (stationDistance <= stoppingProperties.getStationStopWindowMeters()
+            && speed <= stoppingProperties.getZeroSpeedMetersPerSecond()) {
             return new DynamicsDecision(TrainDynamicsState.STATION_STOPPED, "STATION_STOP_WINDOW", 0, 0.6, false, stoppingDistance);
         }
         double stationBrakeBuffer = stationApproachBufferMeters(speed);
@@ -326,15 +329,20 @@ final class VehicleControlQueue {
     private double stoppingDistanceMeters(double speedMetersPerSecond, double gradient, double brakingFactor) {
         double planningGradient = clamp(gradient, -0.04, 0.04);
         double effectiveDeceleration = clamp(
-            SERVICE_BRAKE_DECELERATION * clamp(brakingFactor, 0.2, 1.2) + planningGradient * GRAVITY,
-            0.35,
-            1.25
+            stoppingProperties.getServiceBrakeDecelerationMetersPerSecondSquared()
+                * clamp(brakingFactor, 0.2, 1.2) + planningGradient * GRAVITY,
+            stoppingProperties.getMinimumEffectiveDecelerationMetersPerSecondSquared(),
+            stoppingProperties.getMaximumEffectiveDecelerationMetersPerSecondSquared()
         );
         return speedMetersPerSecond * speedMetersPerSecond / (2 * effectiveDeceleration);
     }
 
     private double stationApproachBufferMeters(double speedMetersPerSecond) {
-        return clamp(Math.max(30, speedMetersPerSecond * 6), 30, 140);
+        return clamp(
+            Math.max(stoppingProperties.getMinimumApproachBufferMeters(),
+                speedMetersPerSecond * stoppingProperties.getApproachBufferSeconds()),
+            stoppingProperties.getMinimumApproachBufferMeters(),
+            stoppingProperties.getMaximumApproachBufferMeters());
     }
 
     private double clamp(double value, double min, double max) {

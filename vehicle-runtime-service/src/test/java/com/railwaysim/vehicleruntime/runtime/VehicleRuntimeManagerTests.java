@@ -152,6 +152,13 @@ class VehicleRuntimeManagerTests {
             });
         assertThat(response.trainReports()).singleElement()
             .satisfies(report -> assertThat(report.dynamicsState()).isIn("ACCELERATING", "CRUISING", "COASTING"));
+        assertThat(manager.health()).satisfies(health -> {
+            assertThat(health.simulationRunId()).isEqualTo("run-test");
+            assertThat(health.lastAcceptedTick()).isEqualTo(1);
+            assertThat(health.topologyHash()).isEqualTo("NOT_APPLICABLE");
+            assertThat(health.configHash()).matches("[0-9a-f]{64}");
+            assertThat(health.stoppingParameterVersion()).isEqualTo("STOPPING_V1");
+        });
     }
 
     @Test
@@ -184,6 +191,47 @@ class VehicleRuntimeManagerTests {
                 assertThat(state.controlQueueStatus()).isEqualTo("REJECTED");
                 assertThat(state.reason()).isEqualTo("STALE_OR_DUPLICATE_TICK");
             });
+    }
+
+    @Test
+    void newRunStartingAtTickOneResetsPerTrainTickAndRuntimeState() {
+        VehicleRuntimeManager manager = manager();
+        manager.stepFleet(request(8, "run-old", train("TR-101", 100, 0), energized()));
+
+        VehicleRuntimeStepResponse response = manager.stepFleet(
+            request(1, "run-new", train("TR-101", 100, 0), energized())
+        );
+
+        assertThat(response.dataQuality()).isEqualTo("GOOD");
+        assertThat(response.trainOutputs()).singleElement();
+        assertThat(response.instanceStates()).singleElement()
+            .satisfies(state -> {
+                assertThat(state.lastTick()).isEqualTo(1);
+                assertThat(state.lifecycleState()).isEqualTo("RUNNING");
+            });
+        assertThat(manager.health()).satisfies(health -> {
+            assertThat(health.simulationRunId()).isEqualTo("run-new");
+            assertThat(health.lastAcceptedTick()).isEqualTo(1);
+        });
+        assertThat(manager.events()).anySatisfy(event ->
+            assertThat(event.eventType()).isEqualTo("RUN_ROLLOVER")
+        );
+    }
+
+    @Test
+    void newRunStartingAfterTickOneIsRejectedWithoutMutatingCurrentRun() {
+        VehicleRuntimeManager manager = manager();
+        manager.stepFleet(request(1, "run-old", train("TR-101", 100, 0), energized()));
+
+        assertThatThrownBy(() -> manager.stepFleet(
+            request(2, "run-new", train("TR-101", 100, 0), energized())
+        ))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("VEHICLE_RUN_ID_MISMATCH");
+        assertThat(manager.health()).satisfies(health -> {
+            assertThat(health.simulationRunId()).isEqualTo("run-old");
+            assertThat(health.lastAcceptedTick()).isEqualTo(1);
+        });
     }
 
     @Test
@@ -336,6 +384,15 @@ class VehicleRuntimeManagerTests {
     }
 
     private VehicleRuntimeStepRequest request(long tick, TrainStateSnapshot train, PowerConstraintSnapshot power) {
+        return request(tick, "run-test", train, power);
+    }
+
+    private VehicleRuntimeStepRequest request(
+        long tick,
+        String runId,
+        TrainStateSnapshot train,
+        PowerConstraintSnapshot power
+    ) {
         return new VehicleRuntimeStepRequest(
             tick,
             0.1,
@@ -345,7 +402,7 @@ class VehicleRuntimeManagerTests {
             List.of(new TrackConstraintSnapshot(train.id(), "SEG-1", 22.2, 0, 1_000, 1_000_000)),
             List.of(),
             List.of(power),
-            "run-test",
+            runId,
             List.of()
         );
     }

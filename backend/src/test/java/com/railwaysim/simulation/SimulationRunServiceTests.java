@@ -31,6 +31,21 @@ class SimulationRunServiceTests {
               end_reason VARCHAR(255)
             )
             """);
+        jdbc.execute("DROP TABLE IF EXISTS train_stop_result");
+        jdbc.execute("""
+            CREATE TABLE train_stop_result (
+              id BIGINT AUTO_INCREMENT PRIMARY KEY,
+              simulation_run_id VARCHAR(64) NOT NULL,
+              train_id VARCHAR(64) NOT NULL,
+              station_id VARCHAR(64),
+              absolute_error_meters DOUBLE NOT NULL,
+              success BOOLEAN NOT NULL,
+              overrun BOOLEAN NOT NULL,
+              emergency_brake BOOLEAN NOT NULL,
+              reason_code VARCHAR(128) NOT NULL,
+              stable_at_tick BIGINT NOT NULL
+            )
+            """);
         service = new SimulationRunService(jdbc);
     }
 
@@ -64,5 +79,41 @@ class SimulationRunServiceTests {
             .isEqualTo(SimulationRunStatus.CREATED);
         assertThat(service.list(10)).extracting(SimulationRunRecord::runId)
             .containsExactlyInAnyOrder("run-old", "run-new");
+    }
+
+    @Test
+    void stopStatisticsUsesScenarioFiltersAndNearestRankP95() {
+        for (int index = 0; index < 10; index++) {
+            double error = (index + 1) / 10.0;
+            jdbc.update("""
+                INSERT INTO train_stop_result (
+                  simulation_run_id, train_id, station_id, absolute_error_meters,
+                  success, overrun, emergency_brake, reason_code, stable_at_tick
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, "run-stats", "TR-001", "S01", error, index < 9, index == 9,
+                false, index < 9 ? "STOP_SUCCESS" : "STOP_OVERRUN", index);
+        }
+        jdbc.update("""
+            INSERT INTO train_stop_result (
+              simulation_run_id, train_id, station_id, absolute_error_meters,
+              success, overrun, emergency_brake, reason_code, stable_at_tick
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, "run-stats", "TR-002", "S02", 9.0, false, true, true,
+            "EMERGENCY_BRAKE_USED", 20);
+
+        TrainStopStatistics statistics = service.stopStatistics(
+            "run-stats", "TR-001", "S01", 10);
+
+        assertThat(statistics.sampleCount()).isEqualTo(10);
+        assertThat(statistics.sampleRequirementMet()).isTrue();
+        assertThat(statistics.meanAbsoluteErrorMeters()).isCloseTo(
+            0.55, org.assertj.core.data.Offset.offset(1e-9));
+        assertThat(statistics.p95AbsoluteErrorMeters()).isEqualTo(1.0);
+        assertThat(statistics.varianceMetersSquared()).isCloseTo(
+            0.0825, org.assertj.core.data.Offset.offset(1e-9));
+        assertThat(statistics.successRate()).isEqualTo(0.9);
+        assertThat(statistics.reasonDistribution())
+            .containsEntry("STOP_SUCCESS", 9)
+            .containsEntry("STOP_OVERRUN", 1);
     }
 }

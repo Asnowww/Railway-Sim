@@ -16,10 +16,11 @@ public record AlarmRecord(
     Instant lastSeenAt,
     Instant acknowledgedAt,
     String acknowledgedBy,
-    Instant clearedAt
+    Instant clearedAt,
+    FaultImpact impact
 ) {
     Alarm toAlarm() {
         return new Alarm(id, sourceModule, locationRef, level, title, detail, raisedAt,
-            state == AlarmLifecycleState.ACKNOWLEDGED);
+            state == AlarmLifecycleState.ACKNOWLEDGED, impact);
     }
 }

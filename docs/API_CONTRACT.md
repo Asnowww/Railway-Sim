@@ -32,12 +32,15 @@ GET /api/simulation-runs/{runId}/train-snapshots?limit=100&offset=0
 GET /api/simulation-runs/{runId}/control-decisions?limit=100&offset=0
 GET /api/simulation-runs/{runId}/power-snapshots?limit=100&offset=0
 GET /api/simulation-runs/{runId}/stop-results?limit=100&offset=0
+GET /api/simulation-runs/{runId}/stop-statistics?trainId={trainId}&stationId={stationId}&requiredSampleCount=10
 GET /api/simulation-runs/{runId}/faults?limit=100&offset=0
 ```
 
 `SimulationSnapshot` 顶层必须携带 `simulationRunId`。车辆物理、能耗、供电分区、轨道占用、信号状态、FMU 故障、最终车辆决策和危险操作审计使用同一 `(simulationRunId,tick)`。
 
-`stop-results` 中每条 `TrainStopResult` 对应一次稳定进站，不是每 tick 快照。它包含 `targetSource`（`STATION` 或 `MOVEMENT_AUTHORITY`）、目标/实际位置、签名/绝对误差、越站、成功与原因、最大减速度、最大 jerk、制动切换次数、紧急制动、控制模式和参数版本。指标从 `STATION_BRAKE/MA_BRAKE` 停车过程开始累计，在 `STATION_STOPPED`、零速阈值和稳定时间同时满足时落库。
+`stop-results` 中每条 `TrainStopResult` 对应一次稳定进站，不是每 tick 快照。它包含显式 `StoppingTarget`、`targetValidFromTick`、MA 覆盖标志、目标/实际位置、签名/绝对误差、越站、成功与原因、最大减速度、最大 jerk、制动切换次数、紧急制动、`controlStageHistory`、控制模式和参数版本。MA 终点比站台目标更近时发布 `TARGET_OVERRIDDEN_BY_MA`事件。
+
+`stop-statistics` 按 runId 必选、trainId/stationId 可选的场景口径返回样本数、平均绝对误差、P95、总体方差、成功数/成功率、越站数、紧急制动数和原因分布。`sampleRequirementMet` 只在样本数达到 `requiredSampleCount`（默认 10）时为 true。
 
 ### 告警生命周期
 
@@ -52,7 +55,26 @@ POST /api/alarms/{alarmId}/acknowledge
 }
 ```
 
-告警状态为 `RAISED/ACKNOWLEDGED/CLEARED`。同一 run 内相同活动故障使用稳定 occurrence ID 并只更新 `lastSeenAt`；故障条件消失时自动转为 `CLEARED`，之后再次发生将生成新 occurrence。对已清除告警进行确认返回 `409`，未知 ID 返回 `404`。当前查询由运行时内存索引提供，同步写入 `alarm_record`；进程重启后从数据库回填索引属 P1-3 剩余项。
+告警状态为 `RAISED/ACKNOWLEDGED/CLEARED`。每条告警携带 `FaultImpact{severity,affectedTrainIds,affectedSectionIds,safetyAction,clearCondition,recoveryCondition}`。同一 run 内相同活动故障使用稳定 occurrence ID 并只更新 `lastSeenAt`；条件消失时自动 `CLEARED`，再次发生创建新 occurrence。告警及活动索引在 8080 重启后从 `alarm_record` 回填。
+
+### 外部服务健康与恢复门槛
+
+```http
+GET /api/service-health
+GET /api/service-health/{serviceId}
+POST /api/service-health/{serviceId}/recovery/check
+```
+
+```json
+{
+  "expectedRunId": "run-001",
+  "expectedTick": 120
+}
+```
+
+9300 和 9200 状态统一为 `UP/DEGRADED/STALE/FALLBACK/RECOVERING`。异常后首次恢复健康不直接进入 UP；必须同时通过 runId、lastAcceptedTick、topology/config hash、model/parameter version 门槛。不匹配时保持 `RECOVERING` 并返回具体 `rejectionReasons`。最后健康记录和 last-good baseline 分别写入 `service_health_record/service_health_baseline`，重启后恢复。
+
+9200 进程重启后 `bootstrapped=false`，此时 `/power-network/constraints/query` 和 `/power-network/step` 返回 HTTP 409 `POWER_BOOTSTRAP_REQUIRED`；8080 重新下发拓扑后才允许恢复权威计算。9300 保留车辆实例跨中央重启，但 runId 改变只允许发生在新 run 的 tick 0/1；接管时清空旧司机命令、供电约束和物理缓存并触发重同步，运行中途换 run 返回 `VEHICLE_RUN_ID_MISMATCH`。
 
 ### 获取列车状态
 

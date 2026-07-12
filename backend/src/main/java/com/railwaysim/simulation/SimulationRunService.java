@@ -2,9 +2,11 @@ package com.railwaysim.simulation;
 
 import java.sql.Timestamp;
 import java.time.Instant;
+import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Optional;
 import java.util.Map;
+import java.util.Optional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataAccessException;
@@ -116,6 +118,49 @@ public class SimulationRunService {
             runId, limit, offset);
     }
 
+    public TrainStopStatistics stopStatistics(
+        String runId, String trainId, String stationId, int requiredSampleCount
+    ) {
+        String normalizedTrainId = normalizeFilter(trainId);
+        String normalizedStationId = normalizeFilter(stationId);
+        int minimumSamples = Math.max(1, requiredSampleCount);
+        List<StopMetric> metrics = jdbcTemplate.query("""
+            SELECT absolute_error_meters, success, overrun, emergency_brake, reason_code
+              FROM train_stop_result
+             WHERE simulation_run_id = ?
+               AND (? IS NULL OR train_id = ?)
+               AND (? IS NULL OR station_id = ?)
+             ORDER BY stable_at_tick
+            """, (rs, row) -> new StopMetric(
+                rs.getDouble("absolute_error_meters"),
+                rs.getBoolean("success"),
+                rs.getBoolean("overrun"),
+                rs.getBoolean("emergency_brake"),
+                rs.getString("reason_code")
+            ), runId, normalizedTrainId, normalizedTrainId, normalizedStationId, normalizedStationId);
+
+        List<Double> sortedErrors = metrics.stream()
+            .map(StopMetric::absoluteErrorMeters)
+            .sorted(Comparator.naturalOrder())
+            .toList();
+        double mean = metrics.stream().mapToDouble(StopMetric::absoluteErrorMeters).average().orElse(0);
+        double variance = metrics.stream()
+            .mapToDouble(metric -> Math.pow(metric.absoluteErrorMeters() - mean, 2))
+            .average().orElse(0);
+        double p95 = sortedErrors.isEmpty() ? 0
+            : sortedErrors.get(Math.max(0, (int) Math.ceil(sortedErrors.size() * 0.95) - 1));
+        int successCount = (int) metrics.stream().filter(StopMetric::success).count();
+        Map<String, Integer> reasonDistribution = new LinkedHashMap<>();
+        metrics.forEach(metric -> reasonDistribution.merge(metric.reasonCode(), 1, Integer::sum));
+        return new TrainStopStatistics(
+            runId, normalizedTrainId, normalizedStationId, metrics.size(), minimumSamples,
+            metrics.size() >= minimumSamples, mean, p95, variance, successCount,
+            metrics.isEmpty() ? 0 : (double) successCount / metrics.size(),
+            (int) metrics.stream().filter(StopMetric::overrun).count(),
+            (int) metrics.stream().filter(StopMetric::emergencyBrake).count(),
+            Map.copyOf(reasonDistribution));
+    }
+
     public List<Map<String, Object>> faults(String runId, int limit, int offset) {
         return page("SELECT * FROM power_vehicle_fault_record WHERE simulation_run_id = ? ORDER BY tick, fault_id LIMIT ? OFFSET ?",
             runId, limit, offset);
@@ -146,6 +191,10 @@ public class SimulationRunService {
         return jdbcTemplate.queryForList(sql, runId, safeLimit, safeOffset);
     }
 
+    private String normalizeFilter(String value) {
+        return value == null || value.isBlank() ? null : value;
+    }
+
     private void end(String runId, SimulationRunStatus status, long tick, Instant now, String reason) {
         jdbcTemplate.update("""
             UPDATE simulation_run
@@ -168,5 +217,14 @@ public class SimulationRunService {
 
     private Instant instant(Timestamp timestamp) {
         return timestamp == null ? null : timestamp.toInstant();
+    }
+
+    private record StopMetric(
+        double absoluteErrorMeters,
+        boolean success,
+        boolean overrun,
+        boolean emergencyBrake,
+        String reasonCode
+    ) {
     }
 }

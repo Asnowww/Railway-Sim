@@ -32,6 +32,12 @@ class PowerCouplingTests(unittest.TestCase):
 
         constraints = response["powerConstraints"]
         self.assertEqual(1, response["tick"])
+        self.assertEqual("run-test", response["simulationRunId"])
+        self.assertEqual(1, response["lastAcceptedTick"])
+        self.assertEqual("POWER_NETWORK_V1", response["modelVersion"])
+        self.assertEqual("POWER_NETWORK_PARAMS_V1", response["parameterVersion"])
+        self.assertRegex(response["topologyHash"], r"^[0-9a-f]{64}$")
+        self.assertRegex(response["configHash"], r"^[0-9a-f]{64}$")
         self.assertTrue(all(item["railVoltage"] < unloaded_voltage for item in constraints))
         self.assertEqual(constraints[0]["railVoltage"], constraints[1]["railVoltage"])
         self.assertEqual(900_000.0, constraints[0]["regenPowerAvailableWatts"])
@@ -45,6 +51,26 @@ class PowerCouplingTests(unittest.TestCase):
         next_step_force_at_15_mps = min(curve_force_limit, next_step_mechanical_power / 15.0)
         self.assertLess(next_step_mechanical_power, baseline_mechanical_power)
         self.assertLess(next_step_force_at_15_mps, baseline_force_at_15_mps)
+
+    def test_config_hash_ignores_bootstrap_generation_time(self) -> None:
+        first = two_section_payload()
+        first["generatedAt"] = "2026-07-12T00:00:00Z"
+        second = copy.deepcopy(first)
+        second["generatedAt"] = "2026-07-12T00:00:01Z"
+        first_model = PowerNetworkModel()
+        second_model = PowerNetworkModel()
+        first_model.bootstrap(first)
+        second_model.bootstrap(second)
+        self.assertEqual(first_model.config_hash, second_model.config_hash)
+        self.assertEqual(first_model.topology_hash, second_model.topology_hash)
+
+    def test_unbootstrapped_model_rejects_authoritative_queries(self) -> None:
+        fresh = PowerNetworkModel()
+        self.assertFalse(fresh.snapshot()["bootstrapped"])
+        with self.assertRaisesRegex(ValueError, "POWER_BOOTSTRAP_REQUIRED"):
+            fresh.constraints_for_positions([])
+        with self.assertRaisesRegex(ValueError, "POWER_BOOTSTRAP_REQUIRED"):
+            fresh.step("run-test", 1, {"sectionLoads": []}, [])
 
     def test_reference_peak_traction_is_limited_by_real_section_current_capacity(self) -> None:
         positions = [{"trainId": "TR-PEAK", "positionMeters": 200.0}]

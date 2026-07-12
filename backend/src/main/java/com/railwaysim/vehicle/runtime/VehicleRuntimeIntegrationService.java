@@ -118,7 +118,7 @@ public class VehicleRuntimeIntegrationService implements VehiclePowerLoadForward
             latestHealth = client.health();
         } catch (RuntimeException exception) {
             // 保留注册失败状态，后续外部 tick 会明确失败；中央不得创建替代车辆物理状态。
-            latestHealth = VehicleRuntimeHealth.fallback(properties.getMode(), summarize(exception));
+            latestHealth = fallbackHealth(summarize(exception));
         }
     }
 
@@ -130,7 +130,7 @@ public class VehicleRuntimeIntegrationService implements VehiclePowerLoadForward
             client.removeTrain(trainId);
             latestInstances = client.instances();
         } catch (RuntimeException exception) {
-            latestHealth = VehicleRuntimeHealth.fallback(properties.getMode(), summarize(exception));
+            latestHealth = fallbackHealth(summarize(exception));
         }
     }
 
@@ -147,7 +147,7 @@ public class VehicleRuntimeIntegrationService implements VehiclePowerLoadForward
             client.clear();
             latestHealth = client.health();
         } catch (RuntimeException exception) {
-            latestHealth = VehicleRuntimeHealth.fallback(properties.getMode(), summarize(exception));
+            latestHealth = fallbackHealth(summarize(exception));
         }
     }
 
@@ -196,7 +196,7 @@ public class VehicleRuntimeIntegrationService implements VehiclePowerLoadForward
             latestInstances = result.instanceStates();
             return result;
         } catch (RuntimeException exception) {
-            latestHealth = VehicleRuntimeHealth.fallback(properties.getMode(), summarize(exception));
+            latestHealth = fallbackHealth(summarize(exception));
             throw new IllegalStateException(
                 "vehicle runtime 9300 unavailable; central physics fallback is disabled: " + summarize(exception),
                 exception
@@ -219,7 +219,7 @@ public class VehicleRuntimeIntegrationService implements VehiclePowerLoadForward
             latestInstances = shadow.instanceStates();
         } catch (RuntimeException exception) {
             // 影子模式外部失败只影响监控，不改变中央权威车辆状态。
-            latestHealth = VehicleRuntimeHealth.fallback(properties.getMode(), summarize(exception));
+            latestHealth = fallbackHealth(summarize(exception));
         }
         return local;
     }
@@ -291,7 +291,15 @@ public class VehicleRuntimeIntegrationService implements VehiclePowerLoadForward
             0,
             response.dataQuality(),
             response.instanceStates() == null ? 0 : response.instanceStates().size(),
-            "OK"
+            "OK",
+            latestHealth.physicsMode(),
+            latestHealth.fmuModelVersion(),
+            latestHealth.parameterSetId(),
+            context.simulationRunId(),
+            context.tick(),
+            latestHealth.topologyHash(),
+            latestHealth.configHash(),
+            latestHealth.stoppingParameterVersion()
         );
         return new VehicleRuntimeStepResult(steps, health, response.instanceStates() == null ? List.of() : response.instanceStates());
     }
@@ -305,6 +313,16 @@ public class VehicleRuntimeIntegrationService implements VehiclePowerLoadForward
             return "SAFETY_LAYER";
         }
         return "RULE_ENGINE";
+    }
+
+    private VehicleRuntimeHealth fallbackHealth(String reason) {
+        return new VehicleRuntimeHealth(
+            properties.getMode(), "FALLBACK", Instant.now(), latestHealth.latencyMillis(),
+            "FALLBACK", latestHealth.instanceCount(), reason, latestHealth.physicsMode(),
+            latestHealth.fmuModelVersion(), latestHealth.parameterSetId(),
+            latestHealth.simulationRunId(), latestHealth.lastAcceptedTick(),
+            latestHealth.topologyHash(), latestHealth.configHash(),
+            latestHealth.stoppingParameterVersion());
     }
 
     private VehicleRuntimeStepResult localStep(
@@ -363,7 +381,7 @@ public class VehicleRuntimeIntegrationService implements VehiclePowerLoadForward
             ? infrastructureCatalog.lineData().lineLengthMeters()
             : simulationProperties.getDefaultLineLengthMeters();
         // 中央把供电仿真地址同步给车辆运行时，由车辆侧在外部模式下推送牵引负荷。
-        client.bootstrap(new VehicleRuntimeBootstrapRequest(
+        latestHealth = client.bootstrap(new VehicleRuntimeBootstrapRequest(
             lineLength,
             simulationProperties.getDefaultSpeedLimitMetersPerSecond(),
             simulationProperties.getSafetyGapMeters(),

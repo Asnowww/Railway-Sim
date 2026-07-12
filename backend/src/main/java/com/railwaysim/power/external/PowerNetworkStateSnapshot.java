@@ -10,16 +10,38 @@ public record PowerNetworkStateSnapshot(
     Instant sourceTimestamp,
     String heartbeatStatus,
     String dataQuality,
+    String simulationRunId,
+    long lastAcceptedTick,
+    String topologyHash,
+    String configHash,
+    String modelVersion,
+    String parameterVersion,
+    boolean bootstrapped,
     List<SubstationSnapshot> substations,
     List<ThirdRailSectionSnapshot> thirdRailSections,
     List<IsolatorSnapshot> isolators,
     List<StrayCurrentSnapshot> strayCurrentMonitors,
     List<PowerNetworkEventPayload> events
 ) {
+    public PowerNetworkStateSnapshot(
+        Instant sourceTimestamp, String heartbeatStatus, String dataQuality,
+        List<SubstationSnapshot> substations, List<ThirdRailSectionSnapshot> thirdRailSections,
+        List<IsolatorSnapshot> isolators, List<StrayCurrentSnapshot> strayCurrentMonitors,
+        List<PowerNetworkEventPayload> events
+    ) {
+        this(sourceTimestamp, heartbeatStatus, dataQuality, "", -1, "", "", "", "", false,
+            substations, thirdRailSections, isolators, strayCurrentMonitors, events);
+    }
+
     public PowerNetworkStateSnapshot {
         sourceTimestamp = sourceTimestamp == null ? Instant.now() : sourceTimestamp;
         heartbeatStatus = heartbeatStatus == null || heartbeatStatus.isBlank() ? "UNKNOWN" : heartbeatStatus;
         dataQuality = dataQuality == null || dataQuality.isBlank() ? "UNKNOWN" : dataQuality;
+        simulationRunId = simulationRunId == null ? "" : simulationRunId;
+        topologyHash = topologyHash == null ? "" : topologyHash;
+        configHash = configHash == null ? "" : configHash;
+        modelVersion = modelVersion == null ? "" : modelVersion;
+        parameterVersion = parameterVersion == null ? "" : parameterVersion;
         substations = safeCopy(substations);
         thirdRailSections = safeCopy(thirdRailSections);
         isolators = safeCopy(isolators);

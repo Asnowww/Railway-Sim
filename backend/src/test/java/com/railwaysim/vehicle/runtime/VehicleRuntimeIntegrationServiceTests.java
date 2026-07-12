@@ -59,6 +59,9 @@ class VehicleRuntimeIntegrationServiceTests {
             assertThat(result.outputs()).singleElement()
                 .satisfies(output -> assertThat(output.newPositionMeters()).isEqualTo(321.0));
             assertThat(result.health().dataQuality()).isEqualTo("GOOD");
+            assertThat(result.health().configHash()).isEqualTo("config-hash");
+            assertThat(result.health().parameterSetId()).isEqualTo("parameter-set-v2");
+            assertThat(result.health().stoppingParameterVersion()).isEqualTo("STOPPING_V1");
             assertThat(service.ownsPowerLoadForwarding()).isTrue();
         } finally {
             server.stop(0);
@@ -234,7 +237,13 @@ class VehicleRuntimeIntegrationServiceTests {
               "latencyMillis": 1,
               "dataQuality": "%s",
               "instanceCount": 1,
-              "reason": "OK"
+              "reason": "OK",
+              "physicsMode": "JAVA_FALLBACK",
+              "fmuModelVersion": "TrainTractionBrake/2.0.0",
+              "parameterSetId": "parameter-set-v2",
+              "topologyHash": "NOT_APPLICABLE",
+              "configHash": "config-hash",
+              "stoppingParameterVersion": "STOPPING_V1"
             }
             """.formatted(dataQuality);
     }

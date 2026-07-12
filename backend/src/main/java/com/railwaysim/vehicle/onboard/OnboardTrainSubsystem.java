@@ -1,6 +1,7 @@
 package com.railwaysim.vehicle.onboard;
 
 import com.railwaysim.config.SimulationProperties;
+import com.railwaysim.config.StoppingControlProperties;
 import com.railwaysim.dispatch.DispatchConstraint;
 import com.railwaysim.infrastructure.StaticInfrastructureCatalog;
 import com.railwaysim.power.PowerConstraint;
@@ -21,9 +22,7 @@ class OnboardTrainSubsystem {
 
     private static final double DEFAULT_ADHESION = 0.9;
     private static final double GRAVITY = 9.81;
-    private static final double SERVICE_BRAKE_DECELERATION = 1.0;
     private static final double REFERENCE_PEAK_TRACTION_GRID_POWER_WATTS = 4_916_250;
-    private static final double STATION_STOP_WINDOW_METERS = 8.0;
     private static final double STATION_EXIT_WINDOW_METERS = 30.0;
     private static final double STATION_RELEASE_DISTANCE_METERS = 40.0;
     private static final double NO_STATION_DISTANCE_METERS = 1_000_000;
@@ -32,18 +31,21 @@ class OnboardTrainSubsystem {
     private final String subsystemId;
     private final SimulationProperties simulationProperties;
     private final StaticInfrastructureCatalog infrastructureCatalog;
+    private final StoppingControlProperties stoppingProperties;
     private String releasedStationId;
     private double releasedStationPositionMeters = Double.NaN;
 
     OnboardTrainSubsystem(
         String trainId,
         SimulationProperties simulationProperties,
-        StaticInfrastructureCatalog infrastructureCatalog
+        StaticInfrastructureCatalog infrastructureCatalog,
+        StoppingControlProperties stoppingProperties
     ) {
         this.trainId = trainId;
         this.subsystemId = "ONBOARD-" + trainId;
         this.simulationProperties = simulationProperties;
         this.infrastructureCatalog = infrastructureCatalog;
+        this.stoppingProperties = stoppingProperties;
     }
 
     OnboardTrainRegistration registration() {
@@ -269,7 +271,8 @@ class OnboardTrainSubsystem {
             );
         }
 
-        if (stationDistance <= STATION_STOP_WINDOW_METERS && speed <= 0.2) {
+        if (stationDistance <= stoppingProperties.getStationStopWindowMeters()
+            && speed <= stoppingProperties.getZeroSpeedMetersPerSecond()) {
             return new DynamicsDecision(
                 TrainDynamicsState.STATION_STOPPED,
                 "STATION_STOP_WINDOW",
@@ -591,15 +594,20 @@ class OnboardTrainSubsystem {
     private double stoppingDistanceMeters(double speedMetersPerSecond, double gradient, double brakingFactor) {
         double planningGradient = clamp(gradient, -0.04, 0.04);
         double effectiveDeceleration = clamp(
-            SERVICE_BRAKE_DECELERATION * clamp(brakingFactor, 0.2, 1.2) + planningGradient * GRAVITY,
-            0.35,
-            1.25
+            stoppingProperties.getServiceBrakeDecelerationMetersPerSecondSquared()
+                * clamp(brakingFactor, 0.2, 1.2) + planningGradient * GRAVITY,
+            stoppingProperties.getMinimumEffectiveDecelerationMetersPerSecondSquared(),
+            stoppingProperties.getMaximumEffectiveDecelerationMetersPerSecondSquared()
         );
         return speedMetersPerSecond * speedMetersPerSecond / (2 * effectiveDeceleration);
     }
 
     private double stationApproachBufferMeters(double speedMetersPerSecond) {
-        return clamp(Math.max(30, speedMetersPerSecond * 6), 30, 140);
+        return clamp(
+            Math.max(stoppingProperties.getMinimumApproachBufferMeters(),
+                speedMetersPerSecond * stoppingProperties.getApproachBufferSeconds()),
+            stoppingProperties.getMinimumApproachBufferMeters(),
+            stoppingProperties.getMaximumApproachBufferMeters());
     }
 
     private record DynamicsDecision(

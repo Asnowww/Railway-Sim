@@ -61,6 +61,38 @@ class Phase2ApiControllerTests {
               end_reason VARCHAR(255)
             )
             """);
+        jdbcTemplate.execute("""
+            CREATE TABLE IF NOT EXISTS alarm_record (
+              id BIGINT AUTO_INCREMENT PRIMARY KEY, alarm_id VARCHAR(255) NOT NULL UNIQUE,
+              simulation_run_id VARCHAR(64) NOT NULL, alarm_code VARCHAR(192) NOT NULL,
+              source_module VARCHAR(64) NOT NULL, location_ref VARCHAR(128) NOT NULL,
+              level TINYINT NOT NULL, title VARCHAR(128) NOT NULL, detail_text VARCHAR(512) NOT NULL,
+              state VARCHAR(32) NOT NULL, confirmed BOOLEAN NOT NULL,
+              raised_at TIMESTAMP NOT NULL, last_seen_at TIMESTAMP NOT NULL,
+              acknowledged_at TIMESTAMP NULL, acknowledged_by VARCHAR(64), cleared_at TIMESTAMP NULL,
+              affected_train_ids_json JSON, affected_section_ids_json JSON,
+              safety_action VARCHAR(128), clear_condition VARCHAR(255), recovery_condition VARCHAR(255)
+            )
+            """);
+        jdbcTemplate.execute("""
+            CREATE TABLE IF NOT EXISTS service_health_record (
+              id BIGINT AUTO_INCREMENT PRIMARY KEY, service_id VARCHAR(64) NOT NULL UNIQUE,
+              state VARCHAR(32) NOT NULL, data_quality VARCHAR(32) NOT NULL,
+              source_timestamp TIMESTAMP NULL, observed_at TIMESTAMP NOT NULL,
+              simulation_run_id VARCHAR(64), last_accepted_tick BIGINT NOT NULL,
+              topology_hash VARCHAR(128), config_hash VARCHAR(128), model_version VARCHAR(128),
+              parameter_version VARCHAR(128), reason_text VARCHAR(512), recovery_gate_json JSON
+            )
+            """);
+        jdbcTemplate.execute("""
+            CREATE TABLE IF NOT EXISTS service_health_baseline (
+              id BIGINT AUTO_INCREMENT PRIMARY KEY, service_id VARCHAR(64) NOT NULL UNIQUE,
+              simulation_run_id VARCHAR(64), last_accepted_tick BIGINT NOT NULL,
+              topology_hash VARCHAR(128) NOT NULL, config_hash VARCHAR(128) NOT NULL,
+              model_version VARCHAR(128) NOT NULL, parameter_version VARCHAR(128) NOT NULL,
+              source_timestamp TIMESTAMP NULL
+            )
+            """);
     }
 
     @Test
@@ -95,6 +127,25 @@ class Phase2ApiControllerTests {
         mockMvc.perform(get("/api/operation-logs/health"))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.status").exists());
+    }
+
+    @Test
+    void exposesUnifiedServiceHealthWithoutAllowingRecoveryCheckWhileUp() throws Exception {
+        mockMvc.perform(get("/api/simulation/snapshot"))
+            .andExpect(status().isOk());
+
+        mockMvc.perform(get("/api/service-health"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$", hasSize(2)))
+            .andExpect(jsonPath("$[0].state").value("UP"))
+            .andExpect(jsonPath("$[1].state").value("UP"));
+
+        mockMvc.perform(post("/api/service-health/vehicle-runtime-9300/recovery/check")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {"expectedRunId":"local-run","expectedTick":0}
+                    """))
+            .andExpect(status().isConflict());
     }
 
     @Test

@@ -130,8 +130,11 @@ def query_state(payload: PowerStepPayload) -> dict[str, Any]:
 @app.post("/power-network/constraints/query")
 def query_constraints(payload: PowerConstraintQueryPayload) -> dict[str, Any]:
     with model_lock:
-        snapshot = model.snapshot()
-        return {**snapshot, "powerConstraints": model.constraints_for_positions(as_positions(payload))}
+        try:
+            snapshot = model.snapshot()
+            return {**snapshot, "powerConstraints": model.constraints_for_positions(as_positions(payload))}
+        except ValueError as exception:
+            raise HTTPException(status_code=409, detail=str(exception)) from exception
 
 
 @app.post("/power-network/step")

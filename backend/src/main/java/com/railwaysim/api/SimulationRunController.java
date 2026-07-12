@@ -2,6 +2,7 @@ package com.railwaysim.api;
 
 import com.railwaysim.simulation.SimulationRunRecord;
 import com.railwaysim.simulation.SimulationRunService;
+import com.railwaysim.simulation.TrainStopStatistics;
 import java.util.List;
 import java.util.Map;
 import org.springframework.http.HttpStatus;
@@ -60,6 +61,16 @@ public class SimulationRunController {
     public List<Map<String, Object>> stopResults(@PathVariable String runId,
         @RequestParam(defaultValue = "100") int limit, @RequestParam(defaultValue = "0") int offset) {
         return runService.stopResults(runId, limit, offset);
+    }
+
+    @GetMapping("/{runId}/stop-statistics")
+    public TrainStopStatistics stopStatistics(
+        @PathVariable String runId,
+        @RequestParam(required = false) String trainId,
+        @RequestParam(required = false) String stationId,
+        @RequestParam(defaultValue = "10") int requiredSampleCount
+    ) {
+        return runService.stopStatistics(runId, trainId, stationId, requiredSampleCount);
     }
 
     @GetMapping("/{runId}/faults")

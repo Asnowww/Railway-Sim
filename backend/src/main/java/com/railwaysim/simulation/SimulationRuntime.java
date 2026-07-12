@@ -268,6 +268,12 @@ public class SimulationRuntime {
             simulationRunService.fail(
                 dispatchService.simulationRunId(), tick, simulatedTime,
                 ex.getClass().getSimpleName() + ":" + (ex.getMessage() == null ? "" : ex.getMessage()));
+            try {
+                // 即使本 tick 中止，也要把外部服务的 FALLBACK/STALE 状态写入恢复门禁与持久化记录。
+                buildSnapshot();
+            } catch (RuntimeException monitorException) {
+                log.warn("[Runtime] failed to record service health after tick failure", monitorException);
+            }
             throw ex;
         }
     }
@@ -515,6 +521,8 @@ public class SimulationRuntime {
             interlockingService.states(),
             powerService.states(),
             trainManager.vehicleRuntimeHealth(),
+            powerService.externalSnapshot(),
+            powerService.externalHealth(),
             lastEvents,
             dispatchService.snapshot()
         );
