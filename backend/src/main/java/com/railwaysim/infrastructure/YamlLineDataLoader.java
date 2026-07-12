@@ -163,6 +163,8 @@ public class YamlLineDataLoader {
             }
         }
 
+        validateRoutes(routes, segments, switches, signals);
+
         // ---- 9. 组装 ----
         String lineId = lineFile.line == null || lineFile.line.id == null ? "demo-line" : lineFile.line.id;
         String lineName = lineFile.line == null || lineFile.line.name == null ? lineId : lineFile.line.name;
@@ -179,6 +181,54 @@ public class YamlLineDataLoader {
         if (value == null) return 0;
         String digits = value.replaceAll("\\D+", "");
         return digits.isBlank() ? 0 : Integer.parseInt(digits);
+    }
+
+    private void validateRoutes(
+        List<OperationalLineData.RouteDefinition> routes,
+        List<OperationalLineData.TrackSegmentDefinition> segments,
+        List<OperationalLineData.SwitchDefinition> switches,
+        List<OperationalLineData.SignalDefinition> signals
+    ) throws IOException {
+        Map<String, OperationalLineData.TrackSegmentDefinition> segmentById = segments.stream()
+            .collect(java.util.stream.Collectors.toMap(OperationalLineData.TrackSegmentDefinition::id, segment -> segment));
+        Map<String, OperationalLineData.SignalDefinition> signalById = signals.stream()
+            .collect(java.util.stream.Collectors.toMap(OperationalLineData.SignalDefinition::id, signal -> signal));
+        for (OperationalLineData.RouteDefinition route : routes) {
+            List<String> path = route.axleSectionIds();
+            if (path.isEmpty()) {
+                throw new IOException("Route " + route.id() + " has no axle sections");
+            }
+            for (String segmentId : path) {
+                if (!segmentById.containsKey(segmentId)) {
+                    throw new IOException("Route " + route.id() + " references unknown segment " + segmentId);
+                }
+            }
+            for (int i = 1; i < path.size(); i++) {
+                OperationalLineData.TrackSegmentDefinition previous = segmentById.get(path.get(i - 1));
+                OperationalLineData.TrackSegmentDefinition current = segmentById.get(path.get(i));
+                if (!previous.toNodeId().equals(current.fromNodeId())) {
+                    throw new IOException("Route " + route.id() + " is disconnected between "
+                        + previous.id() + " and " + current.id());
+                }
+            }
+            for (OperationalLineData.SwitchDefinition trackSwitch : switches) {
+                if (path.contains(trackSwitch.normalSegmentId()) && path.contains(trackSwitch.reverseSegmentId())) {
+                    throw new IOException("Route " + route.id() + " requires switch " + trackSwitch.id()
+                        + " in both NORMAL and REVERSE");
+                }
+            }
+            validateRouteSignal(route.id(), "start", route.startSignalId(), path.get(0), signalById);
+            validateRouteSignal(route.id(), "end", route.endSignalId(), path.get(path.size() - 1), signalById);
+        }
+    }
+
+    private void validateRouteSignal(String routeId, String role, String signalId, String expectedSegmentId,
+        Map<String, OperationalLineData.SignalDefinition> signalById) throws IOException {
+        OperationalLineData.SignalDefinition signal = signalById.get(signalId);
+        if (signal == null || !expectedSegmentId.equals(signal.segmentId())) {
+            throw new IOException("Route " + routeId + " " + role + " signal " + signalId
+                + " must belong to segment " + expectedSegmentId);
+        }
     }
 
     // ---- YAML 映射类 ----
