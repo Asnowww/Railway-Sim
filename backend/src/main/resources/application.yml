@@ -58,6 +58,7 @@ railway:
     fmu-service-enabled: false
     fmu-service-url: http://localhost:9000
     fmu-service-timeout-millis: 500
+    block-mode: MOVING
     onboard-subsystem-mode: IN_PROCESS
     onboard-subsystem-url: http://localhost:9100
     onboard-subsystem-timeout-millis: 300

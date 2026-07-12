@@ -39,7 +39,7 @@ class OnboardTrainSubsystemControlTests {
         OnboardTrainControlOutput output = manager.control(new OnboardTrainControlInput(
             train,
             new TickContext(10, 200, 0.2, Instant.now(), "run-driver"),
-            new com.railwaysim.signal.MovementAuthority(train.id(), 10_000, 20, "NORMAL", "SEG"),
+            new com.railwaysim.signal.MovementAuthority(train.id(), 10_000.0, 20.0, "NORMAL", "SEG", "SEG", "NORMAL"),
             new TrackConstraint(train.id(), "SEG", 20, 0, 1_000, 1_000_000),
             null,
             new PowerConstraint(train.id(), "P01", 1_500, 3_200_000, true),
@@ -64,7 +64,7 @@ class OnboardTrainSubsystemControlTests {
         OnboardTrainControlOutput output = manager.control(new OnboardTrainControlInput(
             train,
             new TickContext(11, 200, 0.2, Instant.now(), "run-driver"),
-            new com.railwaysim.signal.MovementAuthority(train.id(), 10_000, 20, "NORMAL", "SEG"),
+            new com.railwaysim.signal.MovementAuthority(train.id(), 10_000.0, 20.0, "NORMAL", "SEG", "SEG", "NORMAL"),
             new TrackConstraint(train.id(), "SEG", 20, 0, 1_000, 1_000_000),
             null,
             new PowerConstraint(train.id(), "P01", 1_500, 3_200_000, true),

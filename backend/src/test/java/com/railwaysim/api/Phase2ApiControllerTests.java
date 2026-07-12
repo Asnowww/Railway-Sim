@@ -6,6 +6,9 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.railwaysim.train.VehicleSpecificationCatalog;
 import com.railwaysim.vehicle.external.ExternalTrainDirection;
 import com.railwaysim.vehicle.protocol.SignalTrainContentCodec;
 import com.railwaysim.vehicle.protocol.TrainOperationalTelemetry;
@@ -18,6 +21,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.test.web.servlet.MvcResult;
 
 @SpringBootTest(properties = {
     "spring.datasource.url=jdbc:h2:mem:phase2-api;MODE=MySQL;DB_CLOSE_DELAY=-1;DATABASE_TO_LOWER=TRUE",
@@ -33,6 +37,12 @@ class Phase2ApiControllerTests {
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
+
+    @Autowired
+    private VehicleSpecificationCatalog vehicleSpecificationCatalog;
+
+    @Autowired
+    private ObjectMapper objectMapper;
 
     @BeforeEach
     void createAuditAndRunTables() {
@@ -153,7 +163,48 @@ class Phase2ApiControllerTests {
         mockMvc.perform(post("/api/simulation/reset"))
             .andExpect(status().isOk());
 
-        mockMvc.perform(post("/api/dispatch/commands")
+        mockMvc.perform(post("/api/trains/lifecycle")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "action": "CLEAR",
+                      "trains": [],
+                      "reason": "isolate route command test",
+                      "operator": "api-test",
+                      "confirmToken": "SIMULATION_CONFIRM",
+                      "traceId": "trace-route-command"
+                    }
+                    """))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$", hasSize(2)));
+
+        mockMvc.perform(post("/api/simulation/tick"))
+            .andExpect(status().isOk());
+        mockMvc.perform(post("/api/simulation/tick"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.trains", hasSize(0)));
+
+        mockMvc.perform(post("/api/trains/lifecycle")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "action": "ADD",
+                      "trains": [{
+                        "trainNo": 1,
+                        "linkId": 1,
+                        "offsetMeters": 100,
+                        "direction": "DOWN"
+                      }],
+                      "reason": "isolate route command test",
+                      "operator": "api-test",
+                      "confirmToken": "SIMULATION_CONFIRM",
+                      "traceId": "trace-route-command"
+                    }
+                    """))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$", hasSize(1)));
+
+        MvcResult submittedResult = mockMvc.perform(post("/api/dispatch/commands")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                     {
@@ -163,16 +214,32 @@ class Phase2ApiControllerTests {
                     }
                     """))
             .andExpect(status().isOk())
-            .andExpect(jsonPath("$.status").value("PENDING"));
+            .andExpect(jsonPath("$.status").value("PENDING"))
+            .andExpect(jsonPath("$.payload.decisionId").isNotEmpty())
+            .andExpect(jsonPath("$.payload.reservationId").isNotEmpty())
+            .andReturn();
+
+        JsonNode submitted = objectMapper.readTree(submittedResult.getResponse().getContentAsString());
+        String commandId = submitted.path("id").asText();
+        String decisionId = submitted.path("payload").path("decisionId").asText();
+        String reservationId = submitted.path("payload").path("reservationId").asText();
 
         mockMvc.perform(post("/api/simulation/tick"))
-            .andExpect(status().isOk());
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.routeStates[0].status").value("OCCUPIED"))
+            .andExpect(jsonPath("$.dispatch.routeDecisions[0].decisionId").value(decisionId))
+            .andExpect(jsonPath("$.dispatch.routeDecisions[0].routeCommandId").value(commandId))
+            .andExpect(jsonPath("$.dispatch.routeReservations[0].reservationId").value(reservationId))
+            .andExpect(jsonPath("$.dispatch.routeReservations[0].decisionId").value(decisionId))
+            .andExpect(jsonPath("$.dispatch.routeReservations[0].commandId").value(commandId));
 
         mockMvc.perform(get("/api/dispatch/commands"))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$", hasSize(1)))
             .andExpect(jsonPath("$[0].commandType").value("REQUEST_ROUTE"))
             .andExpect(jsonPath("$[0].status").value("EFFECT_CONFIRMED"))
+            .andExpect(jsonPath("$[0].payload.decisionId").value(decisionId))
+            .andExpect(jsonPath("$[0].payload.reservationId").value(reservationId))
             .andExpect(jsonPath("$[0].payload.lastFeedbackSource").value("SIGNAL_INTERLOCKING"))
             .andExpect(jsonPath("$[0].payload.lastFeedbackDetails.accepted").value(true));
     }
@@ -265,21 +332,10 @@ class Phase2ApiControllerTests {
 
         mockMvc.perform(post("/api/trains/runtime-registrations")
                 .contentType(MediaType.APPLICATION_JSON)
-                .content("""
-                    {
-                      "trainId": "TR-901",
-                      "linkId": 9,
-                      "offsetMeters": 450.0,
-                      "direction": "DOWN",
-                      "reason": "runtime-test",
-                      "traceId": "trace-runtime",
-                      "trainType": "B_TYPE_6_CAR",
-                      "parameterSetId": "sha256:a43ce442759c13c8106d921862cd29e80db7ee44379d5b0702da42733612e87c",
-                      "lengthMeters": 118.0,
-                      "emptyMassKg": 225000,
-                      "maxLoadMassKg": 76000
-                    }
-                    """))
+                .content(runtimeRegistrationRequest(
+                    "TR-901",
+                    vehicleSpecificationCatalog.specification().parameterSetId()
+                )))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.id").value("TR-901"))
             .andExpect(jsonPath("$.positionMeters").value(450.0))
@@ -291,6 +347,20 @@ class Phase2ApiControllerTests {
         // 服务间注册接口只建立中央镜像；清理后避免影响同一 Spring 上下文内的其它接口测试。
         mockMvc.perform(post("/api/simulation/reset"))
             .andExpect(status().isOk());
+    }
+
+    @Test
+    void vehicleRuntimeRegistrationRejectsMismatchedParameterSet() throws Exception {
+        mockMvc.perform(post("/api/simulation/reset"))
+            .andExpect(status().isOk());
+
+        mockMvc.perform(post("/api/trains/runtime-registrations")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(runtimeRegistrationRequest(
+                    "TR-902",
+                    "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+                )))
+            .andExpect(status().isConflict());
     }
 
     @Test
@@ -368,5 +438,23 @@ class Phase2ApiControllerTests {
 
         mockMvc.perform(get("/api/vehicle/driver-cabs/TR-001/plc-output"))
             .andExpect(status().isOk());
+    }
+
+    private static String runtimeRegistrationRequest(String trainId, String parameterSetId) {
+        return """
+            {
+              "trainId": "%s",
+              "linkId": 9,
+              "offsetMeters": 450.0,
+              "direction": "DOWN",
+              "reason": "runtime-test",
+              "traceId": "trace-runtime",
+              "trainType": "B_TYPE_6_CAR",
+              "parameterSetId": "%s",
+              "lengthMeters": 118.0,
+              "emptyMassKg": 225000,
+              "maxLoadMassKg": 76000
+            }
+            """.formatted(trainId, parameterSetId);
     }
 }

@@ -181,7 +181,7 @@ class VehicleRuntimeIntegrationServiceTests {
     }
 
     private List<MovementAuthority> authority() {
-        return List.of(new MovementAuthority("TR-201", 2_000, 22.2, "NORMAL", "SEG-1"));
+        return List.of(new MovementAuthority("TR-201", 2_000, 22.2, "NORMAL", "SEG-1", "SEG-2", "NORMAL"));
     }
 
     private List<TrackConstraint> track() {

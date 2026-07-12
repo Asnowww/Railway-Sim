@@ -521,6 +521,12 @@ function updateThresholds(): void {
   if (predictionWindowMinutes.value !== normalizedPredictionWindow) predictionWindowMinutes.value = normalizedPredictionWindow
 }
 
+function mapTrackOccupancy(occupancy: string): TrackSegmentState['occupancy'] {
+  if (occupancy === 'OCCUPIED' || occupancy === 'RESERVED') return 'OCCUPIED'
+  if (occupancy === 'FAULT' || occupancy === 'BLOCKED') return 'FAULT'
+  return 'FREE'
+}
+
 function applyBackendSnapshot(snapshot: SimulationSnapshot): void {
   backendConnected.value = true
   backendErrorMessage.value = ''
@@ -546,7 +552,7 @@ function applyBackendSnapshot(snapshot: SimulationSnapshot): void {
     name: `${segment.fromNode}-${segment.toNode}`,
     startPercent: Math.min(95, Math.max(4, (segment.startMeters / maxPositionMeters) * 100)),
     widthPercent: Math.max(3, ((segment.endMeters - segment.startMeters) / maxPositionMeters) * 100),
-    occupancy: segment.occupancy === 'RESERVED' ? 'OCCUPIED' : segment.occupancy,
+    occupancy: mapTrackOccupancy(segment.occupancy),
     speedLimitKph: Math.round(segment.speedLimitMetersPerSecond * 3.6)
   }))
 

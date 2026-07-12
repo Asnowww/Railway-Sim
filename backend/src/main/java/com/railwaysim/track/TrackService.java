@@ -50,6 +50,7 @@ public class TrackService {
     private final Map<String, SwitchState> switches = new HashMap<>();
     private final Set<String> reservedSegmentIds = new HashSet<>();
     private final Set<String> faultSegmentIds = new HashSet<>();
+    private final Map<String, Set<String>> occupyingTrainIdsBySegment = new HashMap<>();
     private final StaticInfrastructureCatalog infrastructureCatalog;
     private final SimulationProperties simulationProperties;
 
@@ -105,6 +106,7 @@ public class TrackService {
         }
         reservedSegmentIds.clear();
         faultSegmentIds.clear();
+        occupyingTrainIdsBySegment.clear();
     }
 
     // ==================== 区段占用计算 ====================
@@ -122,6 +124,8 @@ public class TrackService {
      * @param trains 当前所有列车状态列表
      */
     public synchronized void updateOccupancy(List<TrainState> trains) {
+        occupyingTrainIdsBySegment.clear();
+
         // ① 清除 OCCUPIED → FREE（保留 RESERVED 和 FAULT）
         for (int i = 0; i < segments.size(); i++) {
             TrackSegmentState seg = segments.get(i);
@@ -141,14 +145,22 @@ public class TrackService {
             double head = train.positionMeters();
             for (int i = 0; i < segments.size(); i++) {
                 TrackSegmentState seg = segments.get(i);
-                if (seg.occupancy() == TrackOccupancy.FAULT) {
-                    continue; // 故障区段不受占用影响
-                }
                 if (overlaps(head, tail, seg.startMeters(), seg.endMeters())) {
-                    segments.set(i, seg.withOccupancy(TrackOccupancy.OCCUPIED));
+                    occupyingTrainIdsBySegment
+                        .computeIfAbsent(seg.id(), ignored -> new HashSet<>())
+                        .add(train.id());
+                    if (seg.occupancy() != TrackOccupancy.FAULT) {
+                        segments.set(i, seg.withOccupancy(TrackOccupancy.OCCUPIED));
+                    }
                 }
             }
         }
+    }
+
+    /** 返回当前实际覆盖指定区段的列车 ID 快照。 */
+    public synchronized Set<String> occupyingTrainIds(String segmentId) {
+        Set<String> trainIds = occupyingTrainIdsBySegment.get(segmentId);
+        return trainIds == null ? Set.of() : Set.copyOf(trainIds);
     }
 
     /**
@@ -191,34 +203,54 @@ public class TrackService {
      * SignalService 检测后将前方信号降为 RED，MA 缩短至故障点前。
      *
      * @param segmentId 区段 ID
+     * @return 本次调用是否改变了故障状态；区段不存在或重复注入时返回 false
      */
-    public synchronized void injectFault(String segmentId) {
-        faultSegmentIds.add(segmentId);
+    public synchronized boolean injectFault(String segmentId) {
         for (int i = 0; i < segments.size(); i++) {
             TrackSegmentState seg = segments.get(i);
             if (seg.id().equals(segmentId)) {
+                boolean changed = faultSegmentIds.add(segmentId)
+                    || seg.occupancy() != TrackOccupancy.FAULT;
                 segments.set(i, seg.withOccupancy(TrackOccupancy.FAULT));
-                log.warn("[Track] FAULT injected on segment {}", segmentId);
-                return;
+                if (changed) {
+                    log.warn("[Track] FAULT injected on segment {}", segmentId);
+                }
+                return changed;
             }
         }
+        return false;
     }
 
     /**
-     * 清除指定区段的故障，恢复为 FREE。
+     * 清除指定区段的故障，并按实时占用和预留状态恢复区段。
      *
      * @param segmentId 区段 ID
+     * @return 本次调用是否改变了故障状态；区段不存在或没有故障时返回 false
      */
-    public synchronized void clearFault(String segmentId) {
-        faultSegmentIds.remove(segmentId);
+    public synchronized boolean clearFault(String segmentId) {
         for (int i = 0; i < segments.size(); i++) {
             TrackSegmentState seg = segments.get(i);
             if (seg.id().equals(segmentId)) {
-                segments.set(i, seg.withOccupancy(TrackOccupancy.FREE));
+                boolean changed = faultSegmentIds.remove(segmentId)
+                    || seg.occupancy() == TrackOccupancy.FAULT;
+                if (!changed) {
+                    return false;
+                }
+                TrackOccupancy restored = !occupyingTrainIds(segmentId).isEmpty()
+                    ? TrackOccupancy.OCCUPIED
+                    : reservedSegmentIds.contains(segmentId)
+                        ? TrackOccupancy.RESERVED
+                        : TrackOccupancy.FREE;
+                segments.set(i, seg.withOccupancy(restored));
                 log.info("[Track] FAULT cleared on segment {}", segmentId);
-                return;
+                return true;
             }
         }
+        return false;
+    }
+
+    public synchronized boolean segmentExists(String segmentId) {
+        return segmentId != null && segments.stream().anyMatch(segment -> segment.id().equals(segmentId));
     }
 
     /** 当前所有故障区段 ID（只读视图）。 */

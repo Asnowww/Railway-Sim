@@ -74,6 +74,8 @@ export interface MovementAuthority {
   speedLimitMetersPerSecond: number
   reason: string
   currentSegmentId: string
+  endSegmentId: string
+  reasonCode: string
 }
 
 export type SignalAspect = 'RED' | 'YELLOW' | 'GREEN'
@@ -96,7 +98,19 @@ export interface SwitchState {
   activeSegmentId: string
 }
 
-export type RouteStatus = 'AVAILABLE' | 'ESTABLISHED' | 'CONFLICTED'
+export type RouteStatus =
+  | 'AVAILABLE'
+  | 'VALIDATING'
+  | 'SETTING_SWITCHES'
+  | 'LOCKED'
+  | 'OCCUPIED'
+  | 'RELEASING'
+  | 'RELEASED'
+  | 'CONFLICTED'
+  | 'REJECTED'
+  | 'FAILED'
+  | 'CANCELLED'
+  | 'EXPIRED_BY_RESET'
 
 export interface RouteState {
   routeId: string
@@ -209,4 +223,7 @@ export interface SocketMessage {
   type: 'snapshot'
   payload: SimulationSnapshot
 }
+<<<<<<< HEAD
 
+=======
+>>>>>>> 3f3347648baf2fb973f4ad776bb1a9fd90fb93a4
