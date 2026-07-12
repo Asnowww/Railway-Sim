@@ -28,6 +28,8 @@ const authorityByTrain = computed(() => new Map(authorities.value.map((authority
 const routes = computed(() => snapshot.value?.routeStates ?? [])
 const switches = computed(() => snapshot.value?.switchStates ?? [])
 const signals = computed(() => snapshot.value?.signalStates ?? [])
+const routeDecisions = computed(() => dispatch.value.routeDecisions ?? [])
+const routeReservations = computed(() => dispatch.value.routeReservations ?? [])
 
 const activeTrainCount = computed(() => trains.value.length)
 const dwellingTrainCount = computed(() => trains.value.filter((train) => train.status === 'DWELLING').length)
@@ -228,6 +230,7 @@ const commandLabel = (type: string) => {
     HOLD: '扣车',
     HOLD_TRAIN: '扣车',
     DEPART: '发车',
+    REQUEST_ROUTE: '申请进路',
     REROUTE: '重排进路',
     HEADWAY_TOO_SHORT: '拉开后车间隔',
     HEADWAY_TOO_LONG: '催发后车追赶',
@@ -245,6 +248,7 @@ const commandStatusLabel = (statusText: string) => {
     SKIPPED: '已跳过',
     CANCELLED: '已取消',
     EXPIRED: '已结束',
+    RELEASED: '已释放',
     COMPLETED: '旧完成态',
   }
   return labels[statusText] ?? statusText
@@ -312,6 +316,28 @@ const routeStatusLabel = (routeStatus: string) => {
   return labels[routeStatus] ?? routeStatus
 }
 
+const routeReservationStateLabel = (state: string) => {
+  const labels: Record<string, string> = {
+    REQUESTED: '已申请',
+    ACCEPTED: '联锁接受',
+    RELEASED: '已释放',
+    EXPIRED: '已过期',
+    REJECTED: '联锁拒绝',
+    CANCELLED: '已取消',
+  }
+  return labels[state] ?? state
+}
+
+const routeDecisionStatusLabel = (statusText: string) => {
+  const labels: Record<string, string> = {
+    REQUESTED: '已请求',
+    ACCEPTED: '已接受',
+    REJECTED: '已拒绝',
+    CANCELLED: '已取消',
+  }
+  return labels[statusText] ?? statusText
+}
+
 const headwayStateLabel = (state: string) => {
   const labels: Record<string, string> = {
     LEADING_TRAIN: '头车',
@@ -372,6 +398,20 @@ async function establishSelectedRoute() {
   await loadDispatchRoutes()
 }
 
+async function requestSelectedRoute() {
+  const routeId = selectedRouteId.value
+  const trainId = selectedRouteTrainId.value || trains.value[0]?.id || ''
+  if (!routeId || !trainId) return
+  const command = await dispatchApi.submitCommand({
+    trainId,
+    commandType: 'REQUEST_ROUTE',
+    routeId
+  })
+  routeOperationMessage.value = `调度已为 ${trainId} 申请进路 ${routeId}，命令 ${command.id}`
+  await runSimulation('tick')
+  await loadDispatchRoutes()
+}
+
 onMounted(loadDispatchRoutes)
 
 async function submitLoopDemoCommand() {
@@ -422,7 +462,7 @@ function canCancelCommand(command: { commandType: string; status: string; reason
     && ['PENDING', 'SENT', 'APPLIED'].includes(command.status)
 }
 
-function stationObservation(trainId: string, currentStationId: string | undefined) {
+function stationObservation(trainId: string, currentStationId: string | null | undefined) {
   const train = trains.value.find((item) => item.id === trainId)
   if (train && nearTerminal(train)) return currentStationId ? `${currentStationId} / 终点附近` : '终点附近'
   if (currentStationId) return currentStationId
@@ -770,12 +810,37 @@ function formatDelta(current: number | null | undefined, baseline: number | null
             <option value="">默认首列车</option>
             <option v-for="train in trains" :key="train.id" :value="train.id">{{ train.id }}</option>
           </select>
+          <button type="button" class="demo-button" :disabled="!selectedRouteId || trains.length === 0" @click="requestSelectedRoute">
+            调度申请进路
+          </button>
           <button type="button" :disabled="!selectedRouteId || trains.length === 0" @click="establishSelectedRoute">
-            建立进路
+            联锁直接建路
           </button>
           <button type="button" class="ghost-button" @click="loadDispatchRoutes">刷新</button>
         </div>
         <p v-if="routeOperationMessage" class="route-operation-message">{{ routeOperationMessage }}</p>
+        <div class="route-dispatch-state">
+          <h3>调度预约</h3>
+          <div class="compact-list">
+            <article v-for="reservation in routeReservations" :key="reservation.reservationId">
+              <strong>{{ reservation.trainId }} -> {{ reservation.routeId }}</strong>
+              <span :data-status="reservation.state">{{ routeReservationStateLabel(reservation.state) }}</span>
+              <small>{{ reservation.reservationId }} / 命令 {{ reservation.commandId }}</small>
+              <p>{{ reservation.rejectReason || '等待联锁反馈、释放或下一轮调度评估。' }}</p>
+            </article>
+            <p v-if="routeReservations.length === 0" class="empty">暂无调度侧进路预约。</p>
+          </div>
+          <h3>调度决策</h3>
+          <div class="compact-list">
+            <article v-for="decision in routeDecisions" :key="decision.decisionId">
+              <strong>{{ decision.selectedTrainId }} / {{ decision.selectedRouteId }}</strong>
+              <span :data-status="decision.status">{{ routeDecisionStatusLabel(decision.status) }}</span>
+              <small>{{ decision.decisionId }} / 命令 {{ decision.routeCommandId }}</small>
+              <p>{{ decision.rejectReason || decision.reason || '自动或人工进路请求。' }}</p>
+            </article>
+            <p v-if="routeDecisions.length === 0" class="empty">暂无调度侧进路决策。</p>
+          </div>
+        </div>
         <div class="compact-list">
           <article v-for="route in routes" :key="route.routeId">
             <strong>{{ route.routeId }}</strong>
@@ -948,7 +1013,7 @@ button:disabled {
 
 .route-control-bar {
   display: grid;
-  grid-template-columns: minmax(160px, 1.2fr) minmax(120px, 0.8fr) auto auto;
+  grid-template-columns: minmax(160px, 1.2fr) minmax(120px, 0.8fr) auto auto auto;
   gap: 8px;
   margin-bottom: 10px;
 }
@@ -965,6 +1030,20 @@ button:disabled {
   margin: 0 0 10px;
   color: #1d4ed8;
   font-size: 13px;
+}
+
+.route-dispatch-state {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 12px;
+  border: 1px solid #dbeafe;
+  border-radius: 8px;
+  background: #f8fbff;
+  padding: 10px;
+}
+
+.route-dispatch-state h3 {
+  font-size: 14px;
 }
 
 .debug-banner,
@@ -1306,9 +1385,18 @@ dd {
 }
 
 [data-status='TIMEOUT'],
+[data-status='REJECTED'],
+[data-status='SKIPPED'],
 [data-aspect='RED'] {
   background: #fee2e2;
   color: #b91c1c;
+}
+
+[data-status='RELEASED'],
+[data-status='CANCELLED'],
+[data-status='EXPIRED'] {
+  background: #e2e8f0;
+  color: #475569;
 }
 
 [data-aspect='YELLOW'] {

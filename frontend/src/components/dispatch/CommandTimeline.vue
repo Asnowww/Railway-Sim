@@ -18,6 +18,7 @@ const commandLabel = (type: string) => {
     HOLD: '扣车',
     HOLD_TRAIN: '扣车',
     DEPART: '发车',
+    REQUEST_ROUTE: '申请进路',
     REROUTE: '重排进路',
   }
   return labels[type] ?? type
@@ -33,6 +34,7 @@ const statusLabel = (status: string) => {
     SKIPPED: '已跳过',
     CANCELLED: '已取消',
     EXPIRED: '已结束',
+    RELEASED: '已释放',
   }
   return labels[status] ?? status
 }
@@ -47,6 +49,7 @@ const statusDescription = (status: string) => {
     SKIPPED: '指令被校验规则跳过，没有进入执行链路。',
     CANCELLED: '指令已取消。',
     EXPIRED: '指令已结束。',
+    RELEASED: '进路或预约已经释放。',
   }
   return descriptions[status] ?? '调度命令状态持续记录。'
 }
@@ -151,5 +154,17 @@ li {
 .status[data-status='TIMEOUT'] {
   background: #fee2e2;
   color: #b91c1c;
+}
+
+.status[data-status='SKIPPED'] {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
+.status[data-status='CANCELLED'],
+.status[data-status='EXPIRED'],
+.status[data-status='RELEASED'] {
+  background: #e2e8f0;
+  color: #475569;
 }
 </style>

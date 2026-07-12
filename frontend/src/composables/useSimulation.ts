@@ -13,7 +13,10 @@ const emptyDispatch: DispatchSnapshot = {
   interventionActive: false,
   trainProfiles: [],
   openDisturbances: [],
-  activeCommands: []
+  activeCommands: [],
+  routeDispatchActive: false,
+  routeDecisions: [],
+  routeReservations: []
 }
 
 export function useSimulation() {

@@ -21,6 +21,8 @@ import com.railwaysim.dispatch.route.RouteReservationState;
 import com.railwaysim.dispatch.strategy.StrategySelector;
 import com.railwaysim.infrastructure.OperationalLineData;
 import com.railwaysim.signal.MovementAuthority;
+import com.railwaysim.signal.RouteState;
+import com.railwaysim.signal.RouteStatus;
 import com.railwaysim.simulation.TickContext;
 import com.railwaysim.train.TrainEntity;
 import com.railwaysim.train.TrainState;
@@ -28,6 +30,7 @@ import java.io.IOException;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import org.junit.jupiter.api.Test;
 import org.springframework.core.io.DefaultResourceLoader;
 
@@ -127,6 +130,33 @@ class DispatchServiceTests {
         assertThat(dispatchService.snapshot().routeReservations())
             .extracting(DispatchSnapshot.RouteReservationView::state)
             .containsExactly(RouteReservationState.ACCEPTED);
+    }
+
+    @Test
+    void routeReservationIsReleasedWhenInterlockingRouteIsNoLongerEstablished() {
+        dispatchService.submit(commandWithPayload("TR-1", "REQUEST_ROUTE", Map.of("routeId", "R_BRANCH")));
+        dispatchService.acceptFeedback(List.of(new DispatchCommandFeedback(
+            "DC-test-REQUEST_ROUTE",
+            "TR-1",
+            "REQUEST_ROUTE",
+            "SIGNAL_INTERLOCKING",
+            CommandStatus.EFFECT_CONFIRMED,
+            "route established",
+            Instant.parse("2026-07-09T00:00:00Z"),
+            Map.of("accepted", true)
+        )));
+
+        dispatchService.syncRouteReservations(List.of(new RouteState(
+            "R_BRANCH",
+            RouteStatus.AVAILABLE,
+            Set.of(),
+            null,
+            Set.of("T01")
+        )), Instant.parse("2026-07-09T00:01:00Z"));
+
+        assertThat(dispatchService.snapshot().routeReservations())
+            .extracting(DispatchSnapshot.RouteReservationView::state)
+            .containsExactly(RouteReservationState.RELEASED);
     }
 
     @Test

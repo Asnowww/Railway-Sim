@@ -105,8 +105,7 @@ public class DispatchController {
             Instant.now(),
             null
         );
-        dispatchService.submit(command);
-        return command;
+        return dispatchService.submit(command);
     }
 
     @PostMapping("/commands/{commandId}/cancel")

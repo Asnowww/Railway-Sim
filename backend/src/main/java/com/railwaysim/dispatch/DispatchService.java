@@ -18,9 +18,12 @@ import com.railwaysim.dispatch.route.RouteDispatchDecision;
 import com.railwaysim.dispatch.route.RouteDispatchRecordStore;
 import com.railwaysim.dispatch.route.RouteIntentResolver;
 import com.railwaysim.dispatch.route.RouteReservation;
+import com.railwaysim.dispatch.route.RouteReservationState;
 import com.railwaysim.dispatch.route.TrainRouteIntent;
 import com.railwaysim.dispatch.strategy.StrategySelector;
 import com.railwaysim.signal.MovementAuthority;
+import com.railwaysim.signal.RouteState;
+import com.railwaysim.signal.RouteStatus;
 import com.railwaysim.simulation.TickContext;
 import com.railwaysim.train.TrainState;
 import java.time.Instant;
@@ -118,7 +121,7 @@ public class DispatchService {
         latestSnapshot = buildSnapshot(currentPlan, latestProfiles, List.of(), List.of());
     }
 
-    public synchronized void submit(DispatchCommand command) {
+    public synchronized DispatchCommand submit(DispatchCommand command) {
         Map<String, Object> payload = command.payload() == null
             ? new HashMap<>()
             : new HashMap<>(command.payload());
@@ -145,6 +148,7 @@ public class DispatchService {
             log.info("[DispatchLoop] route command queued {}", commandSummary(stored));
         }
         refreshSnapshot();
+        return stored;
     }
 
     public synchronized List<DispatchCommand> pendingCommands() {
@@ -259,6 +263,32 @@ public class DispatchService {
         }
         if (!updated.isEmpty()) {
             activeCommands = mergeActiveCommands(updated);
+            refreshSnapshot();
+        }
+    }
+
+    public synchronized void syncRouteReservations(List<RouteState> routeStates, Instant simulatedAt) {
+        if (routeStates == null || routeStates.isEmpty()) {
+            return;
+        }
+        Map<String, RouteState> routeStateById = new HashMap<>();
+        for (RouteState routeState : routeStates) {
+            routeStateById.put(routeState.routeId(), routeState);
+        }
+        boolean changed = false;
+        for (RouteReservation reservation : routeDispatchRecordStore.listReservations(simulationRunId)) {
+            if (!RouteReservationState.ACCEPTED.equals(reservation.state())) {
+                continue;
+            }
+            RouteState routeState = routeStateById.get(reservation.routeId());
+            boolean stillEstablished = routeState != null
+                && routeState.status() == RouteStatus.ESTABLISHED
+                && reservation.trainId().equals(routeState.establishedByTrainId());
+            if (!stillEstablished) {
+                changed |= routeDispatchRecordStore.releaseReservation(reservation.reservationId(), simulatedAt);
+            }
+        }
+        if (changed) {
             refreshSnapshot();
         }
     }

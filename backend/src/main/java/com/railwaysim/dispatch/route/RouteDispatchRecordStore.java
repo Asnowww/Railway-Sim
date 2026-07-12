@@ -236,6 +236,31 @@ public class RouteDispatchRecordStore {
         return reservations.subList(reservations.size() - limit, reservations.size());
     }
 
+    public synchronized boolean releaseReservation(String reservationId, Instant releasedAt) {
+        RouteReservation reservation = reservationsById.get(reservationId);
+        if (reservation == null || !RouteReservationState.ACCEPTED.equals(reservation.state())) {
+            return false;
+        }
+        Instant now = releasedAt == null ? Instant.now() : releasedAt;
+        reservationsById.put(reservationId, new RouteReservation(
+            reservation.reservationId(),
+            reservation.simulationRunId(),
+            reservation.trainId(),
+            reservation.routeId(),
+            reservation.decisionId(),
+            RouteReservationState.RELEASED,
+            reservation.commandId(),
+            reservation.rejectReason(),
+            reservation.retryCount(),
+            reservation.requestedAt(),
+            reservation.acceptedAt(),
+            now,
+            reservation.expiresAt(),
+            now
+        ));
+        return true;
+    }
+
     public synchronized boolean hasRecentRouteRequest(
         String simulationRunId,
         String trainId,

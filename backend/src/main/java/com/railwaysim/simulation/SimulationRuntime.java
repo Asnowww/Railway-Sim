@@ -197,6 +197,7 @@ public class SimulationRuntime {
         List<DispatchConstraint> dispatchConstraintsPreview = dispatchService.previewConstraintsForTrains(beforeTrainStates);
         List<DispatchConstraint> dispatchConstraints = dispatchService.constraintsForTrains(beforeTrainStates);
         signalService.calculateAuthorities(beforeTrainStates, trackConstraints, dispatchConstraints);
+        dispatchService.syncRouteReservations(interlockingService.states(), context.simulatedTime());
         boolean externalPowerAuthority = vehicleRuntimeIntegrationService.usesExternalPowerAuthority();
         if (externalPowerAuthority) {
             // 9200 must be ready before 9300 performs its first authoritative power query.
