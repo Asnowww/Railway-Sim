@@ -664,10 +664,22 @@ public class RouteInterlockingService {
             .orElse(null);
         if (station == null) return null;
 
+        // 收集进路起终点信号ID作为优选集合(正线信号优先)
+        List<OperationalLineData.RouteDefinition> routes = infrastructureCatalog.lineData().routes();
+        Set<String> routeSignalIds = routes != null
+            ? routes.stream()
+                .filter(r -> "MAIN".equalsIgnoreCase(r.typeCode()))
+                .flatMap(r -> java.util.stream.Stream.of(r.startSignalId(), r.endSignalId()))
+                .collect(java.util.stream.Collectors.toSet())
+            : Set.of();
+
         return signals.stream()
             .min((a, b) -> {
                 double da = Math.abs(a.positionMeters() - station.centerMeters());
                 double db = Math.abs(b.positionMeters() - station.centerMeters());
+                // 优先选择正线进路信号(+1000m惩罚非进路信号)
+                if (!routeSignalIds.contains(a.id())) da += 1000;
+                if (!routeSignalIds.contains(b.id())) db += 1000;
                 return Double.compare(da, db);
             })
             .map(OperationalLineData.SignalDefinition::id)
