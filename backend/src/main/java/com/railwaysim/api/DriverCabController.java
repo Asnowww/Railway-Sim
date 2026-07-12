@@ -5,7 +5,10 @@ import com.railwaysim.signal.SignalService;
 import com.railwaysim.signal.vehicle.SignalVehicleCommand;
 import com.railwaysim.train.TrainManager;
 import com.railwaysim.train.TrainState;
+import com.railwaysim.vehicle.control.DriverCommandAcceptance;
 import com.railwaysim.vehicle.drivercab.DriverCabAdapter;
+import com.railwaysim.vehicle.drivercab.DriverCabPlcCodec;
+import com.railwaysim.vehicle.drivercab.DriverCabPlcInputPacket;
 import com.railwaysim.vehicle.drivercab.DriverCabStateSnapshot;
 import java.util.Map;
 import java.util.function.Function;
@@ -16,6 +19,8 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.CrossOrigin;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
@@ -28,6 +33,7 @@ public class DriverCabController {
     private final TrainManager trainManager;
     private final SignalService signalService;
     private final DriverCabAdapter driverCabAdapter;
+    private final DriverCabPlcCodec plcCodec = new DriverCabPlcCodec();
 
     public DriverCabController(
         TrainManager trainManager,
@@ -46,6 +52,15 @@ public class DriverCabController {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Driver cab state not received for train: " + trainId);
         }
         return train.driverCabState();
+    }
+
+    @PostMapping("/{trainId}/plc-input")
+    public DriverCommandAcceptance plcInput(
+        @PathVariable String trainId,
+        @RequestBody DriverCabPlcInputPacket input
+    ) {
+        byte[] binary = plcCodec.encodeInput(input);
+        return driverCabAdapter.applyAndAccept(trainId, binary);
     }
 
     @GetMapping(

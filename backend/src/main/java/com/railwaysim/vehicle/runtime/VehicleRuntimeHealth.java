@@ -19,14 +19,15 @@ public record VehicleRuntimeHealth(
     long lastAcceptedTick,
     String topologyHash,
     String configHash,
-    String stoppingParameterVersion
+    String stoppingParameterVersion,
+    boolean bootstrapped
 ) {
     public VehicleRuntimeHealth(
         VehicleRuntimeMode mode, String heartbeatStatus, Instant sourceTimestamp,
         long latencyMillis, String dataQuality, int instanceCount, String reason
     ) {
         this(mode, heartbeatStatus, sourceTimestamp, latencyMillis, dataQuality, instanceCount,
-            reason, "", "", "", "", -1, "", "", "");
+            reason, "", "", "", "", -1, "", "", "", false);
     }
 
     public static VehicleRuntimeHealth local() {

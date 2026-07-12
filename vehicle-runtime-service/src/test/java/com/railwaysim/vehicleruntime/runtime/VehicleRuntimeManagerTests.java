@@ -17,6 +17,7 @@ import com.railwaysim.vehicleruntime.model.PowerConstraintSnapshot;
 import com.railwaysim.vehicleruntime.model.TrackConstraintSnapshot;
 import com.railwaysim.vehicleruntime.model.TrainStateSnapshot;
 import com.railwaysim.vehicleruntime.model.VehicleRuntimeLaunchRequest;
+import com.railwaysim.vehicleruntime.model.VehicleRuntimeBootstrapRequest;
 import com.railwaysim.vehicleruntime.model.VehicleRuntimeStepRequest;
 import com.railwaysim.vehicleruntime.model.VehicleRuntimeStepResponse;
 import java.time.Instant;
@@ -41,6 +42,18 @@ class VehicleRuntimeManagerTests {
         assertThat(state.lifecycleState()).isEqualTo("CONTROL_AWAKE");
         assertThat(manager.instances()).singleElement()
             .satisfies(instance -> assertThat(instance.trainId()).isEqualTo("TR-101"));
+    }
+
+    @Test
+    void healthReportsBootstrapStateOnlyAfterCentralConfigurationIsApplied() {
+        VehicleRuntimeManager manager = manager();
+
+        assertThat(manager.health().bootstrapped()).isFalse();
+
+        manager.bootstrap(new VehicleRuntimeBootstrapRequest(
+            5_000, 22.2, 120, "http://localhost:9200", true));
+
+        assertThat(manager.health().bootstrapped()).isTrue();
     }
 
     @Test

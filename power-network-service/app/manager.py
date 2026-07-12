@@ -143,6 +143,7 @@ class PowerNetworkModel:
     source_timestamp: str = field(default_factory=now_iso)
     last_step_tick: int | None = None
     active_run_id: str | None = None
+    accepted_step_count: int = 0
     last_step_response: dict[str, Any] | None = None
     topology_hash: str = "BUILT_IN_REFERENCE"
     config_hash: str = "BUILT_IN_REFERENCE"
@@ -174,6 +175,7 @@ class PowerNetworkModel:
         self.max_traction_current_amps = positive_float(payload.get("maxTractionCurrentAmps"), 2_000.0)
         self.last_step_tick = None
         self.active_run_id = None
+        self.accepted_step_count = 0
         self.last_step_response = None
         self.topology_segments = [
             {
@@ -261,6 +263,7 @@ class PowerNetworkModel:
             "dataQuality": "GOOD",
             "simulationRunId": self.active_run_id or "",
             "lastAcceptedTick": self.last_step_tick if self.last_step_tick is not None else -1,
+            "acceptedStepCount": self.accepted_step_count,
             "topologyHash": self.topology_hash,
             "configHash": self.config_hash,
             "modelVersion": self.model_version,
@@ -345,6 +348,9 @@ class PowerNetworkModel:
             "powerConstraints": self.constraints_for_positions(train_positions),
         }
         self.last_step_tick = tick
+        self.last_step_response = response
+        self.accepted_step_count += 1
+        response["acceptedStepCount"] = self.accepted_step_count
         self.last_step_response = response
         return dict(response)
 

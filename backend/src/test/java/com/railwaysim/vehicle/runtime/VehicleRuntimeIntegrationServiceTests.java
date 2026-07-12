@@ -147,6 +147,45 @@ class VehicleRuntimeIntegrationServiceTests {
         }
     }
 
+    @Test
+    void remoteRestartWithoutBootstrapTriggersTopologyAndPowerConfigurationReplay() throws IOException {
+        AtomicInteger bootstrapCalls = new AtomicInteger();
+        java.util.concurrent.atomic.AtomicBoolean remoteBootstrapped =
+            new java.util.concurrent.atomic.AtomicBoolean(true);
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/vehicle-runtime/bootstrap", exchange -> {
+            exchange.getRequestBody().readAllBytes();
+            bootstrapCalls.incrementAndGet();
+            remoteBootstrapped.set(true);
+            writeJson(exchange, 200, healthJson("GOOD"));
+        });
+        server.createContext("/vehicle-runtime/health", exchange -> writeJson(
+            exchange, 200,
+            remoteBootstrapped.get()
+                ? healthJson("GOOD")
+                : healthJson("GOOD").replace("\"bootstrapped\": true", "\"bootstrapped\": false")
+        ));
+        server.createContext("/vehicle-runtime/step-fleet", exchange -> {
+            exchange.getRequestBody().readAllBytes();
+            writeJson(exchange, 200, stepResponseJson("OK", "GOOD", 321.0));
+        });
+        server.start();
+        try {
+            VehicleRuntimeIntegrationService service = service(
+                server, VehicleRuntimeMode.EXTERNAL_HTTP, ExternalPowerNetworkMode.EXTERNAL_HTTP);
+            service.stepFleet(tick(1), List.of(train()), authority(), track(), List.of(), power());
+
+            remoteBootstrapped.set(false);
+            VehicleRuntimeStepResult recovered = service.stepFleet(
+                tick(2), List.of(train()), authority(), track(), List.of(), power());
+
+            assertThat(bootstrapCalls.get()).isEqualTo(2);
+            assertThat(recovered.health().bootstrapped()).isTrue();
+        } finally {
+            server.stop(0);
+        }
+    }
+
     private VehicleRuntimeIntegrationService service(HttpServer server, VehicleRuntimeMode mode) {
         return service(server, mode, ExternalPowerNetworkMode.LOCAL);
     }
@@ -243,7 +282,8 @@ class VehicleRuntimeIntegrationServiceTests {
               "parameterSetId": "parameter-set-v2",
               "topologyHash": "NOT_APPLICABLE",
               "configHash": "config-hash",
-              "stoppingParameterVersion": "STOPPING_V1"
+              "stoppingParameterVersion": "STOPPING_V1",
+              "bootstrapped": true
             }
             """.formatted(dataQuality);
     }

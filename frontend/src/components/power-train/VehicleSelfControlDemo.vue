@@ -255,6 +255,28 @@ const localConfig = reactive<DemoConfig>(baseConfig())
 const demoTrain = reactive<DemoTrainState>(baseTrainState())
 const history = ref<HistoryPoint[]>([])
 
+// Driver cab state for PLC input
+const driverCabInput = reactive({
+  selectedTrainId: 'TR-001',
+  keySwitchLocked: false,
+  directionHandleState: 'FORWARD' as 'FORWARD' | 'ZERO' | 'BACKWARD',
+  masterHandleState: 'ZERO' as 'TRACTION' | 'ZERO' | 'BRAKE' | 'FAST_BRAKE',
+  tractionNotchPercent: 0,
+  brakeNotchPercent: 0,
+  emergencyBrakeButtonLocked: false,
+  doorsClosedLockedIndicator: true,
+  atoModeActive: false,
+  atoStartFlag: false,
+  doorModeSwitchState: 'SEMI_AUTOMATIC' as 'AUTOMATIC' | 'SEMI_AUTOMATIC' | 'MANUAL',
+  sendPending: false,
+  sendResult: ''
+})
+
+const trainIds = computed(() => snapshot.value?.trains.map(t => t.id) ?? [])
+const selectedLiveTrain = computed(() =>
+  snapshot.value?.trains.find(t => t.id === driverCabInput.selectedTrainId) ?? null
+)
+
 let unsubscribeSocket: (() => void) | undefined
 let snapshotPollTimer: number | undefined
 let demoTimer: number | undefined
@@ -397,6 +419,89 @@ function acceptSnapshot(nextSnapshot: SimulationSnapshot, source: string) {
   snapshot.value = nextSnapshot
   backendState.value = 'live'
   backendMessage.value = `${source} ${new Date().toLocaleTimeString()}`
+}
+
+async function sendPlcInput() {
+  const trainId = driverCabInput.selectedTrainId
+  if (!trainId) return
+  driverCabInput.sendPending = true
+  driverCabInput.sendResult = ''
+  try {
+    const body = {
+      highVoltageClosedIndicator: true,
+      doorsClosedLockedIndicator: driverCabInput.doorsClosedLockedIndicator,
+      networkFaultIndicator: false,
+      automaticTurnbackAvailable: false,
+      atoModeAvailable: true,
+      atoModeActive: driverCabInput.atoModeActive,
+      automaticTurnbackActive: false,
+      emergencyBrakeButtonLocked: driverCabInput.emergencyBrakeButtonLocked,
+      openLeftDoorFlag: !driverCabInput.doorsClosedLockedIndicator,
+      openRightDoorFlag: !driverCabInput.doorsClosedLockedIndicator,
+      closeLeftDoorFlag: driverCabInput.doorsClosedLockedIndicator,
+      closeRightDoorFlag: driverCabInput.doorsClosedLockedIndicator,
+      doorModeSwitchState: driverCabInput.doorModeSwitchState,
+      modeUpgradeConfirmFlag: false,
+      modeDowngradeConfirmFlag: false,
+      automaticTurnbackFlag: false,
+      atoStartFlag: driverCabInput.atoStartFlag,
+      keySwitchLocked: driverCabInput.keySwitchLocked,
+      directionHandleState: driverCabInput.directionHandleState,
+      masterHandleState: driverCabInput.masterHandleState,
+      tractionNotchPercent: driverCabInput.tractionNotchPercent,
+      brakeNotchPercent: driverCabInput.brakeNotchPercent
+    }
+    const resp = await fetch(`/api/vehicle/driver-cabs/${trainId}/plc-input`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    })
+    if (resp.ok) {
+      const result = await resp.json()
+      driverCabInput.sendResult = result.accepted ? '✅ 已接受' : '❌ 拒绝: ' + (result.reasonCode || 'UNKNOWN')
+    } else {
+      driverCabInput.sendResult = `❌ HTTP ${resp.status}`
+    }
+  } catch (e: any) {
+    driverCabInput.sendResult = '❌ ' + (e.message || '网络错误')
+  } finally {
+    driverCabInput.atoStartFlag = false
+    driverCabInput.sendPending = false
+  }
+}
+
+function updateMasterHandle(value: number) {
+  if (value > 0) {
+    driverCabInput.masterHandleState = 'TRACTION'
+    driverCabInput.tractionNotchPercent = value
+    driverCabInput.brakeNotchPercent = 0
+  } else if (value < 0) {
+    driverCabInput.masterHandleState = value <= -51 ? 'FAST_BRAKE' : 'BRAKE'
+    driverCabInput.brakeNotchPercent = Math.abs(value)
+    driverCabInput.tractionNotchPercent = 0
+  } else {
+    driverCabInput.masterHandleState = 'ZERO'
+    driverCabInput.tractionNotchPercent = 0
+    driverCabInput.brakeNotchPercent = 0
+  }
+}
+
+function cycleDirection() {
+  const order: Array<'FORWARD' | 'ZERO' | 'BACKWARD'> = ['FORWARD', 'ZERO', 'BACKWARD']
+  const idx = order.indexOf(driverCabInput.directionHandleState)
+  driverCabInput.directionHandleState = order[(idx + 1) % 3]
+}
+
+function atoStart() {
+  driverCabInput.atoStartFlag = true
+  driverCabInput.atoModeActive = true
+  setTimeout(() => sendPlcInput(), 100)
+}
+
+function cycleDoorMode() {
+  const order: Array<'AUTOMATIC' | 'SEMI_AUTOMATIC' | 'MANUAL'> = ['SEMI_AUTOMATIC', 'AUTOMATIC', 'MANUAL']
+  const idx = order.indexOf(driverCabInput.doorModeSwitchState)
+  driverCabInput.doorModeSwitchState = order[(idx + 1) % 3]
 }
 
 function applyScenario(id: ScenarioId) {
@@ -1175,6 +1280,68 @@ function stateLabel(state: string) {
           <button type="button" @click="resetDemo">重置</button>
         </div>
       </aside>
+      <!-- Driver Cab Panel -->
+      <aside class="control-board driver-cab-panel">
+        <div class="section-heading compact">
+          <div>
+            <span>司机台</span>
+            <h2>驾驶控制输入</h2>
+          </div>
+          <span class="connection-pill" :class="backendState" style="font-size:11px">
+            {{ selectedLiveTrain ? selectedLiveTrain.id : '—' }}
+          </span>
+        </div>
+        <div style="display:flex;gap:6px;margin-bottom:12px;align-items:center">
+          <select v-model="driverCabInput.selectedTrainId" style="flex:1;padding:4px 8px;border:1px solid #d9e2ec;border-radius:6px;font-size:13px;background:#fff">
+            <option v-for="id in trainIds" :key="id" :value="id">{{ id }}</option>
+          </select>
+        </div>
+        <div style="margin-bottom:14px">
+          <div style="font-size:12px;font-weight:700;color:#475569;margin-bottom:6px">🎛️ 主手柄</div>
+          <div style="display:flex;align-items:center;gap:10px">
+            <div style="text-align:center;min-width:44px">
+              <div style="font-size:10px;color:#627084">牵引</div>
+              <div style="font-size:16px;font-weight:700;color:#3e8e6a">{{ driverCabInput.masterHandleState === 'TRACTION' ? driverCabInput.tractionNotchPercent : 0 }}%</div>
+            </div>
+            <input type="range" min="-100" max="100" value="0" step="1" style="flex:1;accent-color:#1f78b4;height:6px" @input="(e) => updateMasterHandle(parseInt((e.target as HTMLInputElement).value))" />
+            <div style="text-align:center;min-width:44px">
+              <div style="font-size:10px;color:#627084">制动</div>
+              <div style="font-size:16px;font-weight:700;color:#c24132">{{ driverCabInput.masterHandleState === 'BRAKE' || driverCabInput.masterHandleState === 'FAST_BRAKE' ? driverCabInput.brakeNotchPercent : 0 }}%</div>
+            </div>
+          </div>
+          <div style="display:flex;justify-content:space-between;font-size:9px;color:#94a3b8;padding:0 4px"><span>快速</span><span>制动</span><span>零位</span><span>牵引</span></div>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:10px">
+          <button type="button" class="cab-btn" :class="{ active: !driverCabInput.keySwitchLocked }" @click="driverCabInput.keySwitchLocked = !driverCabInput.keySwitchLocked">🔑 {{ driverCabInput.keySwitchLocked ? '关闭' : '激活' }}</button>
+          <button type="button" class="cab-btn dir" :class="{ active: true }" @click="cycleDirection()">{{ driverCabInput.directionHandleState === 'FORWARD' ? '⬆️前进' : driverCabInput.directionHandleState === 'BACKWARD' ? '⬇️后退' : '⏸️零位' }}</button>
+          <button type="button" class="cab-btn eb" :class="{ active: driverCabInput.emergencyBrakeButtonLocked }" @click="driverCabInput.emergencyBrakeButtonLocked = !driverCabInput.emergencyBrakeButtonLocked">🛑 {{ driverCabInput.emergencyBrakeButtonLocked ? '⚠紧急' : '紧急' }}</button>
+          <button type="button" class="cab-btn" :class="{ active: !driverCabInput.doorsClosedLockedIndicator }" @click="driverCabInput.doorsClosedLockedIndicator = !driverCabInput.doorsClosedLockedIndicator">🚪 {{ driverCabInput.doorsClosedLockedIndicator ? '关门' : '开门' }}</button>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:10px">
+          <button type="button" class="cab-btn ato" :class="{ active: driverCabInput.atoModeActive }" @click="driverCabInput.atoModeActive = !driverCabInput.atoModeActive">🤖 {{ driverCabInput.atoModeActive ? 'ATO' : '手动' }}</button>
+          <button type="button" class="cab-btn" :class="{ active: driverCabInput.doorModeSwitchState !== 'SEMI_AUTOMATIC' }" @click="cycleDoorMode()">🚪⚙️ {{ { AUTOMATIC: '自动', SEMI_AUTOMATIC: '半自动', MANUAL: '手动' }[driverCabInput.doorModeSwitchState] }}</button>
+          <button type="button" class="cab-btn ato" @click="atoStart()">▶️ ATO发车</button>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+          <button type="button" style="background:#1f6feb;color:#fff;border:1px solid #58a6ff;border-radius:6px;padding:8px;font-weight:700;font-size:13px;cursor:pointer" :disabled="driverCabInput.sendPending" @click="sendPlcInput">{{ driverCabInput.sendPending ? '⏳ 发送中…' : '📤 发送 PLC 指令' }}</button>
+          <div style="display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600;color:#475569;background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;padding:4px">{{ driverCabInput.sendResult || '就绪' }}</div>
+        </div>
+        <div v-if="selectedLiveTrain" style="margin-top:14px;padding:10px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px">
+          <div style="font-size:11px;font-weight:700;color:#475569;margin-bottom:6px">📋 实时车辆状态</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px 12px;font-size:11px">
+            <span style="color:#627084">速度</span><span style="font-weight:600;text-align:right">{{ (selectedLiveTrain.speedMetersPerSecond * 3.6).toFixed(1) }} km/h</span>
+            <span style="color:#627084">加速度</span><span style="font-weight:600;text-align:right">{{ (selectedLiveTrain.accelerationMetersPerSecondSquared || 0).toFixed(2) }} m/s²</span>
+            <span style="color:#627084">运行模式</span><span style="font-weight:600;text-align:right">{{ selectedLiveTrain.operationMode || '—' }}</span>
+            <span style="color:#627084">动力学状态</span><span style="font-weight:600;text-align:right">{{ selectedLiveTrain.dynamicsState || '—' }}</span>
+            <span style="color:#627084">牵引力</span><span style="font-weight:600;text-align:right;color:#3e8e6a">{{ formatForce(selectedLiveTrain.tractionForceNewtons) }}</span>
+            <span style="color:#627084">制动力</span><span style="font-weight:600;text-align:right;color:#c24132">{{ formatForce(selectedLiveTrain.brakeForceNewtons) }}</span>
+            <span style="color:#627084">车门</span><span style="font-weight:600;text-align:right">{{ selectedLiveTrain.doorState || '—' }}</span>
+            <span style="color:#627084">数据质量</span><span style="font-weight:600;text-align:right">{{ selectedLiveTrain.dataQuality || '—' }}</span>
+            <span style="color:#627084">网压</span><span style="font-weight:600;text-align:right">{{ Math.round((selectedLiveTrain as any).railVoltage || 0) }} V</span>
+            <span style="color:#627084">能耗</span><span style="font-weight:600;text-align:right">{{ (selectedLiveTrain.energyConsumedKwh || 0).toFixed(1) }} kWh</span>
+          </div>
+        </div>
+      </aside>
     </section>
   </main>
 </template>
@@ -1317,12 +1484,45 @@ button:disabled {
 .live-copy,
 .live-metrics,
 .train-board,
-.control-board {
+.control-board,
+.driver-cab-panel {
   border: 1px solid #d9e2ec;
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.92);
   box-shadow: 0 18px 40px rgba(15, 23, 42, 0.08);
 }
+
+.driver-cab-panel {
+  align-self: start;
+  padding: 16px;
+}
+
+.driver-cab-panel select {
+  font-family: inherit;
+}
+
+.cab-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  min-height: 34px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  padding: 4px 6px;
+  background: #ffffff;
+  color: #475569;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.12s;
+}
+.cab-btn:hover { border-color: #1f78b4; background: #f0f7ff; }
+.cab-btn.active { border-color: #1f78b4; background: #e0f0ff; color: #145f91; }
+.cab-btn.dir.active { border-color: #3e8e6a; background: #eaf8ef; color: #126237; }
+.cab-btn.eb.active { border-color: #c24132; background: #fff0f0; color: #9c2626; }
+.cab-btn.ato.active { border-color: #1f78b4; background: #edf7ff; color: #145f91; }
+.cab-btn:disabled { opacity: 0.5; cursor: wait; }
 
 .live-copy {
   display: grid;
@@ -1686,7 +1886,7 @@ button:disabled {
 
 .simulator-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1.55fr) minmax(340px, 0.75fr);
+  grid-template-columns: minmax(0, 1.55fr) minmax(340px, 0.75fr) minmax(320px, 0.7fr);
   gap: 16px;
 }
 

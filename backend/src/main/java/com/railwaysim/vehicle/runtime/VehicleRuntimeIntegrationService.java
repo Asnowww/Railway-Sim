@@ -299,7 +299,8 @@ public class VehicleRuntimeIntegrationService implements VehiclePowerLoadForward
             context.tick(),
             latestHealth.topologyHash(),
             latestHealth.configHash(),
-            latestHealth.stoppingParameterVersion()
+            latestHealth.stoppingParameterVersion(),
+            latestHealth.bootstrapped()
         );
         return new VehicleRuntimeStepResult(steps, health, response.instanceStates() == null ? List.of() : response.instanceStates());
     }
@@ -322,7 +323,7 @@ public class VehicleRuntimeIntegrationService implements VehiclePowerLoadForward
             latestHealth.fmuModelVersion(), latestHealth.parameterSetId(),
             latestHealth.simulationRunId(), latestHealth.lastAcceptedTick(),
             latestHealth.topologyHash(), latestHealth.configHash(),
-            latestHealth.stoppingParameterVersion());
+            latestHealth.stoppingParameterVersion(), latestHealth.bootstrapped());
     }
 
     private VehicleRuntimeStepResult localStep(
@@ -374,8 +375,15 @@ public class VehicleRuntimeIntegrationService implements VehiclePowerLoadForward
     }
 
     private synchronized void bootstrapIfNeeded() {
-        if (!properties.isAutoBootstrap() || bootstrapped.get()) {
+        if (!properties.isAutoBootstrap()) {
             return;
+        }
+        if (bootstrapped.get()) {
+            latestHealth = client.health();
+            if (latestHealth.bootstrapped()) {
+                return;
+            }
+            bootstrapped.set(false);
         }
         double lineLength = infrastructureCatalog.lineData().lineLengthMeters() > 0
             ? infrastructureCatalog.lineData().lineLengthMeters()

@@ -5,6 +5,7 @@ import argparse
 import json
 import math
 import time
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -23,6 +24,7 @@ def main() -> None:
     parser.add_argument("--endurance-ticks", type=int, default=6000)
     parser.add_argument("--output", default=str(ROOT / "docs/真实FMU集成实施计划/验收记录/wp8-performance.json"))
     args = parser.parse_args()
+    run_id = f"wp8-performance-{uuid.uuid4()}"
 
     # Interleave trains across the five real YAML power sections. The endurance
     # benchmark measures normal fleet throughput; same-section overload and
@@ -60,7 +62,7 @@ def main() -> None:
             _, response = request_json(
                 f"{args.vehicle}/vehicle-runtime/step-fleet",
                 method="POST",
-                payload=fleet_request(tick, trains),
+                payload=fleet_request(tick, trains, run_id),
                 timeout=15.0,
             )
             wall_ms = (time.perf_counter() - step_started) * 1000.0
@@ -72,6 +74,8 @@ def main() -> None:
             fmi_errors_after = int(health.get("fmiErrorCount", 0))
             if response.get("dataQuality") != "GOOD":
                 degraded += 1
+            if health.get("simulationRunId") != run_id or health.get("lastAcceptedTick") != tick:
+                errors.append(f"tick {tick}: vehicle runtime runId/tick drift")
             if health.get("fallbackTrainCount") != 0:
                 fallback_ticks += 1
             if len(response.get("trainOutputs", [])) != count or len(response.get("trainReports", [])) != count:
@@ -147,6 +151,7 @@ def main() -> None:
             "enduranceSimulatedSeconds": args.endurance_ticks * 0.1,
         },
         "errors": errors,
+        "simulationRunId": run_id,
         "benchmarks": benchmarks,
         "endurance": endurance,
         "finalHealth": final_health,

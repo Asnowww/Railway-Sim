@@ -74,7 +74,7 @@ public class MonitorService {
             vehicleRuntime,
             alarmLifecycleService.reconcile(
                 simulationRunId,
-                buildAlarms(tick, simulatedTime, trains, trackSegments, authorities, powerSections, events),
+                buildAlarms(simulatedTime, trains, trackSegments, authorities, powerSections, events),
                 simulatedTime
             ),
             dispatch
@@ -127,7 +127,6 @@ public class MonitorService {
     }
 
     private List<Alarm> buildAlarms(
-        long tick,
         Instant simulatedTime,
         List<TrainState> trains,
         List<TrackSegmentState> trackSegments,
@@ -152,7 +151,7 @@ public class MonitorService {
         trackSegments.stream()
             .filter(seg -> seg.occupancy() == com.railwaysim.track.TrackOccupancy.FAULT)
             .map(seg -> new Alarm(
-                "TRACK-FAULT-" + tick + "-" + seg.id(),
+                "TRACK_FAULT:" + seg.id(),
                 "track",
                 seg.id(),
                 3,

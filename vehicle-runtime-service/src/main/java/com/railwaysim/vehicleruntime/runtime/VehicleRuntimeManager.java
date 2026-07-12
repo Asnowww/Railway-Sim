@@ -68,6 +68,7 @@ public class VehicleRuntimeManager {
     private long fmiErrorCount;
     private String currentRunId = "";
     private long lastAcceptedTick = -1;
+    private boolean bootstrapped;
 
     @Autowired
     public VehicleRuntimeManager(
@@ -126,7 +127,8 @@ public class VehicleRuntimeManager {
             lastAcceptedTick,
             "NOT_APPLICABLE",
             configHash(),
-            stoppingProperties.getParameterVersion()
+            stoppingProperties.getParameterVersion(),
+            bootstrapped
         );
     }
 
@@ -166,6 +168,7 @@ public class VehicleRuntimeManager {
             properties.setSafetyGapMeters(request.safetyGapMeters());
             properties.setPowerNetworkBaseUrl(request.powerNetworkBaseUrl());
             properties.setForwardPowerLoads(request.forwardPowerLoads());
+            bootstrapped = true;
         }
         recordEvent("runtime", "BOOTSTRAP", "external vehicle runtime bootstrapped");
         latestHealth = healthSnapshot("UP", 0, "GOOD", "BOOTSTRAPPED", 0);
@@ -593,7 +596,8 @@ public class VehicleRuntimeManager {
             lastAcceptedTick,
             "NOT_APPLICABLE",
             configHash(),
-            stoppingProperties.getParameterVersion()
+            stoppingProperties.getParameterVersion(),
+            bootstrapped
         );
     }
 
