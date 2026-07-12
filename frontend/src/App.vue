@@ -664,9 +664,28 @@ async function runSimulationTick(): Promise<void> {
   for (let i = 0; i < 50; i++) {
     try {
       const snapshot = await simulationApi.tick()
-      if (i === 9) applyBackendSnapshot(snapshot)
+      if (i === 49) applyBackendSnapshot(snapshot)
     } catch { return }
   }
+}
+
+async function simReset(): Promise<void> {
+  try { applyBackendSnapshot(await simulationApi.reset()) } catch {}
+}
+async function simTick(): Promise<void> {
+  if (backendStatus.value !== 'RUNNING') {
+    try { backendStatus.value = (await simulationApi.start()).status } catch { return }
+  }
+  try { applyBackendSnapshot(await simulationApi.tick()) } catch {}
+}
+async function simTick50(): Promise<void> {
+  if (backendStatus.value !== 'RUNNING') {
+    try { backendStatus.value = (await simulationApi.start()).status } catch { return }
+  }
+  for (let i = 0; i < 50; i++) {
+    try { await simulationApi.tick() } catch { return }
+  }
+  try { applyBackendSnapshot(await simulationApi.snapshot()) } catch {}
 }
 
 function resizeTrendChart(): void {
