@@ -166,13 +166,14 @@ const trackSegments = ref<TrackSegmentState[]>([
   { id: 'T01', name: '上京南-科创园', startPercent: 4, widthPercent: 21, occupancy: 'FREE', speedLimitKph: 72 },
   { id: 'T02', name: '科创园-中央公园', startPercent: 25, widthPercent: 21, occupancy: 'FREE', speedLimitKph: 80 },
   { id: 'T03', name: '中央公园-北城', startPercent: 50, widthPercent: 21, occupancy: 'FREE', speedLimitKph: 80 },
-  { id: 'T04', name: '北城-上京北', startPercent: 75, widthPercent: 20, occupancy: 'FREE', speedLimitKph: 72 }
+  { id: 'T04', name: '北城-会展中心', startPercent: 64, widthPercent: 12, occupancy: 'FREE', speedLimitKph: 72 },
+  { id: 'T05', name: '会展中心-上京北', startPercent: 80, widthPercent: 16, occupancy: 'FREE', speedLimitKph: 80 }
 ])
 
 const powerSections = ref<PowerSectionState[]>([
-  { id: 'P1', name: '牵引一区', startPercent: 4, widthPercent: 28, status: 'ENERGIZED', affectedTrains: [] },
-  { id: 'P2', name: '牵引二区', startPercent: 32, widthPercent: 28, status: 'OVERRANGE', affectedTrains: ['T305'] },
-  { id: 'P3', name: '牵引三区', startPercent: 60, widthPercent: 35, status: 'LOST', affectedTrains: ['T407', 'T509'] }
+  { id: 'P01', name: '南段供电', startPercent: 4, widthPercent: 36, status: 'ENERGIZED', affectedTrains: [] },
+  { id: 'P02', name: '中段供电', startPercent: 40, widthPercent: 36, status: 'ENERGIZED', affectedTrains: [] },
+  { id: 'P03', name: '北段供电', startPercent: 80, widthPercent: 16, status: 'ENERGIZED', affectedTrains: [] }
 ])
 
 const topologyNodes: TopologyNode[] = [
@@ -194,26 +195,26 @@ const topologyNodes: TopologyNode[] = [
 ]
 
 const topologyEdges: TopologyEdge[] = [
-  { id: 'E01', source: 'SHN', target: 'TECH', segmentId: 'T01', lengthMeters: 1250, speedLimitKph: 72, status: 'FREE', powerSectionId: 'P1', routeIds: ['R01'], detailCount: 1 },
-  { id: 'E02', source: 'TECH', target: 'RENMIN', segmentId: 'T02', lengthMeters: 1250, speedLimitKph: 80, status: 'FREE', powerSectionId: 'P1', routeIds: ['R01'], detailCount: 1 },
-  { id: 'E03', source: 'RENMIN', target: 'FIN', segmentId: 'T03', lengthMeters: 1250, speedLimitKph: 80, status: 'FREE', powerSectionId: 'P2', routeIds: ['R01'], detailCount: 1 },
-  { id: 'E04', source: 'FIN', target: 'EXPO', segmentId: 'T04', lengthMeters: 1250, speedLimitKph: 72, status: 'FREE', powerSectionId: 'P2', routeIds: ['R01'], detailCount: 1 },
-  { id: 'E05', source: 'EXPO', target: 'AIR', segmentId: 'SEG-EXPO-AIR', lengthMeters: 1250, speedLimitKph: 90, status: 'FREE', powerSectionId: 'P3', routeIds: ['R01'], detailCount: 1 },
-  { id: 'E06', source: 'DEPOT_B', target: 'DEPOT_A', segmentId: 'DEPOT-01', lengthMeters: 420, speedLimitKph: 25, status: 'FREE', powerSectionId: 'P1', routeIds: ['R03'], detailCount: 8 },
-  { id: 'E07', source: 'DEPOT_A', target: 'TECH', segmentId: 'DEPOT-02', lengthMeters: 760, speedLimitKph: 35, status: 'FREE', powerSectionId: 'P1', routeIds: ['R03'], detailCount: 14 },
-  { id: 'E08', source: 'TECH', target: 'TECH_N', segmentId: 'SW-TECH', lengthMeters: 180, speedLimitKph: 35, status: 'FREE', powerSectionId: 'P1', routeIds: ['R02'], detailCount: 4 },
-  { id: 'E09', source: 'TECH_N', target: 'RENMIN_N', segmentId: 'NORTH-01', lengthMeters: 980, speedLimitKph: 60, status: 'FREE', powerSectionId: 'P2', routeIds: ['R02'], detailCount: 26 },
-  { id: 'E10', source: 'RENMIN_N', target: 'FIN_N', segmentId: 'NORTH-02', lengthMeters: 1040, speedLimitKph: 60, status: 'FREE', powerSectionId: 'P2', routeIds: ['R02'], detailCount: 28 },
-  { id: 'E11', source: 'FIN_N', target: 'EXPO_N', segmentId: 'NORTH-03', lengthMeters: 1180, speedLimitKph: 60, status: 'FREE', powerSectionId: 'P3', routeIds: ['R02'], detailCount: 31 },
-  { id: 'E12', source: 'EXPO_N', target: 'EXPO', segmentId: 'SW-EXPO', lengthMeters: 260, speedLimitKph: 35, status: 'FREE', powerSectionId: 'P3', routeIds: ['R02'], detailCount: 5 },
-  { id: 'E13', source: 'RENMIN', target: 'LOOP_W', segmentId: 'LOOP-01', lengthMeters: 520, speedLimitKph: 35, status: 'OCCUPIED', powerSectionId: 'P2', routeIds: ['R03'], detailCount: 11 },
-  { id: 'E14', source: 'LOOP_W', target: 'LOOP_E', segmentId: 'LOOP-02', lengthMeters: 960, speedLimitKph: 45, status: 'FREE', powerSectionId: 'P2', routeIds: ['R03'], detailCount: 20 },
-  { id: 'E15', source: 'LOOP_E', target: 'FIN', segmentId: 'SW-FIN', lengthMeters: 480, speedLimitKph: 35, status: 'FREE', powerSectionId: 'P3', routeIds: ['R03'], detailCount: 8 },
-  { id: 'E16', source: 'LOOP_E', target: 'BRANCH', segmentId: 'BRANCH-01', lengthMeters: 720, speedLimitKph: 45, status: 'FREE', powerSectionId: 'P3', routeIds: ['R03'], detailCount: 16 },
+  { id: 'E01', source: 'SHN', target: 'TECH', segmentId: 'T01', lengthMeters: 1250, speedLimitKph: 72, status: 'FREE', powerSectionId: 'P01', routeIds: ['R01'], detailCount: 1 },
+  { id: 'E02', source: 'TECH', target: 'RENMIN', segmentId: 'T02', lengthMeters: 1250, speedLimitKph: 80, status: 'FREE', powerSectionId: 'P01', routeIds: ['R01'], detailCount: 1 },
+  { id: 'E03', source: 'RENMIN', target: 'FIN', segmentId: 'T03', lengthMeters: 1250, speedLimitKph: 80, status: 'FREE', powerSectionId: 'P02', routeIds: ['R01'], detailCount: 1 },
+  { id: 'E04', source: 'FIN', target: 'EXPO', segmentId: 'T04', lengthMeters: 1250, speedLimitKph: 72, status: 'FREE', powerSectionId: 'P02', routeIds: ['R01'], detailCount: 1 },
+  { id: 'E05', source: 'EXPO', target: 'AIR', segmentId: 'T05', lengthMeters: 1250, speedLimitKph: 90, status: 'FREE', powerSectionId: 'P03', routeIds: ['R01'], detailCount: 1 },
+  { id: 'E06', source: 'DEPOT_B', target: 'DEPOT_A', segmentId: 'T11', lengthMeters: 420, speedLimitKph: 25, status: 'FREE', powerSectionId: 'P01', routeIds: ['R03'], detailCount: 8 },
+  { id: 'E07', source: 'DEPOT_A', target: 'TECH', segmentId: 'T12', lengthMeters: 760, speedLimitKph: 35, status: 'FREE', powerSectionId: 'P01', routeIds: ['R03'], detailCount: 14 },
+  { id: 'E08', source: 'TECH', target: 'TECH_N', segmentId: 'T06', lengthMeters: 180, speedLimitKph: 35, status: 'FREE', powerSectionId: 'P01', routeIds: ['R02'], detailCount: 4 },
+  { id: 'E09', source: 'TECH_N', target: 'RENMIN_N', segmentId: 'T07', lengthMeters: 980, speedLimitKph: 60, status: 'FREE', powerSectionId: 'P02', routeIds: ['R02'], detailCount: 26 },
+  { id: 'E10', source: 'RENMIN_N', target: 'FIN_N', segmentId: 'T08', lengthMeters: 1040, speedLimitKph: 60, status: 'FREE', powerSectionId: 'P02', routeIds: ['R02'], detailCount: 28 },
+  { id: 'E11', source: 'FIN_N', target: 'EXPO_N', segmentId: 'T09', lengthMeters: 1180, speedLimitKph: 60, status: 'FREE', powerSectionId: 'P03', routeIds: ['R02'], detailCount: 31 },
+  { id: 'E12', source: 'EXPO_N', target: 'EXPO', segmentId: 'T10', lengthMeters: 260, speedLimitKph: 35, status: 'FREE', powerSectionId: 'P03', routeIds: ['R02'], detailCount: 5 },
+  { id: 'E13', source: 'RENMIN', target: 'LOOP_W', segmentId: 'T13', lengthMeters: 520, speedLimitKph: 35, status: 'OCCUPIED', powerSectionId: 'P02', routeIds: ['R03'], detailCount: 11 },
+  { id: 'E14', source: 'LOOP_W', target: 'LOOP_E', segmentId: 'T14', lengthMeters: 960, speedLimitKph: 45, status: 'FREE', powerSectionId: 'P02', routeIds: ['R03'], detailCount: 20 },
+  { id: 'E15', source: 'LOOP_E', target: 'FIN', segmentId: 'T15', lengthMeters: 480, speedLimitKph: 35, status: 'FREE', powerSectionId: 'P03', routeIds: ['R03'], detailCount: 8 },
+  { id: 'E16', source: 'LOOP_E', target: 'BRANCH', segmentId: 'T16', lengthMeters: 720, speedLimitKph: 45, status: 'FREE', powerSectionId: 'P03', routeIds: ['R03'], detailCount: 16 },
 ]
 
 const topologyRoutes: TopologyRoute[] = [
-  { id: 'R01', name: '正线进路', segmentIds: ['E01', 'E02', 'E03', 'E04', 'E05'], description: '上海南 → 科技园 → 人民广场 → 金融城 → 会展中心 → 机场北' },
+  { id: 'R01', name: '正线进路', segmentIds: ['E01', 'E02', 'E03', 'E04', 'E05'], description: '上京南 → 科创园 → 中央公园 → 北城 → 会展中心 → 上京北' },
   { id: 'R02', name: '北侧绕行', segmentIds: ['E08', 'E09', 'E10', 'E11', 'E12'], description: '科技园北岔 → 金融城北岔 → 会展北联络' },
   { id: 'R03', name: '车辆段/折返', segmentIds: ['E06', 'E07', 'E13', 'E14', 'E15', 'E16'], description: '车辆段出入线与折返线' }
 ]
@@ -227,10 +228,10 @@ const topologySignals: TopologySignal[] = [
 ]
 
 const topologyEdgeByTrackSegment: Record<string, string> = {
-  T01: 'E01',
-  T02: 'E02',
-  T03: 'E03',
-  T04: 'E04'
+  T01: 'E01', T02: 'E02', T03: 'E03', T04: 'E04', T05: 'E05',
+  T06: 'E08', T07: 'E09', T08: 'E10', T09: 'E11', T10: 'E12',
+  T11: 'E06', T12: 'E07',
+  T13: 'E13', T14: 'E14', T15: 'E15', T16: 'E16'
 }
 
 const trainTopologyAnchors: Record<string, { edgeId: string; ratio: number }> = {
@@ -252,7 +253,7 @@ const passengerStations = ref<StationPassengerState[]>([
 
 const alarms = ref<UnifiedAlarm[]>([
   { id: 'A001', time: '08:34:55', source: '车辆', location: 'T305', level: 3, description: '整列满载率超过100%，车辆故障码 VHL-23', impact: '影响后续 T407，预计影响旅客 1280 人', confirmed: false, muted: false },
-  { id: 'A002', time: '08:34:12', source: '轨道信号', location: '人民广场-金融城', level: 3, description: '轨道电路红光带，列车接近故障区段', impact: '闭塞区段 S3，影响列车 T305/T407', confirmed: false, muted: false },
+  { id: 'A002', time: '08:34:12', source: '轨道信号', location: '中央公园-北城', level: 3, description: '轨道电路红光带，列车接近故障区段', impact: '闭塞区段 T03，影响列车 T305/T407', confirmed: false, muted: false },
   { id: 'A003', time: '08:33:40', source: '供电', location: '牵引三区', level: 3, description: '接触轨失压，分区失电', impact: 'P3 内 T407/T509 降级运行', confirmed: false, muted: false },
   { id: 'A004', time: '08:32:19', source: '客流', location: '人民广场', level: 2, description: '站台滞留人数超过容量80%，预测15分钟后超容量', impact: '建议限流并调整发车间隔', confirmed: true, muted: false },
   { id: 'A005', time: '08:31:07', source: '通信', location: '客流接口', level: 1, description: '会展中心客流数据延迟', impact: '热力图使用最近缓存数据', confirmed: false, muted: true }

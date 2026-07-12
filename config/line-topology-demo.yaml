@@ -1,0 +1,230 @@
+# 上京地铁拓扑全貌 — 对应前端综合监控拓扑图
+# 6站正线 + 北侧绕行 + 折返线 + 车辆段 + 支线
+# 所有区段在0~6250m范围内，平行支线与正线共享里程区间
+
+line:
+  id: topology-demo
+  name: 上京地铁拓扑全貌
+  length_meters: 6250
+  default_speed_limit_meters_per_second: 22.2
+
+stations:
+  - id: S01
+    name: 上京南站
+    position_meters: 0
+  - id: S02
+    name: 科创园站
+    position_meters: 1250
+  - id: S03
+    name: 中央公园站
+    position_meters: 2500
+  - id: S04
+    name: 北城站
+    position_meters: 3750
+  - id: S05
+    name: 会展中心
+    position_meters: 5000
+  - id: S06
+    name: 上京北站
+    position_meters: 6250
+
+nodes:
+  - id: N01
+    name: 上京南起点
+  - id: N02
+    name: 科创园道岔
+  - id: N03
+    name: 中央公园道岔
+  - id: N04
+    name: 北城节点
+  - id: N05
+    name: 会展中心节点
+  - id: N06
+    name: 上京北终点
+  # 北侧绕行
+  - id: N07
+    name: 科技园北岔
+  - id: N08
+    name: 广场北岔
+  - id: N09
+    name: 金融城北岔
+  - id: N10
+    name: 会展北联络
+  # 折返线
+  - id: N11
+    name: 折返线西
+  - id: N12
+    name: 折返线东道岔
+  # 支线
+  - id: N13
+    name: 支线口
+  # 车辆段
+  - id: N14
+    name: 车辆段A
+  - id: N15
+    name: 试车线B
+
+segments:
+  # ===== 正线 R01: 上京南→科创园→中央公园→北城→会展中心→上京北 =====
+  - id: T01
+    from: N01
+    to: N02
+    start_meters: 0
+    end_meters: 1250
+    speed_limit_meters_per_second: 20.0
+    track: main
+  - id: T02
+    from: N02
+    to: N03
+    start_meters: 1250
+    end_meters: 2500
+    speed_limit_meters_per_second: 22.2
+    track: main
+  - id: T03
+    from: N03
+    to: N04
+    start_meters: 2500
+    end_meters: 3750
+    speed_limit_meters_per_second: 22.2
+    track: main
+  - id: T04
+    from: N04
+    to: N05
+    start_meters: 3750
+    end_meters: 5000
+    speed_limit_meters_per_second: 20.0
+    track: main
+  - id: T05
+    from: N05
+    to: N06
+    start_meters: 5000
+    end_meters: 6250
+    speed_limit_meters_per_second: 22.2
+    track: main
+
+  # ===== 北侧绕行 R02: 科创园(N02)→北岔→广场北→金融城北→会展北→会展中心(N05) =====
+  - id: T06
+    from: N02
+    to: N07
+    start_meters: 1250
+    end_meters: 1430
+    speed_limit_meters_per_second: 15.0
+    track: north
+  - id: T07
+    from: N07
+    to: N08
+    start_meters: 1430
+    end_meters: 2410
+    speed_limit_meters_per_second: 18.0
+    track: north
+  - id: T08
+    from: N08
+    to: N09
+    start_meters: 2410
+    end_meters: 3450
+    speed_limit_meters_per_second: 18.0
+    track: north
+  - id: T09
+    from: N09
+    to: N10
+    start_meters: 3450
+    end_meters: 4630
+    speed_limit_meters_per_second: 18.0
+    track: north
+  - id: T10
+    from: N10
+    to: N05
+    start_meters: 4630
+    end_meters: 5000
+    speed_limit_meters_per_second: 15.0
+    track: north
+
+  # ===== 折返线 R03: 中央公园(N03)→折返线西(N11)→折返线东(N12)→北城站(N04) =====
+  - id: T13
+    from: N03
+    to: N11
+    start_meters: 2500
+    end_meters: 3020
+    speed_limit_meters_per_second: 15.0
+    track: loop
+  - id: T14
+    from: N11
+    to: N12
+    start_meters: 3020
+    end_meters: 3540
+    speed_limit_meters_per_second: 15.0
+    track: loop
+  - id: T15
+    from: N12
+    to: N04
+    start_meters: 3540
+    end_meters: 3750
+    speed_limit_meters_per_second: 15.0
+    track: loop
+
+  # ===== 支线: 折返线东(N12)→支线口(N13) =====
+  - id: T16
+    from: N12
+    to: N13
+    start_meters: 3540
+    end_meters: 4260
+    speed_limit_meters_per_second: 15.0
+    track: branch
+
+  # ===== 车辆段: 试车线B(N15)→车辆段A(N14)→科创园(N02) =====
+  - id: T11
+    from: N15
+    to: N14
+    start_meters: 0
+    end_meters: 420
+    speed_limit_meters_per_second: 10.0
+    track: depot
+  - id: T12
+    from: N14
+    to: N02
+    start_meters: 420
+    end_meters: 1250
+    speed_limit_meters_per_second: 12.0
+    track: depot
+
+switches:
+  - id: SW01
+    node: N02
+    normal_target: T02
+    reverse_target: T06
+    default_position: NORMAL
+  - id: SW02
+    node: N03
+    normal_target: T03
+    reverse_target: T13
+    default_position: NORMAL
+  - id: SW03
+    node: N12
+    normal_target: T15
+    reverse_target: T16
+    default_position: NORMAL
+  - id: SW04
+    node: N02
+    normal_target: T01
+    reverse_target: T12
+    default_position: NORMAL
+
+routes:
+  - id: R_MAIN
+    name: 正线进路
+    type: MAIN
+    start_signal: SIG-T01
+    end_signal: SIG-T05
+    axle_section_ids: [T01, T02, T03, T04, T05]
+  - id: R_NORTH
+    name: 北侧绕行
+    type: BRANCH
+    start_signal: SIG-T06
+    end_signal: SIG-T10
+    axle_section_ids: [T06, T07, T08, T09, T10]
+  - id: R_DEPOT
+    name: 车辆段与折返
+    type: DEPOT
+    start_signal: SIG-T11
+    end_signal: SIG-T16
+    axle_section_ids: [T11, T12, T13, T14, T15, T16]
