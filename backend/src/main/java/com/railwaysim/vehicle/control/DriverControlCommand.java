@@ -9,6 +9,8 @@ import java.util.UUID;
  * 每个命令来自一次 PLC 输入解析结果，携带完整溯源信息。
  * 命令过期后进入 STALE 状态，不再参与仲裁。
  */
+/** @deprecated LOCAL mode only. EXTERNAL_HTTP mode uses 9300's DriverControlCommandSnapshot. */
+@Deprecated(forRemoval=true, since="2.0")
 public record DriverControlCommand(
     String commandId,
     String trainId,

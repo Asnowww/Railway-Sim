@@ -14,6 +14,8 @@ import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientResponseException;
 
 @Service
+/** @deprecated LOCAL mode only. Use 9300 VehicleControlQueue for control decisions in EXTERNAL_HTTP mode. */
+@Deprecated(forRemoval=true, since="2.0")
 public class OnboardTrainSubsystemManager {
 
     private final SimulationProperties simulationProperties;

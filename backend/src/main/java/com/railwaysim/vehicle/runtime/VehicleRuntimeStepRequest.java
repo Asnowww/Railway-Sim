@@ -36,4 +36,20 @@ public record VehicleRuntimeStepRequest(
             dispatchConstraints, powerConstraints, "", List.of()
         );
     }
+
+    /** 无列车状态的构造器（EXTERNAL_HTTP 模式使用，9300 从本地 TrainStateHolder 读取）。 */
+    public static VehicleRuntimeStepRequest withoutTrains(
+        long tick, double deltaSeconds, Instant requestedAt,
+        List<MovementAuthority> movementAuthorities,
+        List<TrackConstraint> trackConstraints,
+        List<DispatchConstraint> dispatchConstraints,
+        List<PowerConstraint> powerConstraints,
+        String simulationRunId
+    ) {
+        return new VehicleRuntimeStepRequest(
+            tick, deltaSeconds, requestedAt, List.of(),
+            movementAuthorities, trackConstraints, dispatchConstraints, powerConstraints,
+            simulationRunId, List.of()
+        );
+    }
 }

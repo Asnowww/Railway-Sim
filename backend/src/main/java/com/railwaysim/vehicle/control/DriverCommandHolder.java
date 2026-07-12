@@ -8,6 +8,8 @@ import org.springframework.stereotype.Component;
  * 共享的司机台命令持有者，避免 TrainManager 与 VehicleRuntimeIntegrationService 循环依赖。
  */
 @Component
+/** @deprecated Retained for LOCAL mode. EXTERNAL_HTTP mode uses 9300's DriverCommandHolder. */
+@Deprecated(forRemoval=true, since="2.0")
 public class DriverCommandHolder {
 
     private final Map<String, DriverControlCommand> commands = new ConcurrentHashMap<>();

@@ -17,6 +17,7 @@ import com.railwaysim.vehicleruntime.model.PowerConstraintSnapshot;
 import com.railwaysim.vehicleruntime.model.TrackConstraintSnapshot;
 import com.railwaysim.vehicleruntime.model.TrainStateSnapshot;
 import com.railwaysim.vehicleruntime.model.VehicleRuntimeLaunchRequest;
+import com.railwaysim.vehicleruntime.model.VehicleRuntimeBootstrapRequest;
 import com.railwaysim.vehicleruntime.model.VehicleRuntimeStepRequest;
 import com.railwaysim.vehicleruntime.model.VehicleRuntimeStepResponse;
 import java.time.Instant;
@@ -44,6 +45,53 @@ class VehicleRuntimeManagerTests {
     }
 
     @Test
+    void registeredSnapshotSeedsAuthoritativeStateForTrainlessFleetTicks() {
+        VehicleRuntimeManager manager = manager();
+        TrainStateSnapshot initial = train("TR-SEEDED", 432.0, 0);
+        manager.register(initial);
+        VehicleRuntimeStepRequest request = new VehicleRuntimeStepRequest(
+            1, 0.1, Instant.now(), List.of(),
+            List.of(new MovementAuthoritySnapshot("TR-SEEDED", 2_000, 22.2, "NORMAL")),
+            List.of(new TrackConstraintSnapshot("TR-SEEDED", "SEG-1", 22.2, 0, 1_000, 1_000_000)),
+            List.of(), List.of(), "run-seeded", List.of());
+
+        VehicleRuntimeStepResponse response = manager.stepFleet(request);
+
+        assertThat(response.trainOutputs()).singleElement()
+            .satisfies(output -> assertThat(output.newPositionMeters()).isGreaterThan(432.0));
+        assertThat(response.trainStates()).singleElement()
+            .satisfies(state -> assertThat(state.id()).isEqualTo("TR-SEEDED"));
+    }
+
+    @Test
+    void healthReportsBootstrapStateOnlyAfterCentralConfigurationIsApplied() {
+        VehicleRuntimeManager manager = manager();
+
+        assertThat(manager.health().bootstrapped()).isFalse();
+
+        manager.bootstrap(new VehicleRuntimeBootstrapRequest(
+            5_000, 22.2, 120, "http://localhost:9200", true));
+
+        assertThat(manager.health().bootstrapped()).isTrue();
+    }
+
+    @Test
+    void stationTopologyParticipatesInRuntimeConfigIdentity() {
+        VehicleRuntimeManager first = manager();
+        VehicleRuntimeManager second = manager();
+        first.bootstrap(new VehicleRuntimeBootstrapRequest(
+            5_000, 22.2, 120, "http://localhost:9200", true,
+            List.of(new VehicleRuntimeBootstrapRequest.StationTarget(
+                "S01", "Station", 1_250, List.of("P-S01")))));
+        second.bootstrap(new VehicleRuntimeBootstrapRequest(
+            5_000, 22.2, 120, "http://localhost:9200", true,
+            List.of(new VehicleRuntimeBootstrapRequest.StationTarget(
+                "S01", "Station", 1_300, List.of("P-S01")))));
+
+        assertThat(first.health().configHash()).isNotEqualTo(second.health().configHash());
+    }
+
+    @Test
     void plcInputIsOwnedByRuntimeAndRejectsUnknownInstance() {
         DriverCommandHolder holder = new DriverCommandHolder();
         VehicleRuntimeManager manager = manager();
@@ -56,6 +104,23 @@ class VehicleRuntimeManagerTests {
         var accepted = controller.applyPlcInput("TR-PLC", neutral);
         assertThat(accepted.getStatusCode().is2xxSuccessful()).isTrue();
         assertThat(holder.latest("TR-PLC")).isNotNull();
+        assertThat(holder.latest("TR-PLC").tractionCommand()).isZero();
+        assertThat(holder.latest("TR-PLC").brakeCommand()).isZero();
+        assertThat(manager.getTrainState("TR-PLC").operationMode()).isNotEqualTo("STANDBY");
+    }
+
+    @Test
+    void networkScreenTractionCutIsAppliedByRuntime() {
+        VehicleRuntimeManager manager = manager();
+        manager.register(train("TR-HMI", 100, 0));
+
+        manager.applyTractionCut("TR-HMI", true);
+        assertThat(manager.getTrainState("TR-HMI").tractionAvailable()).isFalse();
+        assertThat(manager.getTrainState("TR-HMI").vehicleProtectionReason())
+            .isEqualTo("DRIVER_CAB_TRACTION_CUT");
+
+        manager.applyTractionCut("TR-HMI", false);
+        assertThat(manager.getTrainState("TR-HMI").tractionAvailable()).isTrue();
     }
 
     @Test
@@ -274,7 +339,10 @@ class VehicleRuntimeManagerTests {
 
     @Test
     void registerRejectsPathAndBodyTrainIdMismatch() {
-        VehicleRuntimeController controller = new VehicleRuntimeController(manager());
+        VehicleRuntimeManager manager = manager();
+        VehicleRuntimeController controller = new VehicleRuntimeController(
+            manager, DriverCommandHolder.getInstance(),
+            new VehicleRuntimeTickClock(manager, new VehicleRuntimeProperties()));
 
         assertThatThrownBy(() -> controller.register("TR-PATH", train("TR-BODY", 100, 0)))
             .isInstanceOfSatisfying(ResponseStatusException.class, exception ->

@@ -180,6 +180,7 @@ public class PowerIntegrationService {
             );
         }
         try {
+            ensureExternalBootstrap();
             PowerNetworkOperationResult result = externalClient.operate(request);
             refreshSnapshot();
             return result;

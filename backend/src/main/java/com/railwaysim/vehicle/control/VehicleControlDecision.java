@@ -9,6 +9,8 @@ import java.util.UUID;
  * <p>
  * 包含完整溯源信息，支持审计和回放。
  */
+/** @deprecated LOCAL mode only. Retained for LOCAL fallback persistence. */
+@Deprecated(forRemoval=true, since="2.0")
 public record VehicleControlDecision(
     String decisionId,
     String runId,

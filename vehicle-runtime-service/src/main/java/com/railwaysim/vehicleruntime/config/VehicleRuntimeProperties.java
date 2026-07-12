@@ -23,6 +23,8 @@ public class VehicleRuntimeProperties {
     private long powerNetworkTimeoutMillis = 300;
     private String centralBaseUrl = "http://localhost:8080";
     private long centralTimeoutMillis = 300;
+    private boolean autonomousTickEnabled;
+    private long autonomousTickIntervalMillis = 100;
 
     public String getTrainParamsPath() {
         return trainParamsPath;
@@ -154,5 +156,21 @@ public class VehicleRuntimeProperties {
 
     public void setCentralTimeoutMillis(long centralTimeoutMillis) {
         this.centralTimeoutMillis = Math.max(1, centralTimeoutMillis);
+    }
+
+    public boolean isAutonomousTickEnabled() {
+        return autonomousTickEnabled;
+    }
+
+    public void setAutonomousTickEnabled(boolean autonomousTickEnabled) {
+        this.autonomousTickEnabled = autonomousTickEnabled;
+    }
+
+    public long getAutonomousTickIntervalMillis() {
+        return autonomousTickIntervalMillis;
+    }
+
+    public void setAutonomousTickIntervalMillis(long autonomousTickIntervalMillis) {
+        this.autonomousTickIntervalMillis = Math.max(10, autonomousTickIntervalMillis);
     }
 }
