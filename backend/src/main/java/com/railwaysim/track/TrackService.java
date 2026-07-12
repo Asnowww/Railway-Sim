@@ -52,6 +52,8 @@ public class TrackService {
     private final Set<String> reservedSegmentIds = new HashSet<>();
     private final Set<String> faultSegmentIds = new HashSet<>();
     private final Map<String, Set<String>> occupyingTrainIdsBySegment = new HashMap<>();
+    private final Map<String, String> trainSegmentIds = new HashMap<>();
+    private final Map<String, String> previousTrainSegmentIds = new HashMap<>();
     private final StaticInfrastructureCatalog infrastructureCatalog;
     private final SimulationProperties simulationProperties;
 
@@ -108,6 +110,8 @@ public class TrackService {
         reservedSegmentIds.clear();
         faultSegmentIds.clear();
         occupyingTrainIdsBySegment.clear();
+        trainSegmentIds.clear();
+        previousTrainSegmentIds.clear();
     }
 
     // ==================== 区段占用计算 ====================
@@ -126,6 +130,9 @@ public class TrackService {
      */
     public synchronized void updateOccupancy(List<TrainState> trains) {
         occupyingTrainIdsBySegment.clear();
+        Set<String> activeTrainIds = trains.stream().map(TrainState::id).collect(java.util.stream.Collectors.toSet());
+        trainSegmentIds.keySet().retainAll(activeTrainIds);
+        previousTrainSegmentIds.keySet().retainAll(activeTrainIds);
 
         // ① 清除 OCCUPIED → FREE（保留 RESERVED 和 FAULT）
         for (int i = 0; i < segments.size(); i++) {
@@ -140,7 +147,7 @@ public class TrackService {
             }
         }
 
-        // ② 全车长范围覆盖 → OCCUPIED (仅同轨道线的区段，避免并行支线误标)
+        // Resolve each train onto one topology path before applying body occupancy.
         for (TrainState train : trains) {
             // 终点站已停列车不再标记占用——后车可跟随进站
             if (train.positionMeters() >= infrastructureCatalog.lineData().lineLengthMeters() - 10
@@ -149,19 +156,16 @@ public class TrackService {
             }
             double tail = train.positionMeters() - train.lengthMeters();
             double head = train.positionMeters();
-            TrackSegmentState primarySeg = segmentAt(train.positionMeters());
+            TrackSegmentState current = segmentForTrain(train);
+            String previousId = previousTrainSegmentIds.get(train.id());
             for (int i = 0; i < segments.size(); i++) {
                 TrackSegmentState seg = segments.get(i);
                 // 跳过不同轨道的并行段 (如列车在main, 不标north/loop/branch/depot)
-                if (primarySeg != null && !"main".equals(primarySeg.track())
-                    && !primarySeg.track().equals(seg.track())) {
-                    continue;
-                }
-                if (primarySeg != null && "main".equals(primarySeg.track())
-                    && !"main".equals(seg.track())) {
-                    continue;
-                }
-                if (overlaps(head, tail, seg.startMeters(), seg.endMeters())) {
+                boolean sameTrack = seg.track() == null || current.track() == null
+                    || seg.track().equals(current.track())
+                    || ("main".equals(current.track()) && "main".equals(seg.track()));
+                boolean onTrainPath = (seg.id().equals(current.id()) || seg.id().equals(previousId)) && sameTrack;
+                if (onTrainPath && overlaps(head, tail, seg.startMeters(), seg.endMeters())) {
                     occupyingTrainIdsBySegment
                         .computeIfAbsent(seg.id(), ignored -> new HashSet<>())
                         .add(train.id());
@@ -177,6 +181,67 @@ public class TrackService {
     public synchronized Set<String> occupyingTrainIds(String segmentId) {
         Set<String> trainIds = occupyingTrainIdsBySegment.get(segmentId);
         return trainIds == null ? Set.of() : Set.copyOf(trainIds);
+    }
+
+    public synchronized void assignTrainToSegment(String trainId, String segmentId) {
+        if (trainId == null || trainId.isBlank() || !segmentExists(segmentId)) {
+            throw new IllegalArgumentException("trainId and an existing segmentId are required");
+        }
+        trainSegmentIds.put(trainId, segmentId);
+        previousTrainSegmentIds.remove(trainId);
+    }
+
+    public synchronized TrackSegmentState segmentForTrain(TrainState train) {
+        TrackSegmentState assigned = stateById(trainSegmentIds.get(train.id()));
+        if (assigned != null && contains(assigned, train.positionMeters())) {
+            return assigned;
+        }
+
+        List<TrackSegmentState> candidates = segments.stream()
+            .filter(segment -> contains(segment, train.positionMeters()))
+            .toList();
+        TrackSegmentState resolved = resolveNextSegment(assigned, candidates);
+        if (resolved == null) {
+            resolved = candidates.stream()
+                .min(Comparator.comparingInt((TrackSegmentState segment) -> "main".equals(segment.track()) ? 0 : 1)
+                    .thenComparing(TrackSegmentState::id))
+                .orElseGet(this::fallbackSegment);
+        }
+        if (assigned != null && !assigned.id().equals(resolved.id())) {
+            previousTrainSegmentIds.put(train.id(), assigned.id());
+        }
+        trainSegmentIds.put(train.id(), resolved.id());
+        return resolved;
+    }
+
+    private TrackSegmentState resolveNextSegment(TrackSegmentState assigned, List<TrackSegmentState> candidates) {
+        if (assigned == null || candidates.isEmpty()) {
+            return null;
+        }
+        List<String> forward = forwardNeighborMap().getOrDefault(assigned.id(), List.of());
+        List<TrackSegmentState> reachable = candidates.stream().filter(segment -> forward.contains(segment.id())).toList();
+        if (reachable.isEmpty()) {
+            return null;
+        }
+        Set<String> activeSwitchSegments = switches.values().stream()
+            .map(SwitchState::activeSegmentId)
+            .collect(java.util.stream.Collectors.toSet());
+        return reachable.stream()
+            .min(Comparator.comparingInt((TrackSegmentState segment) -> activeSwitchSegments.contains(segment.id()) ? 0 : 1)
+                .thenComparingInt(segment -> assigned.track().equals(segment.track()) ? 0 : 1)
+                .thenComparing(TrackSegmentState::id))
+            .orElse(null);
+    }
+
+    private TrackSegmentState stateById(String segmentId) {
+        if (segmentId == null) {
+            return null;
+        }
+        return segments.stream().filter(segment -> segment.id().equals(segmentId)).findFirst().orElse(null);
+    }
+
+    private static boolean contains(TrackSegmentState segment, double positionMeters) {
+        return positionMeters >= segment.startMeters() && positionMeters < segment.endMeters();
     }
 
     /**
@@ -375,7 +440,7 @@ public class TrackService {
         OperationalLineData lineData = infrastructureCatalog.lineData();
         return trains.stream()
             .map(train -> {
-                TrackSegmentState segment = segmentAt(train.positionMeters());
+                TrackSegmentState segment = segmentForTrain(train);
                 double speedLimit = lineData.speedLimitAt(
                     train.positionMeters(),
                     segment.speedLimitMetersPerSecond()

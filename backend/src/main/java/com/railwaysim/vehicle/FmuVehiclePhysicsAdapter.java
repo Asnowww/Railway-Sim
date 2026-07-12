@@ -28,6 +28,8 @@ import org.springframework.web.client.RestClientResponseException;
 import org.springframework.web.client.RestClient;
 
 @Service
+/** @deprecated LOCAL mode only. EXTERNAL_HTTP mode delegates FMU calls to 9300. */
+@Deprecated(forRemoval=true, since="2.0")
 public class FmuVehiclePhysicsAdapter implements VehiclePhysicsClient {
 
     private final SimulationProperties simulationProperties;

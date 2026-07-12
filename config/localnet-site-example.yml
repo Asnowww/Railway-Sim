@@ -4,7 +4,7 @@
 railway:
   simulation:
     localnet:
-      enabled: false
+      enabled: true
       audit-enabled: true
       recent-packet-limit: 50
       signal:
@@ -17,7 +17,7 @@ railway:
         max-trains: 20
         shadow-comparison: true
       driver-cab:
-        enabled: false
+        enabled: true
         reconnect-millis: 1000
         connections:
           - train-id: TR-001
@@ -28,14 +28,14 @@ railway:
             timeout-millis: 300
           - train-id: TR-001
             role: NETWORK_SCREEN
-            host: 192.168.100.123
-            port: 8002
+            host: 192.168.100.121
+            port: 8888
             cycle-millis: 500
             timeout-millis: 300
           - train-id: TR-001
             role: SIGNAL_SCREEN
-            host: 192.168.100.123
-            port: 8003
+            host: 192.168.100.122
+            port: 9999
             cycle-millis: 500
             timeout-millis: 300
       power-points:

@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.within;
 import com.railwaysim.config.ExternalPowerNetworkProperties;
 import com.railwaysim.config.SimulationProperties;
 import com.railwaysim.infrastructure.PowerConfigLoader;
+import com.railwaysim.infrastructure.OperationalPowerData;
 import com.railwaysim.infrastructure.SpreadsheetLineDataLoader;
 import com.railwaysim.infrastructure.StaticInfrastructureCatalog;
 import com.railwaysim.infrastructure.YamlLineDataLoader;
@@ -67,6 +68,32 @@ class PowerServiceTests {
     }
 
     @Test
+    void illegalTrainPositionsProduceUnknownSafeConstraint() {
+        StaticInfrastructureCatalog catalog = catalog();
+        PowerConstraintService constraintService = new PowerConstraintService(catalog);
+        double outOfRange = catalog.powerData().sections().stream()
+            .mapToDouble(OperationalPowerData.PowerSectionDefinition::endMeters)
+            .max()
+            .orElse(0) + 1;
+
+        List<PowerConstraint> constraints = constraintService.constraintsForTrains(
+            List.of(
+                new TrainEntity("TR-NEG", "demo-line-1", -1, 120).state(),
+                new TrainEntity("TR-END", "demo-line-1", outOfRange, 120).state(),
+                new TrainEntity("TR-INF", "demo-line-1", Double.POSITIVE_INFINITY, 120).state()
+            ),
+            constraintService.initializeStates(new PowerTopologyService(catalog).defaultSnapshot())
+        );
+
+        assertThat(constraints).allSatisfy(constraint -> {
+            assertThat(constraint.sectionId()).isEqualTo("UNKNOWN");
+            assertThat(constraint.powerAvailableWatts()).isZero();
+            assertThat(constraint.currentCollectionAvailable()).isFalse();
+            assertThat(constraint.constraintReason()).isEqualTo("POWER_SECTION_UNKNOWN");
+        });
+    }
+
+    @Test
     void sectionStateIncludesExternalProjectionAndDeviceViews() {
         PowerService powerService = powerService(new SimpleEventBus());
         powerService.reset();
@@ -104,7 +131,7 @@ class PowerServiceTests {
     }
 
     @Test
-    void externalVoltageComparisonFlagsDeviatedSectionsWithoutReplacingCentralVoltage() {
+    void externalVoltageIsAuthoritativeWhileCentralCalculationRemainsAsDeviationDiagnostic() {
         PowerConstraintService constraintService = new PowerConstraintService(catalog());
         VehiclePhysicsOutput output = output("TR-001", 500, 1_200, 900_000, 0);
 
@@ -119,10 +146,10 @@ class PowerServiceTests {
             .findFirst()
             .orElseThrow();
 
-        // P01: 1500 V - 1200 A * (0.03 V/A + 0.00002 ohm/m * 4000 m) = 1368 V.
-        assertThat(section.voltage()).isCloseTo(1_368, within(0.001));
-        assertThat(section.voltage()).isNotEqualTo(section.externalVoltage());
+        // Central diagnostic calculation is 1368 V; current state mirrors authoritative 9200 at 1250 V.
+        assertThat(section.voltage()).isEqualTo(1_250);
         assertThat(section.externalVoltage()).isEqualTo(1_250);
+        assertThat(section.voltageDeviation()).isCloseTo(-118, within(0.001));
         assertThat(section.voltageComparisonStatus()).isEqualTo("DEVIATED");
         assertThat(section.externalSupportReason()).isEqualTo("test external voltage");
     }

@@ -1,0 +1,76 @@
+name: Verify
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  backend-8080:
+    name: 8080 backend
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+      - run: mvn -f backend/pom.xml test
+
+  vehicle-runtime-9300:
+    name: 9300 vehicle runtime
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+      - run: mvn -f vehicle-runtime-service/pom.xml test
+
+  power-network-9200:
+    name: 9200 power network
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: power-network-service/requirements.txt
+      - run: python -m pip install -r power-network-service/requirements.txt
+      - run: PYTHONPATH=power-network-service python -m unittest discover -s power-network-service/tests -v
+
+  fmu-service-9000:
+    name: 9000 FMU service
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - run: >-
+          docker build --platform linux/amd64
+          -f fmu-service/Dockerfile
+          --target test
+          -t railway-sim-fmu-test:ci
+          .
+      - run: docker run --rm --platform linux/amd64 railway-sim-fmu-test:ci
+
+  frontend:
+    name: Frontend strict build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 11.7.0
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --dir frontend build
+

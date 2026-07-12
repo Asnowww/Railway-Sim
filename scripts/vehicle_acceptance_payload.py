@@ -59,7 +59,11 @@ def train_state(train_id: str, position: float, speed: float = 0.0) -> dict[str,
     }
 
 
-def fleet_request(tick: int, trains: list[dict[str, Any]]) -> dict[str, Any]:
+def fleet_request(
+    tick: int,
+    trains: list[dict[str, Any]],
+    simulation_run_id: str = "acceptance-run",
+) -> dict[str, Any]:
     authorities = [
         {"trainId": train["id"], "authorityEndMeters": 60_000.0, "speedLimitMetersPerSecond": 22.2, "reason": "NORMAL"}
         for train in trains
@@ -84,6 +88,8 @@ def fleet_request(tick: int, trains: list[dict[str, Any]]) -> dict[str, Any]:
         "trackConstraints": tracks,
         "dispatchConstraints": [],
         "powerConstraints": [],
+        "simulationRunId": simulation_run_id,
+        "driverCommands": [],
     }
 
 

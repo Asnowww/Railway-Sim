@@ -23,6 +23,18 @@ public class DispatchProperties {
     private int minDwellSec = 15;
     private int maxDwellSec = 60;
     private int commandEffectTimeoutSec = 180;
+    private double headwayEffectImprovementRatio = 0.25;
+    private int headwayEffectMinImprovementSec = 5;
+    private boolean routeDispatchEnabled = true;
+    private double routeApproachWindowMeters = 600.0;
+    private int routeApproachLookaheadSeconds = 45;
+    private int routeIntentValiditySeconds = 90;
+    private int routeRequestCooldownSeconds = 20;
+    private int routeRequestTimeoutSeconds = 30;
+    private int routeEstablishedHoldTimeoutSeconds = 120;
+    private int routeMaxRetries = 3;
+    private double routeWaitingPriorityPerSecond = 0.05;
+    private double routeWaitingPriorityMaxBonus = 20.0;
 
     public String getPlanLocation() {
         return planLocation;
@@ -166,5 +178,101 @@ public class DispatchProperties {
 
     public void setCommandEffectTimeoutSec(int commandEffectTimeoutSec) {
         this.commandEffectTimeoutSec = commandEffectTimeoutSec;
+    }
+
+    public double getHeadwayEffectImprovementRatio() {
+        return headwayEffectImprovementRatio;
+    }
+
+    public void setHeadwayEffectImprovementRatio(double headwayEffectImprovementRatio) {
+        this.headwayEffectImprovementRatio = headwayEffectImprovementRatio;
+    }
+
+    public int getHeadwayEffectMinImprovementSec() {
+        return headwayEffectMinImprovementSec;
+    }
+
+    public void setHeadwayEffectMinImprovementSec(int headwayEffectMinImprovementSec) {
+        this.headwayEffectMinImprovementSec = headwayEffectMinImprovementSec;
+    }
+
+    public boolean isRouteDispatchEnabled() {
+        return routeDispatchEnabled;
+    }
+
+    public void setRouteDispatchEnabled(boolean routeDispatchEnabled) {
+        this.routeDispatchEnabled = routeDispatchEnabled;
+    }
+
+    public double getRouteApproachWindowMeters() {
+        return routeApproachWindowMeters;
+    }
+
+    public void setRouteApproachWindowMeters(double routeApproachWindowMeters) {
+        this.routeApproachWindowMeters = routeApproachWindowMeters;
+    }
+
+    public int getRouteApproachLookaheadSeconds() {
+        return routeApproachLookaheadSeconds;
+    }
+
+    public void setRouteApproachLookaheadSeconds(int routeApproachLookaheadSeconds) {
+        this.routeApproachLookaheadSeconds = routeApproachLookaheadSeconds;
+    }
+
+    public int getRouteIntentValiditySeconds() {
+        return routeIntentValiditySeconds;
+    }
+
+    public void setRouteIntentValiditySeconds(int routeIntentValiditySeconds) {
+        this.routeIntentValiditySeconds = routeIntentValiditySeconds;
+    }
+
+    public int getRouteRequestCooldownSeconds() {
+        return routeRequestCooldownSeconds;
+    }
+
+    public void setRouteRequestCooldownSeconds(int routeRequestCooldownSeconds) {
+        this.routeRequestCooldownSeconds = routeRequestCooldownSeconds;
+    }
+
+    public int getRouteRequestTimeoutSeconds() {
+        return routeRequestTimeoutSeconds;
+    }
+
+    public void setRouteRequestTimeoutSeconds(int routeRequestTimeoutSeconds) {
+        this.routeRequestTimeoutSeconds = routeRequestTimeoutSeconds;
+    }
+
+    public int getRouteEstablishedHoldTimeoutSeconds() {
+        return routeEstablishedHoldTimeoutSeconds;
+    }
+
+    public void setRouteEstablishedHoldTimeoutSeconds(int routeEstablishedHoldTimeoutSeconds) {
+        this.routeEstablishedHoldTimeoutSeconds = routeEstablishedHoldTimeoutSeconds;
+    }
+
+    public int getRouteMaxRetries() {
+        return routeMaxRetries;
+    }
+
+    public void setRouteMaxRetries(int routeMaxRetries) {
+        this.routeMaxRetries = routeMaxRetries;
+    }
+
+    public double getRouteWaitingPriorityPerSecond() {
+        return routeWaitingPriorityPerSecond;
+    }
+
+    public void setRouteWaitingPriorityPerSecond(double routeWaitingPriorityPerSecond) {
+        this.routeWaitingPriorityPerSecond = routeWaitingPriorityPerSecond;
+    }
+
+    public double getRouteWaitingPriorityMaxBonus() {
+        return routeWaitingPriorityMaxBonus;
+    }
+
+    public void setRouteWaitingPriorityMaxBonus(double routeWaitingPriorityMaxBonus) {
+        this.routeWaitingPriorityMaxBonus = routeWaitingPriorityMaxBonus;
     }
 }

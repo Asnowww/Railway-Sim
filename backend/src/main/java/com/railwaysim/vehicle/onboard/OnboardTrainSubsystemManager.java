@@ -1,6 +1,7 @@
 package com.railwaysim.vehicle.onboard;
 
 import com.railwaysim.config.SimulationProperties;
+import com.railwaysim.config.StoppingControlProperties;
 import com.railwaysim.infrastructure.StaticInfrastructureCatalog;
 import com.railwaysim.train.TrainState;
 import com.railwaysim.vehicle.TrainStateReport;
@@ -13,6 +14,8 @@ import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientResponseException;
 
 @Service
+/** @deprecated LOCAL mode only. Use 9300 VehicleControlQueue for control decisions in EXTERNAL_HTTP mode. */
+@Deprecated(forRemoval=true, since="2.0")
 public class OnboardTrainSubsystemManager {
 
     private final SimulationProperties simulationProperties;
@@ -23,12 +26,14 @@ public class OnboardTrainSubsystemManager {
     @Autowired
     public OnboardTrainSubsystemManager(
         SimulationProperties simulationProperties,
+        StoppingControlProperties stoppingProperties,
         StaticInfrastructureCatalog infrastructureCatalog,
         RestClient.Builder restClientBuilder
     ) {
         this(
             simulationProperties,
-            new LocalOnboardTrainSubsystemClient(simulationProperties, infrastructureCatalog),
+            new LocalOnboardTrainSubsystemClient(
+                simulationProperties, infrastructureCatalog, stoppingProperties),
             new HttpOnboardTrainSubsystemClient(simulationProperties, restClientBuilder),
             new OnboardTrainNodeRegistry()
         );
@@ -38,7 +43,13 @@ public class OnboardTrainSubsystemManager {
         SimulationProperties simulationProperties,
         StaticInfrastructureCatalog infrastructureCatalog
     ) {
-        this(simulationProperties, infrastructureCatalog, RestClient.builder());
+        this(
+            simulationProperties,
+            new LocalOnboardTrainSubsystemClient(
+                simulationProperties, infrastructureCatalog, new StoppingControlProperties()),
+            new HttpOnboardTrainSubsystemClient(simulationProperties, RestClient.builder()),
+            new OnboardTrainNodeRegistry()
+        );
     }
 
     OnboardTrainSubsystemManager(

@@ -1,5 +1,8 @@
 package com.railwaysim.vehicleruntime.api;
 
+import com.railwaysim.vehicleruntime.model.DriverCommandAcceptance;
+import com.railwaysim.vehicleruntime.model.DriverControlCommandSnapshot;
+import com.railwaysim.vehicleruntime.model.ManualControlRequest;
 import com.railwaysim.vehicleruntime.model.TrainStateSnapshot;
 import com.railwaysim.vehicleruntime.model.VehicleRuntimeBootstrapRequest;
 import com.railwaysim.vehicleruntime.model.VehicleRuntimeEvent;
@@ -10,8 +13,13 @@ import com.railwaysim.vehicleruntime.model.VehicleRuntimeLaunchResponse;
 import com.railwaysim.vehicleruntime.model.VehicleRuntimeStepRequest;
 import com.railwaysim.vehicleruntime.model.VehicleRuntimeStepResponse;
 import com.railwaysim.vehicleruntime.model.VehicleParameterMetadata;
+import com.railwaysim.vehicleruntime.runtime.DriverCommandHolder;
 import com.railwaysim.vehicleruntime.runtime.VehicleRuntimeManager;
+import com.railwaysim.vehicleruntime.runtime.VehicleRuntimeTickClock;
+import java.time.Instant;
 import java.util.List;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -31,9 +39,18 @@ import org.springframework.web.server.ResponseStatusException;
 public class VehicleRuntimeController {
 
     private final VehicleRuntimeManager manager;
+    private final DriverCommandHolder commandHolder;
+    private final VehicleRuntimeTickClock tickClock;
+    private final ConcurrentMap<String, Integer> sequenceNumbers = new ConcurrentHashMap<>();
 
-    public VehicleRuntimeController(VehicleRuntimeManager manager) {
+    public VehicleRuntimeController(
+        VehicleRuntimeManager manager,
+        DriverCommandHolder commandHolder,
+        VehicleRuntimeTickClock tickClock
+    ) {
         this.manager = manager;
+        this.commandHolder = commandHolder;
+        this.tickClock = tickClock;
     }
 
     @GetMapping("/health")
@@ -53,9 +70,7 @@ public class VehicleRuntimeController {
 
     @PutMapping("/trains/{trainId}")
     public VehicleRuntimeInstanceState register(@PathVariable String trainId, @RequestBody(required = false) TrainStateSnapshot train) {
-        // 兼容旧中央反向注册；请求体为空时用路径生成最小实例，避免旧联调调用失败。
         if (train != null && train.id() != null && !train.id().isBlank() && !trainId.equals(train.id())) {
-            // path 是路由权威标识，body 不一致直接拒绝，避免注册出另一个列车实例。
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "path trainId and body id must match");
         }
         TrainStateSnapshot effective = train == null || train.id() == null || train.id().isBlank() ? minimalTrain(trainId) : train;
@@ -64,7 +79,6 @@ public class VehicleRuntimeController {
 
     @PostMapping("/trains/launch")
     public VehicleRuntimeLaunchResponse launch(@RequestBody VehicleRuntimeLaunchRequest request) {
-        // 新启动流程由车辆仿真服务主动拉起实例，再向中央系统注册镜像。
         return manager.launch(request);
     }
 
@@ -106,6 +120,74 @@ public class VehicleRuntimeController {
     @GetMapping("/events")
     public List<VehicleRuntimeEvent> events() {
         return manager.events();
+    }
+
+    // ========== 手动控制 ==========
+
+    @PostMapping("/trains/{trainId}/manual-control")
+    public DriverCommandAcceptance manualControl(
+        @PathVariable String trainId,
+        @RequestBody ManualControlRequest request
+    ) {
+        if (!manager.hasInstance(trainId)) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Instance not found: " + trainId);
+        }
+        int seqNo = sequenceNumbers.merge(trainId, 1, (old, v) -> old + 1);
+        Instant now = Instant.now();
+        long timeout = request.timeoutMs() != null ? request.timeoutMs() : 5000;
+
+        DriverControlCommandSnapshot cmd = new DriverControlCommandSnapshot(
+            "MANUAL-" + trainId + "-" + seqNo,
+            trainId, seqNo, now, now.plusMillis(timeout),
+            clamp(request.tractionCommand(), 0, 1),
+            clamp(request.brakeCommand(), 0, 1),
+            request.emergencyBrake(),
+            request.direction(),
+            request.doorOpenRequest() != null && request.doorOpenRequest(),
+            false,
+            "MANUAL",
+            "manual-trace-" + trainId + "-" + seqNo
+        );
+        commandHolder.store(cmd);
+        return DriverCommandAcceptance.accepted(cmd);
+    }
+
+    // ========== 状态查询 ==========
+
+    @GetMapping("/trains/{trainId}/state")
+    public TrainStateSnapshot getTrainState(@PathVariable String trainId) {
+        return manager.getTrainState(trainId);
+    }
+
+    @GetMapping("/trains/state")
+    public List<TrainStateSnapshot> getAllTrainStates() {
+        return manager.getAllTrainStates();
+    }
+
+    // ========== 自主模式 ==========
+
+    @PostMapping("/autonomous/enable")
+    public void enableAutonomous() {
+        tickClock.enable();
+    }
+
+    @PostMapping("/autonomous/disable")
+    public void disableAutonomous() {
+        tickClock.disable();
+    }
+
+    @PostMapping("/tick")
+    public VehicleRuntimeStepResponse tick() {
+        tickClock.autonomousTick();
+        // Return current states after tick
+        return new VehicleRuntimeStepResponse(
+            tickClock.getCurrentTick(), Instant.now(), "GOOD",
+            List.of(), List.of(), manager.instances(),
+            manager.getAllTrainStates(), List.of());
+    }
+
+    private static double clamp(double value, double min, double max) {
+        return Math.max(min, Math.min(max, value));
     }
 
     private TrainStateSnapshot minimalTrain(String trainId) {

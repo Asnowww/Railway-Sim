@@ -15,9 +15,66 @@ GET /api/simulation/snapshot
 ```http
 POST /api/simulation/start
 POST /api/simulation/pause
+POST /api/simulation/stop
 POST /api/simulation/reset
 POST /api/simulation/tick
 ```
+
+`start` 将当前 `DispatchService.simulationRunId` 标记为 `RUNNING`；`pause` 只记 `PAUSED` 而不结束运行；`stop` 记 `COMPLETED`；未捕获的 tick 异常记 `FAILED`。`reset` 先在同一数据库事务中把旧 run 记为 `CANCELLED_BY_RESET`并创建新 run，再清理临时控制态；历史表不删除。
+
+### 运行历史与证据查询
+
+```http
+GET /api/simulation-runs?limit=50
+GET /api/simulation-runs/{runId}
+GET /api/simulation-runs/{runId}/summary
+GET /api/simulation-runs/{runId}/train-snapshots?limit=100&offset=0
+GET /api/simulation-runs/{runId}/control-decisions?limit=100&offset=0
+GET /api/simulation-runs/{runId}/power-snapshots?limit=100&offset=0
+GET /api/simulation-runs/{runId}/stop-results?limit=100&offset=0
+GET /api/simulation-runs/{runId}/stop-statistics?trainId={trainId}&stationId={stationId}&requiredSampleCount=10
+GET /api/simulation-runs/{runId}/faults?limit=100&offset=0
+```
+
+`SimulationSnapshot` 顶层必须携带 `simulationRunId`。车辆物理、能耗、供电分区、轨道占用、信号状态、FMU 故障、最终车辆决策和危险操作审计使用同一 `(simulationRunId,tick)`。
+
+`stop-results` 中每条 `TrainStopResult` 对应一次稳定进站，不是每 tick 快照。它包含显式 `StoppingTarget`、`targetValidFromTick`、MA 覆盖标志、目标/实际位置、签名/绝对误差、越站、成功与原因、最大减速度、最大 jerk、制动切换次数、紧急制动、`controlStageHistory`、控制模式和参数版本。MA 终点比站台目标更近时发布 `TARGET_OVERRIDDEN_BY_MA`事件。
+
+`stop-statistics` 按 runId 必选、trainId/stationId 可选的场景口径返回样本数、平均绝对误差、P95、总体方差、成功数/成功率、越站数、紧急制动数和原因分布。`sampleRequirementMet` 只在样本数达到 `requiredSampleCount`（默认 10）时为 true。
+
+### 告警生命周期
+
+```http
+GET /api/alarms?runId={runId}
+POST /api/alarms/{alarmId}/acknowledge
+```
+
+```json
+{
+  "operator": "dispatcher-01"
+}
+```
+
+告警状态为 `RAISED/ACKNOWLEDGED/CLEARED`。每条告警携带 `FaultImpact{severity,affectedTrainIds,affectedSectionIds,safetyAction,clearCondition,recoveryCondition}`。同一 run 内相同活动故障使用稳定 occurrence ID 并只更新 `lastSeenAt`；条件消失时自动 `CLEARED`，再次发生创建新 occurrence。告警及活动索引在 8080 重启后从 `alarm_record` 回填。
+
+### 外部服务健康与恢复门槛
+
+```http
+GET /api/service-health
+GET /api/service-health/{serviceId}
+POST /api/service-health/{serviceId}/recovery/check
+```
+
+```json
+{
+  "expectedRunId": "run-001",
+  "expectedTick": 120
+}
+```
+
+9300 和 9200 状态统一为 `UP/DEGRADED/STALE/FALLBACK/RECOVERING`。异常后首次恢复健康不直接进入 UP；必须同时通过 runId、lastAcceptedTick、topology/config hash、model/parameter version 门槛。不匹配时保持 `RECOVERING` 并返回具体 `rejectionReasons`。最后健康记录和 last-good baseline 分别写入 `service_health_record/service_health_baseline`，重启后恢复。
+
+9200 进程重启后 `bootstrapped=false`，此时 `/power-network/constraints/query` 和 `/power-network/step` 返回 HTTP 409 `POWER_BOOTSTRAP_REQUIRED`；8080 重新下发拓扑后才允许恢复权威计算。9300 保留车辆实例跨中央重启，但 runId 改变只允许发生在新 run 的 tick 0/1；接管时清空旧司机命令、供电约束和物理缓存并触发重同步，运行中途换 run 返回 `VEHICLE_RUN_ID_MISMATCH`。
 
 ### 获取列车状态
 
@@ -132,25 +189,36 @@ POST /api/signal/vehicles/telemetry/content-packet?trainCount=1
 
 ### 车辆-司机台 PLC 适配接口
 
-该接口属于车辆控制系统内部外设适配：`司机驾驶模拟台 PLC <-> DriverCabAdapter <-> 单车车辆控制子系统`。它不是调度、供电或中央主循环直接控制司机台的接口；信号侧的 MA/模式/门使能只作为车辆控制系统生成 PLC 输出报文的输入之一。
+该接口属于车辆控制系统内部外设适配：`司机驾驶模拟台 PLC <-> 单车车辆控制子系统`。不是调度、供电或中央主循环直接控制司机台的接口；信号侧的 MA/模式/门使能只作为 PLC 输出报文的输入之一。
+
+**架构分界（方案 A）：**
+
+| 端点 | 所属服务 | 端口 | 说明 |
+|---|---|---|---|
+| `POST .../plc-input` | vehicle-runtime-service | 9300 | PLC 输入编解码与命令存储 |
+| `GET .../state` | backend | 8080 | 司机台显示状态（来自信号系统） |
+| `GET .../plc-output` | backend | 8080 | PLC 输出报文编码 |
 
 协议模型：
 
-- `DriverCabPlcCodec`：实现司机台 PLC 第 7 章报文内容定义的小端编解码。
-- `PLC -> 上位机`：46 字节，24 字节报文头 + 22 字节数据区，周期 100ms；当前解码钥匙、门模式、ATO 启动、模式升/降级确认、自动折返、方向手柄、主手柄、牵引/制动级位和紧急制动按钮。
-- `上位机 -> PLC`：26 字节，24 字节报文头 + 2 字节数据区；当前编码高断合、制动故障、开门灯、门关好、网络故障、ATO/自动折返可用与激活等指示量。
+- `DriverCabPlcCodec`：实现司机台 PLC 第 7 章报文内容定义的小端编解码。输入侧在 `vehicle-runtime-service:9300`，输出侧在 `backend:8080`。
+- `PLC -> 上位机`：46 字节，24 字节报文头 + 22 字节数据区，周期 100ms；固定标识 `55 AA 55 AA`，长度字段小端 `2E 00/16 00`。位偏移依现场表解码，其中紧急制动是 byte 28 bit0，开关门是 byte 29 bit0..3。
+- `上位机 -> PLC`：26 字节，24 字节报文头 + 2 字节数据区；由 backend 8080 编码，来源为 `TrainState` 与当前 `SignalVehicleCommand.cabDisplay`。
 
-前期无真实 TCP PLC 时使用 REST 二进制入口联调：
+后期无真实 TCP PLC 时使用 REST 二进制入口联调：
 
 ```http
-POST /api/vehicle/driver-cabs/{trainId}/plc-input
-GET /api/vehicle/driver-cabs/{trainId}/state
-GET /api/vehicle/driver-cabs/{trainId}/plc-output
+POST http://localhost:9300/api/vehicle/driver-cabs/{trainId}/plc-input
+GET  http://localhost:8080/api/vehicle/driver-cabs/{trainId}/state
+GET  http://localhost:8080/api/vehicle/driver-cabs/{trainId}/plc-output
 ```
 
-- `plc-input` 使用 `application/octet-stream`，提交 46 字节 PLC 输入报文；后端写入该单车 `DriverCabStateSnapshot`，并按钥匙、门按钮、快制/紧急制动更新本车控制状态。
-- `plc-output` 返回 `application/octet-stream`，生成 26 字节上位机到 PLC 报文；来源为 `TrainState` 与当前 `SignalVehicleCommand.cabDisplay`。
-- 后续接真实设备时，应在车辆控制系统侧新增 TCP 客户端连接 PLC 的 `192.168.100.123:8001/8002/8003`，REST 入口只保留为测试入口。
+- `POST plc-input` 由外部测试脚本或半实物仿真平台调用，使用 `application/octet-stream` 提交 46 字节 PLC 输入报文。IPv4 地址与端口为 `localhost:9300`（vehicle-runtime-service）。
+- 非法枚举码（门模式/方向手柄/主手柄）和越界百分比（0–100 范围外）将返回 `400` 和 `DriverCommandAcceptance{accepted:false, reasonCode: "DECODE_FAILED"}`，不再静默截断。
+- 合法报文返回 `DriverCommandAcceptance{accepted:true, commandId, trainId, reasonCode: "ACCEPTED", receivedAt, expiresAt}`。
+- 9300 未找到已启动的 `VehicleRuntimeInstance` 时返回 `404` 和 `reasonCode: "UNKNOWN_TRAIN"`，命令不进入 Holder。
+- `GET state/plc-output` 仍由 `backend:8080` 提供。
+- 真实 TCP 由 8080 `DriverCabTcpAdapter` 管理连接；在 `EXTERNAL_HTTP` 中它只把 PLC 原始帧和网络屏 26 字节牵引切除帧转发到 9300，不执行车辆控制。端点为 PLC `192.168.100.123:8001`、网络屏 `192.168.100.121:8888`、信号屏 `192.168.100.122:9999`。
 
 视景适配接口用于把车辆侧运行态补齐到信号/ATS 视图，再由信号模块按 UDP 包发送给外部视景系统：
 
@@ -185,7 +253,7 @@ POST /api/localnet/adapters/{adapterId}/replay
 `POST /api/localnet/adapters/{adapterId}/replay` 使用 `application/octet-stream`，不打开真实 socket，只把报文送入同一解析和领域映射路径：
 
 - `signal-udp` 支持完整 `0xff 0xf0/0xf1` 帧，以及实时 ADD/DELETE/CLEAR 生命周期包。
-- `driver-cab-tcp` 支持 46 字节 PLC 输入包回放。
+- `driver-cab-tcp` 支持 46 字节 PLC 输入包和 26 字节网络屏牵引切除包回放，两者都转发到 9300 权威运行时。
 - `power-points` 点表支持 YAML/CSV，字段包括 `pointId`、`name`、`direction`、`dataType`、`scale`、`address`、`domainTarget`、`defaultValue`、`quality`；replay 使用文本 `pointId=value`，例如 `ISO_P01_A_STATE=OPEN`。
 
 协议报文审计写入 `protocol_packet_log`，但审计是旁路能力；数据库写入失败不会阻塞现场链路或仿真 tick。
@@ -225,7 +293,7 @@ GET /api/power/external-health
 | `strayCurrentRiskLevel` | 杂散电流风险等级：`NORMAL`、`ATTENTION`、`WARNING`、`CRITICAL`。 |
 | `strayCurrentRiskReason` | 杂散电流风险原因。 |
 
-中央仍以本地 `voltage/current/availablePowerWatts` 生成车辆 `PowerConstraint`；外部电压 v1 只进入监控、偏差告警和联调可视化。
+`split` 模式下，9300 将全车负荷按 tick 提交给 9200，并直接消费 9200 返回的分区电压、可用功率和受流约束。8080 只保存供电快照镜像用于监控、告警和持久化，不再生成或转发中央 `PowerConstraint`。LOCAL 兼容模式的本地计算不得被当作 SPLIT 主链真值。
 
 ### 能耗和维修预留
 
@@ -237,6 +305,8 @@ GET /api/vehicle/onboard-subsystems
 ```
 
 `GET /api/vehicle/onboard-subsystems` 返回中央侧纳管的单车基层智能子系统节点状态，用于查看本地/外部车辆控制节点是否在线、是否 fallback、租约是否仍有效。该接口只读，不用于调度越级控车。
+
+> ⚠️ **废弃**：该接口对应的 `OnboardTrainSubsystemManager` 及相关 LOCAL 控制引擎已标记 `@Deprecated(forRemoval=true)`。`EXTERNAL_HTTP` 模式下车辆控制节点状态通过 `GET /vehicle-runtime/instances`（9300）查询。本接口仅保留用于 `LOCAL` 降级兼容。
 
 ### 仿真故障注入
 
@@ -304,7 +374,9 @@ GET  /api/signal-track/faults
 
 实现约束：
 
-- 写接口会记录 `operation_log`；供电写接口同时记录 `power_operation_log`。
+- 危险写接口在修改内存仿真状态之前，同步写入带 `run_id/tick/trace_id` 的 `operation_log`；供电写接口同时维护 `power_operation_log`。
+- 同步审计写入失败时返回 `503 ApiError{code:"AUDIT_FAILED",...}`，不执行故障注入、故障清除或供电操作，也不降级到异步队列伪报成功。
+- `protocol_packet_log` 仍是旁路报文诊断，可以在写库失败时继续现场通信；该规则不适用于上述危险业务写操作。
 - 车辆故障注入会立即影响 `TrainState` 中的门、牵引、制动、受流、自检和故障等级字段。
 - 供电故障注入会立即刷新 `PowerSectionState`，清除故障不会绕过 `maintenanceState` 或 `lockoutState`。
 - `/api/power/operations` 是中央供电控制模块的设备级操作入口，用于隔离开关、变电所设备、排流柜等仿真操作；调用方仍是中央 REST，不直接访问外部供电仿真系统。
@@ -319,10 +391,14 @@ GET /api/dispatch/status
 GET /api/dispatch/disturbances
 GET /api/dispatch/commands
 POST /api/dispatch/commands
+POST /api/dispatch/commands/{commandId}/cancel
+GET /api/dispatch/route/list
+POST /api/dispatch/route/establish?routeId={routeId}&trainId={trainId}
 GET /api/dispatch/station-records
 ```
 
 调度模块位于综合层，读取车辆运行状态和信号授权状态，生成运营调度意图。调度不直接生成牵引/制动命令；扣车、限速和速度比例类调度约束由信号模块折算为 MA/限速后再进入车辆控制链路。
+进路/道岔调度遵循同一边界：调度模块只生成 `REQUEST_ROUTE` / `REROUTE` 意图和预约记录，实际道岔扳动、锁闭和冲突安全检查由信号联锁执行。
 
 #### 查询运行计划
 
@@ -409,7 +485,31 @@ GET /api/dispatch/status
     }
   ],
   "openDisturbances": [],
-  "activeCommands": []
+  "activeCommands": [],
+  "routeDispatchActive": false,
+  "routeDecisions": [
+    {
+      "decisionId": "RD-1234abcd",
+      "selectedTrainId": "TR-001",
+      "selectedRouteId": "R_MAIN",
+      "waitingTrainIds": [],
+      "status": "REQUESTED",
+      "routeCommandId": "DC-route-TR-001-R_MAIN-1783555200000",
+      "reason": "AUTO_ROUTE_APPROACH(route=R_MAIN,distance=300m,eta=38s)",
+      "rejectReason": null
+    }
+  ],
+  "routeReservations": [
+    {
+      "reservationId": "RR-1234abcd",
+      "trainId": "TR-001",
+      "routeId": "R_MAIN",
+      "decisionId": "RD-1234abcd",
+      "state": "REQUESTED",
+      "commandId": "DC-route-TR-001-R_MAIN-1783555200000",
+      "rejectReason": null
+    }
+  ]
 }
 ```
 
@@ -423,6 +523,12 @@ GET /api/dispatch/status
 | `trainProfiles[].departureDelaySeconds` | number | 最近一次实际发车相对计划发车的偏差，正值表示延误。 |
 | `openDisturbances` | array | 当前开放或已处理但未恢复的扰动。 |
 | `activeCommands` | array | 当前 `PENDING` 或 `APPLIED` 的命令摘要。 |
+| `routeDispatchActive` | boolean | 是否存在活跃进路调度决策。 |
+| `routeDecisions` | array | 调度侧进路决策摘要，P1/P2 用于展示人工或自动申请进路的原因与联锁反馈。 |
+| `routeDecisions[].status` | string | `REQUESTED`、`ACCEPTED`、`REJECTED`、`CANCELLED`。 |
+| `routeReservations` | array | 调度侧进路预约摘要。 |
+| `routeReservations[].state` | string | `REQUESTED`、`ACCEPTED`、`RELEASED`、`EXPIRED`、`REJECTED`、`CANCELLED`。 |
+| `routeReservations[].rejectReason` | string/null | 联锁拒绝或调度取消原因。 |
 
 #### 查询扰动列表
 
@@ -578,6 +684,88 @@ Content-Type: application/json
 | `REQUEST_ROUTE` | `routeId` 或 `payload.routeId` | 请求联锁建立指定进路，并记录接受或拒绝反馈 |
 | `REROUTE` | `routeId`、JSON `detail` 或进路说明 | 请求联锁改路；保留旧 detail 格式兼容 |
 
+P1/P2 进路调度闭环：
+
+1. 前端或自动策略提交 `REQUEST_ROUTE` / `REROUTE`。
+2. `DispatchService` 校验命令，创建 `RouteDispatchDecision` 与 `RouteReservation`，并将命令加入调度队列。
+3. `SimulationRuntime` 在同一 tick 将进路命令交给 `RouteInterlockingService.applyDispatchCommand(...)`。
+4. 信号联锁根据 route 区段推导道岔位置，执行道岔检查、扳动、锁闭和进路冲突检查。
+5. runtime 将联锁接受/拒绝通过 `DispatchCommandFeedback` 回传调度。
+6. 调度更新 `routeReservations[].state` 与 `routeDecisions[].status`，并通过 `/api/dispatch/status` 和 WebSocket 快照同步给前端。
+7. 后续联锁释放进路后，调度将已接受的预约标记为 `RELEASED`。
+
+P2 自动申请由 dispatch 内部触发：当列车进入 route 入口接近窗口时，调度按 MAIN 优先、入口距离和进路长度选择候选进路，自动生成 `REQUEST_ROUTE`。自动命令 payload 会包含：
+
+| payload 字段 | 类型 | 说明 |
+|---|---|---|
+| `autoGenerated` | boolean | `true` 表示 P2 自动进路意图生成。 |
+| `source` | string | 当前为 `AUTO_ROUTE_INTENT`。 |
+| `routeId` | string | 选中的进路 ID。 |
+| `distanceToEntryMeters` | number | 列车到进路入口的估算距离。 |
+| `etaToEntrySeconds` | number | 预计到达入口时间。 |
+| `priorityScore` | number | P2 解释性评分，P3 多车仲裁会继续扩展。 |
+| `validUntil` | string | 自动意图有效期。 |
+
+#### 撤销调度命令
+
+```http
+POST /api/dispatch/commands/{commandId}/cancel
+```
+
+响应：
+
+```json
+{
+  "accepted": true,
+  "commandId": "DC-550e8400-e29b-41d4-a716-446655440000"
+}
+```
+
+对 route 命令撤销时，对应 `RouteReservation` 会进入 `CANCELLED`。
+
+#### 查询进路列表
+
+```http
+GET /api/dispatch/route/list
+```
+
+该接口当前返回信号联锁视角的进路列表，供调试页展示线路与联锁状态。调度侧 P1/P2 预约状态请从 `/api/dispatch/status.routeReservations` 读取。
+
+响应：
+
+```json
+[
+  {
+    "routeId": "R_MAIN",
+    "name": "进站->正线",
+    "type": "MAIN",
+    "fromStation": "S01",
+    "toStation": "S05",
+    "segmentIds": ["T01", "T02"],
+    "status": "AVAILABLE"
+  }
+]
+```
+
+#### 联锁直接建路调试接口
+
+```http
+POST /api/dispatch/route/establish?routeId=R_MAIN&trainId=TR-001
+```
+
+该接口直接调用信号联锁 `establishRoute`，用于联锁调试，不会创建 `DispatchCommand`、`RouteDispatchDecision` 或 `RouteReservation`。前端需要验证调度闭环时，应调用 `POST /api/dispatch/commands` 并提交 `REQUEST_ROUTE`。
+
+响应：
+
+```json
+{
+  "accepted": true,
+  "routeId": "R_MAIN",
+  "trainId": "TR-001",
+  "rejectReason": null
+}
+```
+
 ## 外部车辆运行时服务接口
 
 `vehicle-runtime-service` 是新的外部车辆侧运行时，默认端口 `9300`。中央系统仍是唯一对前端和其他中央模块开放的入口；列车启动推荐由 `vehicle-runtime-service` 主动发起，中央通过 `railway.simulation.vehicle-runtime.mode=EXTERNAL_HTTP` 或 `DUAL_SHADOW` 在后续 tick 中接入外部服务。
@@ -610,7 +798,55 @@ GET  /vehicle-runtime/events
 }
 ```
 
-`POST /vehicle-runtime/step-fleet` 请求包含 `tick`、`deltaSeconds`、`requestedAt`、`trains[]`、`movementAuthorities[]`、`trackConstraints[]`、`dispatchConstraints[]`。`split` 模式忽略中央传入的 `powerConstraints[]`：9300 自行向 9200 请求权威供电约束。9300先为全车准备控制输入，每个tick只调用一次9000 `/step-fleet`，再统一写回`trainOutputs[]`、`trainReports[]`和`instanceStates[]`。
+`POST /vehicle-runtime/step-fleet` 请求包含 `tick`、`deltaSeconds`、`requestedAt`、`movementAuthorities[]`、`trackConstraints[]`、`dispatchConstraints[]`、`powerConstraints[]`、`simulationRunId`、`driverCommands[]`。
+
+**重要变更**：请求不再包含 `trains[]`。9300 从本地 `TrainStateHolder` 读取每列车的权威状态（位置、速度、TCMS 诊断等）。中央只发送约束（轨道、信号、调度、供电），不再发送列车状态。
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `simulationRunId` | string | 当前仿真运行 ID，贯穿 8080→9300→9200 用于时间线对齐 |
+| `driverCommands[]` | array of `DriverControlCommandSnapshot` | 已废弃。PLC 和手动控制现已直接发往 9300，不再经 step request 转发。字段保留仅为向后兼容。 |
+
+响应新增字段：
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `trainStates` | array of `TrainStateSnapshot` | 9300 的权威列车状态快照，中央用于镜像更新。包含全部 58+ 字段（位置、速度、力、能耗、TCMS 诊断、车站追踪、故障码）。 |
+| `events` | array of `VehicleRuntimeEvent` | 本 tick 内发生的事件列表（VehiclePhysicsUpdated、TractionPowerChanged、BrakeForceChanged、RegenerativePowerGenerated、TrainFaultStateChanged）。中央桥接到 `SimpleEventBus`。 |
+
+`TrainStateSnapshot` 新增字段：
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `currentStationId` | string/null | 列车当前所在车站 ID（不在站时为 null） |
+| `dwellElapsedSeconds` | int | 已停站秒数 |
+| `lastDepartureAt` | string/null | 上次发车时间戳 |
+
+9300 先为全车准备控制输入，每个 tick 只调用一次 9000 `/step-fleet`，再统一写回 `trainOutputs[]`、`trainReports[]`、`instanceStates[]`、`trainStates[]` 和 `events[]`。当 PLC 命令或手动控制被选中时，`trainReports[]` 的 `decisionSource=DRIVER`，并回传 `inputCommandId/inputTraceId`；8080 以该报告建立中央决策镜像，不再查询自己的旧 PLC Holder 推断来源。
+
+### 9300 新增端点
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| `POST` | `/vehicle-runtime/trains/{trainId}/manual-control` | 手动控制单列车：设置牵引/制动/紧急制动/方向。命令存入 `DriverCommandHolder`，下个 tick 通过 `VehicleControlQueue.decideDynamicsState()` 生效。 |
+| `GET` | `/vehicle-runtime/trains/{trainId}/state` | 获取单列车权威状态快照 |
+| `GET` | `/vehicle-runtime/trains/state` | 获取所有列车权威状态快照 |
+| `POST` | `/vehicle-runtime/autonomous/enable` | 开启 9300 自主 tick 模式 |
+| `POST` | `/vehicle-runtime/autonomous/disable` | 关闭 9300 自主 tick 模式 |
+| `POST` | `/vehicle-runtime/tick` | 手动触发一次自主 tick |
+
+手动控制请求体：
+
+```json
+{
+  "tractionCommand": 0.75,
+  "brakeCommand": 0.0,
+  "emergencyBrake": false,
+  "direction": 1.0,
+  "doorOpenRequest": null,
+  "timeoutMs": 5000
+}
+```
 
 `POST /vehicle-runtime/bootstrap` 还会携带供电仿真联动配置：
 
@@ -618,8 +854,13 @@ GET  /vehicle-runtime/events
 |---|---|
 | `powerNetworkBaseUrl` | 中央配置的外部供电仿真地址，默认 `http://localhost:9200`。 |
 | `forwardPowerLoads` | 是否启用 9300 -> 9200 的权威供电闭环。启用时使用 `/constraints/query` 与 `/step`。 |
+| `stations[]` | 8080 从当前线路 YAML/工作簿解析出的只读车站目标，包含 `id/name/positionMeters/platformIds`。9300 只消费该静态拓扑做停车和到站判断，不创建或修改车站。 |
+
+`stations[]` 只在 bootstrap/恢复时传输，不属于逐 tick 车辆状态同步。9300 的 `configHash` 包含车站 ID、里程和站台 ID；车站拓扑不一致时恢复门禁不得进入 `UP`。
 
 当 `vehicle-runtime-service` 处于 `EXTERNAL_HTTP` 模式且 `forwardPowerLoads=true` 时，闭环为：`9300 -> POST 9200/constraints/query -> 车辆控制/单次批量FMU动力学 -> POST 9200/step -> 下一周期供电约束`。中央 `PowerIntegrationService` 只调用 `GET 9200/power-network/state` 拉取镜像，绝不补写负荷；该写入权按部署配置固定，不因某车FMU降级而切回中央，从而避免双写。只有非拆分部署的`LOCAL`或`DUAL_SHADOW`模式保留兼容路径`PowerIntegrationService.refreshSnapshot(sectionLoads) -> POST /power-network/state/query`。
+
+`POST 9200/power-network/step` 请求额外必须携带 `simulationRunId`。9200 在同一 run 内对重复 tick 幂等、对倒退 tick 返回 409；只允许在新 run 的首 tick 切换 runId，运行中途改变 runId 返回 `POWER_RUN_ID_MISMATCH`。
 
 9300物理实例恢复接口：
 
@@ -747,12 +988,14 @@ POST http://localhost:9000/step-fleet
 
 该协议不是面向前端或调度系统的 REST 接口，而是后端车辆运行时背后的实现。新 `vehicle-runtime-service` 健康时可同时接管车辆控制决策和车辆物理仿真；旧 `external-simulator` / FMU / UDP / RT-LAB 适配仍作为物理端口历史兼容路径保留。
 
-中央到车辆控制节点的调用通过 `railway.simulation.onboard-subsystem-mode` 切换：
+> ⚠️ **废弃**：`onboard-subsystem-mode` 对应的 `OnboardTrainSubsystemManager` 及 `HttpOnboardTrainSubsystemClient` 已标记 `@Deprecated(forRemoval=true)`。生产环境请使用 `railway.simulation.vehicle-runtime.mode=EXTERNAL_HTTP` 搭配 9300。`onboard-subsystem-mode` 仅保留用于 LOCAL 降级兼容。
+
+中央到车辆控制节点的调用通过 `railway.simulation.onboard-subsystem-mode` 切换（已废弃）：
 
 | mode | 行为 |
 |---|---|
-| `IN_PROCESS` | 使用进程内 `OnboardTrainSubsystem`，默认模式。 |
-| `EXTERNAL_HTTP` | 通过 `HttpOnboardTrainSubsystemClient` 调用外部车辆控制节点，失败时本地 fallback。 |
+| `IN_PROCESS` | 使用进程内 `OnboardTrainSubsystem`，仅 LOCAL 降级。 |
+| `EXTERNAL_HTTP` | 通过 `HttpOnboardTrainSubsystemClient` 调用旧 onboard 节点，失败时本地 fallback。该配置不是 `railway.simulation.vehicle-runtime.mode=EXTERNAL_HTTP`；生产 9300 车辆运行时失败会中止 tick，不使用本回退。 |
 | `DUAL_SHADOW` | 本地输出为权威，外部节点只做影子在线验证。 |
 
 配置：
@@ -814,7 +1057,10 @@ ws://localhost:8080/ws/simulation
       "interventionActive": false,
       "trainProfiles": [],
       "openDisturbances": [],
-      "activeCommands": []
+      "activeCommands": [],
+      "routeDispatchActive": false,
+      "routeDecisions": [],
+      "routeReservations": []
     }
   }
 }

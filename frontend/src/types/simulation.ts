@@ -1,6 +1,6 @@
 import type { DispatchSnapshot } from './dispatch'
 
-export type SimulationStatus = 'STOPPED' | 'RUNNING' | 'PAUSED'
+export type SimulationStatus = 'STOPPED' | 'RUNNING' | 'PAUSED' | string
 
 export interface TrainState {
   id: string
@@ -39,6 +39,7 @@ export interface TrainState {
   dynamicsState: string
   dynamicsConstraintReason: string
   speedLimitMetersPerSecond: number
+  vehicleFaultSpeedLimitMetersPerSecond: number
   movementAuthorityDistanceMeters: number
   stationDistanceMeters: number
   stoppingDistanceMeters: number
@@ -52,9 +53,9 @@ export interface TrainState {
   energyConsumedKwh: number
   energyRegeneratedKwh: number
   faultCode: string
-  currentStationId?: string
+  currentStationId?: string | null
   dwellElapsedSeconds?: number
-  lastDepartureAt?: string
+  lastDepartureAt?: string | null
 }
 
 export interface TrackSegmentState {
@@ -62,7 +63,7 @@ export interface TrackSegmentState {
   startMeters: number
   endMeters: number
   speedLimitMetersPerSecond: number
-  occupancy: 'FREE' | 'RESERVED' | 'OCCUPIED' | 'FAULT'
+  occupancy: string
   fromNode: string
   toNode: string
   track: string
@@ -74,8 +75,8 @@ export interface MovementAuthority {
   speedLimitMetersPerSecond: number
   reason: string
   currentSegmentId: string
-  endSegmentId: string
-  reasonCode: string
+  endSegmentId?: string
+  reasonCode?: string
 }
 
 export type SignalAspect = 'RED' | 'YELLOW' | 'GREEN'
@@ -84,8 +85,8 @@ export interface SignalState {
   signalId: string
   segmentId: string
   positionMeters: number
-  aspect: SignalAspect
-  reasonTrainId: string | null
+  aspect: SignalAspect | string
+  reasonTrainId?: string | null
 }
 
 export type SwitchPosition = 'NORMAL' | 'REVERSE'
@@ -93,7 +94,7 @@ export type SwitchPosition = 'NORMAL' | 'REVERSE'
 export interface SwitchState {
   id: string
   nodeId: string
-  position: SwitchPosition
+  position: SwitchPosition | string
   locked: boolean
   activeSegmentId: string
 }
@@ -111,12 +112,13 @@ export type RouteStatus =
   | 'FAILED'
   | 'CANCELLED'
   | 'EXPIRED_BY_RESET'
+  | string
 
 export interface RouteState {
   routeId: string
   status: RouteStatus
   lockedSwitchIds: string[]
-  establishedByTrainId: string | null
+  establishedByTrainId?: string | null
   axleSegmentIds: string[]
 }
 
@@ -158,13 +160,14 @@ export interface PowerSectionState {
 }
 
 export interface VehicleRuntimeHealth {
-  mode: string
+  mode?: string
   heartbeatStatus: string
-  sourceTimestamp: string
+  sourceTimestamp?: string
   latencyMillis: number
-  dataQuality: string
-  instanceCount: number
-  reason: string
+  dataQuality?: string
+  instanceCount?: number
+  reason?: string
+  [key: string]: unknown
 }
 
 export interface VehicleRuntimeInstanceState {
@@ -220,6 +223,6 @@ export interface SimulationSnapshot {
 }
 
 export interface SocketMessage {
-  type: 'snapshot'
+  type: 'snapshot' | string
   payload: SimulationSnapshot
 }

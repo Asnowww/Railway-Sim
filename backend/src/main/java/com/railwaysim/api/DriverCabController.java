@@ -3,10 +3,11 @@ package com.railwaysim.api;
 import com.railwaysim.signal.MovementAuthority;
 import com.railwaysim.signal.SignalService;
 import com.railwaysim.signal.vehicle.SignalVehicleCommand;
-import com.railwaysim.signal.vehicle.VehicleSignalStatus;
 import com.railwaysim.train.TrainManager;
 import com.railwaysim.train.TrainState;
+import com.railwaysim.vehicle.control.DriverCommandAcceptance;
 import com.railwaysim.vehicle.drivercab.DriverCabAdapter;
+import com.railwaysim.vehicle.drivercab.DriverCabPlcCodec;
 import com.railwaysim.vehicle.drivercab.DriverCabPlcInputPacket;
 import com.railwaysim.vehicle.drivercab.DriverCabStateSnapshot;
 import java.util.Map;
@@ -32,6 +33,7 @@ public class DriverCabController {
     private final TrainManager trainManager;
     private final SignalService signalService;
     private final DriverCabAdapter driverCabAdapter;
+    private final DriverCabPlcCodec plcCodec = new DriverCabPlcCodec();
 
     public DriverCabController(
         TrainManager trainManager,
@@ -43,24 +45,6 @@ public class DriverCabController {
         this.driverCabAdapter = driverCabAdapter;
     }
 
-    @PostMapping(
-        value = "/{trainId}/plc-input",
-        consumes = MediaType.APPLICATION_OCTET_STREAM_VALUE
-    )
-    public VehicleSignalStatus applyPlcInput(
-        @PathVariable String trainId,
-        @RequestBody byte[] payload
-    ) {
-        DriverCabPlcInputPacket input = decodeInput(payload);
-        TrainState updated;
-        try {
-            updated = driverCabAdapter.applyPlcInput(trainId, input);
-        } catch (IllegalArgumentException ex) {
-            throw new ResponseStatusException(HttpStatus.NOT_FOUND, ex.getMessage(), ex);
-        }
-        return VehicleSignalStatus.from(updated);
-    }
-
     @GetMapping("/{trainId}/state")
     public DriverCabStateSnapshot state(@PathVariable String trainId) {
         TrainState train = trainState(trainId);
@@ -68,6 +52,15 @@ public class DriverCabController {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Driver cab state not received for train: " + trainId);
         }
         return train.driverCabState();
+    }
+
+    @PostMapping("/{trainId}/plc-input")
+    public DriverCommandAcceptance plcInput(
+        @PathVariable String trainId,
+        @RequestBody DriverCabPlcInputPacket input
+    ) {
+        byte[] binary = plcCodec.encodeInput(input);
+        return driverCabAdapter.applyAndAccept(trainId, binary);
     }
 
     @GetMapping(
@@ -78,17 +71,6 @@ public class DriverCabController {
         TrainState train = trainState(trainId);
         SignalVehicleCommand command = SignalVehicleCommand.fromAuthority(train, authorityByTrain().get(train.id()));
         return ResponseEntity.ok(driverCabAdapter.encodePlcOutput(train, command.cabDisplay()));
-    }
-
-    private DriverCabPlcInputPacket decodeInput(byte[] payload) {
-        if (payload == null || payload.length == 0) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "payload is required");
-        }
-        try {
-            return driverCabAdapter.decodePlcInput(payload);
-        } catch (IllegalArgumentException ex) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, ex.getMessage(), ex);
-        }
     }
 
     private TrainState trainState(String trainId) {

@@ -7,6 +7,9 @@ import com.railwaysim.power.PowerSectionState;
 import com.railwaysim.simulation.event.FmuFallbackActivatedEvent;
 import com.railwaysim.simulation.event.FmuStepFailedEvent;
 import com.railwaysim.train.TrainState;
+import com.railwaysim.vehicle.control.VehicleControlDecisionRepository;
+import com.railwaysim.vehicle.control.VehicleControlDecision;
+import com.railwaysim.vehicle.control.VehicleOperationMode;
 import java.time.Instant;
 import java.util.List;
 import org.junit.jupiter.api.Test;
@@ -19,13 +22,23 @@ class SimulationPersistenceServiceTests {
     void persistWritesTrainAndPowerSnapshots() {
         JdbcTemplate jdbcTemplate = new JdbcTemplate(dataSource());
         createTables(jdbcTemplate);
+        VehicleControlDecisionRepository decisionRepository = new VehicleControlDecisionRepository();
         SimulationPersistenceService persistenceService = new SimulationPersistenceService(
             jdbcTemplate,
-            new ObjectMapper()
+            new ObjectMapper(),
+            decisionRepository
         );
 
+        decisionRepository.store(new VehicleControlDecision(
+            "decision-25", "run-persist", 25, "TR-001", VehicleOperationMode.MANUAL,
+            "DRIVER", 0.4, 0, false, 1, true, true, true, true,
+            List.of(), "DRIVER_TRACTION", Instant.parse("2026-07-07T00:00:04Z"),
+            Instant.parse("2026-07-07T00:00:05Z"), "trace-25", 1));
+        persistenceService.persistVehicleControlDecisions(
+            new TickContext(25, 200, 0.2, Instant.parse("2026-07-07T00:00:05Z"), "run-persist"));
+
         persistenceService.persist(
-            new TickContext(25, 200, 0.2, Instant.parse("2026-07-07T00:00:05Z")),
+            new TickContext(25, 200, 0.2, Instant.parse("2026-07-07T00:00:05Z"), "run-persist"),
             List.of(trainState()),
             List.of(powerSectionState()),
             List.of(
@@ -38,6 +51,18 @@ class SimulationPersistenceServiceTests {
             "SELECT regen_brake_force_n FROM train_physics_snapshot WHERE train_id = 'TR-001'",
             Double.class
         )).isEqualTo(12_000.0);
+        assertThat(jdbcTemplate.queryForObject(
+            "SELECT simulation_run_id FROM train_physics_snapshot WHERE train_id = 'TR-001'",
+            String.class
+        )).isEqualTo("run-persist");
+        assertThat(jdbcTemplate.queryForObject(
+            "SELECT simulation_run_id FROM train_energy_record WHERE train_id = 'TR-001'",
+            String.class
+        )).isEqualTo("run-persist");
+        assertThat(jdbcTemplate.queryForObject(
+            "SELECT simulation_run_id FROM power_section_record WHERE section_id = 'P01'",
+            String.class
+        )).isEqualTo("run-persist");
         assertThat(jdbcTemplate.queryForObject(
             "SELECT energy_regenerated_kwh FROM train_energy_record WHERE train_id = 'TR-001'",
             Double.class
@@ -83,6 +108,14 @@ class SimulationPersistenceServiceTests {
             Integer.class
         )).isEqualTo(2);
         assertThat(jdbcTemplate.queryForObject(
+            "SELECT COUNT(*) FROM fmu_fault_log WHERE simulation_run_id = 'run-persist'",
+            Integer.class
+        )).isEqualTo(2);
+        assertThat(jdbcTemplate.queryForObject(
+            "SELECT trace_id FROM vehicle_control_command_log WHERE simulation_run_id = 'run-persist'",
+            String.class
+        )).isEqualTo("trace-25");
+        assertThat(jdbcTemplate.queryForObject(
             "SELECT fallback_activated FROM fmu_fault_log WHERE fault_code = 'FMU_FALLBACK_ACTIVATED'",
             Boolean.class
         )).isTrue();
@@ -101,6 +134,7 @@ class SimulationPersistenceServiceTests {
         jdbcTemplate.execute("""
             CREATE TABLE train_physics_snapshot (
               id BIGINT AUTO_INCREMENT PRIMARY KEY,
+              simulation_run_id VARCHAR(64) NOT NULL,
               train_id VARCHAR(64) NOT NULL,
               tick BIGINT NOT NULL,
               control_session_state VARCHAR(32) NOT NULL DEFAULT 'IN_SERVICE',
@@ -138,6 +172,7 @@ class SimulationPersistenceServiceTests {
         jdbcTemplate.execute("""
             CREATE TABLE train_energy_record (
               id BIGINT AUTO_INCREMENT PRIMARY KEY,
+              simulation_run_id VARCHAR(64) NOT NULL,
               train_id VARCHAR(64) NOT NULL,
               tick BIGINT NOT NULL,
               energy_consumed_kwh DOUBLE NOT NULL,
@@ -148,6 +183,7 @@ class SimulationPersistenceServiceTests {
         jdbcTemplate.execute("""
             CREATE TABLE power_section_record (
               id BIGINT AUTO_INCREMENT PRIMARY KEY,
+              simulation_run_id VARCHAR(64) NOT NULL,
               section_id VARCHAR(64) NOT NULL,
               tick BIGINT NOT NULL,
               voltage DOUBLE NOT NULL,
@@ -170,12 +206,30 @@ class SimulationPersistenceServiceTests {
         jdbcTemplate.execute("""
             CREATE TABLE fmu_fault_log (
               id BIGINT AUTO_INCREMENT PRIMARY KEY,
+              simulation_run_id VARCHAR(64) NOT NULL,
               tick BIGINT NOT NULL DEFAULT 0,
               train_id VARCHAR(64),
               fault_code VARCHAR(64) NOT NULL,
               detail_text VARCHAR(512) NOT NULL,
               fallback_activated BOOLEAN NOT NULL DEFAULT FALSE,
               created_at TIMESTAMP NOT NULL
+            )
+            """);
+        jdbcTemplate.execute("""
+            CREATE TABLE vehicle_control_command_log (
+              id BIGINT AUTO_INCREMENT PRIMARY KEY,
+              simulation_run_id VARCHAR(64) NOT NULL,
+              tick BIGINT NOT NULL,
+              train_id VARCHAR(64) NOT NULL,
+              command_id VARCHAR(128),
+              trace_id VARCHAR(64),
+              operation_mode VARCHAR(32) NOT NULL,
+              decision_source VARCHAR(64) NOT NULL,
+              traction_command DOUBLE NOT NULL,
+              brake_command DOUBLE NOT NULL,
+              emergency_brake BOOLEAN NOT NULL,
+              reason_code VARCHAR(128) NOT NULL,
+              decided_at TIMESTAMP NOT NULL
             )
             """);
     }

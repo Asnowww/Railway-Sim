@@ -1,6 +1,7 @@
 import { apiBaseUrl } from './config'
 import type {
   DispatchCommandView,
+  DispatchRouteEstablishResponse,
   DispatchRouteInfo,
   DispatchSnapshot,
   RunPlanResponse,
@@ -42,5 +43,10 @@ export const dispatchApi = {
       method: 'POST'
     }),
   routeList: () => request<DispatchRouteInfo[]>('/dispatch/route/list'),
+  establishRoute: (routeId: string, trainId: string) =>
+    request<DispatchRouteEstablishResponse>(
+      `/dispatch/route/establish?routeId=${encodeURIComponent(routeId)}&trainId=${encodeURIComponent(trainId)}`,
+      { method: 'POST' }
+    ),
   stationRecords: () => request<TrainStationEvent[]>('/dispatch/station-records')
 }

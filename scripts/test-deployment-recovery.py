@@ -5,6 +5,7 @@ import argparse
 import json
 import subprocess
 import sys
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -23,11 +24,16 @@ def compose(env_file: str, *args: str) -> None:
     )
 
 
-def step(vehicle_url: str, tick: int, trains: list[dict[str, Any]]) -> dict[str, Any]:
+def step(
+    vehicle_url: str,
+    tick: int,
+    trains: list[dict[str, Any]],
+    run_id: str,
+) -> dict[str, Any]:
     _, response = request_json(
         f"{vehicle_url}/vehicle-runtime/step-fleet",
         method="POST",
-        payload=fleet_request(tick, trains),
+        payload=fleet_request(tick, trains, run_id),
         timeout=15.0,
     )
     assert isinstance(response, dict)
@@ -71,30 +77,31 @@ def main() -> None:
 
     errors: list[str] = []
     evidence: dict[str, Any] = {}
+    run_id = f"wp7-recovery-{uuid.uuid4()}"
     trains = [train_state("WP7-TR-01", 100.0), train_state("WP7-TR-02", 220.0)]
 
-    initial = step(args.vehicle, 1, trains)
+    initial = step(args.vehicle, 1, trains, run_id)
     initial_health = health(args.vehicle)
     require(initial.get("dataQuality") == "GOOD", "INIT did not return GOOD", errors)
     require(initial_health.get("fallbackTrainCount") == 0, "INIT unexpectedly used fallback", errors)
     evidence["initial"] = evidence_summary(initial, initial_health)
 
     request_json(f"{args.fmu}/instances/WP7-TR-02", method="DELETE")
-    instance_loss = step(args.vehicle, 2, trains)
+    instance_loss = step(args.vehicle, 2, trains, run_id)
     instance_loss_health = health(args.vehicle)
     require(instance_loss.get("dataQuality") == "DEGRADED", "instance loss did not degrade the fleet step", errors)
     require(instance_loss_health.get("fallbackTrainCount", 0) >= 1, "instance loss did not enter sticky fallback", errors)
     evidence["instanceLoss"] = evidence_summary(instance_loss, instance_loss_health)
 
     request_json(f"{args.vehicle}/vehicle-runtime/physics/instances/resync-all", method="POST")
-    instance_resync = step(args.vehicle, 3, trains)
+    instance_resync = step(args.vehicle, 3, trains, run_id)
     instance_resync_health = health(args.vehicle)
     require(instance_resync.get("dataQuality") == "GOOD", "RESYNC after instance loss did not recover", errors)
     require(instance_resync_health.get("fallbackTrainCount") == 0, "RESYNC left trains in fallback", errors)
     evidence["instanceResync"] = evidence_summary(instance_resync, instance_resync_health)
 
     compose(args.env_file, "stop", "fmu")
-    outage = step(args.vehicle, 4, trains)
+    outage = step(args.vehicle, 4, trains, run_id)
     outage_health = health(args.vehicle)
     require(outage.get("dataQuality") == "DEGRADED", "FMU outage did not degrade the fleet step", errors)
     require(outage_health.get("fallbackTrainCount") == len(trains), "FMU outage did not put the fleet in fallback", errors)
@@ -102,14 +109,14 @@ def main() -> None:
 
     compose(args.env_file, "start", "fmu")
     wait_json(f"{args.fmu}/health", lambda value: value.get("status") == "UP" and value.get("ready"), 240.0)
-    sticky = step(args.vehicle, 5, trains)
+    sticky = step(args.vehicle, 5, trains, run_id)
     sticky_health = health(args.vehicle)
     require(sticky.get("dataQuality") == "DEGRADED", "fallback recovered without explicit RESYNC", errors)
     require(sticky_health.get("fallbackTrainCount") == len(trains), "sticky fallback was not retained", errors)
     evidence["stickyFallback"] = evidence_summary(sticky, sticky_health)
 
     request_json(f"{args.vehicle}/vehicle-runtime/physics/instances/resync-all", method="POST")
-    recovered = step(args.vehicle, 6, trains)
+    recovered = step(args.vehicle, 6, trains, run_id)
     recovered_health = health(args.vehicle)
     require(recovered.get("dataQuality") == "GOOD", "explicit RESYNC after service restart did not recover", errors)
     require(recovered_health.get("fallbackTrainCount") == 0, "fallback remained after service restart RESYNC", errors)
@@ -134,7 +141,12 @@ def main() -> None:
     require(mismatch.get("errorCode") == "FMU_PARAMETER_SET_MISMATCH", "parameter mismatch error code is incorrect", errors)
     evidence["parameterMismatch"] = mismatch
 
-    report = {"status": "PASS" if not errors else "FAIL", "errors": errors, "evidence": evidence}
+    report = {
+        "status": "PASS" if not errors else "FAIL",
+        "simulationRunId": run_id,
+        "errors": errors,
+        "evidence": evidence,
+    }
     rendered = json.dumps(report, ensure_ascii=False, indent=2)
     print(rendered)
     if args.output:

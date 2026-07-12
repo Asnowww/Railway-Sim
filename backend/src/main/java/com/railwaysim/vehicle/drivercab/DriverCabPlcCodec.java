@@ -4,12 +4,14 @@ import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.time.LocalDateTime;
 
+/** @deprecated LOCAL mode only. EXTERNAL_HTTP mode uses 9300's DriverCabPlcCodec. */
+@Deprecated(forRemoval=true, since="2.0")
 public class DriverCabPlcCodec {
 
     public static final int PLC_TO_UPPER_BYTES = 46;
     public static final int UPPER_TO_PLC_BYTES = 26;
     public static final int HEADER_BYTES = 24;
-    private static final byte[] PLC_TO_UPPER_IDENTIFY = {(byte) 0xaa, 0x55, (byte) 0xaa, 0x55};
+    private static final byte[] PLC_TO_UPPER_IDENTIFY = {0x55, (byte) 0xaa, 0x55, (byte) 0xaa};
     private static final byte[] UPPER_TO_PLC_IDENTIFY = {0x55, (byte) 0xaa, 0x55, (byte) 0xaa};
 
     private final ByteOrder byteOrder;
@@ -23,9 +25,20 @@ public class DriverCabPlcCodec {
     }
 
     public DriverCabPlcInputPacket decodeInput(byte[] payload) {
-        requireMinLength(payload, PLC_TO_UPPER_BYTES, "driver cab PLC input");
-        validateIdentify(payload, PLC_TO_UPPER_IDENTIFY, "driver cab PLC input");
+        requireExactLength(payload, PLC_TO_UPPER_BYTES, "driver cab PLC input");
+        validateHeader(payload, PLC_TO_UPPER_IDENTIFY, PLC_TO_UPPER_BYTES,
+            PLC_TO_UPPER_BYTES - HEADER_BYTES, "driver cab PLC input");
         ByteBuffer buffer = ByteBuffer.wrap(payload).order(byteOrder);
+        int doorModeCode = unsignedShort(buffer.getShort(32));
+        int directionCode = unsignedShort(buffer.getShort(36));
+        int masterHandleCode = unsignedShort(buffer.getShort(38));
+        int tractionPercent = unsignedShort(buffer.getShort(40));
+        int brakePercent = unsignedShort(buffer.getShort(42));
+        requireAllowedCode("doorModeSwitchState", doorModeCode, 0, 1, 2);
+        requireAllowedCode("directionHandleState", directionCode, 0, 1, 2);
+        requireAllowedCode("masterHandleState", masterHandleCode, 0, 1, 2, 4);
+        requirePercent("tractionNotchPercent", tractionPercent);
+        requirePercent("brakeNotchPercent", brakePercent);
         return new DriverCabPlcInputPacket(
             bit(payload, 24, 1),
             bit(payload, 24, 5),
@@ -39,16 +52,16 @@ public class DriverCabPlcCodec {
             bit(payload, 29, 1),
             bit(payload, 29, 2),
             bit(payload, 29, 3),
-            DriverCabDoorModeSwitch.fromProtocolCode(unsignedShort(buffer.getShort(32))),
+            DriverCabDoorModeSwitch.fromProtocolCode(doorModeCode),
             bit(payload, 34, 2),
             bit(payload, 34, 3),
             bit(payload, 34, 5),
             bit(payload, 34, 7),
             bit(payload, 35, 1),
-            DriverCabDirectionHandleState.fromProtocolCode(unsignedShort(buffer.getShort(36))),
-            DriverCabMasterHandleState.fromProtocolCode(unsignedShort(buffer.getShort(38))),
-            unsignedShort(buffer.getShort(40)),
-            unsignedShort(buffer.getShort(42))
+            DriverCabDirectionHandleState.fromProtocolCode(directionCode),
+            DriverCabMasterHandleState.fromProtocolCode(masterHandleCode),
+            tractionPercent,
+            brakePercent
         );
     }
 
@@ -82,8 +95,9 @@ public class DriverCabPlcCodec {
     }
 
     public DriverCabPlcOutputPacket decodeOutput(byte[] payload) {
-        requireMinLength(payload, UPPER_TO_PLC_BYTES, "driver cab PLC output");
-        validateIdentify(payload, UPPER_TO_PLC_IDENTIFY, "driver cab PLC output");
+        requireExactLength(payload, UPPER_TO_PLC_BYTES, "driver cab PLC output");
+        validateHeader(payload, UPPER_TO_PLC_IDENTIFY, UPPER_TO_PLC_BYTES,
+            UPPER_TO_PLC_BYTES - HEADER_BYTES, "driver cab PLC output");
         return new DriverCabPlcOutputPacket(
             bit(payload, 24, 1),
             bit(payload, 24, 2),
@@ -132,9 +146,35 @@ public class DriverCabPlcCodec {
         buffer.putShort((short) 0);
     }
 
-    private void requireMinLength(byte[] payload, int minLength, String label) {
-        if (payload == null || payload.length < minLength) {
-            throw new IllegalArgumentException(label + " packet too short: expected at least " + minLength + " bytes");
+    private void requireAllowedCode(String field, int actual, int... allowed) {
+        for (int value : allowed) {
+            if (actual == value) {
+                return;
+            }
+        }
+        throw new IllegalArgumentException(field + " has unsupported code: " + actual);
+    }
+
+    private void requirePercent(String field, int value) {
+        if (value < 0 || value > 100) {
+            throw new IllegalArgumentException(field + " must be in 0..100: " + value);
+        }
+    }
+
+    private void requireExactLength(byte[] payload, int expectedLength, String label) {
+        if (payload == null || payload.length != expectedLength) {
+            throw new IllegalArgumentException(label + " length is invalid: expected " + expectedLength + " bytes");
+        }
+    }
+
+    private void validateHeader(byte[] payload, byte[] expected, int totalLength, int dataLength, String label) {
+        validateIdentify(payload, expected, label);
+        ByteBuffer header = ByteBuffer.wrap(payload).order(byteOrder);
+        if (Short.toUnsignedInt(header.getShort(4)) != totalLength) {
+            throw new IllegalArgumentException(label + " total length is invalid");
+        }
+        if (Short.toUnsignedInt(header.getShort(6)) != dataLength) {
+            throw new IllegalArgumentException(label + " data length is invalid");
         }
     }
 

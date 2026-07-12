@@ -1,6 +1,7 @@
 package com.railwaysim.vehicle.onboard;
 
 import com.railwaysim.config.SimulationProperties;
+import com.railwaysim.config.StoppingControlProperties;
 import com.railwaysim.infrastructure.StaticInfrastructureCatalog;
 import com.railwaysim.train.TrainState;
 import com.railwaysim.vehicle.TrainStateReport;
@@ -9,18 +10,30 @@ import com.railwaysim.vehicle.VehiclePhysicsOutput;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
+/** @deprecated LOCAL mode only. */
+@Deprecated(forRemoval=true, since="2.0")
 class LocalOnboardTrainSubsystemClient implements OnboardTrainSubsystemClient {
 
     private final SimulationProperties simulationProperties;
     private final StaticInfrastructureCatalog infrastructureCatalog;
+    private final StoppingControlProperties stoppingProperties;
     private final Map<String, OnboardTrainSubsystem> subsystems = new ConcurrentHashMap<>();
+
+    LocalOnboardTrainSubsystemClient(
+        SimulationProperties simulationProperties,
+        StaticInfrastructureCatalog infrastructureCatalog,
+        StoppingControlProperties stoppingProperties
+    ) {
+        this.simulationProperties = simulationProperties;
+        this.infrastructureCatalog = infrastructureCatalog;
+        this.stoppingProperties = stoppingProperties;
+    }
 
     LocalOnboardTrainSubsystemClient(
         SimulationProperties simulationProperties,
         StaticInfrastructureCatalog infrastructureCatalog
     ) {
-        this.simulationProperties = simulationProperties;
-        this.infrastructureCatalog = infrastructureCatalog;
+        this(simulationProperties, infrastructureCatalog, new StoppingControlProperties());
     }
 
     @Override
@@ -62,7 +75,8 @@ class LocalOnboardTrainSubsystemClient implements OnboardTrainSubsystemClient {
         }
         return subsystems.computeIfAbsent(
             trainId,
-            id -> new OnboardTrainSubsystem(id, simulationProperties, infrastructureCatalog)
+            id -> new OnboardTrainSubsystem(
+                id, simulationProperties, infrastructureCatalog, stoppingProperties)
         );
     }
 }

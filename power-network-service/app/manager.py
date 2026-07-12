@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import hashlib
+import json
 from datetime import datetime, timezone
+import math
 from typing import Any
 
 
@@ -136,10 +139,18 @@ class PowerNetworkModel:
     isolators: dict[str, IsolatorState] = field(default_factory=dict)
     stray_monitors: dict[str, StrayMonitorState] = field(default_factory=dict)
     section_loads: dict[str, SectionLoad] = field(default_factory=dict)
+    section_faults: dict[str, str] = field(default_factory=dict)
     events: list[dict[str, Any]] = field(default_factory=list)
     source_timestamp: str = field(default_factory=now_iso)
     last_step_tick: int | None = None
+    active_run_id: str | None = None
+    accepted_step_count: int = 0
     last_step_response: dict[str, Any] | None = None
+    topology_hash: str = "BUILT_IN_REFERENCE"
+    config_hash: str = "BUILT_IN_REFERENCE"
+    model_version: str = "POWER_NETWORK_V1"
+    parameter_version: str = "POWER_NETWORK_PARAMS_V1"
+    bootstrapped: bool = False
 
     def __post_init__(self) -> None:
         if not self.substations:
@@ -147,6 +158,16 @@ class PowerNetworkModel:
             self._append_event("REFERENCE_MODEL_READY", "POWER_NETWORK", self.line_id, "INFO", "loaded Beijing-style default model")
 
     def bootstrap(self, payload: dict[str, Any]) -> dict[str, Any]:
+        self.bootstrapped = True
+        self.config_hash = self._sha256({
+            key: value for key, value in payload.items() if key != "generatedAt"
+        })
+        self.topology_hash = self._sha256({
+            "topologySegments": payload.get("topologySegments", []),
+            "sectionBindings": payload.get("sectionBindings", []),
+            "substations": payload.get("substations", []),
+            "isolators": payload.get("isolators", []),
+        })
         self.line_id = payload.get("lineId", "")
         self.line_name = payload.get("lineName", "")
         self.nominal_dc_voltage = positive_float(payload.get("nominalVoltage"), NOMINAL_DC_VOLTAGE)
@@ -154,6 +175,8 @@ class PowerNetworkModel:
         self.cutoff_dc_voltage = positive_float(payload.get("cutoffVoltage"), self.minimum_dc_voltage * 0.9)
         self.max_traction_current_amps = positive_float(payload.get("maxTractionCurrentAmps"), 2_000.0)
         self.last_step_tick = None
+        self.active_run_id = None
+        self.accepted_step_count = 0
         self.last_step_response = None
         self.topology_segments = [
             {
@@ -229,6 +252,7 @@ class PowerNetworkModel:
             section.power_section_id: SectionLoad(section.power_section_id)
             for section in self.third_rail_sections.values()
         }
+        self.section_faults = {}
         self._solve_network()
         self._append_event("BOOTSTRAPPED", "POWER_NETWORK", self.line_id, "INFO", "power network model bootstrapped")
         return {"accepted": True, "lineId": self.line_id, "generatedAt": self.source_timestamp}
@@ -239,6 +263,14 @@ class PowerNetworkModel:
             "sourceTimestamp": self.source_timestamp,
             "heartbeatStatus": "UP",
             "dataQuality": "GOOD",
+            "simulationRunId": self.active_run_id or "",
+            "lastAcceptedTick": self.last_step_tick if self.last_step_tick is not None else -1,
+            "acceptedStepCount": self.accepted_step_count,
+            "topologyHash": self.topology_hash,
+            "configHash": self.config_hash,
+            "modelVersion": self.model_version,
+            "parameterVersion": self.parameter_version,
+            "bootstrapped": self.bootstrapped,
             "substations": [self._substation_payload(substation) for substation in self.substations.values()],
             "thirdRailSections": [self._third_rail_payload(section) for section in self.third_rail_sections.values()],
             "isolators": [
@@ -254,6 +286,10 @@ class PowerNetworkModel:
             "mediumVoltageBuses": [self._bus_payload(bus) for bus in self.buses.values()],
             "ringFeeders": [self._feeder_payload(feeder) for feeder in self.feeders.values()],
         }
+
+    def _sha256(self, value: Any) -> str:
+        canonical = json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+        return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
     def query_state(self, payload: dict[str, Any]) -> dict[str, Any]:
         # The public contract is camelCase.  Accept snake_case as well so a client-level
@@ -280,19 +316,43 @@ class PowerNetworkModel:
 
     def step(
         self,
+        simulation_run_id: str,
         tick: int,
         payload: dict[str, Any],
         train_positions: list[dict[str, Any]],
     ) -> dict[str, Any]:
         """Atomically apply T(n) fleet loads and return constraints consumed at T(n+1)."""
+        if not self.bootstrapped:
+            raise ValueError("POWER_BOOTSTRAP_REQUIRED")
+        if not simulation_run_id:
+            raise ValueError("POWER_RUN_ID_REQUIRED")
+        if self.active_run_id is None:
+            self.active_run_id = simulation_run_id
+        elif simulation_run_id != self.active_run_id:
+            if tick > 1:
+                raise ValueError(
+                    f"POWER_RUN_ID_MISMATCH:{simulation_run_id}!={self.active_run_id}"
+                )
+            self.active_run_id = simulation_run_id
+            self.last_step_tick = None
+            self.last_step_response = None
         if self.last_step_tick is not None:
             if tick == self.last_step_tick:
                 return dict(self.last_step_response or {})
             if tick < self.last_step_tick:
                 raise ValueError(f"POWER_TICK_OUT_OF_ORDER:{tick}<{self.last_step_tick}")
         snapshot = self.query_state(payload)
-        response = {**snapshot, "tick": tick, "powerConstraints": self.constraints_for_positions(train_positions)}
+        response = {
+            **snapshot,
+            "simulationRunId": simulation_run_id,
+            "tick": tick,
+            "lastAcceptedTick": tick,
+            "powerConstraints": self.constraints_for_positions(train_positions),
+        }
         self.last_step_tick = tick
+        self.last_step_response = response
+        self.accepted_step_count += 1
+        response["acceptedStepCount"] = self.accepted_step_count
         self.last_step_response = response
         return dict(response)
 
@@ -302,35 +362,70 @@ class PowerNetworkModel:
         Vehicle simulation consumes this response directly.  The central system only
         mirrors it for monitoring and does not recalculate traction capability.
         """
+        if not self.bootstrapped:
+            raise ValueError("POWER_BOOTSTRAP_REQUIRED")
         self._solve_network()
         sections = list(self.third_rail_sections.values())
         if not sections:
             return []
-        assignments: list[tuple[dict[str, Any], ThirdRailState]] = []
+        assignments: list[tuple[dict[str, Any], ThirdRailState | None]] = []
+        topology_min = min(
+            (float(item.get("startMeters", 0)) for item in self.topology_segments),
+            default=min(section.start_meters for section in sections),
+        )
+        topology_max = max(
+            (float(item.get("endMeters", 0)) for item in self.topology_segments),
+            default=max(section.end_meters for section in sections),
+        )
         for train in train_positions:
             train_id = train.get("trainId") or train.get("train_id")
             if not train_id:
                 continue
-            position = float(train.get("positionMeters", train.get("position_meters", 0)) or 0)
-            section = next(
-                (
-                    candidate
-                    for candidate in sections
-                    if candidate.start_meters <= position < candidate.end_meters
-                ),
-                sections[-1],
-            )
+            try:
+                position = float(train.get("positionMeters", train.get("position_meters", 0)))
+            except (TypeError, ValueError):
+                position = math.nan
+            section = None
+            if math.isfinite(position) and topology_min <= position < topology_max:
+                section = next(
+                    (
+                        candidate
+                        for candidate in sections
+                        if candidate.start_meters <= position < candidate.end_meters
+                    ),
+                    None,
+                )
             assignments.append((train, section))
         train_count_by_section: dict[str, int] = {}
         for _, section in assignments:
+            if section is None:
+                continue
             train_count_by_section[section.power_section_id] = train_count_by_section.get(section.power_section_id, 0) + 1
 
         constraints: list[dict[str, Any]] = []
         for train, section in assignments:
             train_id = train.get("trainId") or train.get("train_id")
+            if section is None:
+                constraints.append(
+                    {
+                        "trainId": train_id,
+                        "sectionId": "UNKNOWN",
+                        "railVoltage": 0.0,
+                        "powerAvailableWatts": 0.0,
+                        "regenPowerAvailableWatts": 0.0,
+                        "energized": False,
+                        "powerDeratingFactor": 0.0,
+                        "currentCollectionAvailable": False,
+                        "regenAvailable": False,
+                        "constraintReason": "POWER_SECTION_UNKNOWN",
+                    }
+                )
+                continue
+            fault = self.section_faults.get(section.power_section_id, "")
             energized = section.energization_state == "ENERGIZED" and section.contact_rail_voltage > self.cutoff_dc_voltage
             undervoltage = energized and section.contact_rail_voltage < self.minimum_dc_voltage
-            derating_factor = 0.5 if undervoltage else (1.0 if energized else 0.0)
+            overcurrent = energized and fault == "OVERCURRENT"
+            derating_factor = 0.25 if overcurrent else (0.5 if undervoltage else (1.0 if energized else 0.0))
             available_power = (
                 section.contact_rail_voltage * self.max_traction_current_amps * derating_factor
                 if energized
@@ -341,7 +436,7 @@ class PowerNetworkModel:
                 if energized and not undervoltage
                 else 0.0
             )
-            reason = "UNDERVOLTAGE" if undervoltage else ("NORMAL" if energized else "POWER_UNAVAILABLE")
+            reason = fault if fault else ("UNDERVOLTAGE" if undervoltage else ("NORMAL" if energized else "POWER_UNAVAILABLE"))
             constraints.append(
                 {
                     "trainId": train_id,
@@ -395,6 +490,12 @@ class PowerNetworkModel:
         elif target_type in {"STRAY_MONITOR", "STRAIN_MONITOR"} and target_id in self.stray_monitors:
             self.stray_monitors[target_id].cabinet_state = desired_state or "ABNORMAL"
             executed = True
+        elif target_type == "POWER_SECTION" and self.third_rail_sections_by_power_section(target_id) is not None:
+            if payload.get("operationType") == "CLEAR_FAULT" or desired_state in {"", "NORMAL", "CLEARED"}:
+                self.section_faults.pop(target_id, None)
+            else:
+                self.section_faults[target_id] = desired_state
+            executed = True
 
         self._solve_network()
         result_state = "EXECUTED" if executed else "REJECTED"
@@ -440,6 +541,31 @@ class PowerNetworkModel:
         section.unabsorbed_regen_watts = max(0.0, load.regen_power_watts - section.absorbed_regen_watts)
         section.regen_budget_watts = 0.0
         section.traction_current_amps = self._effective_current(load)
+        fault = self.section_faults.get(section.power_section_id)
+        if fault in {"DEENERGIZED", "BREAKER_TRIP", "MAINTENANCE_LOCK", "ISOLATED"}:
+            section.energization_state = "DEENERGIZED"
+            section.feeder_state = fault
+            section.recommended_supply_mode = "OUTAGE"
+            section.contact_rail_voltage = 0.0
+            section.support_reason = f"injected fault: {fault}"
+            return
+        if fault == "UNDERVOLTAGE":
+            section.energization_state = "ENERGIZED"
+            section.feeder_state = "UNDERVOLTAGE"
+            section.recommended_supply_mode = "DERATED"
+            section.contact_rail_voltage = max(
+                self.cutoff_dc_voltage + 1.0,
+                self.minimum_dc_voltage - max(1.0, self.minimum_dc_voltage * 0.1),
+            )
+            section.support_reason = "injected fault: UNDERVOLTAGE"
+            return
+        if fault == "OVERCURRENT":
+            section.energization_state = "ENERGIZED"
+            section.feeder_state = "OVERCURRENT"
+            section.recommended_supply_mode = "DERATED"
+            section.contact_rail_voltage = max(self.minimum_dc_voltage, self.nominal_dc_voltage * 0.9)
+            section.support_reason = "injected fault: OVERCURRENT"
+            return
         if open_isolator:
             section.energization_state = "DEENERGIZED"
             section.feeder_state = "ISOLATED"

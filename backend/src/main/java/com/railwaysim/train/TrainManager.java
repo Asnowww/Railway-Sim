@@ -17,10 +17,13 @@ import com.railwaysim.simulation.event.TrainFaultStateChangedEvent;
 import com.railwaysim.simulation.event.VehiclePhysicsUpdatedEvent;
 import com.railwaysim.track.TrackConstraint;
 import com.railwaysim.vehicle.VehiclePhysicsOutput;
+import com.railwaysim.vehicle.control.DriverCommandHolder;
+import com.railwaysim.vehicle.control.DriverControlCommand;
 import com.railwaysim.vehicle.drivercab.DriverCabPlcInputPacket;
 import com.railwaysim.vehicle.onboard.OnboardTrainSubsystemManager;
 import com.railwaysim.vehicle.protocol.TrainOperationalTelemetry;
 import com.railwaysim.vehicle.external.ExternalTrainDirection;
+import com.railwaysim.vehicle.runtime.VehicleRuntimeEvent;
 import com.railwaysim.vehicle.runtime.VehicleRuntimeHealth;
 import com.railwaysim.vehicle.runtime.VehicleRuntimeIntegrationService;
 import com.railwaysim.vehicle.runtime.VehicleRuntimeStepResult;
@@ -51,6 +54,7 @@ public class TrainManager {
     private final VehicleSpecificationCatalog vehicleSpecificationCatalog;
     private final Map<String, RuntimeVehicleMetadata> vehicleMetadata = new LinkedHashMap<>();
     private final List<TrainFaultRecord> faultRecords = new ArrayList<>();
+    private final DriverCommandHolder driverCommandHolder;
 
     @Autowired
     public TrainManager(
@@ -59,7 +63,8 @@ public class TrainManager {
         StaticInfrastructureCatalog infrastructureCatalog,
         RealtimeStateCache realtimeStateCache,
         SimpleEventBus eventBus,
-        VehicleSpecificationCatalog vehicleSpecificationCatalog
+        VehicleSpecificationCatalog vehicleSpecificationCatalog,
+        DriverCommandHolder driverCommandHolder
     ) {
         this.onboardTrainSubsystemManager = onboardTrainSubsystemManager;
         this.vehicleRuntimeIntegrationService = vehicleRuntimeIntegrationService;
@@ -67,6 +72,7 @@ public class TrainManager {
         this.realtimeStateCache = realtimeStateCache;
         this.eventBus = eventBus;
         this.vehicleSpecificationCatalog = vehicleSpecificationCatalog;
+        this.driverCommandHolder = driverCommandHolder;
     }
 
     public TrainManager(
@@ -82,7 +88,8 @@ public class TrainManager {
             infrastructureCatalog,
             realtimeStateCache,
             eventBus,
-            new VehicleSpecificationCatalog("config/train_params.yaml")
+            new VehicleSpecificationCatalog("config/train_params.yaml"),
+            new DriverCommandHolder()
         );
     }
 
@@ -92,6 +99,7 @@ public class TrainManager {
     }
 
     public synchronized void reset() {
+        driverCommandHolder.clear();
         String routeId = infrastructureCatalog.lineData().lineId();
         double lineLengthMeters = infrastructureCatalog.lineData().lineLengthMeters();
         if (lineLengthMeters <= 0) {
@@ -132,17 +140,34 @@ public class TrainManager {
             dispatchConstraints,
             powerConstraints
         );
-        Map<String, VehicleRuntimeTrainStep> stepByTrain = runtimeResult.trainSteps().stream()
-            .collect(Collectors.toMap(VehicleRuntimeTrainStep::trainId, Function.identity(), (left, right) -> right));
-        for (TrainEntity train : trains) {
-            TrainState currentState = train.state(controlSessions.get(train.id()));
-            VehicleRuntimeTrainStep step = stepByTrain.get(currentState.id());
-            if (step != null && step.output() != null && step.report() != null) {
-                train.applyPhysicsOutput(step.output(), step.report(), context.deltaSeconds());
-                realtimeStateCache.updateTrainTcmsState(step.report());
-                publishVehicleEvents(step.output());
+        List<TrainState> resultTrainStates = runtimeResult.trainStates();
+        boolean hasAuthoritativeStates = resultTrainStates != null && !resultTrainStates.isEmpty();
+
+        if (hasAuthoritativeStates) {
+            // EXTERNAL_HTTP 模式：9300 返回了权威状态快照 → 批量更新中央镜像
+            updateMirrorState(resultTrainStates);
+        } else {
+            // LOCAL 模式：用本地计算输出更新 TrainEntity
+            Map<String, VehicleRuntimeTrainStep> stepByTrain = runtimeResult.trainSteps().stream()
+                .collect(Collectors.toMap(VehicleRuntimeTrainStep::trainId, Function.identity(), (left, right) -> right));
+            for (TrainEntity train : trains) {
+                TrainState currentState = train.state(controlSessions.get(train.id()));
+                VehicleRuntimeTrainStep step = stepByTrain.get(currentState.id());
+                if (step != null && step.output() != null && step.report() != null) {
+                    train.applyPhysicsOutput(step.output(), step.report(), context.deltaSeconds());
+                    realtimeStateCache.updateTrainTcmsState(step.report());
+                    publishVehicleEvents(step.output());
+                }
             }
         }
+
+        // 发布 9300 事件到中央 event bus
+        if (runtimeResult.events() != null) {
+            for (VehicleRuntimeEvent event : runtimeResult.events()) {
+                publishExternalEvent(event);
+            }
+        }
+
         return runtimeResult.outputs();
     }
 
@@ -296,6 +321,14 @@ public class TrainManager {
         return train.state(controlSessions.get(train.id()));
     }
 
+    public void storeDriverCommand(DriverControlCommand cmd) {
+        driverCommandHolder.store(cmd.trainId(), cmd);
+    }
+
+    public DriverControlCommand latestDriverCommand(String trainId) {
+        return driverCommandHolder.latest(trainId);
+    }
+
     public synchronized List<TrainState> states() {
         return trains.stream()
             .map(train -> train.state(controlSessions.get(train.id())))
@@ -419,6 +452,40 @@ public class TrainManager {
         }
     }
 
+    /**
+     * 从 9300 的权威状态快照更新中央镜像 TrainEntity（EXTERNAL_HTTP 模式）。
+     * 9300 是权威，本方法做全量覆写。
+     */
+    public synchronized void updateMirrorState(List<TrainState> snapshots) {
+        for (TrainState snapshot : snapshots) {
+            TrainEntity entity = findTrainEntity(snapshot.id()).orElse(null);
+            if (entity == null) {
+                // 9300 创建的列车，中央尚不知晓 → 创建镜像
+                VehicleSpecificationCatalog.VehicleSpecification spec = vehicleSpecificationCatalog.specification();
+                entity = new TrainEntity(
+                    snapshot.id(),
+                    snapshot.routeId() != null && !snapshot.routeId().isBlank() ? snapshot.routeId() : infrastructureCatalog.lineData().lineId(),
+                    snapshot.positionMeters(),
+                    snapshot.lengthMeters() > 0 ? snapshot.lengthMeters() : spec.lengthMeters(),
+                    snapshot.loadRate(),
+                    infrastructureCatalog.lineData()
+                );
+                trains.add(entity);
+                controlSessions.put(snapshot.id(), ExternalTrainControlSession.inService(
+                    snapshot.id(), snapshot.linkId(), snapshot.positionMeters(),
+                    ExternalTrainDirection.valueOf(snapshot.direction())));
+            }
+            entity.applyExternalSnapshot(snapshot);
+            publishMirrorEvents(entity, snapshot);
+        }
+    }
+
+    private void publishMirrorEvents(TrainEntity entity, TrainState snapshot) {
+        Instant now = Instant.now();
+        eventBus.publish(new VehiclePhysicsUpdatedEvent(
+            entity.id(), snapshot.positionMeters(), snapshot.speedMetersPerSecond(), 0, now));
+    }
+
     public synchronized Optional<RuntimeVehicleMetadata> vehicleMetadata(String trainId) {
         return Optional.ofNullable(vehicleMetadata.get(trainId));
     }
@@ -428,6 +495,29 @@ public class TrainManager {
             return new RuntimeVehicleMetadata(
                 specification.trainType(), specification.parameterSetId(), specification.lengthMeters()
             );
+        }
+    }
+
+    /** 发布来自 9300 的远程事件到中央 event bus。 */
+    private void publishExternalEvent(VehicleRuntimeEvent event) {
+        Instant now = Instant.now();
+        switch (event.eventType()) {
+            case "VehiclePhysicsUpdated" ->
+                eventBus.publish(new VehiclePhysicsUpdatedEvent(
+                    event.trainId(), 0, 0, 0, now));
+            case "TractionPowerChanged" ->
+                eventBus.publish(new TractionPowerChangedEvent(
+                    event.trainId(), 0, 0, now));
+            case "BrakeForceChanged" ->
+                eventBus.publish(new BrakeForceChangedEvent(
+                    event.trainId(), 0, now));
+            case "RegenerativePowerGenerated" ->
+                eventBus.publish(new RegenerativePowerGeneratedEvent(
+                    event.trainId(), 0, 0, now));
+            case "TrainFaultStateChanged" ->
+                eventBus.publish(new TrainFaultStateChangedEvent(
+                    event.trainId(), event.detail(), "UPDATED", event.detail(), now));
+            default -> { /* ignore unknown event types */ }
         }
     }
 

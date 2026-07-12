@@ -24,6 +24,7 @@ class PowerCouplingTests(unittest.TestCase):
         unloaded_b = next(item for item in unloaded_constraints if item["trainId"] == "TR-B")
 
         response = self.model.step(
+            "run-test",
             1,
             load_payload("P01", ["TR-A", "TR-B"], 1_800_000, 0, 1_200),
             positions,
@@ -31,6 +32,13 @@ class PowerCouplingTests(unittest.TestCase):
 
         constraints = response["powerConstraints"]
         self.assertEqual(1, response["tick"])
+        self.assertEqual("run-test", response["simulationRunId"])
+        self.assertEqual(1, response["lastAcceptedTick"])
+        self.assertEqual(1, response["acceptedStepCount"])
+        self.assertEqual("POWER_NETWORK_V1", response["modelVersion"])
+        self.assertEqual("POWER_NETWORK_PARAMS_V1", response["parameterVersion"])
+        self.assertRegex(response["topologyHash"], r"^[0-9a-f]{64}$")
+        self.assertRegex(response["configHash"], r"^[0-9a-f]{64}$")
         self.assertTrue(all(item["railVoltage"] < unloaded_voltage for item in constraints))
         self.assertEqual(constraints[0]["railVoltage"], constraints[1]["railVoltage"])
         self.assertEqual(900_000.0, constraints[0]["regenPowerAvailableWatts"])
@@ -45,9 +53,30 @@ class PowerCouplingTests(unittest.TestCase):
         self.assertLess(next_step_mechanical_power, baseline_mechanical_power)
         self.assertLess(next_step_force_at_15_mps, baseline_force_at_15_mps)
 
+    def test_config_hash_ignores_bootstrap_generation_time(self) -> None:
+        first = two_section_payload()
+        first["generatedAt"] = "2026-07-12T00:00:00Z"
+        second = copy.deepcopy(first)
+        second["generatedAt"] = "2026-07-12T00:00:01Z"
+        first_model = PowerNetworkModel()
+        second_model = PowerNetworkModel()
+        first_model.bootstrap(first)
+        second_model.bootstrap(second)
+        self.assertEqual(first_model.config_hash, second_model.config_hash)
+        self.assertEqual(first_model.topology_hash, second_model.topology_hash)
+
+    def test_unbootstrapped_model_rejects_authoritative_queries(self) -> None:
+        fresh = PowerNetworkModel()
+        self.assertFalse(fresh.snapshot()["bootstrapped"])
+        with self.assertRaisesRegex(ValueError, "POWER_BOOTSTRAP_REQUIRED"):
+            fresh.constraints_for_positions([])
+        with self.assertRaisesRegex(ValueError, "POWER_BOOTSTRAP_REQUIRED"):
+            fresh.step("run-test", 1, {"sectionLoads": []}, [])
+
     def test_reference_peak_traction_is_limited_by_real_section_current_capacity(self) -> None:
         positions = [{"trainId": "TR-PEAK", "positionMeters": 200.0}]
         response = self.model.step(
+            "run-test",
             1,
             load_payload("P01", ["TR-PEAK"], 4_916_250.0, 0.0, 3_277.5),
             positions,
@@ -59,6 +88,7 @@ class PowerCouplingTests(unittest.TestCase):
 
     def test_reference_peak_regen_records_unabsorbed_power(self) -> None:
         response = self.model.step(
+            "run-test",
             1,
             load_payload("P01", ["TR-PEAK"], 4_916_250.0, 5_464_350.0, 0.0),
             [{"trainId": "TR-PEAK", "positionMeters": 200.0}],
@@ -82,6 +112,7 @@ class PowerCouplingTests(unittest.TestCase):
         }
 
         response = self.model.step(
+            "run-test",
             1,
             load_payload("P01", ["TR-A"], 1_800_000, 0, 1_200),
             positions,
@@ -94,6 +125,7 @@ class PowerCouplingTests(unittest.TestCase):
 
     def test_regen_absorption_and_unabsorbed_power_are_explicit(self) -> None:
         response = self.model.step(
+            "run-test",
             1,
             load_payload("P01", ["TR-A", "TR-B"], 600_000, 900_000, 400),
             [
@@ -110,6 +142,7 @@ class PowerCouplingTests(unittest.TestCase):
 
     def test_regen_without_simultaneous_traction_has_zero_budget(self) -> None:
         response = self.model.step(
+            "run-test",
             1,
             load_payload("P01", ["TR-A"], 0, 900_000, 0),
             [{"trainId": "TR-A", "positionMeters": 200.0}],
@@ -121,14 +154,101 @@ class PowerCouplingTests(unittest.TestCase):
         self.assertEqual(0, response["powerConstraints"][0]["regenPowerAvailableWatts"])
         self.assertFalse(response["powerConstraints"][0]["regenAvailable"])
 
+    def test_authoritative_section_fault_drives_constraints_and_clear_restores_supply(self) -> None:
+        position = [{"trainId": "TR-A", "positionMeters": 200.0}]
+
+        injected = self.model.operate({
+            "operationType": "INJECT_FAULT",
+            "targetType": "POWER_SECTION",
+            "targetId": "P01",
+            "desiredState": "DEENERGIZED",
+            "traceId": "fault-inject",
+        })
+        unavailable = self.model.constraints_for_positions(position)[0]
+
+        self.assertTrue(injected["executed"])
+        self.assertFalse(unavailable["energized"])
+        self.assertEqual(0.0, unavailable["powerAvailableWatts"])
+        self.assertEqual("DEENERGIZED", unavailable["constraintReason"])
+
+        cleared = self.model.operate({
+            "operationType": "CLEAR_FAULT",
+            "targetType": "POWER_SECTION",
+            "targetId": "P01",
+            "desiredState": "NORMAL",
+            "traceId": "fault-clear",
+        })
+        restored = self.model.constraints_for_positions(position)[0]
+        self.assertTrue(cleared["executed"])
+        self.assertTrue(restored["energized"])
+        self.assertEqual("NORMAL", restored["constraintReason"])
+
+    def test_authoritative_derating_faults_remain_energized_but_limit_traction(self) -> None:
+        position = [{"trainId": "TR-A", "positionMeters": 200.0}]
+        normal = self.model.constraints_for_positions(position)[0]
+
+        self.model.operate({
+            "operationType": "INJECT_FAULT",
+            "targetType": "POWER_SECTION",
+            "targetId": "P01",
+            "desiredState": "UNDERVOLTAGE",
+        })
+        undervoltage = self.model.constraints_for_positions(position)[0]
+        self.assertTrue(undervoltage["energized"])
+        self.assertEqual("UNDERVOLTAGE", undervoltage["constraintReason"])
+        self.assertLess(undervoltage["powerAvailableWatts"], normal["powerAvailableWatts"])
+
+        self.model.operate({
+            "operationType": "INJECT_FAULT",
+            "targetType": "POWER_SECTION",
+            "targetId": "P01",
+            "desiredState": "OVERCURRENT",
+        })
+        overcurrent = self.model.constraints_for_positions(position)[0]
+        self.assertTrue(overcurrent["energized"])
+        self.assertEqual("OVERCURRENT", overcurrent["constraintReason"])
+        self.assertEqual(0.25, overcurrent["powerDeratingFactor"])
+
     def test_duplicate_tick_is_idempotent_and_backward_tick_is_rejected(self) -> None:
         positions = [{"trainId": "TR-A", "positionMeters": 200.0}]
-        first = self.model.step(2, load_payload("P01", ["TR-A"], 600_000, 0, 400), positions)
-        duplicate = self.model.step(2, load_payload("P01", ["TR-A"], 2_000_000, 0, 1300), positions)
+        first = self.model.step("run-test", 2, load_payload("P01", ["TR-A"], 600_000, 0, 400), positions)
+        duplicate = self.model.step("run-test", 2, load_payload("P01", ["TR-A"], 2_000_000, 0, 1300), positions)
 
         self.assertEqual(first, duplicate)
+        self.assertEqual(1, duplicate["acceptedStepCount"])
         with self.assertRaisesRegex(ValueError, "POWER_TICK_OUT_OF_ORDER"):
-            self.model.step(1, load_payload("P01", ["TR-A"], 0, 0, 0), positions)
+            self.model.step("run-test", 1, load_payload("P01", ["TR-A"], 0, 0, 0), positions)
+
+    def test_new_run_resets_tick_watermark_but_rejects_midrun_run_id_change(self) -> None:
+        positions = [{"trainId": "TR-A", "positionMeters": 200.0}]
+        self.model.step("run-old", 8, load_payload("P01", ["TR-A"], 600_000, 0, 400), positions)
+
+        with self.assertRaisesRegex(ValueError, "POWER_RUN_ID_MISMATCH"):
+            self.model.step("run-new", 2, load_payload("P01", ["TR-A"], 0, 0, 0), positions)
+
+        first = self.model.step("run-new", 1, load_payload("P01", ["TR-A"], 0, 0, 0), positions)
+        self.assertEqual("run-new", first["simulationRunId"])
+        self.assertEqual(1, first["tick"])
+        self.assertEqual(2, first["acceptedStepCount"])
+
+    def test_invalid_and_gap_positions_return_unknown_safe_constraint(self) -> None:
+        gap_payload = two_section_payload()
+        gap_payload["sectionBindings"][1]["startMeters"] = 1_100.0
+        self.model.bootstrap(gap_payload)
+
+        constraints = self.model.constraints_for_positions([
+            {"trainId": "TR-NEG", "positionMeters": -1.0},
+            {"trainId": "TR-GAP", "positionMeters": 1_050.0},
+            {"trainId": "TR-END", "positionMeters": 2_000.0},
+            {"trainId": "TR-NAN", "positionMeters": "NaN"},
+        ])
+
+        self.assertEqual(4, len(constraints))
+        for constraint in constraints:
+            self.assertEqual("UNKNOWN", constraint["sectionId"])
+            self.assertEqual(0.0, constraint["powerAvailableWatts"])
+            self.assertFalse(constraint["currentCollectionAvailable"])
+            self.assertEqual("POWER_SECTION_UNKNOWN", constraint["constraintReason"])
 
 
 class PowerStepApiTests(unittest.TestCase):
@@ -137,6 +257,7 @@ class PowerStepApiTests(unittest.TestCase):
 
     def test_http_step_requires_fixed_time_and_maps_backward_tick_to_409(self) -> None:
         payload = {
+            "simulationRunId": "run-api-test",
             "tick": 2,
             "simulationTimeSeconds": 0.2,
             "stepSizeSeconds": 0.1,

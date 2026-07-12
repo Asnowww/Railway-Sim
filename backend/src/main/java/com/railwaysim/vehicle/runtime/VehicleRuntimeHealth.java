@@ -11,8 +11,25 @@ public record VehicleRuntimeHealth(
     long latencyMillis,
     String dataQuality,
     int instanceCount,
-    String reason
+    String reason,
+    String physicsMode,
+    String fmuModelVersion,
+    String parameterSetId,
+    String simulationRunId,
+    long lastAcceptedTick,
+    String topologyHash,
+    String configHash,
+    String stoppingParameterVersion,
+    boolean bootstrapped
 ) {
+    public VehicleRuntimeHealth(
+        VehicleRuntimeMode mode, String heartbeatStatus, Instant sourceTimestamp,
+        long latencyMillis, String dataQuality, int instanceCount, String reason
+    ) {
+        this(mode, heartbeatStatus, sourceTimestamp, latencyMillis, dataQuality, instanceCount,
+            reason, "", "", "", "", -1, "", "", "", false);
+    }
+
     public static VehicleRuntimeHealth local() {
         return new VehicleRuntimeHealth(VehicleRuntimeMode.LOCAL, "LOCAL", Instant.now(), 0, "GOOD", 0, "LOCAL_RUNTIME");
     }

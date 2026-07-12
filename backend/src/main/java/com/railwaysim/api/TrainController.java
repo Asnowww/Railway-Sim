@@ -1,5 +1,6 @@
 package com.railwaysim.api;
 
+import com.railwaysim.api.dto.ApiError;
 import com.railwaysim.api.dto.FaultMutationRequest;
 import com.railwaysim.api.dto.OperationLogEntry;
 import com.railwaysim.api.dto.TrainEnergyResponse;
@@ -11,11 +12,15 @@ import com.railwaysim.signal.vehicle.SignalTrainLifecycleTrainSpec;
 import com.railwaysim.train.TrainFaultRecord;
 import com.railwaysim.train.TrainManager;
 import com.railwaysim.train.TrainState;
+import com.railwaysim.simulation.SimulationRunContext;
 import com.railwaysim.vehicle.external.ExternalTrainDirection;
 import java.time.Instant;
 import java.util.List;
 import java.util.Locale;
+import java.util.Optional;
+import org.springframework.dao.DataAccessException;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.CrossOrigin;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -34,10 +39,13 @@ public class TrainController {
 
     private final TrainManager trainManager;
     private final ApiOperationLogService operationLogService;
+    private final SimulationRunContext runContext;
 
-    public TrainController(TrainManager trainManager, ApiOperationLogService operationLogService) {
+    public TrainController(TrainManager trainManager, ApiOperationLogService operationLogService,
+        SimulationRunContext runContext) {
         this.trainManager = trainManager;
         this.operationLogService = operationLogService;
+        this.runContext = runContext;
     }
 
     @GetMapping
@@ -123,49 +131,46 @@ public class TrainController {
     }
 
     @PostMapping("/{trainId}/faults")
-    public TrainFaultRecord injectFault(
+    public ResponseEntity<?> injectFault(
         @PathVariable String trainId,
         @RequestBody FaultMutationRequest request
     ) {
         requireConfirm(request);
         String beforeState = train(trainId).faultCode();
+        try {
+            operationLogService.recordSyncWithRunId(
+                request.normalizedOperator(), "TRAIN_FAULT_INJECT",
+                "train:" + trainId, beforeState, null,
+                request.normalizedReason(), request.normalizedTraceId(), runContext.runId(), runContext.tick());
+        } catch (DataAccessException ex) {
+            return ResponseEntity.status(503).body(
+                ApiError.of("AUDIT_FAILED", "Audit log unavailable"));
+        }
         TrainFaultRecord record = trainManager.injectFault(
-            trainId,
-            requiredFaultType(request),
-            request.normalizedReason(),
-            request.normalizedTraceId()
-        );
-        OperationLogEntry operation = operationLogService.record(
-            request.normalizedOperator(),
-            "TRAIN_FAULT_INJECT",
-            "train:" + trainId,
-            beforeState,
-            record.faultCode(),
-            request.normalizedReason(),
-            request.normalizedTraceId()
-        );
-        operationLogService.recordTrainFault(operation, trainId, record.faultCode(), record.faultLevel(), "INJECTED");
-        return record;
+            trainId, requiredFaultType(request),
+            request.normalizedReason(), request.normalizedTraceId());
+        return ResponseEntity.ok(record);
     }
 
     @PostMapping("/{trainId}/faults/clear")
-    public TrainFaultRecord clearFault(
+    public ResponseEntity<?> clearFault(
         @PathVariable String trainId,
         @RequestBody FaultMutationRequest request
     ) {
         requireConfirm(request);
         String beforeState = train(trainId).faultCode();
-        TrainFaultRecord record = trainManager.clearFault(trainId, request.normalizedReason(), request.normalizedTraceId());
-        operationLogService.record(
-            request.normalizedOperator(),
-            "TRAIN_FAULT_CLEAR",
-            "train:" + trainId,
-            beforeState,
-            record.state(),
-            request.normalizedReason(),
-            request.normalizedTraceId()
-        );
-        return record;
+        try {
+            operationLogService.recordSyncWithRunId(
+                request.normalizedOperator(), "TRAIN_FAULT_CLEAR",
+                "train:" + trainId, beforeState, null,
+                request.normalizedReason(), request.normalizedTraceId(), runContext.runId(), runContext.tick());
+        } catch (DataAccessException ex) {
+            return ResponseEntity.status(503).body(
+                ApiError.of("AUDIT_FAILED", "Audit log unavailable"));
+        }
+        TrainFaultRecord record = trainManager.clearFault(
+            trainId, request.normalizedReason(), request.normalizedTraceId());
+        return ResponseEntity.ok(record);
     }
 
     private void requireConfirm(FaultMutationRequest request) {

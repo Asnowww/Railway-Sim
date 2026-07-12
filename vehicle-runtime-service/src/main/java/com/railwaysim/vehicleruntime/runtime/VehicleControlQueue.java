@@ -1,85 +1,97 @@
 package com.railwaysim.vehicleruntime.runtime;
 
 import com.railwaysim.vehicleruntime.config.VehicleRuntimeProperties;
+import com.railwaysim.vehicleruntime.config.StoppingControlProperties;
 import com.railwaysim.vehicleruntime.config.VehicleParameters;
 import com.railwaysim.vehicleruntime.model.DispatchConstraintSnapshot;
+import com.railwaysim.vehicleruntime.model.DriverControlCommandSnapshot;
 import com.railwaysim.vehicleruntime.model.MovementAuthoritySnapshot;
 import com.railwaysim.vehicleruntime.model.PowerConstraintSnapshot;
 import com.railwaysim.vehicleruntime.model.TrackConstraintSnapshot;
-import com.railwaysim.vehicleruntime.model.TrainStateSnapshot;
 import com.railwaysim.vehicleruntime.model.VehiclePhysicsInputDto;
 
 /**
  * 控制队列负责把中央约束转换为单车牵引/制动输入。
+ * 从 TrainStateHolder 读取列车状态（不再接收 TrainStateSnapshot）。
  */
 final class VehicleControlQueue {
 
     private static final double DEFAULT_ADHESION = 0.9;
     private static final double GRAVITY = 9.81;
-    private static final double SERVICE_BRAKE_DECELERATION = 0.9;
-    private static final double STATION_STOP_WINDOW_METERS = 10.0;
     private static final double NO_STATION_DISTANCE_METERS = 1_000_000;
+    private static final double DEPARTURE_WINDOW_METERS = 40.0;
 
     private final VehicleRuntimeQueue queue;
     private final VehicleRuntimeProperties properties;
     private final VehicleLoadPolicy loadPolicy;
     private final VehicleParameters vehicleParameters;
+    private final DriverCommandHolder driverCommandHolder;
+    private final StoppingControlProperties stoppingProperties;
+
+    /** 离站释放时的列车位置(m) */
+    private double departureOriginMeters = -1;
 
     VehicleControlQueue(
         VehicleRuntimeProperties properties,
         VehicleLoadPolicy loadPolicy,
-        VehicleParameters vehicleParameters
+        VehicleParameters vehicleParameters,
+        DriverCommandHolder driverCommandHolder,
+        StoppingControlProperties stoppingProperties
     ) {
         this.queue = new VehicleRuntimeQueue(properties.getQueueCapacity());
         this.properties = properties;
         this.loadPolicy = loadPolicy;
         this.vehicleParameters = vehicleParameters;
+        this.driverCommandHolder = driverCommandHolder;
+        this.stoppingProperties = stoppingProperties;
     }
 
     VehiclePhysicsInputDto control(
-        long tick,
-        double deltaSeconds,
-        TrainStateSnapshot train,
+        long tick, double deltaSeconds,
+        TrainStateHolder state,
         MovementAuthoritySnapshot authority,
         TrackConstraintSnapshot track,
         DispatchConstraintSnapshot dispatch,
         PowerConstraintSnapshot power
     ) {
-        return queue.execute(tick, () -> buildInput(deltaSeconds, train, authority, track, dispatch, power));
+        return queue.execute(tick, () -> buildInput(deltaSeconds, state, authority, track, dispatch, power));
+    }
+
+    DriverControlCommandSnapshot latestDriverCommand(String trainId) {
+        return driverCommandHolder.latest(trainId);
     }
 
     private VehiclePhysicsInputDto buildInput(
-        double deltaSeconds,
-        TrainStateSnapshot train,
-        MovementAuthoritySnapshot authority,
-        TrackConstraintSnapshot track,
-        DispatchConstraintSnapshot dispatch,
-        PowerConstraintSnapshot power
+        double deltaSeconds, TrainStateHolder state,
+        MovementAuthoritySnapshot authority, TrackConstraintSnapshot track,
+        DispatchConstraintSnapshot dispatch, PowerConstraintSnapshot power
     ) {
         double speedLimit = applyDispatchSpeed(resolveSpeedLimit(authority, track), dispatch);
-        double maDistance = resolveMovementAuthorityDistance(train, authority);
-        boolean doorClosed = "CLOSED_LOCKED".equals(nullTo(train.doorState(), "CLOSED_LOCKED"));
+        double maDistance = resolveMovementAuthorityDistance(state, authority);
+        boolean doorClosed = "CLOSED_LOCKED".equals(state.getDoorState());
         double stationDistance = resolveStationDistance(track);
-        if (shouldReleaseStationStop(train, dispatch)) {
+        boolean departing = updateDepartureWindow(state, dispatch);
+        if (departing) {
             stationDistance = NO_STATION_DISTANCE_METERS;
         }
-        double loadMassKg = loadPolicy.loadMassKg(train.loadMassKg(), train.loadRate());
+        double loadMassKg = loadPolicy.loadMassKg(state.getLoadMassKg(), state.getLoadRate());
         DynamicsDecision decision = decideDynamicsState(
-            train,
+            state,
             speedLimit,
             maDistance,
             stationDistance,
             doorClosed,
             track,
-            power
+            power,
+            departing
         );
 
         return new VehiclePhysicsInputDto(
-            train.id(),
+            state.trainId(),
             "STEP",
             power == null ? "" : nullTo(power.sectionId(), ""),
-            train.positionMeters(),
-            train.speedMetersPerSecond(),
+            state.getPositionMeters(),
+            state.getSpeedMetersPerSecond(),
             loadPolicy.totalMassKg(loadMassKg),
             decision.tractionCommand(),
             decision.brakeCommand(),
@@ -96,8 +108,8 @@ final class VehicleControlQueue {
             power == null || power.currentCollectionAvailable(),
             doorClosed,
             DEFAULT_ADHESION,
-            train.energyConsumedKwh(),
-            train.energyRegeneratedKwh(),
+            state.getEnergyConsumedKwh(),
+            state.getEnergyRegeneratedKwh(),
             Math.max(deltaSeconds, 0.001),
             decision.state().name(),
             decision.reason(),
@@ -107,25 +119,37 @@ final class VehicleControlQueue {
     }
 
     private DynamicsDecision decideDynamicsState(
-        TrainStateSnapshot train,
+        TrainStateHolder state,
         double speedLimit,
         double maDistance,
         double stationDistance,
         boolean doorClosed,
         TrackConstraintSnapshot track,
-        PowerConstraintSnapshot power
+        PowerConstraintSnapshot power,
+        boolean departing
     ) {
-        double speed = train.speedMetersPerSecond();
-        double loadMassKg = loadPolicy.loadMassKg(train.loadMassKg(), train.loadRate());
-        double brakingFactor = loadPolicy.brakingDecelerationFactor(loadMassKg, train.availableBrakeCount());
+        DriverControlCommandSnapshot driverCommand = driverCommandHolder.latest(state.trainId());
+        double speed = state.getSpeedMetersPerSecond();
+        double loadMassKg = loadPolicy.loadMassKg(state.getLoadMassKg(), state.getLoadRate());
+        double brakingFactor = loadPolicy.brakingDecelerationFactor(loadMassKg, state.getAvailableBrakeCount());
         double stoppingDistance = stoppingDistanceMeters(speed, track == null ? 0 : track.gradient(), brakingFactor);
-        double tractionCapacityFactor = loadPolicy.tractionCommandFactor(loadMassKg, train.availableTractionCount());
+        double tractionCapacityFactor = loadPolicy.tractionCommandFactor(loadMassKg, state.getAvailableTractionCount());
 
-        if (!"IN_SERVICE".equals(nullTo(train.controlSessionState(), "IN_SERVICE"))) {
-            return brakeDecision(TrainDynamicsState.SELF_CHECK_BLOCKED, "CONTROL_SESSION_" + train.controlSessionState(), speed, stoppingDistance, false);
+        if (driverCommand != null && driverCommand.emergencyBrake()) {
+            return brakeDecision(
+                TrainDynamicsState.SAFETY_BRAKE,
+                "DRIVER_CAB_EMERGENCY_BRAKE",
+                speed,
+                stoppingDistance,
+                true
+            );
         }
-        if (!doorClosed || !train.brakeAvailable() || train.availableBrakeCount() <= 0 || "FAIL".equals(train.selfCheckStatus())) {
-            return brakeDecision(TrainDynamicsState.SELF_CHECK_BLOCKED, resolveSelfCheckBlockReason(doorClosed, train), speed, stoppingDistance, false);
+
+        if (!"IN_SERVICE".equals(state.getControlSessionState())) {
+            return brakeDecision(TrainDynamicsState.SELF_CHECK_BLOCKED, "CONTROL_SESSION_" + state.getControlSessionState(), speed, stoppingDistance, false);
+        }
+        if (!doorClosed || !state.isBrakeAvailable() || state.getAvailableBrakeCount() <= 0 || "FAIL".equals(state.getSelfCheckStatus())) {
+            return brakeDecision(TrainDynamicsState.SELF_CHECK_BLOCKED, resolveSelfCheckBlockReason(doorClosed, state), speed, stoppingDistance, false);
         }
         if (maDistance <= 0) {
             return brakeDecision(TrainDynamicsState.SAFETY_BRAKE, "MOVEMENT_AUTHORITY_EXHAUSTED", speed, stoppingDistance, true);
@@ -133,7 +157,7 @@ final class VehicleControlQueue {
         if (power != null && (!power.currentCollectionAvailable() || power.powerAvailableWatts() <= 0)) {
             return brakeDecision(TrainDynamicsState.POWER_LOSS, nullTo(power.constraintReason(), "POWER_UNAVAILABLE"), speed, stoppingDistance, false);
         }
-        if (!train.tractionAvailable() || train.availableTractionCount() <= 0) {
+        if (!state.isTractionAvailable() || state.getAvailableTractionCount() <= 0) {
             return new DynamicsDecision(TrainDynamicsState.SELF_CHECK_BLOCKED, "TRACTION_UNAVAILABLE", 0, speed > 0.1 ? 0.4 : 0, false, stoppingDistance);
         }
 
@@ -148,7 +172,8 @@ final class VehicleControlQueue {
                 stoppingDistance
             );
         }
-        if (stationDistance <= STATION_STOP_WINDOW_METERS && speed <= 0.2) {
+        if (stationDistance <= stoppingProperties.getStationStopWindowMeters()
+            && speed <= stoppingProperties.getZeroSpeedMetersPerSecond()) {
             return new DynamicsDecision(TrainDynamicsState.STATION_STOPPED, "STATION_STOP_WINDOW", 0, 0.6, false, stoppingDistance);
         }
         double stationBrakeBuffer = stationApproachBufferMeters(speed);
@@ -160,14 +185,39 @@ final class VehicleControlQueue {
             return new DynamicsDecision(TrainDynamicsState.OVERSPEED_BRAKE, "SPEED_LIMIT_EXCEEDED", 0, clamp(overspeed / 3.0, 0.2, 1), false, stoppingDistance);
         }
 
+        boolean manualCommand = driverCommand != null
+            && "MANUAL".equalsIgnoreCase(driverCommand.operationMode());
+        if (manualCommand) {
+            if (driverCommand.expired(java.time.Instant.now())) {
+                return new DynamicsDecision(
+                    TrainDynamicsState.SAFETY_BRAKE,
+                    "DRIVER_COMMAND_STALE",
+                    0,
+                    speed > 0.1 ? 0.5 : 0.6,
+                    false,
+                    stoppingDistance
+                );
+            }
+            double manualBrake = clamp(driverCommand.brakeCommand(), 0, 1);
+            double manualTraction = manualBrake > 0 || Math.abs(driverCommand.direction()) < 0.5
+                ? 0
+                : clamp(driverCommand.tractionCommand(), 0, 1) * tractionCapacityFactor;
+            return new DynamicsDecision(
+                manualBrake > 0 ? TrainDynamicsState.MA_BRAKE : TrainDynamicsState.ACCELERATING,
+                manualBrake > 0 ? "DRIVER_SERVICE_BRAKE" : "DRIVER_TRACTION",
+                manualTraction,
+                manualBrake,
+                false,
+                stoppingDistance
+            );
+        }
+
         double speedMargin = speedLimit - speed;
         double tractionCommand = tractionForSpeedMargin(speedMargin, speedLimit);
         if (power != null && power.powerDeratingFactor() < 0.95 && tractionCommand > 0) {
             return new DynamicsDecision(
                 TrainDynamicsState.POWER_DERATED,
                 nullTo(power.constraintReason(), "POWER_DERATED"),
-                // 9200 already expresses the grid limit in powerAvailableWatts. Keep the
-                // state label here, but let the physics power limit apply the derating once.
                 tractionCommand * tractionCapacityFactor,
                 0,
                 false,
@@ -185,12 +235,18 @@ final class VehicleControlQueue {
             );
         }
         if (speedMargin > Math.max(1.5, speedLimit * 0.08)) {
-            return new DynamicsDecision(TrainDynamicsState.ACCELERATING, "SPEED_MARGIN_AVAILABLE", tractionCommand * tractionCapacityFactor, 0, false, stoppingDistance);
+            TrainDynamicsState dynState = departing ? TrainDynamicsState.DEPARTING_STATION : TrainDynamicsState.ACCELERATING;
+            String reason = departing ? "DEPARTING_RELEASE" : "SPEED_MARGIN_AVAILABLE";
+            return new DynamicsDecision(dynState, reason, tractionCommand * tractionCapacityFactor, 0, false, stoppingDistance);
         }
         if (speedMargin > 0.4) {
-            return new DynamicsDecision(TrainDynamicsState.CRUISING, "NEAR_TARGET_SPEED", Math.min(tractionCommand * tractionCapacityFactor, 0.25), 0, false, stoppingDistance);
+            TrainDynamicsState dynState = departing ? TrainDynamicsState.DEPARTING_STATION : TrainDynamicsState.CRUISING;
+            String reason = departing ? "DEPARTING_RELEASE" : "NEAR_TARGET_SPEED";
+            return new DynamicsDecision(dynState, reason, Math.min(tractionCommand * tractionCapacityFactor, 0.25), 0, false, stoppingDistance);
         }
-        return new DynamicsDecision(TrainDynamicsState.COASTING, "TARGET_SPEED_REACHED", 0, 0, false, stoppingDistance);
+        TrainDynamicsState dynState = departing ? TrainDynamicsState.DEPARTING_STATION : TrainDynamicsState.COASTING;
+        String reason = departing ? "DEPARTING_RELEASE" : "TARGET_SPEED_REACHED";
+        return new DynamicsDecision(dynState, reason, 0, 0, false, stoppingDistance);
     }
 
     private double resolveSpeedLimit(MovementAuthoritySnapshot authority, TrackConstraintSnapshot track) {
@@ -199,11 +255,11 @@ final class VehicleControlQueue {
         return Math.max(0, Math.min(authorityLimit, trackLimit));
     }
 
-    private double resolveMovementAuthorityDistance(TrainStateSnapshot train, MovementAuthoritySnapshot authority) {
+    private double resolveMovementAuthorityDistance(TrainStateHolder state, MovementAuthoritySnapshot authority) {
         if (authority == null) {
-            return Math.max(0, properties.getDefaultLineLengthMeters() - train.positionMeters());
+            return Math.max(0, properties.getDefaultLineLengthMeters() - state.getPositionMeters());
         }
-        return Math.max(0, authority.authorityEndMeters() - train.positionMeters());
+        return Math.max(0, authority.authorityEndMeters() - state.getPositionMeters());
     }
 
     private double resolveStationDistance(TrackConstraintSnapshot track) {
@@ -215,21 +271,35 @@ final class VehicleControlQueue {
         return dispatch == null ? speedLimit : dispatch.applyToSpeedLimit(speedLimit);
     }
 
-    private boolean shouldReleaseStationStop(TrainStateSnapshot train, DispatchConstraintSnapshot dispatch) {
+    private boolean shouldReleaseStationStop(TrainStateHolder state, DispatchConstraintSnapshot dispatch) {
         if (dispatch == null || !dispatch.releaseStationStop()) {
             return false;
         }
-        // 调度释放站停只影响已停站或低速进站状态，不越级跳过运行中的安全制动。
-        boolean dwelling = "DWELLING".equals(train.status())
-            || "STATION_STOPPED".equals(train.dynamicsState());
-        return dwelling && train.speedMetersPerSecond() <= 0.5;
+        boolean dwelling = "DWELLING".equals(state.getDynamicsState())
+            || "STATION_STOPPED".equals(state.getDynamicsState());
+        return dwelling && state.getSpeedMetersPerSecond() <= 0.5;
     }
 
-    private String resolveSelfCheckBlockReason(boolean doorClosed, TrainStateSnapshot train) {
+    private boolean updateDepartureWindow(TrainStateHolder state, DispatchConstraintSnapshot dispatch) {
+        if (shouldReleaseStationStop(state, dispatch)) {
+            departureOriginMeters = state.getPositionMeters();
+            return true;
+        }
+        if (departureOriginMeters >= 0) {
+            double traveled = state.getPositionMeters() - departureOriginMeters;
+            if (traveled < DEPARTURE_WINDOW_METERS) {
+                return true;
+            }
+            departureOriginMeters = -1;
+        }
+        return false;
+    }
+
+    private String resolveSelfCheckBlockReason(boolean doorClosed, TrainStateHolder state) {
         if (!doorClosed) {
             return "DOOR_NOT_LOCKED";
         }
-        if (!train.brakeAvailable() || train.availableBrakeCount() <= 0) {
+        if (!state.isBrakeAvailable() || state.getAvailableBrakeCount() <= 0) {
             return "BRAKE_UNAVAILABLE";
         }
         return "SELF_CHECK_FAILED";
@@ -251,15 +321,20 @@ final class VehicleControlQueue {
     private double stoppingDistanceMeters(double speedMetersPerSecond, double gradient, double brakingFactor) {
         double planningGradient = clamp(gradient, -0.04, 0.04);
         double effectiveDeceleration = clamp(
-            SERVICE_BRAKE_DECELERATION * clamp(brakingFactor, 0.2, 1.2) + planningGradient * GRAVITY,
-            0.35,
-            1.25
+            stoppingProperties.getServiceBrakeDecelerationMetersPerSecondSquared()
+                * clamp(brakingFactor, 0.2, 1.2) + planningGradient * GRAVITY,
+            stoppingProperties.getMinimumEffectiveDecelerationMetersPerSecondSquared(),
+            stoppingProperties.getMaximumEffectiveDecelerationMetersPerSecondSquared()
         );
         return speedMetersPerSecond * speedMetersPerSecond / (2 * effectiveDeceleration);
     }
 
     private double stationApproachBufferMeters(double speedMetersPerSecond) {
-        return clamp(Math.max(30, speedMetersPerSecond * 6), 30, 140);
+        return clamp(
+            Math.max(stoppingProperties.getMinimumApproachBufferMeters(),
+                speedMetersPerSecond * stoppingProperties.getApproachBufferSeconds()),
+            stoppingProperties.getMinimumApproachBufferMeters(),
+            stoppingProperties.getMaximumApproachBufferMeters());
     }
 
     private double clamp(double value, double min, double max) {

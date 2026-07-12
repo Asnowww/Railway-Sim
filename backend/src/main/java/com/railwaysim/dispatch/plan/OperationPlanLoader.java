@@ -34,6 +34,8 @@ public class OperationPlanLoader {
     private List<RunModePeriod> periods = List.of();
     private List<StationInfo> stations = List.of();
     private List<SegmentEntry> segments = List.of();
+    private List<CirculationPlan> circulations = List.of();
+    private List<TrainServicePlan> services = List.of();
 
     public OperationPlanLoader(DispatchProperties properties, ResourceLoader resourceLoader) {
         this.properties = properties;
@@ -65,6 +67,26 @@ public class OperationPlanLoader {
             .toList();
         segments = file.segments().stream()
             .sorted(Comparator.comparingDouble(SegmentEntry::startMeters))
+            .toList();
+        circulations = file.circulations().stream()
+            .map(entry -> new CirculationPlan(entry.id(), entry.rollingStockId(), entry.serviceIds()))
+            .toList();
+        services = file.services().stream()
+            .map(entry -> new TrainServicePlan(
+                entry.serviceId(),
+                entry.circulationId(),
+                entry.trainId(),
+                entry.trainNo(),
+                entry.linkId(),
+                entry.offsetMeters(),
+                entry.direction(),
+                entry.stops().stream()
+                    .map(stop -> new PlannedStop(
+                        stop.stationId(), stop.arrivalOffsetSec(), stop.departureOffsetSec()))
+                    .toList()
+            ))
+            .sorted(Comparator.comparingInt(service -> service.origin() == null
+                ? Integer.MAX_VALUE : service.origin().departureOffsetSec()))
             .toList();
     }
 
@@ -102,6 +124,24 @@ public class OperationPlanLoader {
 
     public List<RunModePeriod> periods() {
         return periods;
+    }
+
+    public List<CirculationPlan> circulations() {
+        return circulations;
+    }
+
+    public List<TrainServicePlan> services() {
+        return services;
+    }
+
+    public TrainServicePlan serviceByTrainId(String trainId) {
+        if (trainId == null) {
+            return null;
+        }
+        return services.stream()
+            .filter(service -> trainId.equals(service.trainId()))
+            .findFirst()
+            .orElse(null);
     }
 
     private RunModePeriod fallbackPeriod() {

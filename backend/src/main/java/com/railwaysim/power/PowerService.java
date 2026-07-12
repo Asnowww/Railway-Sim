@@ -151,7 +151,19 @@ public class PowerService {
         return powerIntegrationService.health();
     }
 
+    public com.railwaysim.power.external.PowerNetworkStateSnapshot externalSnapshot() {
+        return powerIntegrationService.latestSnapshot();
+    }
+
     public synchronized void injectPowerFault(String sectionId, String faultType) {
+        injectPowerFault(sectionId, faultType, "simulation", "fault injection", "fault-" + sectionId);
+    }
+
+    public synchronized void injectPowerFault(
+        String sectionId, String faultType, String operator, String reason, String traceId
+    ) {
+        applyExternalFaultOperation(
+            "INJECT_FAULT", sectionId, faultType, operator, reason, traceId);
         injectedFaultBySection.put(sectionId, faultType);
         Instant now = Instant.now();
         eventBus.publish(new PowerFaultStateChangedEvent(sectionId, faultType, "INJECTED", now));
@@ -175,6 +187,14 @@ public class PowerService {
     }
 
     public synchronized void clearPowerFault(String sectionId) {
+        clearPowerFault(sectionId, "simulation", "fault clear", "fault-clear-" + sectionId);
+    }
+
+    public synchronized void clearPowerFault(
+        String sectionId, String operator, String reason, String traceId
+    ) {
+        applyExternalFaultOperation(
+            "CLEAR_FAULT", sectionId, "NORMAL", operator, reason, traceId);
         String clearedFault = injectedFaultBySection.remove(sectionId);
         Instant now = Instant.now();
         eventBus.publish(new PowerFaultStateChangedEvent(
@@ -270,6 +290,24 @@ public class PowerService {
 
     public synchronized PowerNetworkOperationResult operate(PowerNetworkOperationRequest request) {
         return powerIntegrationService.operate(request);
+    }
+
+    private void applyExternalFaultOperation(
+        String operationType, String sectionId, String desiredState,
+        String operator, String reason, String traceId
+    ) {
+        if (powerIntegrationService.mode()
+            == com.railwaysim.power.external.ExternalPowerNetworkMode.LOCAL) {
+            return;
+        }
+        PowerNetworkOperationResult result = powerIntegrationService.operate(
+            new PowerNetworkOperationRequest(
+                operationType, "POWER_SECTION", sectionId, desiredState,
+                operator, reason, traceId, "SIMULATION_CONFIRM"));
+        if (!result.executed()) {
+            throw new IllegalStateException(
+                "external power fault operation rejected: " + result.reason());
+        }
     }
 
     private void publishPowerEvents(List<PowerSectionState> updated) {

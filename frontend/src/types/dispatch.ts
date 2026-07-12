@@ -1,10 +1,14 @@
 export interface DispatchTrainProfile {
   trainId: string
+  regulatedTrainId: string
   frontTrainId: string | null
   headwayActualSeconds: number | null
+  headwayErrorSeconds: number | null
   headwayDeviationSeconds: number
   headwayState: string
   headwayAction: string
+  regulationAction: 'CATCH_UP' | 'SLOW_DOWN' | 'NORMAL' | 'OBSERVE' | string
+  regulationReason: string
   dwellDeviationSeconds: number
   departureDelaySeconds: number
 }
@@ -12,8 +16,10 @@ export interface DispatchTrainProfile {
 export interface DispatchDisturbance {
   id: string
   trainId: string
+  regulatedTrainId: string
   stationId: string
   disturbanceType: string
+  regulationAction?: string | null
   deviationValue: number
   headwayDirection?: string | null
   targetHeadwaySec?: number | null
@@ -26,9 +32,11 @@ export interface DispatchDisturbance {
 export interface DispatchCommandView {
   id: string
   trainId: string
+  regulatedTrainId?: string | null
   commandType: string
   status: string
   reason: string
+  regulationAction?: string | null
   payload?: Record<string, unknown>
   createdAt?: string
   appliedAt?: string | null
@@ -44,11 +52,20 @@ export interface DispatchRouteInfo {
   status: string
 }
 
+export interface DispatchRouteEstablishResponse {
+  accepted: boolean
+  routeId: string
+  trainId: string
+  rejectReason?: string | null
+}
+
 export interface DispatchRouteDecision {
   decisionId: string
   selectedTrainId: string
   selectedRouteId: string
   waitingTrainIds: string[]
+  priorityScores: Record<string, number>
+  waitingSeconds: number
   status: string
   routeCommandId: string
   reason: string
@@ -63,6 +80,38 @@ export interface DispatchRouteReservation {
   state: string
   commandId: string
   rejectReason: string | null
+  failureCode: string | null
+  failureCategory: string | null
+  retryable: boolean
+  retryCount: number
+  expiresAt: string | null
+  nextRetryAt: string | null
+  timedOutAt: string | null
+  cancelCommandId: string | null
+}
+
+export interface DispatchServicePlanView {
+  serviceId: string
+  circulationId: string
+  trainId: string
+  originStationId: string | null
+  terminusStationId: string | null
+  plannedDepartureAt: string | null
+  departureStatus: string
+  departureCommandId: string | null
+}
+
+export interface DispatchStationHeadway {
+  stationId: string
+  direction: string
+  trainId: string
+  frontTrainId: string
+  departureAt: string
+  targetHeadwaySeconds: number
+  actualHeadwaySeconds: number
+  headwayErrorSeconds: number
+  state: string
+  regulationAction: string
 }
 
 export interface DispatchSnapshot {
@@ -70,6 +119,8 @@ export interface DispatchSnapshot {
   planId: string
   targetHeadwaySeconds: number
   defaultDwellSeconds: number
+  services: DispatchServicePlanView[]
+  stationHeadways: DispatchStationHeadway[]
   interventionActive: boolean
   trainProfiles: DispatchTrainProfile[]
   openDisturbances: DispatchDisturbance[]
@@ -91,6 +142,31 @@ export interface RunPlanResponse {
   planId: string
   lineId: string
   periods: RunPlanPeriod[]
+  circulations: CirculationPlan[]
+  services: TrainServicePlan[]
+}
+
+export interface CirculationPlan {
+  id: string
+  rollingStockId: string
+  serviceIds: string[]
+}
+
+export interface PlannedStop {
+  stationId: string
+  arrivalOffsetSec: number
+  departureOffsetSec: number
+}
+
+export interface TrainServicePlan {
+  serviceId: string
+  circulationId: string
+  trainId: string
+  trainNo: number
+  linkId: number
+  offsetMeters: number
+  direction: string
+  stops: PlannedStop[]
 }
 
 export interface TrainStationEvent {

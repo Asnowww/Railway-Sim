@@ -31,7 +31,7 @@ interface TrackSegmentState {
   name: string
   startPercent: number
   widthPercent: number
-  occupancy: 'FREE' | 'RESERVED' | 'OCCUPIED' | 'FAULT'
+  occupancy: 'FREE' | 'OCCUPIED' | 'FAULT'
   speedLimitKph: number
 }
 
@@ -152,7 +152,6 @@ const backendConnected = ref(false)
 const backendErrorMessage = ref('')
 const backendTick = ref(0)
 const backendStatus = ref('STOPPED')
-const autoTickEnabled = ref(true)
 
 const stations = ['上京南', '科技园', '人民广场', '金融城', '会展中心', '机场北']
 
@@ -554,8 +553,7 @@ function updateThresholds(): void {
 }
 
 function mapTrackOccupancy(occupancy: string): TrackSegmentState['occupancy'] {
-  if (occupancy === 'OCCUPIED') return 'OCCUPIED'
-  if (occupancy === 'RESERVED') return 'RESERVED'
+  if (occupancy === 'OCCUPIED' || occupancy === 'RESERVED') return 'OCCUPIED'
   if (occupancy === 'FAULT' || occupancy === 'BLOCKED') return 'FAULT'
   return 'FREE'
 }
@@ -664,28 +662,9 @@ async function runSimulationTick(): Promise<void> {
   for (let i = 0; i < 50; i++) {
     try {
       const snapshot = await simulationApi.tick()
-      if (i === 49) applyBackendSnapshot(snapshot)
+      if (i === 9) applyBackendSnapshot(snapshot)
     } catch { return }
   }
-}
-
-async function simReset(): Promise<void> {
-  try { applyBackendSnapshot(await simulationApi.reset()) } catch {}
-}
-async function simTick(): Promise<void> {
-  if (backendStatus.value !== 'RUNNING') {
-    try { backendStatus.value = (await simulationApi.start()).status } catch { return }
-  }
-  try { applyBackendSnapshot(await simulationApi.tick()) } catch {}
-}
-async function simTick50(): Promise<void> {
-  if (backendStatus.value !== 'RUNNING') {
-    try { backendStatus.value = (await simulationApi.start()).status } catch { return }
-  }
-  for (let i = 0; i < 50; i++) {
-    try { await simulationApi.tick() } catch { return }
-  }
-  try { applyBackendSnapshot(await simulationApi.snapshot()) } catch {}
 }
 
 function resizeTrendChart(): void {
@@ -734,11 +713,8 @@ onMounted(() => {
     }
   }, 1000)
   dataTimer = window.setInterval(() => {
-    if (backendConnected.value && autoTickEnabled.value) {
+    if (backendConnected.value) {
       void runSimulationTick()
-    } else if (!autoTickEnabled.value) {
-      // auto off - 仅更新snapshot不推进
-      void loadBackendSnapshot()
     } else {
       tickMockData()
     }
@@ -772,12 +748,6 @@ onBeforeUnmount(() => {
           {{ backendConnected ? `后端已连接 · ${backendStatus} · Tick ${backendTick}` : '本地演示数据' }}
         </span>
         <span v-if="backendErrorMessage" class="backend-error">{{ backendErrorMessage }}</span>
-        <button type='button' class='sim-button reset' @click='simReset()'>Reset</button>
-        <button type='button' class='sim-button tick' @click='simTick()'>Tick</button>
-        <button type='button' class='sim-button tick50' @click='simTick50()'>+50</button>
-        <button type='button' :class='"sim-button auto"' @click='autoTickEnabled = !autoTickEnabled'>
-          {{ autoTickEnabled ? "Auto ON" : "Auto OFF" }}
-        </button>
         <span>{{ simulationClock }}</span>
         <button type="button" :class="['sound-button', { off: !soundEnabled }]" @click="soundEnabled = !soundEnabled">
           {{ soundEnabled ? '声警开启' : '声警关闭' }}

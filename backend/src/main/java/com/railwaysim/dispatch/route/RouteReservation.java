@@ -11,11 +11,16 @@ public record RouteReservation(
     String state,
     String commandId,
     String rejectReason,
+    String failureCode,
+    String failureCategory,
+    boolean retryable,
     int retryCount,
     Instant requestedAt,
     Instant acceptedAt,
     Instant releasedAt,
     Instant expiresAt,
+    Instant timedOutAt,
+    String cancelCommandId,
     Instant updatedAt
 ) {
 }

@@ -7,7 +7,10 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import org.springframework.stereotype.Component;
 
 @Component
@@ -17,9 +20,40 @@ public class PowerConfigLoader {
 
     public OperationalPowerData load(Path path, double lineLengthMeters) throws IOException {
         PowerConfigFile powerConfig = yamlMapper.readValue(Files.readString(path), PowerConfigFile.class);
+
+        // ── 全局参数校验 ──
+        if (powerConfig.nominalVoltage <= 0) {
+            throw new IllegalArgumentException("nominalVoltage must be positive: " + powerConfig.nominalVoltage);
+        }
+        if (powerConfig.currentToVoltageDrop <= 0) {
+            throw new IllegalArgumentException("currentToVoltageDrop must be positive: " + powerConfig.currentToVoltageDrop);
+        }
+
         List<OperationalPowerData.PowerSectionDefinition> sections = new ArrayList<>();
+        Set<String> sectionIds = new HashSet<>();
         if (powerConfig.sections != null) {
             for (PowerSection section : powerConfig.sections) {
+                if (section.id == null || section.id.isBlank()) {
+                    throw new IllegalArgumentException("Power section ID must not be blank");
+                }
+                if (section.startMeters < 0) {
+                    throw new IllegalArgumentException("Power section " + section.id + " startMeters must be >= 0: " + section.startMeters);
+                }
+                if (section.endMeters <= section.startMeters) {
+                    throw new IllegalArgumentException("Power section " + section.id + " endMeters (" + section.endMeters
+                        + ") must be > startMeters (" + section.startMeters + ")");
+                }
+                if (!sectionIds.add(section.id)) {
+                    throw new IllegalArgumentException("Duplicate power section ID: " + section.id);
+                }
+                // Check for overlap with already-added sections
+                for (var existing : sections) {
+                    if (!existing.id().equals(section.id) && section.startMeters < existing.endMeters() && section.endMeters > existing.startMeters()) {
+                        throw new IllegalArgumentException("Power section " + section.id + " [" + section.startMeters + ","
+                            + section.endMeters + ") overlaps with " + existing.id() + " [" + existing.startMeters()
+                            + "," + existing.endMeters() + ")");
+                    }
+                }
                 sections.add(new OperationalPowerData.PowerSectionDefinition(
                     section.id,
                     section.name,
@@ -57,7 +91,7 @@ public class PowerConfigLoader {
                 0
             ));
         } else {
-            sections = normalizeCoverage(sections, lineLengthMeters);
+            sections = validateCoverage(sections, lineLengthMeters);
         }
 
         List<OperationalPowerData.TractionSubstationDefinition> substations = new ArrayList<>();
@@ -111,6 +145,8 @@ public class PowerConfigLoader {
         }
         if (thirdRailSections.isEmpty()) {
             thirdRailSections = deriveThirdRailSections(sections);
+        } else {
+            validateThirdRailBindings(sections, thirdRailSections);
         }
 
         List<OperationalPowerData.IsolatorSwitchDefinition> isolators = new ArrayList<>();
@@ -296,51 +332,69 @@ public class PowerConfigLoader {
             .toList();
     }
 
-    private List<OperationalPowerData.PowerSectionDefinition> normalizeCoverage(
+    private List<OperationalPowerData.PowerSectionDefinition> validateCoverage(
         List<OperationalPowerData.PowerSectionDefinition> sections,
         double lineLengthMeters
     ) {
-        List<OperationalPowerData.PowerSectionDefinition> normalized = new ArrayList<>(sections);
-        OperationalPowerData.PowerSectionDefinition first = normalized.get(0);
-        if (first.startMeters() > 0) {
-            normalized.set(0, new OperationalPowerData.PowerSectionDefinition(
-                first.id(),
-                first.name(),
-                first.substationId(),
-                first.feederId(),
-                0,
-                first.endMeters(),
-                first.substationVoltage(),
-                first.energized(),
-                first.breakerStatus(),
-                first.isolatorStatus(),
-                first.supplyMode(),
-                first.maintenanceState(),
-                first.lockoutState(),
-                first.resistanceOhmPerMeter()
-            ));
+        List<OperationalPowerData.PowerSectionDefinition> ordered = sections.stream()
+            .sorted(Comparator.comparingDouble(OperationalPowerData.PowerSectionDefinition::startMeters))
+            .toList();
+        if (Math.abs(ordered.get(0).startMeters()) > 1.0e-9) {
+            throw new IllegalArgumentException("Power section coverage must start at 0 meters");
         }
+        for (int index = 1; index < ordered.size(); index++) {
+            double previousEnd = ordered.get(index - 1).endMeters();
+            double currentStart = ordered.get(index).startMeters();
+            if (Math.abs(previousEnd - currentStart) > 1.0e-9) {
+                throw new IllegalArgumentException(
+                    "Power section coverage has a gap or overlap between "
+                        + ordered.get(index - 1).id() + " and " + ordered.get(index).id()
+                        + ": " + previousEnd + " != " + currentStart
+                );
+            }
+        }
+        double configuredEnd = ordered.get(ordered.size() - 1).endMeters();
+        if (lineLengthMeters > 0 && configuredEnd < lineLengthMeters) {
+            throw new IllegalArgumentException(
+                "Power section coverage end " + configuredEnd
+                    + " does not cover line length " + lineLengthMeters
+            );
+        }
+        return ordered;
+    }
 
-        OperationalPowerData.PowerSectionDefinition last = normalized.get(normalized.size() - 1);
-        if (lineLengthMeters > 0 && last.endMeters() < lineLengthMeters) {
-            normalized.set(normalized.size() - 1, new OperationalPowerData.PowerSectionDefinition(
-                last.id(),
-                last.name(),
-                last.substationId(),
-                last.feederId(),
-                last.startMeters(),
-                lineLengthMeters,
-                last.substationVoltage(),
-                last.energized(),
-                last.breakerStatus(),
-                last.isolatorStatus(),
-                last.supplyMode(),
-                last.maintenanceState(),
-                last.lockoutState(),
-                last.resistanceOhmPerMeter()
-            ));
+    private void validateThirdRailBindings(
+        List<OperationalPowerData.PowerSectionDefinition> sections,
+        List<OperationalPowerData.ThirdRailSectionDefinition> thirdRails
+    ) {
+        Set<String> thirdRailIds = new HashSet<>();
+        Set<String> boundSectionIds = new HashSet<>();
+        for (OperationalPowerData.ThirdRailSectionDefinition thirdRail : thirdRails) {
+            if (!thirdRailIds.add(thirdRail.id())) {
+                throw new IllegalArgumentException("Duplicate third rail section ID: " + thirdRail.id());
+            }
+            OperationalPowerData.PowerSectionDefinition section = sections.stream()
+                .filter(candidate -> candidate.id().equals(thirdRail.powerSectionId()))
+                .findFirst()
+                .orElseThrow(() -> new IllegalArgumentException(
+                    "Third rail section " + thirdRail.id() + " references unknown power section "
+                        + thirdRail.powerSectionId()
+                ));
+            if (!boundSectionIds.add(section.id())) {
+                throw new IllegalArgumentException("Multiple third rail sections bind power section " + section.id());
+            }
+            if (Math.abs(section.startMeters() - thirdRail.startMeters()) > 1.0e-9
+                || Math.abs(section.endMeters() - thirdRail.endMeters()) > 1.0e-9) {
+                throw new IllegalArgumentException(
+                    "Third rail section " + thirdRail.id() + " range does not match " + section.id()
+                );
+            }
         }
-        return normalized;
+        for (OperationalPowerData.PowerSectionDefinition section : sections) {
+            if (!boundSectionIds.contains(section.id())) {
+                throw new IllegalArgumentException("Missing third rail binding for power section " + section.id());
+            }
+        }
     }
 
     private String defaultIfBlank(String value, String fallback) {

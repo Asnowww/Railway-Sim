@@ -250,6 +250,21 @@ signals:
     position_meters: 20
     direction: FORWARD
     segment_id: T11
+  - id: SIG-T12
+    name: 车辆段出段信号
+    position_meters: 1200
+    direction: FORWARD
+    segment_id: T12
+  - id: SIG-T13
+    name: 折返线入口信号
+    position_meters: 2550
+    direction: FORWARD
+    segment_id: T13
+  - id: SIG-T15
+    name: 折返线出口信号
+    position_meters: 3700
+    direction: FORWARD
+    segment_id: T15
   - id: SIG-T16
     name: 支线口终端
     position_meters: 4650
@@ -273,5 +288,17 @@ routes:
     name: 车辆段与折返
     type: DEPOT
     start_signal: SIG-T11
+    end_signal: SIG-T12
+    axle_section_ids: [T11, T12]
+  - id: R_LOOP
+    name: 折返线进路
+    type: BRANCH
+    start_signal: SIG-T13
+    end_signal: SIG-T15
+    axle_section_ids: [T13, T14, T15]
+  - id: R_BRANCH
+    name: 支线进路
+    type: BRANCH
+    start_signal: SIG-T13
     end_signal: SIG-T16
-    axle_section_ids: [T11, T12, T13, T14, T15, T16]
+    axle_section_ids: [T13, T14, T16]
