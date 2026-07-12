@@ -87,7 +87,6 @@ h3 {
   font-weight: 700;
 }
 
-.status-pill,
 .sound-button,
 .layer-toggle label,
 .segmented button,
@@ -97,15 +96,104 @@ h3 {
   background: #ffffff;
 }
 
-.status-pill,
 .sound-button {
   padding: 8px 12px;
 }
 
-.status-pill.running {
+.connection-box {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 38px;
+  padding: 0 12px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  background: #fff;
+  color: #475569;
+  font-size: 13px;
+  font-weight: 700;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.05);
+}
+
+.connection-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #94a3b8;
+  box-shadow: 0 0 0 3px rgba(148, 163, 184, 0.15);
+}
+
+.connection-box.connected {
+  color: #166534;
+  border-color: #bbd7c3;
+}
+
+.connection-box.connected .connection-dot {
+  background: #16a34a;
+  box-shadow: 0 0 0 3px rgba(22, 163, 74, 0.14);
+}
+
+.runtime-readout {
+  min-width: 142px;
+  min-height: 54px;
+  padding: 7px 11px 8px;
+  border: 1px solid #cbd5e1;
+  border-left: 3px solid #2563eb;
+  border-radius: 6px;
+  background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+  box-shadow: 0 2px 5px rgba(15, 23, 42, 0.06);
+}
+
+.tick-readout {
+  min-width: 174px;
+  border-left-color: #0f766e;
+}
+
+.readout-label {
+  display: block;
+  margin-bottom: 4px;
+  color: #64748b;
+  font-family: "Arial Narrow", "Microsoft YaHei", sans-serif;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  line-height: 1;
+}
+
+.runtime-readout strong {
+  color: #0f2747;
+  font-family: Consolas, "SFMono-Regular", "Roboto Mono", monospace;
+  font-size: 20px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.05em;
+  line-height: 1.1;
+}
+
+.readout-value-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.runtime-state {
+  color: #64748b;
+  font-family: Consolas, "SFMono-Regular", monospace;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+}
+
+.runtime-state.running {
   color: #047857;
-  background: #e9f8f1;
-  border-color: #bdebd4;
+}
+
+.runtime-state.paused {
+  color: #b45309;
+}
+
+.runtime-state.stopped {
+  color: #64748b;
 }
 
 .sound-button {
@@ -718,6 +806,20 @@ select {
   padding-right: 4px;
 }
 
+.alarm-action-message {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  margin: 0;
+  padding: 8px 10px;
+  border: 1px solid #bfdbfe;
+  border-radius: 6px;
+  color: #1d4ed8;
+  background: #eff6ff;
+  font-size: 12px;
+  font-weight: 700;
+}
+
 .alarm-item {
   padding: 12px;
   border-left: 4px solid #94a3b8;
@@ -779,6 +881,13 @@ select {
   color: #334155;
   font-size: 12px;
   font-weight: 800;
+}
+
+.alarm-item footer button:disabled {
+  cursor: default;
+  color: #64748b;
+  background: #e2e8f0;
+  border-color: #cbd5e1;
 }
 
 .segmented {

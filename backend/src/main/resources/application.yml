@@ -31,7 +31,7 @@ railway:
     line-data-source: file
     line-id: "1"
     line-data-auto-import: false
-    line-data-path: ../config/line-simple-demo.yaml
+    line-data-path: ../config/line-topology-demo.yaml
     power-config-path: ../config/power_third_rail.yaml
     fmu-step-millis: 100
     track-step-millis: 100
@@ -138,3 +138,11 @@ railway:
     base-cruise-speed-mps: 15
     min-dwell-sec: 15
     max-dwell-sec: 60
+    command-effect-timeout-sec: 180
+    headway-effect-improvement-ratio: 0.25
+    headway-effect-min-improvement-sec: 5
+    route-request-timeout-seconds: 30
+    route-established-hold-timeout-seconds: 120
+    route-max-retries: 3
+    route-waiting-priority-per-second: 0.05
+    route-waiting-priority-max-bonus: 20

@@ -10,6 +10,8 @@ const emptyDispatch: DispatchSnapshot = {
   planId: '',
   targetHeadwaySeconds: 300,
   defaultDwellSeconds: 25,
+  services: [],
+  stationHeadways: [],
   interventionActive: false,
   trainProfiles: [],
   openDisturbances: [],
@@ -39,8 +41,10 @@ export function useSimulation() {
     dispatch.value = payload.dispatch
       ? {
           ...emptyDispatch,
-          ...payload.dispatch,
-          routeDecisions: payload.dispatch.routeDecisions ?? [],
+      ...payload.dispatch,
+      services: payload.dispatch.services ?? [],
+      stationHeadways: payload.dispatch.stationHeadways ?? [],
+      routeDecisions: payload.dispatch.routeDecisions ?? [],
           routeReservations: payload.dispatch.routeReservations ?? []
         }
       : emptyDispatch

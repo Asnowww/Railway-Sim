@@ -15,19 +15,4 @@ public record VehicleRuntimeStepRequest(
     String simulationRunId,
     List<DriverControlCommandSnapshot> driverCommands
 ) {
-    public VehicleRuntimeStepRequest(
-        long tick,
-        double deltaSeconds,
-        Instant requestedAt,
-        List<TrainStateSnapshot> trains,
-        List<MovementAuthoritySnapshot> movementAuthorities,
-        List<TrackConstraintSnapshot> trackConstraints,
-        List<DispatchConstraintSnapshot> dispatchConstraints,
-        List<PowerConstraintSnapshot> powerConstraints
-    ) {
-        this(
-            tick, deltaSeconds, requestedAt, trains, movementAuthorities, trackConstraints,
-            dispatchConstraints, powerConstraints, "", List.of()
-        );
-    }
 }

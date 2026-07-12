@@ -29,7 +29,7 @@ public class SignalService {
     private static final Logger log = LoggerFactory.getLogger(SignalService.class);
     private static final double DEFAULT_BRAKING_DECELERATION = 0.8;
     private static final int MAX_RESERVE_SEGMENTS = 2;
-    private static final double STATION_STOP_WINDOW_METERS = 10.0;
+    private static final double STATION_STOP_WINDOW_METERS = 25.0;
 
     private final SimulationProperties simulationProperties;
     private final StaticInfrastructureCatalog infrastructureCatalog;
@@ -395,10 +395,9 @@ public class SignalService {
     }
 
     private String chooseActiveForwardNeighbor(String currentSegmentId, List<String> forward) {
-        // 1. Prefer the switch-activated branch: if any switch's activeSegmentId
-        //    is in the forward set, that's the currently set path.
+        // 1. Prefer the LOCKED switch-activated branch.
         for (SwitchState sw : trackService.switchStates()) {
-            if (forward.contains(sw.activeSegmentId())) {
+            if (sw.locked() && forward.contains(sw.activeSegmentId())) {
                 return sw.activeSegmentId();
             }
         }
