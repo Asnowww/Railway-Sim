@@ -227,21 +227,25 @@ CREATE TABLE IF NOT EXISTS train_run_record (
 
 CREATE TABLE IF NOT EXISTS track_occupancy_record (
   id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  simulation_run_id VARCHAR(64) NOT NULL,
   segment_id VARCHAR(64) NOT NULL,
   occupancy VARCHAR(32) NOT NULL,
   train_ids_json JSON,
   recorded_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  INDEX idx_track_occupancy_segment_time (segment_id, recorded_at)
+  INDEX idx_track_occupancy_segment_time (segment_id, recorded_at),
+  INDEX idx_track_occupancy_run_time (simulation_run_id, recorded_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS signal_state_record (
   id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  simulation_run_id VARCHAR(64) NOT NULL,
   train_id VARCHAR(64) NOT NULL,
   authority_end_meters DOUBLE NOT NULL,
   speed_limit_mps DOUBLE NOT NULL,
   reason VARCHAR(255),
   recorded_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  INDEX idx_signal_state_train_time (train_id, recorded_at)
+  INDEX idx_signal_state_train_time (train_id, recorded_at),
+  INDEX idx_signal_state_run_time (simulation_run_id, recorded_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS power_state_record (
@@ -267,14 +271,28 @@ CREATE TABLE IF NOT EXISTS passenger_flow_record (
 
 CREATE TABLE IF NOT EXISTS alarm_record (
   id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  alarm_id VARCHAR(255) NOT NULL UNIQUE,
+  simulation_run_id VARCHAR(64) NOT NULL,
+  alarm_code VARCHAR(192) NOT NULL,
   source_module VARCHAR(64) NOT NULL,
   location_ref VARCHAR(128) NOT NULL,
   level TINYINT NOT NULL,
   title VARCHAR(128) NOT NULL,
   detail_text VARCHAR(512) NOT NULL,
+  state VARCHAR(32) NOT NULL DEFAULT 'RAISED',
   confirmed BOOLEAN NOT NULL DEFAULT FALSE,
   raised_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  INDEX idx_alarm_record_level_time (level, raised_at)
+  last_seen_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  acknowledged_at TIMESTAMP NULL,
+  acknowledged_by VARCHAR(64),
+  cleared_at TIMESTAMP NULL,
+  affected_train_ids_json JSON,
+  affected_section_ids_json JSON,
+  safety_action VARCHAR(128) NOT NULL DEFAULT 'MONITOR',
+  clear_condition VARCHAR(255) NOT NULL DEFAULT 'SOURCE_CONDITION_CLEARED',
+  recovery_condition VARCHAR(255) NOT NULL DEFAULT 'STATE_RECONCILED',
+  INDEX idx_alarm_record_level_time (level, raised_at),
+  INDEX idx_alarm_record_run_state (simulation_run_id, state, raised_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS dispatch_command_record (
@@ -302,8 +320,34 @@ CREATE TABLE IF NOT EXISTS operation_log (
   operation_type VARCHAR(64) NOT NULL,
   target_ref VARCHAR(128) NOT NULL,
   detail_json JSON,
+  run_id VARCHAR(64) DEFAULT NULL,
+  tick BIGINT DEFAULT NULL,
+  trace_id VARCHAR(64) DEFAULT NULL,
+  before_state VARCHAR(1024) DEFAULT NULL,
+  after_state VARCHAR(1024) DEFAULT NULL,
+  reason VARCHAR(512) DEFAULT NULL,
+  status VARCHAR(32) NOT NULL DEFAULT 'PENDING',
+  retry_count INT NOT NULL DEFAULT 0,
+  error_text VARCHAR(1024) DEFAULT NULL,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  INDEX idx_operation_log_type_time (operation_type, created_at)
+  INDEX idx_operation_log_type_time (operation_type, created_at),
+  INDEX idx_operation_log_trace (trace_id),
+  INDEX idx_operation_log_run_tick (run_id, tick)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS simulation_run (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  run_id VARCHAR(64) NOT NULL UNIQUE,
+  status VARCHAR(32) NOT NULL DEFAULT 'CREATED',
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  started_at TIMESTAMP NULL,
+  ended_at TIMESTAMP NULL,
+  last_tick BIGINT NOT NULL DEFAULT 0,
+  end_reason VARCHAR(255),
+  scenario_name VARCHAR(128),
+  config_hash VARCHAR(128),
+  model_version VARCHAR(128),
+  INDEX idx_simulation_run_status_created (status, created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS protocol_packet_log (
@@ -337,6 +381,7 @@ CREATE TABLE IF NOT EXISTS train_physics_config (
 
 CREATE TABLE IF NOT EXISTS train_physics_snapshot (
   id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  simulation_run_id VARCHAR(64) NOT NULL,
   train_id VARCHAR(64) NOT NULL,
   tick BIGINT NOT NULL,
   control_session_state VARCHAR(32) NOT NULL DEFAULT 'IN_SERVICE',
@@ -369,17 +414,20 @@ CREATE TABLE IF NOT EXISTS train_physics_snapshot (
   station_distance_meters DOUBLE NOT NULL DEFAULT 0,
   stopping_distance_meters DOUBLE NOT NULL DEFAULT 0,
   recorded_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  INDEX idx_train_physics_snapshot_train_tick (train_id, tick)
+  INDEX idx_train_physics_snapshot_train_tick (train_id, tick),
+  INDEX idx_train_physics_snapshot_run_tick_train (simulation_run_id, tick, train_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS train_energy_record (
   id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  simulation_run_id VARCHAR(64) NOT NULL,
   train_id VARCHAR(64) NOT NULL,
   tick BIGINT NOT NULL,
   energy_consumed_kwh DOUBLE NOT NULL,
   energy_regenerated_kwh DOUBLE NOT NULL,
   recorded_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  INDEX idx_train_energy_record_train_tick (train_id, tick)
+  INDEX idx_train_energy_record_train_tick (train_id, tick),
+  INDEX idx_train_energy_record_run_tick_train (simulation_run_id, tick, train_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS fmu_call_log (
@@ -396,6 +444,7 @@ CREATE TABLE IF NOT EXISTS fmu_call_log (
 
 CREATE TABLE IF NOT EXISTS fmu_fault_log (
   id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  simulation_run_id VARCHAR(64) NOT NULL,
   tick BIGINT NOT NULL DEFAULT 0,
   train_id VARCHAR(64),
   fault_code VARCHAR(64) NOT NULL,
@@ -403,11 +452,13 @@ CREATE TABLE IF NOT EXISTS fmu_fault_log (
   fallback_activated BOOLEAN NOT NULL DEFAULT FALSE,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   INDEX idx_fmu_fault_tick_train (tick, train_id),
+  INDEX idx_fmu_fault_run_tick (simulation_run_id, tick),
   INDEX idx_fmu_fault_log_train_time (train_id, created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS power_section_record (
   id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  simulation_run_id VARCHAR(64) NOT NULL,
   section_id VARCHAR(64) NOT NULL,
   tick BIGINT NOT NULL,
   voltage DOUBLE NOT NULL,
@@ -425,7 +476,105 @@ CREATE TABLE IF NOT EXISTS power_section_record (
   affected_train_ids_json JSON,
   data_quality VARCHAR(32) NOT NULL DEFAULT 'GOOD',
   recorded_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  INDEX idx_power_section_record_section_tick (section_id, tick)
+  INDEX idx_power_section_record_section_tick (section_id, tick),
+  INDEX idx_power_section_record_run_tick_section (simulation_run_id, tick, section_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS vehicle_control_command_log (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  simulation_run_id VARCHAR(64) NOT NULL,
+  tick BIGINT NOT NULL,
+  train_id VARCHAR(64) NOT NULL,
+  command_id VARCHAR(128),
+  trace_id VARCHAR(64),
+  operation_mode VARCHAR(32) NOT NULL,
+  decision_source VARCHAR(64) NOT NULL,
+  traction_command DOUBLE NOT NULL DEFAULT 0,
+  brake_command DOUBLE NOT NULL DEFAULT 0,
+  emergency_brake BOOLEAN NOT NULL DEFAULT FALSE,
+  reason_code VARCHAR(128) NOT NULL,
+  decided_at TIMESTAMP NOT NULL,
+  UNIQUE KEY uk_vehicle_control_run_tick_train (simulation_run_id, tick, train_id),
+  INDEX idx_vehicle_control_trace (trace_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS train_stop_result (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  result_id VARCHAR(192) NOT NULL UNIQUE,
+  simulation_run_id VARCHAR(64) NOT NULL,
+  train_id VARCHAR(64) NOT NULL,
+  station_id VARCHAR(64),
+  platform_id VARCHAR(64),
+  target_source VARCHAR(32) NOT NULL,
+  target_position_meters DOUBLE NOT NULL,
+  target_valid_from_tick BIGINT NOT NULL,
+  target_overridden_by_ma BOOLEAN NOT NULL DEFAULT FALSE,
+  actual_position_meters DOUBLE NOT NULL,
+  signed_error_meters DOUBLE NOT NULL,
+  absolute_error_meters DOUBLE NOT NULL,
+  overrun BOOLEAN NOT NULL DEFAULT FALSE,
+  success BOOLEAN NOT NULL DEFAULT FALSE,
+  reason_code VARCHAR(128) NOT NULL,
+  maximum_deceleration_mps2 DOUBLE NOT NULL DEFAULT 0,
+  maximum_jerk_mps3 DOUBLE NOT NULL DEFAULT 0,
+  brake_transition_count INT NOT NULL DEFAULT 0,
+  emergency_brake BOOLEAN NOT NULL DEFAULT FALSE,
+  final_control_stage VARCHAR(32) NOT NULL,
+  control_stage_history_json JSON NOT NULL,
+  control_mode VARCHAR(32),
+  parameter_version VARCHAR(64) NOT NULL,
+  stable_at_tick BIGINT NOT NULL,
+  recorded_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_train_stop_run_train (simulation_run_id, train_id, stable_at_tick)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS power_vehicle_fault_record (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  simulation_run_id VARCHAR(64) NOT NULL,
+  tick BIGINT NOT NULL,
+  fault_id VARCHAR(64) NOT NULL,
+  fault_code VARCHAR(64) NOT NULL,
+  source_domain VARCHAR(32) NOT NULL,
+  source_ref VARCHAR(128) NOT NULL,
+  affected_train_ids_json JSON,
+  severity VARCHAR(32) NOT NULL,
+  state VARCHAR(32) NOT NULL,
+  trace_id VARCHAR(64),
+  raised_at TIMESTAMP NOT NULL,
+  cleared_at TIMESTAMP NULL,
+  UNIQUE KEY uk_fault_run_id (simulation_run_id, fault_id),
+  INDEX idx_fault_run_tick (simulation_run_id, tick),
+  INDEX idx_fault_trace (trace_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS service_health_record (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  service_id VARCHAR(64) NOT NULL UNIQUE,
+  state VARCHAR(32) NOT NULL,
+  data_quality VARCHAR(32) NOT NULL,
+  source_timestamp TIMESTAMP NULL,
+  observed_at TIMESTAMP NOT NULL,
+  simulation_run_id VARCHAR(64),
+  last_accepted_tick BIGINT NOT NULL DEFAULT -1,
+  topology_hash VARCHAR(128),
+  config_hash VARCHAR(128),
+  model_version VARCHAR(128),
+  parameter_version VARCHAR(128),
+  reason_text VARCHAR(512),
+  recovery_gate_json JSON,
+  INDEX idx_service_health_state (state, observed_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS service_health_baseline (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  service_id VARCHAR(64) NOT NULL UNIQUE,
+  simulation_run_id VARCHAR(64),
+  last_accepted_tick BIGINT NOT NULL DEFAULT -1,
+  topology_hash VARCHAR(128) NOT NULL,
+  config_hash VARCHAR(128) NOT NULL,
+  model_version VARCHAR(128) NOT NULL,
+  parameter_version VARCHAR(128) NOT NULL,
+  source_timestamp TIMESTAMP NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS power_fault_record (

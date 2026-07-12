@@ -151,6 +151,10 @@ public class PowerService {
         return powerIntegrationService.health();
     }
 
+    public com.railwaysim.power.external.PowerNetworkStateSnapshot externalSnapshot() {
+        return powerIntegrationService.latestSnapshot();
+    }
+
     public synchronized void injectPowerFault(String sectionId, String faultType) {
         injectedFaultBySection.put(sectionId, faultType);
         Instant now = Instant.now();

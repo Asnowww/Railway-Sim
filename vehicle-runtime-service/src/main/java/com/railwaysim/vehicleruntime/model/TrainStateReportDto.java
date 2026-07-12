@@ -30,6 +30,9 @@ public record TrainStateReportDto(
     boolean emergencyBrakeCommand,
     double railVoltage,
     double powerAvailableWatts,
-    String faultCode
+    String faultCode,
+    String decisionSource,
+    String inputCommandId,
+    String inputTraceId
 ) {
 }

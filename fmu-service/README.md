@@ -26,6 +26,16 @@ For example, an INIT at `0.0` advances the FMU to `0.1`; the next STEP must use
 
 ## Build and test
 
+Python support is fixed to CPython 3.12 (`pyproject.toml` and `.python-version`).
+Create the local tool/test environment from the repository root with:
+
+```bash
+PYTHON_312=python3.12 ./scripts/bootstrap-test-env.sh
+```
+
+The real FMU artifact targets Linux/amd64, so the authoritative pytest run is
+the Docker test stage below rather than a native macOS invocation.
+
 Run from the repository root:
 
 ```bash

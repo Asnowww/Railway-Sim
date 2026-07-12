@@ -63,6 +63,25 @@ python3 -m app.http_server
 - FMU 服务: `http://localhost:9000/step-fleet`
 - 供电仿真 OpenAPI: `http://localhost:9200/docs`
 
+## 全栈验证
+
+验证环境要求：Java 21、Maven、Node.js、`pnpm`、Docker，以及 Python 3.12。
+9000 的本地工具环境和发布镜像均固定使用 Python 3.12；其他 Python 主次版本会被启动脚本拒绝。
+
+全新检出后，执行一条命令安装测试依赖并依次运行 8080、9300、9200、9000 和前端五组验证：
+
+```bash
+PYTHON_312=python3.12 ./scripts/verify-all.sh --bootstrap
+```
+
+如果 Python 3.12 不在 `PATH`，将 `PYTHON_312` 指向对应解释器的绝对路径。9000 的 FMU 是 Linux/amd64 构建产物，因此 pytest 在与发布环境一致的 Docker test 镜像中运行；脚本仍会建立 `fmu-service/.venv` 并验证其中安装了 pytest，供本地静态检查和开发工具使用。
+
+已完成依赖安装后可省略 `--bootstrap`：
+
+```bash
+./scripts/verify-all.sh
+```
+
 ## 当前初始化范围
 
 - 后端已建立仿真总控、统一时钟、列车实体管理、轨道占用、信号 MA、接触轨供电状态、TCMS/ATO 适配层、车辆物理端口、监控快照和 WebSocket 推送骨架。

@@ -197,7 +197,9 @@ class VehicleRuntimeFmuBatchTests {
         List<PowerConstraintSnapshot> power = trains.stream()
             .map(train -> new PowerConstraintSnapshot(train.id(), "P01", 1500, 4_000_000, 1_000_000.0, true, 1, true, true, "NORMAL"))
             .toList();
-        return new VehicleRuntimeStepRequest(tick, 0.1, Instant.now(), trains, authorities, tracks, List.of(), power);
+        return new VehicleRuntimeStepRequest(
+            tick, 0.1, Instant.now(), trains, authorities, tracks, List.of(), power, "run-fmu-batch", List.of()
+        );
     }
 
     private List<TrainStateSnapshot> updateFrom(VehicleRuntimeStepResponse response, List<TrainStateSnapshot> originals) {

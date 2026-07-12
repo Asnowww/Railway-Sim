@@ -6,6 +6,16 @@ spring:
     name: vehicle-runtime-service
 
 vehicle-runtime:
+  stopping-control:
+    service-brake-deceleration-meters-per-second-squared: 0.9
+    station-stop-window-meters: 10.0
+    minimum-approach-buffer-meters: 30.0
+    maximum-approach-buffer-meters: 140.0
+    approach-buffer-seconds: 6.0
+    minimum-effective-deceleration-meters-per-second-squared: 0.35
+    maximum-effective-deceleration-meters-per-second-squared: 1.25
+    zero-speed-meters-per-second: 0.2
+    parameter-version: STOPPING_V1
   train-params-path: config/train_params.yaml
   queue-capacity: 1
   default-line-length-meters: 5000

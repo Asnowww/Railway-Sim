@@ -8,22 +8,20 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.railwaysim.infrastructure.StaticInfrastructureCatalog;
 import com.railwaysim.train.VehicleSpecificationCatalog;
 import com.railwaysim.vehicle.external.ExternalTrainDirection;
-import com.railwaysim.vehicle.drivercab.DriverCabDirectionHandleState;
-import com.railwaysim.vehicle.drivercab.DriverCabDoorModeSwitch;
-import com.railwaysim.vehicle.drivercab.DriverCabMasterHandleState;
-import com.railwaysim.vehicle.drivercab.DriverCabPlcCodec;
-import com.railwaysim.vehicle.drivercab.DriverCabPlcInputPacket;
 import com.railwaysim.vehicle.protocol.SignalTrainContentCodec;
 import com.railwaysim.vehicle.protocol.TrainOperationalTelemetry;
 import java.util.List;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.BeforeEach;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.MvcResult;
 
 @SpringBootTest(properties = {
@@ -39,10 +37,77 @@ class Phase2ApiControllerTests {
     private MockMvc mockMvc;
 
     @Autowired
+    private JdbcTemplate jdbcTemplate;
+
+    @Autowired
     private VehicleSpecificationCatalog vehicleSpecificationCatalog;
 
     @Autowired
+    private StaticInfrastructureCatalog infrastructureCatalog;
+
+    @Autowired
     private ObjectMapper objectMapper;
+
+    @BeforeEach
+    void createAuditAndRunTables() {
+        jdbcTemplate.execute("""
+            CREATE TABLE IF NOT EXISTS operation_log (
+              id BIGINT AUTO_INCREMENT PRIMARY KEY,
+              operator_name VARCHAR(64) NOT NULL,
+              operation_type VARCHAR(64) NOT NULL,
+              target_ref VARCHAR(128) NOT NULL,
+              detail_json JSON,
+              run_id VARCHAR(64), tick BIGINT, trace_id VARCHAR(64),
+              before_state VARCHAR(1024), after_state VARCHAR(1024), reason VARCHAR(512),
+              status VARCHAR(32) NOT NULL, retry_count INT NOT NULL,
+              error_text VARCHAR(1024), created_at TIMESTAMP NOT NULL
+            )
+            """);
+        jdbcTemplate.execute("""
+            CREATE TABLE IF NOT EXISTS simulation_run (
+              id BIGINT AUTO_INCREMENT PRIMARY KEY,
+              run_id VARCHAR(64) NOT NULL UNIQUE,
+              status VARCHAR(32) NOT NULL,
+              created_at TIMESTAMP NOT NULL,
+              started_at TIMESTAMP NULL,
+              ended_at TIMESTAMP NULL,
+              last_tick BIGINT NOT NULL DEFAULT 0,
+              end_reason VARCHAR(255)
+            )
+            """);
+        jdbcTemplate.execute("""
+            CREATE TABLE IF NOT EXISTS alarm_record (
+              id BIGINT AUTO_INCREMENT PRIMARY KEY, alarm_id VARCHAR(255) NOT NULL UNIQUE,
+              simulation_run_id VARCHAR(64) NOT NULL, alarm_code VARCHAR(192) NOT NULL,
+              source_module VARCHAR(64) NOT NULL, location_ref VARCHAR(128) NOT NULL,
+              level TINYINT NOT NULL, title VARCHAR(128) NOT NULL, detail_text VARCHAR(512) NOT NULL,
+              state VARCHAR(32) NOT NULL, confirmed BOOLEAN NOT NULL,
+              raised_at TIMESTAMP NOT NULL, last_seen_at TIMESTAMP NOT NULL,
+              acknowledged_at TIMESTAMP NULL, acknowledged_by VARCHAR(64), cleared_at TIMESTAMP NULL,
+              affected_train_ids_json JSON, affected_section_ids_json JSON,
+              safety_action VARCHAR(128), clear_condition VARCHAR(255), recovery_condition VARCHAR(255)
+            )
+            """);
+        jdbcTemplate.execute("""
+            CREATE TABLE IF NOT EXISTS service_health_record (
+              id BIGINT AUTO_INCREMENT PRIMARY KEY, service_id VARCHAR(64) NOT NULL UNIQUE,
+              state VARCHAR(32) NOT NULL, data_quality VARCHAR(32) NOT NULL,
+              source_timestamp TIMESTAMP NULL, observed_at TIMESTAMP NOT NULL,
+              simulation_run_id VARCHAR(64), last_accepted_tick BIGINT NOT NULL,
+              topology_hash VARCHAR(128), config_hash VARCHAR(128), model_version VARCHAR(128),
+              parameter_version VARCHAR(128), reason_text VARCHAR(512), recovery_gate_json JSON
+            )
+            """);
+        jdbcTemplate.execute("""
+            CREATE TABLE IF NOT EXISTS service_health_baseline (
+              id BIGINT AUTO_INCREMENT PRIMARY KEY, service_id VARCHAR(64) NOT NULL UNIQUE,
+              simulation_run_id VARCHAR(64), last_accepted_tick BIGINT NOT NULL,
+              topology_hash VARCHAR(128) NOT NULL, config_hash VARCHAR(128) NOT NULL,
+              model_version VARCHAR(128) NOT NULL, parameter_version VARCHAR(128) NOT NULL,
+              source_timestamp TIMESTAMP NULL
+            )
+            """);
+    }
 
     @Test
     void exposesTrainPowerEnergyAndMaintenanceReadApis() throws Exception {
@@ -72,10 +137,34 @@ class Phase2ApiControllerTests {
         mockMvc.perform(get("/api/vehicle/maintenance-states"))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$", hasSize(2)));
+
+        mockMvc.perform(get("/api/operation-logs/health"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.status").exists());
+    }
+
+    @Test
+    void exposesUnifiedServiceHealthWithoutAllowingRecoveryCheckWhileUp() throws Exception {
+        mockMvc.perform(get("/api/simulation/snapshot"))
+            .andExpect(status().isOk());
+
+        mockMvc.perform(get("/api/service-health"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$", hasSize(2)))
+            .andExpect(jsonPath("$[0].state").value("UP"))
+            .andExpect(jsonPath("$[1].state").value("UP"));
+
+        mockMvc.perform(post("/api/service-health/vehicle-runtime-9300/recovery/check")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {"expectedRunId":"local-run","expectedTick":0}
+                    """))
+            .andExpect(status().isConflict());
     }
 
     @Test
     void requestRouteCommandRunsThroughDispatchQueueAndInterlockingFeedback() throws Exception {
+        String validRouteId = infrastructureCatalog.lineData().routes().get(0).id();
         mockMvc.perform(post("/api/simulation/reset"))
             .andExpect(status().isOk());
 
@@ -126,9 +215,9 @@ class Phase2ApiControllerTests {
                     {
                       "trainId": "TR-001",
                       "commandType": "REQUEST_ROUTE",
-                      "routeId": "R_D1"
+                      "routeId": "%s"
                     }
-                    """))
+                    """.formatted(validRouteId)))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.status").value("PENDING"))
             .andExpect(jsonPath("$.payload.decisionId").isNotEmpty())
@@ -158,6 +247,27 @@ class Phase2ApiControllerTests {
             .andExpect(jsonPath("$[0].payload.reservationId").value(reservationId))
             .andExpect(jsonPath("$[0].payload.lastFeedbackSource").value("SIGNAL_INTERLOCKING"))
             .andExpect(jsonPath("$[0].payload.lastFeedbackDetails.accepted").value(true));
+
+        mockMvc.perform(post("/api/dispatch/commands")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "trainId": "TR-001",
+                      "commandType": "REQUEST_ROUTE",
+                      "routeId": "R_NOT_FOUND"
+                    }
+                    """))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.status").value("PENDING"));
+
+        mockMvc.perform(post("/api/simulation/tick"))
+            .andExpect(status().isOk());
+
+        mockMvc.perform(get("/api/dispatch/commands"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$", hasSize(2)))
+            .andExpect(jsonPath("$[1].status").value("SKIPPED"))
+            .andExpect(jsonPath("$[1].payload.lastFeedbackDetails.accepted").value(false));
     }
 
     @Test
@@ -346,50 +456,11 @@ class Phase2ApiControllerTests {
     }
 
     @Test
-    void driverCabPlcPacketUpdatesSingleTrainCabState() throws Exception {
-        mockMvc.perform(post("/api/simulation/reset"))
-            .andExpect(status().isOk());
-        DriverCabPlcCodec codec = new DriverCabPlcCodec();
-        byte[] inputPayload = codec.encodeInput(new DriverCabPlcInputPacket(
-            true,
-            true,
-            false,
-            true,
-            true,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            DriverCabDoorModeSwitch.MANUAL,
-            false,
-            true,
-            false,
-            true,
-            true,
-            DriverCabDirectionHandleState.FORWARD,
-            DriverCabMasterHandleState.FAST_BRAKE,
-            0,
-            90
-        ));
-
+    void centralSignalBackendDoesNotExposePlcControlWriteEndpoint() throws Exception {
         mockMvc.perform(post("/api/vehicle/driver-cabs/TR-001/plc-input")
                 .contentType(MediaType.APPLICATION_OCTET_STREAM)
-                .content(inputPayload))
-            .andExpect(status().isOk())
-            .andExpect(jsonPath("$.trainId").value("TR-001"))
-            .andExpect(jsonPath("$.faultCode").value("DRIVER_CAB_EMERGENCY_BRAKE"))
-            .andExpect(jsonPath("$.driverConsoleState.doorModeSwitchState").value("MANUAL"))
-            .andExpect(jsonPath("$.driverConsoleState.atoStartFlag").value(true))
-            .andExpect(jsonPath("$.driverConsoleState.modeDowngradeConfirmFlag").value(true))
-            .andExpect(jsonPath("$.driverConsoleState.masterHandleState").value("FAST_BRAKE"));
-
-        mockMvc.perform(get("/api/vehicle/driver-cabs/TR-001/state"))
-            .andExpect(status().isOk())
-            .andExpect(jsonPath("$.doorModeSwitchState").value("MANUAL"))
-            .andExpect(jsonPath("$.brakeNotchPercent").value(90));
+                .content(new byte[46]))
+            .andExpect(status().isNotFound());
 
         mockMvc.perform(get("/api/vehicle/driver-cabs/TR-001/plc-output"))
             .andExpect(status().isOk());

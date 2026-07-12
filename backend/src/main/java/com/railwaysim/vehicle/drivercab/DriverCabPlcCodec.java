@@ -26,6 +26,16 @@ public class DriverCabPlcCodec {
         requireMinLength(payload, PLC_TO_UPPER_BYTES, "driver cab PLC input");
         validateIdentify(payload, PLC_TO_UPPER_IDENTIFY, "driver cab PLC input");
         ByteBuffer buffer = ByteBuffer.wrap(payload).order(byteOrder);
+        int doorModeCode = unsignedShort(buffer.getShort(32));
+        int directionCode = unsignedShort(buffer.getShort(36));
+        int masterHandleCode = unsignedShort(buffer.getShort(38));
+        int tractionPercent = unsignedShort(buffer.getShort(40));
+        int brakePercent = unsignedShort(buffer.getShort(42));
+        requireAllowedCode("doorModeSwitchState", doorModeCode, 0, 1, 2);
+        requireAllowedCode("directionHandleState", directionCode, 0, 1, 2);
+        requireAllowedCode("masterHandleState", masterHandleCode, 0, 1, 2, 4);
+        requirePercent("tractionNotchPercent", tractionPercent);
+        requirePercent("brakeNotchPercent", brakePercent);
         return new DriverCabPlcInputPacket(
             bit(payload, 24, 1),
             bit(payload, 24, 5),
@@ -39,16 +49,16 @@ public class DriverCabPlcCodec {
             bit(payload, 29, 1),
             bit(payload, 29, 2),
             bit(payload, 29, 3),
-            DriverCabDoorModeSwitch.fromProtocolCode(unsignedShort(buffer.getShort(32))),
+            DriverCabDoorModeSwitch.fromProtocolCode(doorModeCode),
             bit(payload, 34, 2),
             bit(payload, 34, 3),
             bit(payload, 34, 5),
             bit(payload, 34, 7),
             bit(payload, 35, 1),
-            DriverCabDirectionHandleState.fromProtocolCode(unsignedShort(buffer.getShort(36))),
-            DriverCabMasterHandleState.fromProtocolCode(unsignedShort(buffer.getShort(38))),
-            unsignedShort(buffer.getShort(40)),
-            unsignedShort(buffer.getShort(42))
+            DriverCabDirectionHandleState.fromProtocolCode(directionCode),
+            DriverCabMasterHandleState.fromProtocolCode(masterHandleCode),
+            tractionPercent,
+            brakePercent
         );
     }
 
@@ -130,6 +140,21 @@ public class DriverCabPlcCodec {
         buffer.putShort((short) now.getSecond());
         buffer.putShort((short) 0);
         buffer.putShort((short) 0);
+    }
+
+    private void requireAllowedCode(String field, int actual, int... allowed) {
+        for (int value : allowed) {
+            if (actual == value) {
+                return;
+            }
+        }
+        throw new IllegalArgumentException(field + " has unsupported code: " + actual);
+    }
+
+    private void requirePercent(String field, int value) {
+        if (value < 0 || value > 100) {
+            throw new IllegalArgumentException(field + " must be in 0..100: " + value);
+        }
     }
 
     private void requireMinLength(byte[] payload, int minLength, String label) {

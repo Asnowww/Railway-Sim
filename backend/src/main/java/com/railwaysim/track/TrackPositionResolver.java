@@ -20,7 +20,7 @@ public class TrackPositionResolver {
     }
 
     public TrainTrackPosition resolve(TrainState train) {
-        TrackSegmentState seg = trackService.segmentAt(train.positionMeters());
+        TrackSegmentState seg = trackService.segmentForTrain(train);
         String segId = seg != null ? seg.id() : "?";
         double offset = seg != null
             ? Math.max(0, Math.min(seg.endMeters() - seg.startMeters(), train.positionMeters() - seg.startMeters()))

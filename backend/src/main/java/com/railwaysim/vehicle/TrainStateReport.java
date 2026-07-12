@@ -30,7 +30,10 @@ public record TrainStateReport(
     boolean emergencyBrakeCommand,
     double railVoltage,
     double powerAvailableWatts,
-    String faultCode
+    String faultCode,
+    String decisionSource,
+    String inputCommandId,
+    String inputTraceId
 ) {
     public TrainStateReport(
         String trainId,
@@ -89,7 +92,10 @@ public record TrainStateReport(
             emergencyBrakeCommand,
             railVoltage,
             powerAvailableWatts,
-            faultCode
+            faultCode,
+            null,
+            null,
+            null
         );
     }
 }

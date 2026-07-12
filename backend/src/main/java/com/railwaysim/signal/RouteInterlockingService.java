@@ -192,6 +192,15 @@ public class RouteInterlockingService {
         }
 
         routeStates.put(routeId, route.withLocked(lockedIds, trainId));
+        routeSegments.stream()
+            .map(segmentId -> trackService.states().stream()
+                .filter(segment -> segment.id().equals(segmentId))
+                .findFirst()
+                .orElse(null))
+            .filter(java.util.Objects::nonNull)
+            .min(java.util.Comparator.comparingDouble(TrackSegmentState::startMeters)
+                .thenComparing(TrackSegmentState::id))
+            .ifPresent(segment -> trackService.assignTrainToSegment(trainId, segment.id()));
         routeHoldsByTrain.remove(trainId);
         log.info("[Interlocking] route {} established by train {}; locked switches={}", routeId, trainId, lockedIds);
         return null;
@@ -418,11 +427,11 @@ public class RouteInterlockingService {
     }
 
     private boolean headInRoute(TrainState train, RouteState route) {
-        return resolvedSegmentIds(route).stream()
-            .map(this::findSegmentById)
-            .flatMap(Optional::stream)
-            .anyMatch(seg -> train.positionMeters() >= seg.startMeters()
-                && train.positionMeters() < seg.endMeters());
+        // 用 segmentAt 确定列车实际在哪个段(主线优先),避免并行支线里程重叠误判
+        TrackSegmentState actualSeg = trackService.segmentAt(train.positionMeters());
+        if (actualSeg == null) return false;
+        Set<String> routeSegIds = resolvedSegmentIds(route);
+        return routeSegIds.contains(actualSeg.id());
     }
 
     private boolean ownerTrainInRoute(List<TrainState> trains, RouteState route) {

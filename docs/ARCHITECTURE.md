@@ -15,7 +15,7 @@
 - `TrainEntity` 表示一辆车的状态和运动行为。
 - `TrainManager` 管理所有列车实体，并在每个仿真步长内批量更新。
 - `SimulationRuntime` 提供统一仿真时钟。
-- 信号、轨道、供电、调度等模块在同一个后端进程内协作。
+- 调度、信号、轨道和中央状态镜像在 `backend:8080` 内协作；拆分部署时，单车控制/物理由 `vehicle-runtime-service:9300` 执行，权威供电计算由 `power-network-service:9200` 执行。
 - REST 和 WebSocket 只作为外部接口，不进入仿真热循环。
 
 ## 后端模块
@@ -42,11 +42,13 @@ backend/src/main/java/com/railwaysim
 
 ```text
 SimulationRuntime.tick()
+→ SimulationRunContext 冻结 simulationRunId/tick
 → TrackService.updateOccupancy()
 → TrackService.constraintsForTrains()
 → SignalService.calculateAuthorities()
 → DispatchService.constraintsForTrains()
 → split/EXTERNAL_HTTP: vehicle-runtime-service /vehicle-runtime/step-fleet
+   → 合并 9300 本地 PLC DriverCommandHolder 与中央/信号/供电安全约束
    → power-network-service /constraints/query
    → vehicle control + dynamics
    → power-network-service /step
@@ -55,6 +57,7 @@ SimulationRuntime.tick()
 → TrackService.updateOccupancy()
 → PowerService.update()
 → SimpleEventBus.drain()
+→ 持久化 runId/tick 下的控制决策、车辆、能耗、供电、信号、轨道和 FMU 记录
 → MonitorService.buildSnapshot()
 → WebSocket push snapshot
 ```
@@ -76,6 +79,8 @@ SimulationRuntime.tick()
 
 MySQL 存历史和配置：
 
+- `simulation_run` 运行生命周期，状态为 `CREATED/RUNNING/PAUSED/COMPLETED/FAILED/CANCELLED_BY_RESET`
+- `vehicle_control_command_log` 每 tick 最终控制决策及 `commandId/traceId`
 - 运行计划
 - 调度指令记录
 - 告警记录
@@ -108,19 +113,26 @@ YAML 存仿真静态配置：
 
 车辆和供电链路通过内部事件总线发布运行状态变化，包括 `VehiclePhysicsUpdated`、`TractionPowerChanged`、`BrakeForceChanged`、`RegenerativePowerGenerated`、`ThirdRailVoltageChanged`、`PowerLimitTriggered`、`FmuStepFailed` 和 `FmuFallbackActivated`。监控层只消费事件和状态快照生成告警，不直接参与车辆物理计算。
 
-新增 `vehicle-runtime-service` 作为外部车辆运行时，端口 `9300`。列车上线推荐先由车辆仿真系统调用 `POST /vehicle-runtime/trains/launch`，创建车辆仿真实例、唤醒本车控制队列，再向中央 `/api/trains/runtime-registrations` 注册状态镜像。`split` 模式下中央每 tick 只同步列车状态、MA、轨道和调度约束；不再计算或下发供电约束。9300 在控制前向独立 FastAPI 供电仿真 `power-network-service:9200` 请求当前位置的电压/可用功率约束，完成全车步进后聚合同分区负荷并提交给 9200；9200 返回下一控制周期的约束。中央只镜像 9200 快照用于前端和告警，绝不补写车辆负荷。外部车辆服务失败时中央立即回退本地链路，并标记车辆运行时健康状态为 `FALLBACK`。
+监控层将每个活动告警映射为结构化 `FaultImpact`，并维护稳定 occurrence 生命周期。9300/9200 的健康状态由 `ServiceHealthService` 归一化为 `UP/DEGRADED/STALE/FALLBACK/RECOVERING`。从异常恢复时不允许直接回 UP；`RecoveryGate` 必须同时验证 runId、tick 水位、topology/config hash 及 model/parameter version。告警活动索引、最后健康态和 last-good baseline 都持久化，8080 重启后回填。
+
+9200 重启会先回到未 bootstrap 状态，拒绝权威查询和 step；8080 探测到该状态后重下发拓扑。9300 可跨 8080 重启保留车辆实例，但仅在新 run 的 tick 0/1 执行 run rollover，同时清除旧 run 的命令、约束和物理缓存，避免旧 tick 或旧输入污染新运行。
+
+新增 `vehicle-runtime-service` 作为外部车辆运行时，端口 `9300`。列车上线推荐先由车辆仿真系统调用 `POST /vehicle-runtime/trains/launch`，创建车辆仿真实例、唤醒本车控制队列，再向中央 `/api/trains/runtime-registrations` 注册状态镜像。PLC 46 字节控制输入只进入 9300；8080 只提供信号系统需要的 `driverConsoleState/cabDisplay` 和 26 字节 PLC 显示输出。`split` 模式下中央每 tick 只同步列车状态、MA、轨道和调度约束；不再计算或下发供电约束。9300 在控制前向 9200 请求电压/可用功率约束，完成全车步进后每 tick 最多一次提交完整分区负荷；请求必须携带同一 `simulationRunId`。中央只镜像 9200 快照用于前端和告警，绝不补写车辆负荷。生产 `EXTERNAL_HTTP` 模式下 9300 失败会明确中止当前 tick，不由 8080 静默切换成另一套控制/物理结果；Java fallback 仅在 9300 内部按已定义的 FMU 降级策略执行。
 
 ```text
 vehicle-runtime-service:9300
   -> POST /vehicle-runtime/trains/launch
   -> POST backend /api/trains/runtime-registrations
+  <- POST PLC /api/vehicle/driver-cabs/{trainId}/plc-input（唯一控制输入）
 中央系统（调度/信号/控制编排）
   -> TrainManager.tickAll()
   -> vehicle-runtime-service:9300
        -> GET/POST power-network-service:9200/constraints/query
        -> VehicleControlQueue + VehicleSimulationQueue
        -> POST power-network-service:9200/step（唯一负荷写入）
+       -> TrainStateReport(decisionSource/inputCommandId/inputTraceId)
   -> PowerIntegrationService: GET 9200/state（只读镜像）
+  -> vehicle_control_command_log / simulation_run
   -> REST/WebSocket 快照
 ```
 

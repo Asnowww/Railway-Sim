@@ -3,6 +3,7 @@ package com.railwaysim.vehicleruntime.model;
 import java.util.List;
 
 public record PowerNetworkStepRequest(
+    String simulationRunId,
     long tick,
     double simulationTimeSeconds,
     double stepSizeSeconds,

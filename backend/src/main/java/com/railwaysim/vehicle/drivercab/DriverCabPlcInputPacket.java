@@ -28,8 +28,8 @@ public record DriverCabPlcInputPacket(
         doorModeSwitchState = doorModeSwitchState == null ? DriverCabDoorModeSwitch.SEMI_AUTOMATIC : doorModeSwitchState;
         directionHandleState = directionHandleState == null ? DriverCabDirectionHandleState.ZERO : directionHandleState;
         masterHandleState = masterHandleState == null ? DriverCabMasterHandleState.ZERO : masterHandleState;
-        tractionNotchPercent = clampPercent(tractionNotchPercent);
-        brakeNotchPercent = clampPercent(brakeNotchPercent);
+        requirePercent("tractionNotchPercent", tractionNotchPercent);
+        requirePercent("brakeNotchPercent", brakeNotchPercent);
     }
 
     public boolean emergencyBrakeRequested() {
@@ -71,7 +71,9 @@ public record DriverCabPlcInputPacket(
         );
     }
 
-    private static int clampPercent(int value) {
-        return Math.max(0, Math.min(100, value));
+    private static void requirePercent(String field, int value) {
+        if (value < 0 || value > 100) {
+            throw new IllegalArgumentException(field + " must be in 0..100: " + value);
+        }
     }
 }

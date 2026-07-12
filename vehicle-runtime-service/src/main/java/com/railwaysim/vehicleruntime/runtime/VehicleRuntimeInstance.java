@@ -2,7 +2,9 @@ package com.railwaysim.vehicleruntime.runtime;
 
 import com.railwaysim.vehicleruntime.config.VehicleRuntimeProperties;
 import com.railwaysim.vehicleruntime.config.VehicleParameters;
+import com.railwaysim.vehicleruntime.config.StoppingControlProperties;
 import com.railwaysim.vehicleruntime.model.DispatchConstraintSnapshot;
+import com.railwaysim.vehicleruntime.model.DriverControlCommandSnapshot;
 import com.railwaysim.vehicleruntime.model.MovementAuthoritySnapshot;
 import com.railwaysim.vehicleruntime.model.PowerConstraintSnapshot;
 import com.railwaysim.vehicleruntime.model.TrackConstraintSnapshot;
@@ -37,12 +39,15 @@ final class VehicleRuntimeInstance {
     VehicleRuntimeInstance(
         String trainId,
         VehicleRuntimeProperties properties,
-        VehicleParameters vehicleParameters
+        VehicleParameters vehicleParameters,
+        DriverCommandHolder driverCommandHolder,
+        StoppingControlProperties stoppingProperties
     ) {
         this.trainId = trainId;
         this.vehicleParameters = vehicleParameters;
         this.loadPolicy = new VehicleLoadPolicy(vehicleParameters);
-        this.controlQueue = new VehicleControlQueue(properties, loadPolicy, vehicleParameters);
+        this.controlQueue = new VehicleControlQueue(
+            properties, loadPolicy, vehicleParameters, driverCommandHolder, stoppingProperties);
     }
 
     void launch() {
@@ -55,9 +60,20 @@ final class VehicleRuntimeInstance {
         updatedAt = Instant.now();
     }
 
+    void rolloverRun() {
+        inFlight.set(false);
+        lastTick = -1;
+        lifecycleState = "CONTROL_AWAKE";
+        controlQueueStatus = "READY";
+        simulationQueueStatus = "READY";
+        latencyMillis = 0;
+        dataQuality = "GOOD";
+        reason = "RUN_ROLLOVER";
+        updatedAt = Instant.now();
+    }
+
     PreparedStep prepare(
-        long tick,
-        double deltaSeconds,
+        long tick, double deltaSeconds,
         TrainStateSnapshot train,
         MovementAuthoritySnapshot authority,
         TrackConstraintSnapshot track,
@@ -78,7 +94,9 @@ final class VehicleRuntimeInstance {
                 return null;
             }
             controlQueueStatus = "RUNNING";
-            VehiclePhysicsInputDto input = controlQueue.control(tick, deltaSeconds, train, authority, track, dispatch, power);
+            VehiclePhysicsInputDto input = controlQueue.control(
+                tick, deltaSeconds, train, authority, track, dispatch, power
+            );
             controlQueueStatus = "DONE";
             simulationQueueStatus = "PREPARED";
             return new PreparedStep(tick, train, input, startedAt);
@@ -155,6 +173,9 @@ final class VehicleRuntimeInstance {
         VehiclePhysicsInputDto input,
         VehiclePhysicsOutputDto output
     ) {
+        var driverCommand = controlQueue.latestDriverCommand(input.trainId());
+        boolean driverSelected = input.dynamicsConstraintReason() != null
+            && input.dynamicsConstraintReason().startsWith("DRIVER_");
         double loadMassKg = loadPolicy.loadMassKg(train.loadMassKg(), train.loadRate());
         String overloadStatus = loadPolicy.overloadStatus(loadMassKg);
         int availableTractionCount = loadPolicy.normalizeUnitCount(train.availableTractionCount(), VehicleLoadPolicy.NOMINAL_TRACTION_UNITS);
@@ -189,7 +210,10 @@ final class VehicleRuntimeInstance {
             input.emergencyBrakeCommand(),
             input.railVoltage(),
             input.powerAvailableWatts(),
-            output.faultCode()
+            output.faultCode(),
+            driverSelected ? "DRIVER" : "CONTROL_OR_SAFETY",
+            driverCommand == null ? null : driverCommand.commandId(),
+            driverCommand == null ? null : driverCommand.traceId()
         );
     }
 

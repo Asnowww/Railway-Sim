@@ -59,6 +59,11 @@ public class SimulationController {
         return simulationRuntime.pause();
     }
 
+    @PostMapping("/stop")
+    public SimulationSnapshot stop() {
+        return simulationRuntime.stop();
+    }
+
     @PostMapping("/reset")
     public SimulationSnapshot reset() {
         return simulationRuntime.reset();

@@ -11,6 +11,8 @@ public record VehicleRuntimeStepRequest(
     List<MovementAuthoritySnapshot> movementAuthorities,
     List<TrackConstraintSnapshot> trackConstraints,
     List<DispatchConstraintSnapshot> dispatchConstraints,
-    List<PowerConstraintSnapshot> powerConstraints
+    List<PowerConstraintSnapshot> powerConstraints,
+    String simulationRunId,
+    List<DriverControlCommandSnapshot> driverCommands
 ) {
 }
