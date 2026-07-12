@@ -9,6 +9,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
@@ -48,6 +49,23 @@ public class RouteCatalog {
         return routes().stream()
             .filter(route -> route.routeId().equals(routeId))
             .findFirst();
+    }
+
+    public boolean conflicts(String leftRouteId, String rightRouteId) {
+        Optional<DispatchRouteCandidate> left = route(leftRouteId);
+        Optional<DispatchRouteCandidate> right = route(rightRouteId);
+        if (left.isEmpty() || right.isEmpty()) {
+            return leftRouteId != null && leftRouteId.equals(rightRouteId);
+        }
+        Set<String> leftResources = new LinkedHashSet<>(left.get().segmentIds());
+        leftResources.addAll(left.get().protectionSectionIds());
+        Set<String> rightResources = new LinkedHashSet<>(right.get().segmentIds());
+        rightResources.addAll(right.get().protectionSectionIds());
+        return leftResources.stream().anyMatch(rightResources::contains)
+            || left.get().requiredSwitchPositions().entrySet().stream().anyMatch(entry -> {
+                SwitchPosition other = right.get().requiredSwitchPositions().get(entry.getKey());
+                return other != null && other != entry.getValue();
+            });
     }
 
     public List<DispatchRouteCandidate> candidateRoutesNear(

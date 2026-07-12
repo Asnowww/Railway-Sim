@@ -1,6 +1,8 @@
 package com.railwaysim.dispatch;
 
+import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 
 public record DispatchSnapshot(
     String runMode,
@@ -61,6 +63,7 @@ public record DispatchSnapshot(
         String selectedTrainId,
         String selectedRouteId,
         List<String> waitingTrainIds,
+        Map<String, Double> priorityScores,
         String status,
         String routeCommandId,
         String reason,
@@ -68,6 +71,7 @@ public record DispatchSnapshot(
     ) {
         public RouteDecisionView {
             waitingTrainIds = waitingTrainIds == null ? List.of() : List.copyOf(waitingTrainIds);
+            priorityScores = priorityScores == null ? Map.of() : Map.copyOf(priorityScores);
         }
     }
 
@@ -78,7 +82,9 @@ public record DispatchSnapshot(
         String decisionId,
         String state,
         String commandId,
-        String rejectReason
+        String rejectReason,
+        int retryCount,
+        Instant expiresAt
     ) {
     }
 

@@ -83,6 +83,38 @@ class TrainRunMonitorTests {
         assertThat(profiles.get(0).departureDelaySec()).isEqualTo(departure.delaySec());
     }
 
+    @Test
+    void headwayIsNotComparedWhenAdjacentTrainsDepartedFromDifferentStations() throws IOException {
+        DispatchProperties properties = new DispatchProperties();
+        OperationPlanLoader planLoader = new OperationPlanLoader(properties, new DefaultResourceLoader());
+        planLoader.load();
+        TrainRunMonitor monitor = new TrainRunMonitor(
+            planLoader,
+            new PlannedScheduleCalculator(properties),
+            new InMemoryStationRecordStore()
+        );
+        Instant start = Instant.parse("2026-07-09T09:00:00Z");
+        CurrentRunPlan plan = new CurrentRunPlan("PLAN-1", "LINE-1", "FLAT", 300, 25, start);
+        monitor.reset(start);
+
+        monitor.update("RUN-1", start, plan, List.of(
+            trainState("TR-001", 400, 0, "DWELLING", "S01", 25, null),
+            trainState("TR-002", 900, 0, "DWELLING", "S02", 25, null)
+        ));
+        List<TrainRunProfile> profiles = monitor.update("RUN-1", start.plusSeconds(60), plan, List.of(
+            trainState("TR-001", 450, 8, "RUNNING", null, 0, start.plusSeconds(60).toString()),
+            trainState("TR-002", 950, 8, "RUNNING", null, 0, start.plusSeconds(60).toString())
+        ));
+
+        TrainRunProfile rearTrain = profiles.stream()
+            .filter(profile -> profile.trainId().equals("TR-001"))
+            .findFirst()
+            .orElseThrow();
+        assertThat(rearTrain.frontTrainId()).isEqualTo("TR-002");
+        assertThat(rearTrain.headwayActualSec()).isNull();
+        assertThat(rearTrain.headwayState()).isEqualTo("WAITING_DEPARTURE_DATA");
+    }
+
     private static TrainState train(String id, double positionMeters, String lastDepartureAt) {
         return trainState(id, positionMeters, 8, "RUNNING", null, 0, lastDepartureAt);
     }

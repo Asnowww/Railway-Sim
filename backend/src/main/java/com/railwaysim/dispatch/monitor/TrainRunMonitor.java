@@ -8,6 +8,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -21,6 +22,8 @@ public class TrainRunMonitor {
     private final StationRecordStore stationRecordStore;
     private final Map<String, String> dwellingStationByTrain = new HashMap<>();
     private final Map<String, Integer> latestDepartureDelayByTrain = new HashMap<>();
+    private final Map<String, String> latestDepartureStationByTrain = new HashMap<>();
+    private final Map<String, Instant> latestDepartureAtByTrain = new HashMap<>();
     private Instant simulationStart = Instant.now();
 
     public TrainRunMonitor(
@@ -37,6 +40,8 @@ public class TrainRunMonitor {
         this.simulationStart = simulationStart;
         dwellingStationByTrain.clear();
         latestDepartureDelayByTrain.clear();
+        latestDepartureStationByTrain.clear();
+        latestDepartureAtByTrain.clear();
     }
 
     public List<TrainRunProfile> update(
@@ -45,51 +50,88 @@ public class TrainRunMonitor {
         CurrentRunPlan plan,
         List<TrainState> trains
     ) {
-        List<TrainState> ordered = trains.stream()
-            .sorted(Comparator.comparingDouble(TrainState::positionMeters).reversed())
-            .toList();
-        List<TrainRunProfile> profiles = new ArrayList<>();
-        String frontTrainId = null;
-        Instant frontDeparture = null;
-
-        for (TrainState train : ordered) {
+        for (TrainState train : trains) {
             detectStationEvents(simulationRunId, plan, train, simulatedAt);
-            Instant lastDeparture = parseInstant(train.lastDepartureAt()).orElse(null);
+        }
 
-            Double headwayActual = null;
-            int headwayDeviation = 0;
-            if (lastDeparture != null && frontDeparture != null) {
-                headwayActual = (double) (lastDeparture.getEpochSecond() - frontDeparture.getEpochSecond());
-                headwayDeviation = (int) Math.round(headwayActual - plan.departureIntervalSec());
+        Map<String, List<TrainState>> trainsByOperationalGroup = new LinkedHashMap<>();
+        for (TrainState train : trains) {
+            trainsByOperationalGroup
+                .computeIfAbsent(operationalGroupKey(train), ignored -> new ArrayList<>())
+                .add(train);
+        }
+        List<TrainRunProfile> profiles = new ArrayList<>();
+        for (List<TrainState> group : trainsByOperationalGroup.values()) {
+            List<TrainState> ordered = group.stream()
+                .sorted(Comparator.comparingDouble(TrainState::positionMeters).reversed())
+                .toList();
+            String frontTrainId = null;
+            Instant frontDeparture = null;
+
+            for (TrainState train : ordered) {
+                Instant lastDeparture = latestDepartureAtByTrain.getOrDefault(
+                    train.id(),
+                    parseInstant(train.lastDepartureAt()).orElse(null)
+                );
+
+                Double headwayActual = null;
+                int headwayDeviation = 0;
+                if (lastDeparture != null
+                    && frontDeparture != null
+                    && departedFromSameStation(train.id(), frontTrainId)) {
+                    headwayActual = (double) (lastDeparture.getEpochSecond() - frontDeparture.getEpochSecond());
+                    headwayDeviation = (int) Math.round(headwayActual - plan.departureIntervalSec());
+                }
+
+                boolean dwelling = "DWELLING".equals(train.status()) && train.speedMetersPerSecond() <= 0.5;
+                int observedDwellElapsed = dwelling ? train.dwellElapsedSeconds() : 0;
+                int plannedDwell = plan.defaultDwellTimeSec();
+                int dwellDeviation = Math.max(0, observedDwellElapsed - plannedDwell);
+                HeadwayObservation headwayObservation = classifyHeadway(frontTrainId, headwayActual, headwayDeviation, plan);
+                profiles.add(new TrainRunProfile(
+                    train.id(),
+                    frontTrainId,
+                    train.positionMeters(),
+                    train.speedMetersPerSecond(),
+                    train.loadRate(),
+                    train.status(),
+                    dwelling ? train.currentStationId() : null,
+                    observedDwellElapsed,
+                    plannedDwell,
+                    dwellDeviation,
+                    headwayActual,
+                    headwayDeviation,
+                    headwayObservation.state(),
+                    headwayObservation.action(),
+                    latestDepartureDelayByTrain.getOrDefault(train.id(), 0),
+                    lastDeparture
+                ));
+                frontTrainId = train.id();
+                frontDeparture = lastDeparture;
             }
-
-            boolean dwelling = "DWELLING".equals(train.status()) && train.speedMetersPerSecond() <= 0.5;
-            int observedDwellElapsed = dwelling ? train.dwellElapsedSeconds() : 0;
-            int plannedDwell = plan.defaultDwellTimeSec();
-            int dwellDeviation = Math.max(0, observedDwellElapsed - plannedDwell);
-            HeadwayObservation headwayObservation = classifyHeadway(frontTrainId, headwayActual, headwayDeviation, plan);
-            profiles.add(new TrainRunProfile(
-                train.id(),
-                frontTrainId,
-                train.positionMeters(),
-                train.speedMetersPerSecond(),
-                train.loadRate(),
-                train.status(),
-                dwelling ? train.currentStationId() : null,
-                observedDwellElapsed,
-                plannedDwell,
-                dwellDeviation,
-                headwayActual,
-                headwayDeviation,
-                headwayObservation.state(),
-                headwayObservation.action(),
-                latestDepartureDelayByTrain.getOrDefault(train.id(), 0),
-                lastDeparture
-            ));
-            frontTrainId = train.id();
-            frontDeparture = lastDeparture;
         }
         return profiles;
+    }
+
+    private String operationalGroupKey(TrainState train) {
+        String routeId = train.routeId() == null || train.routeId().isBlank() ? "UNKNOWN_ROUTE" : train.routeId();
+        String direction = train.direction() == null || train.direction().isBlank()
+            ? "UNKNOWN_DIRECTION"
+            : train.direction().toUpperCase();
+        return routeId + "|" + direction;
+    }
+
+    private boolean departedFromSameStation(String trainId, String frontTrainId) {
+        if (frontTrainId == null) {
+            return false;
+        }
+        String stationId = latestDepartureStationByTrain.get(trainId);
+        String frontStationId = latestDepartureStationByTrain.get(frontTrainId);
+        if (stationId == null && frontStationId == null) {
+            // Compatibility path for external train states that currently expose only lastDepartureAt.
+            return true;
+        }
+        return stationId != null && stationId.equals(frontStationId);
     }
 
     private HeadwayObservation classifyHeadway(
@@ -173,6 +215,8 @@ public class TrainRunMonitor {
                 delay
             ));
             latestDepartureDelayByTrain.put(train.id(), delay);
+            latestDepartureStationByTrain.put(train.id(), previousStation);
+            latestDepartureAtByTrain.put(train.id(), simulatedAt);
             dwellingStationByTrain.remove(train.id());
         }
     }

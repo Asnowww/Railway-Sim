@@ -32,6 +32,7 @@ class StrategySelectorTests {
 
         List<DispatchCommand> commands = selector.select(
             "RUN-1",
+            Instant.parse("2026-07-09T00:00:00Z"),
             List.of(event),
             List.of(
                 profile("TR-001", 400),
@@ -43,6 +44,10 @@ class StrategySelectorTests {
         assertThat(commands).hasSize(1);
         assertThat(commands.get(0).trainId()).isEqualTo("TR-001");
         assertThat(commands.get(0).commandType()).isEqualTo("SHORTEN_DWELL");
+        assertThat(commands.get(0).createdAt()).isEqualTo(Instant.parse("2026-07-09T00:00:00Z"));
+        assertThat(commands.get(0).payload())
+            .containsEntry("targetStationId", "S01")
+            .containsEntry("executeOnNextDwell", true);
     }
 
     @Test
@@ -67,6 +72,7 @@ class StrategySelectorTests {
 
         List<DispatchCommand> commands = selector.select(
             "RUN-1",
+            Instant.parse("2026-07-09T00:00:00Z"),
             List.of(event),
             List.of(
                 profile("TR-001", 400),
@@ -79,6 +85,39 @@ class StrategySelectorTests {
         assertThat(commands.get(0).trainId()).isEqualTo("TR-001");
         assertThat(commands.get(0).commandType()).isEqualTo("EXTEND_DWELL");
         assertThat(commands.get(0).payload()).containsEntry("headwayViolationSec", 90.0);
+    }
+
+    @Test
+    void departureDelaySchedulesAShorterNextDwellInsteadOfAnUnsafeSpeedIncrease() {
+        Instant simulatedAt = Instant.parse("2026-07-09T00:00:00Z");
+        DisturbanceEvent event = new DisturbanceEvent(
+            "DIST-3",
+            "RUN-1",
+            "TR-001",
+            null,
+            DisturbanceType.DEPARTURE_DELAY,
+            60,
+            "OPEN",
+            simulatedAt,
+            null,
+            null
+        );
+
+        List<DispatchCommand> commands = selector.select(
+            "RUN-1",
+            simulatedAt,
+            List.of(event),
+            List.of(profile("TR-001", 400)),
+            new CurrentRunPlan("PLAN-1", "LINE-1", "FLAT", 300, 25, simulatedAt)
+        );
+
+        assertThat(commands).singleElement().satisfies(command -> {
+            assertThat(command.commandType()).isEqualTo("SHORTEN_DWELL");
+            assertThat(command.payload())
+                .containsEntry("deltaDwellSec", -3)
+                .containsEntry("executeOnNextDwell", true)
+                .doesNotContainKey("speedBiasRatio");
+        });
     }
 
     private static TrainRunProfile profile(String trainId, double positionMeters) {

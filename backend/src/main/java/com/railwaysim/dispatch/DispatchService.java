@@ -17,6 +17,8 @@ import com.railwaysim.dispatch.plan.OperationPlanLoader;
 import com.railwaysim.dispatch.route.RouteDispatchDecision;
 import com.railwaysim.dispatch.route.RouteDispatchRecordStore;
 import com.railwaysim.dispatch.route.RouteIntentResolver;
+import com.railwaysim.dispatch.route.RouteIntentArbiter;
+import com.railwaysim.dispatch.route.RouteIntentSelection;
 import com.railwaysim.dispatch.route.RouteReservation;
 import com.railwaysim.dispatch.route.RouteReservationState;
 import com.railwaysim.dispatch.route.TrainRouteIntent;
@@ -56,6 +58,7 @@ public class DispatchService {
     private final InMemoryStationRecordStore stationRecordStore;
     private final RouteDispatchRecordStore routeDispatchRecordStore;
     private final RouteIntentResolver routeIntentResolver;
+    private final RouteIntentArbiter routeIntentArbiter;
     private final List<DispatchCommand> manualCommands = new CopyOnWriteArrayList<>();
 
     private String simulationRunId = UUID.randomUUID().toString();
@@ -79,7 +82,8 @@ public class DispatchService {
         CommandRecordStore commandRecordStore,
         InMemoryStationRecordStore stationRecordStore,
         RouteDispatchRecordStore routeDispatchRecordStore,
-        RouteIntentResolver routeIntentResolver
+        RouteIntentResolver routeIntentResolver,
+        RouteIntentArbiter routeIntentArbiter
     ) {
         this.planLoader = planLoader;
         this.properties = properties;
@@ -93,6 +97,7 @@ public class DispatchService {
         this.stationRecordStore = stationRecordStore;
         this.routeDispatchRecordStore = routeDispatchRecordStore;
         this.routeIntentResolver = routeIntentResolver;
+        this.routeIntentArbiter = routeIntentArbiter;
         this.currentPlan = planLoader.resolve(Instant.now());
         this.latestSnapshot = buildSnapshot(currentPlan, latestProfiles, List.of(), List.of());
     }
@@ -336,12 +341,14 @@ public class DispatchService {
         }
         syncDisturbanceRecords();
         progressActiveCommands(context.simulatedTime(), trains, authorities, latestProfiles);
+        expirePendingRouteCommands(context.simulatedTime());
 
         List<DisturbanceEvent> openEvents = disturbanceDetector.openEvents().stream()
             .filter(event -> "OPEN".equals(event.status()))
             .toList();
         List<DispatchCommand> generated = strategySelector.select(
             simulationRunId,
+            context.simulatedTime(),
             openEvents,
             latestProfiles,
             currentPlan
@@ -349,13 +356,13 @@ public class DispatchService {
         List<DispatchCommand> routeCommands = automaticRouteCommands(context.simulatedTime(), trains, authorities);
         List<DispatchCommand> combined = new ArrayList<>(generated);
         combined.addAll(routeCommands);
-        List<DispatchCommand> validated = commandValidator.validate(combined, authorities);
+        List<DispatchCommand> validated = commandValidator.validate(combined, authorities, context.simulatedTime());
         List<DispatchCommand> tracked = trackGeneratedRouteCommands(validated);
         logCommandBatch("generated", generated);
         logCommandBatch("route-generated", routeCommands);
         logCommandBatch("validated", tracked);
         commandQueue.enqueue(tracked.stream()
-            .filter(command -> !CommandStatus.SKIPPED.equals(command.status()))
+            .filter(command -> CommandStatus.PENDING.equals(command.status()))
             .toList());
         for (DispatchCommand command : tracked) {
             commandRecordStore.save(command);
@@ -374,15 +381,43 @@ public class DispatchService {
             return List.of();
         }
         Instant cooldownCutoff = simulatedAt.minusSeconds(Math.max(0, properties.getRouteRequestCooldownSeconds()));
-        return intents.stream()
+        List<RouteReservation> activeReservations = routeDispatchRecordStore.listReservations(simulationRunId).stream()
+            .filter(reservation -> RouteReservationState.REQUESTED.equals(reservation.state())
+                || RouteReservationState.ACCEPTED.equals(reservation.state()))
+            .toList();
+        List<TrainRouteIntent> eligible = intents.stream()
             .filter(intent -> !routeDispatchRecordStore.hasRecentRouteRequest(
                 simulationRunId,
                 intent.trainId(),
                 intent.routeId(),
                 cooldownCutoff
             ))
-            .map(this::commandFromRouteIntent)
+            .filter(intent -> activeReservations.stream().noneMatch(reservation ->
+                !intent.trainId().equals(reservation.trainId())
+                    && routeIntentArbiter.conflicts(intent.routeId(), reservation.routeId())))
             .toList();
+        return routeIntentArbiter.arbitrate(eligible).stream()
+            .map(this::commandFromRouteSelection)
+            .toList();
+    }
+
+    private DispatchCommand commandFromRouteSelection(RouteIntentSelection selection) {
+        DispatchCommand command = commandFromRouteIntent(selection.selectedIntent());
+        Map<String, Object> payload = new HashMap<>(command.payload());
+        payload.put("waitingTrainIds", selection.waitingIntents().stream()
+            .map(TrainRouteIntent::trainId)
+            .toList());
+        payload.put("priorityScores", selection.priorityScores());
+        return new DispatchCommand(
+            command.id(),
+            command.trainId(),
+            command.commandType(),
+            payload,
+            command.reason(),
+            command.status(),
+            command.createdAt(),
+            command.appliedAt()
+        );
     }
 
     private DispatchCommand commandFromRouteIntent(TrainRouteIntent intent) {
@@ -421,6 +456,25 @@ public class DispatchService {
             }
         }
         return tracked;
+    }
+
+    private void expirePendingRouteCommands(Instant simulatedAt) {
+        List<String> expiredIds = routeDispatchRecordStore.expirePendingReservations(simulationRunId, simulatedAt);
+        if (expiredIds.isEmpty()) {
+            return;
+        }
+        Set<String> expiredIdSet = new HashSet<>(expiredIds);
+        List<DispatchCommand> updated = new ArrayList<>();
+        for (DispatchCommand command : commandRecordStore.list(simulationRunId)) {
+            if (!expiredIdSet.contains(command.id()) || !isEffectTrackedStatus(command.status())) {
+                continue;
+            }
+            DispatchCommand expired = commandWithStatus(command, CommandStatus.EXPIRED, simulatedAt);
+            commandRecordStore.update(expired);
+            replaceManualCommand(expired);
+            updated.add(expired);
+        }
+        activeCommands = mergeActiveCommands(updated);
     }
 
     private void progressActiveCommands(
@@ -525,7 +579,7 @@ public class DispatchService {
             case "SPEED_BIAS" -> hasDepartedOrMoving(train);
             case "EXTEND_DWELL" -> isDwelling(train) && train.dwellElapsedSeconds() >= adjustedDwellTarget(
                 payloadInt(command, "deltaDwellSec", 0)
-            );
+            ) && dwellCommandAppliesAtCurrentStation(command, train);
             case "HEADWAY_ADJUST" -> isHeadwayRecovered(command, profile);
             case "HOLD", "HOLD_TRAIN" -> isStopped(train) && !isTimedHoldStillRequired(command, train);
             case "SPEED_LIMIT", "TEMP_SPEED_LIMIT" -> !requiresManualRelease(command);
@@ -546,7 +600,9 @@ public class DispatchService {
         }
         return switch (command.commandType()) {
             case "HOLD", "HOLD_TRAIN" -> isStopped(train);
-            case "EXTEND_DWELL" -> isDwelling(train) && isStopped(train);
+            case "EXTEND_DWELL" -> isDwelling(train)
+                && isStopped(train)
+                && dwellCommandAppliesAtCurrentStation(command, train);
             case "SHORTEN_DWELL" -> shouldReleaseDwell(command, train) || hasDepartedOrMoving(train);
             case "HEADWAY_ADJUST" -> isHeadwayRecovered(command, profile)
                 || shouldReleaseForShorterHeadway(command, train)
@@ -602,7 +658,16 @@ public class DispatchService {
 
     private boolean shouldReleaseDwell(DispatchCommand command, TrainState train) {
         int delta = payloadInt(command, "deltaDwellSec", 0);
-        return isDwelling(train) && train.dwellElapsedSeconds() >= adjustedDwellTarget(delta);
+        return isDwelling(train)
+            && dwellCommandAppliesAtCurrentStation(command, train)
+            && train.dwellElapsedSeconds() >= adjustedDwellTarget(delta);
+    }
+
+    private boolean dwellCommandAppliesAtCurrentStation(DispatchCommand command, TrainState train) {
+        String targetStationId = payloadString(command, "targetStationId");
+        return targetStationId == null
+            || targetStationId.isBlank()
+            || targetStationId.equals(train.currentStationId());
     }
 
     private boolean hasDepartedOrMoving(TrainState train) {
@@ -845,6 +910,12 @@ public class DispatchService {
                 case "EXTEND_DWELL", "SHORTEN_DWELL" -> {
                     int delta = payloadInt(command, "deltaDwellSec", 0);
                     int targetDwell = delta < 0 ? properties.getMinDwellSec() : adjustedDwellTarget(delta);
+                    if (!dwellCommandAppliesAtCurrentStation(command, train)) {
+                        sourceCommandIds.remove(command.id());
+                        reasons.add(reason(command) + "(waitingForStation="
+                            + payloadString(command, "targetStationId") + ")");
+                        break;
+                    }
                     dwellReleaseTarget = dwellReleaseTarget == null
                         ? targetDwell
                         : Math.max(dwellReleaseTarget, targetDwell);
@@ -1213,6 +1284,7 @@ public class DispatchService {
             decision.selectedTrainId(),
             decision.selectedRouteId(),
             decision.waitingTrainIds(),
+            decision.priorityScores(),
             decision.status(),
             decision.routeCommandId(),
             decision.reason(),
@@ -1228,7 +1300,9 @@ public class DispatchService {
             reservation.decisionId(),
             reservation.state(),
             reservation.commandId(),
-            reservation.rejectReason()
+            reservation.rejectReason(),
+            reservation.retryCount(),
+            reservation.expiresAt()
         );
     }
 

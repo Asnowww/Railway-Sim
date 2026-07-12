@@ -20,6 +20,7 @@ public class StrategySelector {
 
     public List<DispatchCommand> select(
         String simulationRunId,
+        Instant simulatedAt,
         List<DisturbanceEvent> events,
         List<TrainRunProfile> profiles,
         CurrentRunPlan plan
@@ -42,12 +43,12 @@ public class StrategySelector {
                 continue;
             }
             DispatchCommand command = switch (event.disturbanceType()) {
-                case DWELL_EXTENDED -> dwellCommand(simulationRunId, target.trainId(), -5, event);
-                case HEADWAY_VIOLATION -> headwayViolationCommand(simulationRunId, target.trainId(), event);
-                case HEADWAY_SHRINK -> dwellCommand(simulationRunId, target.trainId(), 5, event);
-                case HEADWAY_EXPAND -> dwellCommand(simulationRunId, target.trainId(), -3, event);
-                case DEPARTURE_DELAY -> speedBiasCommand(simulationRunId, event.trainId(), 1.05, event);
-                case CROWDING -> headwayCommand(simulationRunId, plan, event);
+                case DWELL_EXTENDED -> dwellCommand(simulationRunId, simulatedAt, target.trainId(), -5, event);
+                case HEADWAY_VIOLATION -> headwayViolationCommand(simulationRunId, simulatedAt, target.trainId(), event);
+                case HEADWAY_SHRINK -> dwellCommand(simulationRunId, simulatedAt, target.trainId(), 5, event);
+                case HEADWAY_EXPAND -> dwellCommand(simulationRunId, simulatedAt, target.trainId(), -3, event);
+                case DEPARTURE_DELAY -> dwellCommand(simulationRunId, simulatedAt, event.trainId(), -3, event);
+                case CROWDING -> headwayCommand(simulationRunId, simulatedAt, plan, event);
             };
             commands.add(command);
         }
@@ -83,17 +84,19 @@ public class StrategySelector {
 
     private DispatchCommand headwayViolationCommand(
         String simulationRunId,
+        Instant simulatedAt,
         String trainId,
         DisturbanceEvent event
     ) {
         if ("TOO_SHORT".equals(event.headwayDirection())) {
-            return dwellCommand(simulationRunId, trainId, 5, event);
+            return dwellCommand(simulationRunId, simulatedAt, trainId, 5, event);
         }
-        return dwellCommand(simulationRunId, trainId, -3, event);
+        return dwellCommand(simulationRunId, simulatedAt, trainId, -3, event);
     }
 
     private DispatchCommand dwellCommand(
         String simulationRunId,
+        Instant simulatedAt,
         String trainId,
         int delta,
         DisturbanceEvent event
@@ -103,6 +106,10 @@ public class StrategySelector {
         payload.put("deltaDwellSec", delta);
         payload.put("simulationRunId", simulationRunId);
         payload.put("disturbanceId", event.id());
+        payload.put("executeOnNextDwell", true);
+        if (event.stationId() != null && !event.stationId().isBlank()) {
+            payload.put("targetStationId", event.stationId());
+        }
         putHeadwayPayload(payload, event);
         return new DispatchCommand(
             "CMD-" + UUID.randomUUID().toString().substring(0, 8),
@@ -111,35 +118,17 @@ public class StrategySelector {
             payload,
             event.disturbanceType().name(),
             CommandStatus.PENDING,
-            Instant.now(),
+            simulatedAt,
             null
         );
     }
 
-    private DispatchCommand speedBiasCommand(
+    private DispatchCommand headwayCommand(
         String simulationRunId,
-        String trainId,
-        double ratio,
+        Instant simulatedAt,
+        CurrentRunPlan plan,
         DisturbanceEvent event
     ) {
-        Map<String, Object> payload = new HashMap<>();
-        payload.put("speedBiasRatio", ratio);
-        payload.put("simulationRunId", simulationRunId);
-        payload.put("disturbanceId", event.id());
-        putHeadwayPayload(payload, event);
-        return new DispatchCommand(
-            "CMD-" + UUID.randomUUID().toString().substring(0, 8),
-            trainId,
-            "SPEED_BIAS",
-            payload,
-            event.disturbanceType().name(),
-            CommandStatus.PENDING,
-            Instant.now(),
-            null
-        );
-    }
-
-    private DispatchCommand headwayCommand(String simulationRunId, CurrentRunPlan plan, DisturbanceEvent event) {
         int adjusted = (int) Math.round(plan.departureIntervalSec() * 0.85);
         Map<String, Object> payload = new HashMap<>();
         payload.put("targetHeadwaySec", adjusted);
@@ -153,7 +142,7 @@ public class StrategySelector {
             payload,
             event.disturbanceType().name(),
             CommandStatus.PENDING,
-            Instant.now(),
+            simulatedAt,
             null
         );
     }

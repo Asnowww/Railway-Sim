@@ -7,20 +7,33 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.time.Instant;
 import org.springframework.stereotype.Component;
 
 @Component
 public class CommandValidator {
 
     public List<DispatchCommand> validate(List<DispatchCommand> commands, List<MovementAuthority> authorities) {
+        return validate(commands, authorities, Instant.now());
+    }
+
+    public List<DispatchCommand> validate(
+        List<DispatchCommand> commands,
+        List<MovementAuthority> authorities,
+        Instant effectiveAt
+    ) {
         List<DispatchCommand> validated = new ArrayList<>();
         for (DispatchCommand command : commands) {
-            validated.add(validateOne(command, authorities));
+            validated.add(validateOne(command, authorities, effectiveAt));
         }
         return validated;
     }
 
-    private DispatchCommand validateOne(DispatchCommand command, List<MovementAuthority> authorities) {
+    private DispatchCommand validateOne(
+        DispatchCommand command,
+        List<MovementAuthority> authorities,
+        Instant effectiveAt
+    ) {
         if (RouteDispatchRecordStore.isRouteCommand(command)) {
             if (command.trainId() == null || command.trainId().isBlank()) {
                 return skip(command, "route command requires trainId");
@@ -28,6 +41,16 @@ public class CommandValidator {
             String routeId = RouteDispatchRecordStore.routeIdFrom(command);
             if (routeId == null || routeId.isBlank()) {
                 return skip(command, "route command requires routeId or detail");
+            }
+            String validUntil = stringPayload(command.payload(), "validUntil");
+            if (validUntil != null && effectiveAt != null) {
+                try {
+                    if (!Instant.parse(validUntil).isAfter(effectiveAt)) {
+                        return expire(command, "route command validity expired");
+                    }
+                } catch (RuntimeException exception) {
+                    return skip(command, "route command validUntil must be an ISO-8601 instant");
+                }
             }
         }
         if ("SPEED_BIAS".equals(command.commandType())) {
@@ -51,6 +74,14 @@ public class CommandValidator {
     }
 
     private DispatchCommand skip(DispatchCommand command, String reason) {
+        return withTerminalStatus(command, reason, CommandStatus.SKIPPED);
+    }
+
+    private DispatchCommand expire(DispatchCommand command, String reason) {
+        return withTerminalStatus(command, reason, CommandStatus.EXPIRED);
+    }
+
+    private DispatchCommand withTerminalStatus(DispatchCommand command, String reason, String status) {
         Map<String, Object> payload = command.payload() == null
             ? new HashMap<>()
             : new HashMap<>(command.payload());
@@ -61,7 +92,7 @@ public class CommandValidator {
             command.commandType(),
             payload,
             command.reason(),
-            CommandStatus.SKIPPED,
+            status,
             command.createdAt(),
             command.appliedAt()
         );
@@ -83,5 +114,12 @@ public class CommandValidator {
             return number.doubleValue();
         }
         return defaultValue;
+    }
+
+    private String stringPayload(Map<String, Object> payload, String key) {
+        if (payload == null || payload.get(key) == null) {
+            return null;
+        }
+        return payload.get(key).toString();
     }
 }

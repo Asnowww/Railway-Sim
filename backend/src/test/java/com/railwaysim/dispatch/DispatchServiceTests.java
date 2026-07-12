@@ -17,6 +17,7 @@ import com.railwaysim.dispatch.route.RouteDecisionStatus;
 import com.railwaysim.dispatch.route.RouteCatalog;
 import com.railwaysim.dispatch.route.RouteDispatchRecordStore;
 import com.railwaysim.dispatch.route.RouteIntentResolver;
+import com.railwaysim.dispatch.route.RouteIntentArbiter;
 import com.railwaysim.dispatch.route.RouteReservationState;
 import com.railwaysim.dispatch.strategy.StrategySelector;
 import com.railwaysim.infrastructure.OperationalLineData;
@@ -175,6 +176,22 @@ class DispatchServiceTests {
     }
 
     @Test
+    void expiredManualRouteCommandIsRejectedBeforeInterlockingQueue() {
+        dispatchService.submit(commandWithPayload("TR-1", "REQUEST_ROUTE", Map.of(
+            "routeId", "R_BRANCH",
+            "validUntil", "2000-01-01T00:00:00Z"
+        )));
+
+        assertThat(dispatchService.pendingCommands()).isEmpty();
+        assertThat(dispatchService.commands())
+            .extracting(DispatchCommand::status)
+            .containsExactly(CommandStatus.EXPIRED);
+        assertThat(dispatchService.snapshot().routeReservations())
+            .extracting(DispatchSnapshot.RouteReservationView::state)
+            .containsExactly(RouteReservationState.EXPIRED);
+    }
+
+    @Test
     void evaluateCreatesAutomaticRouteRequestWhenTrainApproachesRouteEntry() {
         DispatchService service = dispatchService(routeLineData());
         Instant now = Instant.parse("2026-07-09T00:00:00Z");
@@ -219,6 +236,120 @@ class DispatchServiceTests {
         assertThat(service.pendingCommands())
             .filteredOn(command -> "REQUEST_ROUTE".equals(command.commandType()))
             .hasSize(1);
+    }
+
+    @Test
+    void automaticRouteArbitrationSelectsOneTrainAndRecordsTheWaitingTrain() {
+        DispatchService service = dispatchService(routeLineData());
+        Instant now = Instant.parse("2026-07-09T00:00:00Z");
+
+        service.evaluate(
+            tick(1, now),
+            List.of(
+                runningTrainAt("TR-1", 100, 8),
+                runningTrainAt("TR-2", 150, 8)
+            ),
+            List.of(
+                new MovementAuthority("TR-1", 500, 15, "TEST", "T01", "T02", "TEST"),
+                new MovementAuthority("TR-2", 500, 15, "TEST", "T01", "T02", "TEST")
+            )
+        );
+
+        assertThat(service.pendingCommands())
+            .filteredOn(command -> "REQUEST_ROUTE".equals(command.commandType()))
+            .singleElement()
+            .satisfies(command -> assertThat(command.trainId()).isEqualTo("TR-2"));
+        assertThat(service.snapshot().routeDecisions())
+            .singleElement()
+            .satisfies(decision -> {
+                assertThat(decision.selectedTrainId()).isEqualTo("TR-2");
+                assertThat(decision.waitingTrainIds()).containsExactly("TR-1");
+            });
+
+        service.evaluate(
+            tick(2, now.plusSeconds(1)),
+            List.of(
+                runningTrainAt("TR-1", 110, 8),
+                runningTrainAt("TR-2", 160, 8)
+            ),
+            List.of(
+                new MovementAuthority("TR-1", 500, 15, "TEST", "T01", "T02", "TEST"),
+                new MovementAuthority("TR-2", 500, 15, "TEST", "T01", "T02", "TEST")
+            )
+        );
+        assertThat(service.commands())
+            .filteredOn(command -> "REQUEST_ROUTE".equals(command.commandType()))
+            .hasSize(1);
+    }
+
+    @Test
+    void targetedDwellCommandWaitsForItsConfiguredStation() {
+        dispatchService.submit(commandWithPayload("TR-1", "SHORTEN_DWELL", Map.of(
+            "deltaDwellSec", -5,
+            "targetStationId", "S02",
+            "executeOnNextDwell", true
+        )));
+
+        DispatchConstraint constraint = dispatchService.previewConstraintsForTrains(List.of(dwellingTrain("TR-1", 20))).getFirst();
+
+        assertThat(constraint.sourceCommandIds()).isEmpty();
+        assertThat(constraint.reason()).contains("waitingForStation=S02");
+    }
+
+    @Test
+    void pendingAutomaticRouteReservationExpiresAtItsIntentValidityDeadline() {
+        DispatchService service = dispatchService(routeLineData());
+        Instant now = Instant.parse("2026-07-09T00:00:00Z");
+
+        service.evaluate(
+            tick(1, now),
+            List.of(runningTrainAt("TR-1", 100, 8)),
+            List.of(new MovementAuthority("TR-1", 500, 15, "TEST", "T01", "T02", "TEST"))
+        );
+        service.evaluate(
+            tick(2, now.plusSeconds(91)),
+            List.of(runningTrainAt("TR-1", 120, 8)),
+            List.of(new MovementAuthority("TR-1", 500, 15, "TEST", "T01", "T02", "TEST"))
+        );
+
+        assertThat(service.snapshot().routeReservations())
+            .extracting(DispatchSnapshot.RouteReservationView::state)
+            .containsExactly(RouteReservationState.EXPIRED);
+        assertThat(service.commands())
+            .filteredOn(command -> "REQUEST_ROUTE".equals(command.commandType()))
+            .extracting(DispatchCommand::status)
+            .containsExactly(CommandStatus.EXPIRED);
+    }
+
+    @Test
+    void rejectedAutomaticRouteRequestRetriesAfterCooldownAndIncrementsRetryCount() {
+        DispatchService service = dispatchService(routeLineData());
+        Instant now = Instant.parse("2026-07-09T00:00:00Z");
+        List<MovementAuthority> authorities = List.of(
+            new MovementAuthority("TR-1", 500, 15, "TEST", "T01", "T02", "TEST")
+        );
+
+        service.evaluate(tick(1, now), List.of(runningTrainAt("TR-1", 100, 8)), authorities);
+        DispatchCommand first = service.drainCommandsOfType("REQUEST_ROUTE").getFirst();
+        service.acceptFeedback(List.of(new DispatchCommandFeedback(
+            first.id(),
+            first.trainId(),
+            first.commandType(),
+            "SIGNAL_INTERLOCKING",
+            CommandStatus.SKIPPED,
+            "ROUTE_CONFLICT",
+            now,
+            Map.of("rejectCode", "ROUTE_CONFLICT")
+        )));
+
+        service.evaluate(tick(2, now.plusSeconds(21)), List.of(runningTrainAt("TR-1", 120, 8)), authorities);
+
+        assertThat(service.pendingCommands())
+            .filteredOn(command -> "REQUEST_ROUTE".equals(command.commandType()))
+            .hasSize(1);
+        assertThat(service.snapshot().routeReservations())
+            .extracting(DispatchSnapshot.RouteReservationView::retryCount)
+            .containsExactly(0, 1);
     }
 
     @Test
@@ -796,6 +927,7 @@ class DispatchServiceTests {
             planLoader.load();
             InMemoryStationRecordStore stationStore = new InMemoryStationRecordStore();
             RouteDispatchRecordStore routeStore = new RouteDispatchRecordStore();
+            RouteCatalog routeCatalog = new RouteCatalog(lineData);
             return new DispatchService(
                 planLoader,
                 properties,
@@ -808,7 +940,8 @@ class DispatchServiceTests {
                 new InMemoryCommandRecordStore(),
                 stationStore,
                 routeStore,
-                new RouteIntentResolver(new RouteCatalog(lineData), properties)
+                new RouteIntentResolver(routeCatalog, properties),
+                new RouteIntentArbiter(routeCatalog)
             );
         } catch (IOException ex) {
             throw new IllegalStateException("failed to load dispatch test plan", ex);

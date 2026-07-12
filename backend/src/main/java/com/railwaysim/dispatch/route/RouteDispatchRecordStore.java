@@ -52,21 +52,28 @@ public class RouteDispatchRecordStore {
         }
 
         String rejectReason = payloadString(payload, "skipReason");
-        boolean rejected = CommandStatus.SKIPPED.equals(command.status());
-        String decisionStatus = rejected ? RouteDecisionStatus.REJECTED : RouteDecisionStatus.REQUESTED;
-        String reservationState = rejected ? RouteReservationState.REJECTED : RouteReservationState.REQUESTED;
+        boolean expired = CommandStatus.EXPIRED.equals(command.status());
+        boolean rejected = CommandStatus.SKIPPED.equals(command.status()) || expired;
+        Instant expiresAt = payloadInstant(payload, "validUntil");
+        int retryCount = nextRetryCount(simulationRunId, command.trainId(), routeId);
+        String decisionStatus = expired
+            ? RouteDecisionStatus.EXPIRED
+            : rejected ? RouteDecisionStatus.REJECTED : RouteDecisionStatus.REQUESTED;
+        String reservationState = expired
+            ? RouteReservationState.EXPIRED
+            : rejected ? RouteReservationState.REJECTED : RouteReservationState.REQUESTED;
 
         RouteDispatchDecision decision = new RouteDispatchDecision(
             decisionId,
             simulationRunId,
             command.trainId(),
             routeId,
-            List.of(),
-            Map.of(),
+            payloadStringList(payload, "waitingTrainIds"),
+            payloadDoubleMap(payload, "priorityScores"),
             command.reason(),
             decisionStatus,
             command.id(),
-            List.of(),
+            payloadStringList(payload, "waitingCommandIds"),
             rejected ? rejectReason : null,
             now,
             now
@@ -80,11 +87,11 @@ public class RouteDispatchRecordStore {
             reservationState,
             command.id(),
             rejected ? rejectReason : null,
-            0,
+            retryCount,
             rejected ? null : now,
             null,
             null,
-            null,
+            expiresAt,
             now
         );
 
@@ -261,6 +268,59 @@ public class RouteDispatchRecordStore {
         return true;
     }
 
+    public synchronized List<String> expirePendingReservations(String simulationRunId, Instant simulatedAt) {
+        if (simulatedAt == null) {
+            return List.of();
+        }
+        List<String> expiredCommandIds = new ArrayList<>();
+        for (RouteReservation reservation : new ArrayList<>(reservationsById.values())) {
+            if (simulationRunId != null && !simulationRunId.equals(reservation.simulationRunId())) {
+                continue;
+            }
+            if (!RouteReservationState.REQUESTED.equals(reservation.state())
+                || reservation.expiresAt() == null
+                || reservation.expiresAt().isAfter(simulatedAt)) {
+                continue;
+            }
+            reservationsById.put(reservation.reservationId(), new RouteReservation(
+                reservation.reservationId(),
+                reservation.simulationRunId(),
+                reservation.trainId(),
+                reservation.routeId(),
+                reservation.decisionId(),
+                RouteReservationState.EXPIRED,
+                reservation.commandId(),
+                "route request validity expired",
+                reservation.retryCount(),
+                reservation.requestedAt(),
+                reservation.acceptedAt(),
+                reservation.releasedAt(),
+                reservation.expiresAt(),
+                simulatedAt
+            ));
+            RouteDispatchDecision decision = decisionsById.get(reservation.decisionId());
+            if (decision != null) {
+                decisionsById.put(decision.decisionId(), new RouteDispatchDecision(
+                    decision.decisionId(),
+                    decision.simulationRunId(),
+                    decision.selectedTrainId(),
+                    decision.selectedRouteId(),
+                    decision.waitingTrainIds(),
+                    decision.priorityScores(),
+                    decision.reason(),
+                    RouteDecisionStatus.EXPIRED,
+                    decision.routeCommandId(),
+                    decision.waitingCommandIds(),
+                    "route request validity expired",
+                    decision.createdAt(),
+                    simulatedAt
+                ));
+            }
+            expiredCommandIds.add(reservation.commandId());
+        }
+        return List.copyOf(expiredCommandIds);
+    }
+
     public synchronized boolean hasRecentRouteRequest(
         String simulationRunId,
         String trainId,
@@ -304,6 +364,50 @@ public class RouteDispatchRecordStore {
 
     private static boolean isActiveReservation(String state) {
         return RouteReservationState.REQUESTED.equals(state) || RouteReservationState.ACCEPTED.equals(state);
+    }
+
+    private int nextRetryCount(String simulationRunId, String trainId, String routeId) {
+        return reservationsById.values().stream()
+            .filter(reservation -> simulationRunId == null || simulationRunId.equals(reservation.simulationRunId()))
+            .filter(reservation -> trainId != null && trainId.equals(reservation.trainId()))
+            .filter(reservation -> routeId != null && routeId.equals(reservation.routeId()))
+            .filter(reservation -> RouteReservationState.REJECTED.equals(reservation.state())
+                || RouteReservationState.EXPIRED.equals(reservation.state()))
+            .mapToInt(RouteReservation::retryCount)
+            .max()
+            .orElse(-1) + 1;
+    }
+
+    private static Instant payloadInstant(Map<String, Object> payload, String key) {
+        String value = payloadString(payload, key);
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        try {
+            return Instant.parse(value);
+        } catch (RuntimeException ignored) {
+            return null;
+        }
+    }
+
+    private static List<String> payloadStringList(Map<String, Object> payload, String key) {
+        if (payload == null || !(payload.get(key) instanceof List<?> values)) {
+            return List.of();
+        }
+        return values.stream().filter(value -> value != null).map(Object::toString).toList();
+    }
+
+    private static Map<String, Double> payloadDoubleMap(Map<String, Object> payload, String key) {
+        if (payload == null || !(payload.get(key) instanceof Map<?, ?> values)) {
+            return Map.of();
+        }
+        Map<String, Double> parsed = new LinkedHashMap<>();
+        for (Map.Entry<?, ?> entry : values.entrySet()) {
+            if (entry.getKey() != null && entry.getValue() instanceof Number number) {
+                parsed.put(entry.getKey().toString(), number.doubleValue());
+            }
+        }
+        return Map.copyOf(parsed);
     }
 
     private static String payloadString(Map<String, Object> payload, String key) {

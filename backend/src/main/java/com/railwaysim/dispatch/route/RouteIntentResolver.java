@@ -63,7 +63,8 @@ public class RouteIntentResolver {
         return routeCatalog.candidateRoutesNear(train.positionMeters(), currentSegmentId, lookaheadMeters).stream()
             .filter(route -> directionCompatible(train, route))
             .min(Comparator
-                .comparing((DispatchRouteCandidate route) -> !route.mainline())
+                .comparing((DispatchRouteCandidate route) -> !route.routeId().equals(train.routeId()))
+                .thenComparing(route -> !route.mainline())
                 .thenComparingDouble(route -> Math.max(0, route.entryMeters() - train.positionMeters()))
                 .thenComparingDouble(DispatchRouteCandidate::lengthMeters)
                 .thenComparing(DispatchRouteCandidate::routeId))
