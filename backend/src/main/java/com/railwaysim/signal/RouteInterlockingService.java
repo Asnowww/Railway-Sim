@@ -192,6 +192,15 @@ public class RouteInterlockingService {
         }
 
         routeStates.put(routeId, route.withLocked(lockedIds, trainId));
+        routeSegments.stream()
+            .map(segmentId -> trackService.states().stream()
+                .filter(segment -> segment.id().equals(segmentId))
+                .findFirst()
+                .orElse(null))
+            .filter(java.util.Objects::nonNull)
+            .min(java.util.Comparator.comparingDouble(TrackSegmentState::startMeters)
+                .thenComparing(TrackSegmentState::id))
+            .ifPresent(segment -> trackService.assignTrainToSegment(trainId, segment.id()));
         routeHoldsByTrain.remove(trainId);
         log.info("[Interlocking] route {} established by train {}; locked switches={}", routeId, trainId, lockedIds);
         return null;
