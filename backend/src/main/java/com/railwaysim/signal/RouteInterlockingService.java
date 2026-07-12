@@ -30,6 +30,10 @@ public class RouteInterlockingService {
     private final TrackService trackService;
     private final Map<String, RouteState> routeStates = new LinkedHashMap<>();
     private final Map<String, String> routeHoldsByTrain = new LinkedHashMap<>();
+    private final List<RouteLifecycleEvent> lifecycleEvents = new ArrayList<>();
+
+    public record RouteLifecycleEvent(String routeId, String trainId, RouteStatus from, RouteStatus to,
+                                      long tick, String interlockingState, String detail) {}
 
     public RouteInterlockingService(
         StaticInfrastructureCatalog infrastructureCatalog,
@@ -374,7 +378,14 @@ public class RouteInterlockingService {
         }
     }
 
-    public record RouteDispatchResult(boolean accepted, String rejectReason) {}
+    public record RouteDispatchResult(boolean accepted, String rejectReason,
+                                     InterlockingFailureCode failureCode, boolean retryable) {
+        public RouteDispatchResult(boolean accepted, String rejectReason) {
+            this(accepted, rejectReason,
+                InterlockingFailureCode.fromRejectionReason(rejectReason),
+                InterlockingFailureCode.fromRejectionReason(rejectReason).isRetryable());
+        }
+    }
 
     public synchronized RouteDispatchResult applyDispatchCommand(String commandType, String detail, String trainId) {
         return switch (commandType) {
@@ -405,7 +416,16 @@ public class RouteInterlockingService {
     private RouteState transition(RouteState route, RouteStatus target) {
         RouteState next = route.transitionTo(target);
         routeStates.put(route.routeId(), next);
+        lifecycleEvents.add(new RouteLifecycleEvent(route.routeId(), route.establishedByTrainId(),
+            route.status(), target, 0, target.name(), "自动状态迁移"));
         return next;
+    }
+
+    /** 导出并清空本 tick 的进路生命周期事件（供调度反馈用）。 */
+    public synchronized List<RouteLifecycleEvent> drainLifecycleEvents() {
+        List<RouteLifecycleEvent> events = List.copyOf(lifecycleEvents);
+        lifecycleEvents.clear();
+        return events;
     }
 
     private String reject(RouteState route, RouteStatus target, String reason) {
