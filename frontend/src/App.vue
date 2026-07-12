@@ -163,11 +163,10 @@ const trains = ref<TrainMonitorState[]>([
 ])
 
 const trackSegments = ref<TrackSegmentState[]>([
-  { id: 'S1', name: '上京南-科技园', startPercent: 4, widthPercent: 17, occupancy: 'FREE', speedLimitKph: 80 },
-  { id: 'S2', name: '科技园-人民广场', startPercent: 21, widthPercent: 19, occupancy: 'OCCUPIED', speedLimitKph: 80 },
-  { id: 'S3', name: '人民广场-金融城', startPercent: 40, widthPercent: 19, occupancy: 'FAULT', speedLimitKph: 35 },
-  { id: 'S4', name: '金融城-会展中心', startPercent: 59, widthPercent: 18, occupancy: 'OCCUPIED', speedLimitKph: 70 },
-  { id: 'S5', name: '会展中心-机场北', startPercent: 77, widthPercent: 18, occupancy: 'FREE', speedLimitKph: 90 }
+  { id: 'T01', name: '上京南-科创园', startPercent: 4, widthPercent: 21, occupancy: 'FREE', speedLimitKph: 72 },
+  { id: 'T02', name: '科创园-中央公园', startPercent: 25, widthPercent: 21, occupancy: 'FREE', speedLimitKph: 80 },
+  { id: 'T03', name: '中央公园-北城', startPercent: 50, widthPercent: 21, occupancy: 'FREE', speedLimitKph: 80 },
+  { id: 'T04', name: '北城-上京北', startPercent: 75, widthPercent: 20, occupancy: 'FREE', speedLimitKph: 72 }
 ])
 
 const powerSections = ref<PowerSectionState[]>([
@@ -177,12 +176,12 @@ const powerSections = ref<PowerSectionState[]>([
 ])
 
 const topologyNodes: TopologyNode[] = [
-  { id: 'SHN', label: '上海南', type: 'station', x: 8, y: 54, importance: 3, stationName: '上海南' },
-  { id: 'TECH', label: '科技园', type: 'station', x: 24, y: 54, importance: 3, stationName: '科技园' },
-  { id: 'RENMIN', label: '人民广场', type: 'station', x: 42, y: 54, importance: 3, stationName: '人民广场' },
-  { id: 'FIN', label: '金融城', type: 'station', x: 58, y: 50, importance: 3, stationName: '金融城' },
+  { id: 'SHN', label: '上京南站', type: 'station', x: 8, y: 54, importance: 3, stationName: '上京南站' },
+  { id: 'TECH', label: '科创园站', type: 'station', x: 24, y: 54, importance: 3, stationName: '科创园站' },
+  { id: 'RENMIN', label: '中央公园站', type: 'station', x: 42, y: 54, importance: 3, stationName: '中央公园站' },
+  { id: 'FIN', label: '北城站', type: 'station', x: 58, y: 50, importance: 3, stationName: '北城站' },
   { id: 'EXPO', label: '会展中心', type: 'station', x: 76, y: 54, importance: 3, stationName: '会展中心' },
-  { id: 'AIR', label: '机场北', type: 'station', x: 92, y: 54, importance: 3, stationName: '机场北' },
+  { id: 'AIR', label: '上京北站', type: 'station', x: 92, y: 54, importance: 3, stationName: '上京北站' },
   { id: 'DEPOT_A', label: '车辆段', type: 'depot', x: 12, y: 32, importance: 2 },
   { id: 'DEPOT_B', label: '试车线', type: 'depot', x: 7, y: 22, importance: 1 },
   { id: 'TECH_N', label: '科技园北岔', type: 'switch', x: 24, y: 32, importance: 2 },
@@ -192,15 +191,14 @@ const topologyNodes: TopologyNode[] = [
   { id: 'LOOP_W', label: '折返线西', type: 'switch', x: 42, y: 78, importance: 2 },
   { id: 'LOOP_E', label: '折返线东', type: 'switch', x: 58, y: 78, importance: 2 },
   { id: 'BRANCH', label: '支线口', type: 'switch', x: 68, y: 70, importance: 1 },
-  { id: 'AIR_LINK', label: '机场联络', type: 'junction', x: 86, y: 78, importance: 1 }
 ]
 
 const topologyEdges: TopologyEdge[] = [
-  { id: 'E01', source: 'SHN', target: 'TECH', segmentId: 'SEG-001~048', lengthMeters: 1250, speedLimitKph: 72, status: 'FREE', powerSectionId: 'P1', routeIds: ['R01'], detailCount: 48 },
-  { id: 'E02', source: 'TECH', target: 'RENMIN', segmentId: 'SEG-049~112', lengthMeters: 1560, speedLimitKph: 80, status: 'OCCUPIED', powerSectionId: 'P2', routeIds: ['R01', 'R02'], detailCount: 64 },
-  { id: 'E03', source: 'RENMIN', target: 'FIN', segmentId: 'SEG-113~167', lengthMeters: 1320, speedLimitKph: 35, status: 'FAULT', powerSectionId: 'P2', routeIds: ['R01'], detailCount: 55 },
-  { id: 'E04', source: 'FIN', target: 'EXPO', segmentId: 'SEG-168~229', lengthMeters: 1480, speedLimitKph: 45, status: 'FAULT', powerSectionId: 'P3', routeIds: ['R01'], detailCount: 62 },
-  { id: 'E05', source: 'EXPO', target: 'AIR', segmentId: 'SEG-230~319', lengthMeters: 2050, speedLimitKph: 90, status: 'FREE', powerSectionId: 'P3', routeIds: ['R01'], detailCount: 90 },
+  { id: 'E01', source: 'SHN', target: 'TECH', segmentId: 'T01', lengthMeters: 1250, speedLimitKph: 72, status: 'FREE', powerSectionId: 'P1', routeIds: ['R01'], detailCount: 1 },
+  { id: 'E02', source: 'TECH', target: 'RENMIN', segmentId: 'T02', lengthMeters: 1250, speedLimitKph: 80, status: 'FREE', powerSectionId: 'P1', routeIds: ['R01'], detailCount: 1 },
+  { id: 'E03', source: 'RENMIN', target: 'FIN', segmentId: 'T03', lengthMeters: 1250, speedLimitKph: 80, status: 'FREE', powerSectionId: 'P2', routeIds: ['R01'], detailCount: 1 },
+  { id: 'E04', source: 'FIN', target: 'EXPO', segmentId: 'T04', lengthMeters: 1250, speedLimitKph: 72, status: 'FREE', powerSectionId: 'P2', routeIds: ['R01'], detailCount: 1 },
+  { id: 'E05', source: 'EXPO', target: 'AIR', segmentId: 'SEG-EXPO-AIR', lengthMeters: 1250, speedLimitKph: 90, status: 'FREE', powerSectionId: 'P3', routeIds: ['R01'], detailCount: 1 },
   { id: 'E06', source: 'DEPOT_B', target: 'DEPOT_A', segmentId: 'DEPOT-01', lengthMeters: 420, speedLimitKph: 25, status: 'FREE', powerSectionId: 'P1', routeIds: ['R03'], detailCount: 8 },
   { id: 'E07', source: 'DEPOT_A', target: 'TECH', segmentId: 'DEPOT-02', lengthMeters: 760, speedLimitKph: 35, status: 'FREE', powerSectionId: 'P1', routeIds: ['R03'], detailCount: 14 },
   { id: 'E08', source: 'TECH', target: 'TECH_N', segmentId: 'SW-TECH', lengthMeters: 180, speedLimitKph: 35, status: 'FREE', powerSectionId: 'P1', routeIds: ['R02'], detailCount: 4 },
@@ -212,14 +210,12 @@ const topologyEdges: TopologyEdge[] = [
   { id: 'E14', source: 'LOOP_W', target: 'LOOP_E', segmentId: 'LOOP-02', lengthMeters: 960, speedLimitKph: 45, status: 'FREE', powerSectionId: 'P2', routeIds: ['R03'], detailCount: 20 },
   { id: 'E15', source: 'LOOP_E', target: 'FIN', segmentId: 'SW-FIN', lengthMeters: 480, speedLimitKph: 35, status: 'FREE', powerSectionId: 'P3', routeIds: ['R03'], detailCount: 8 },
   { id: 'E16', source: 'LOOP_E', target: 'BRANCH', segmentId: 'BRANCH-01', lengthMeters: 720, speedLimitKph: 45, status: 'FREE', powerSectionId: 'P3', routeIds: ['R03'], detailCount: 16 },
-  { id: 'E17', source: 'BRANCH', target: 'AIR_LINK', segmentId: 'BRANCH-02', lengthMeters: 1250, speedLimitKph: 60, status: 'FREE', powerSectionId: 'P3', routeIds: ['R03'], detailCount: 24 },
-  { id: 'E18', source: 'AIR_LINK', target: 'AIR', segmentId: 'BRANCH-03', lengthMeters: 620, speedLimitKph: 45, status: 'FREE', powerSectionId: 'P3', routeIds: ['R03'], detailCount: 10 }
 ]
 
 const topologyRoutes: TopologyRoute[] = [
   { id: 'R01', name: '正线进路', segmentIds: ['E01', 'E02', 'E03', 'E04', 'E05'], description: '上海南 → 科技园 → 人民广场 → 金融城 → 会展中心 → 机场北' },
   { id: 'R02', name: '北侧绕行', segmentIds: ['E08', 'E09', 'E10', 'E11', 'E12'], description: '科技园北岔 → 金融城北岔 → 会展北联络' },
-  { id: 'R03', name: '车辆段/折返', segmentIds: ['E06', 'E07', 'E13', 'E14', 'E15', 'E16', 'E17', 'E18'], description: '车辆段出入线、折返线与机场联络线' }
+  { id: 'R03', name: '车辆段/折返', segmentIds: ['E06', 'E07', 'E13', 'E14', 'E15', 'E16'], description: '车辆段出入线与折返线' }
 ]
 
 const topologySignals: TopologySignal[] = [
@@ -231,11 +227,10 @@ const topologySignals: TopologySignal[] = [
 ]
 
 const topologyEdgeByTrackSegment: Record<string, string> = {
-  S1: 'E01',
-  S2: 'E02',
-  S3: 'E03',
-  S4: 'E04',
-  S5: 'E05'
+  T01: 'E01',
+  T02: 'E02',
+  T03: 'E03',
+  T04: 'E04'
 }
 
 const trainTopologyAnchors: Record<string, { edgeId: string; ratio: number }> = {
@@ -247,12 +242,12 @@ const trainTopologyAnchors: Record<string, { edgeId: string; ratio: number }> = 
 }
 
 const passengerStations = ref<StationPassengerState[]>([
-  { name: '上京南', inbound: 816, outbound: 642, waiting: 1320, capacity: 2600, forecastRate: 58 },
-  { name: '科技园', inbound: 1320, outbound: 930, waiting: 2180, capacity: 2800, forecastRate: 82 },
-  { name: '人民广场', inbound: 2260, outbound: 1640, waiting: 3560, capacity: 3200, forecastRate: 111 },
-  { name: '金融城', inbound: 1740, outbound: 1480, waiting: 2460, capacity: 3000, forecastRate: 88 },
+  { name: '上京南站', inbound: 816, outbound: 642, waiting: 1320, capacity: 2600, forecastRate: 58 },
+  { name: '科创园站', inbound: 1320, outbound: 930, waiting: 2180, capacity: 2800, forecastRate: 82 },
+  { name: '中央公园站', inbound: 2260, outbound: 1640, waiting: 3560, capacity: 3200, forecastRate: 111 },
+  { name: '北城站', inbound: 1740, outbound: 1480, waiting: 2460, capacity: 3000, forecastRate: 88 },
   { name: '会展中心', inbound: 980, outbound: 720, waiting: 1160, capacity: 2400, forecastRate: 54 },
-  { name: '机场北', inbound: 660, outbound: 760, waiting: 860, capacity: 2200, forecastRate: 42 }
+  { name: '上京北站', inbound: 660, outbound: 760, waiting: 860, capacity: 2200, forecastRate: 42 }
 ])
 
 const alarms = ref<UnifiedAlarm[]>([
@@ -419,7 +414,9 @@ function clampRatio(value: number): number {
 }
 
 function resolveTrainTopologyAnchor(train: TrainMonitorState): { edgeId: string; ratio: number } | null {
-  const trackSegment = trackSegments.value.find((segment) => segment.name === train.section)
+  const trackSegment = trackSegments.value.find(
+    (segment) => train.positionPercent >= segment.startPercent && train.positionPercent <= segment.startPercent + segment.widthPercent
+  )
   if (trackSegment) {
     const edgeId = topologyEdgeByTrackSegment[trackSegment.id]
     if (edgeId) {
@@ -618,6 +615,13 @@ async function loadBackendSnapshot(): Promise<void> {
   }
 }
 
+async function runSimulationTick(): Promise<void> {
+  if (backendStatus.value !== 'RUNNING') {
+    try { backendStatus.value = (await simulationApi.start()).status } catch { return }
+  }
+  try { applyBackendSnapshot(await simulationApi.tick()) } catch { /* WS covers */ }
+}
+
 function resizeTrendChart(): void {
   // 性能策略：仅在容器尺寸变化时触发 ECharts resize，避免大屏缩放时 canvas 使用旧宽度溢出 section。
   trendChart?.resize()
@@ -663,7 +667,13 @@ onMounted(() => {
       simulationClock.value = new Date().toLocaleTimeString('zh-CN', { hour12: false })
     }
   }, 1000)
-  dataTimer = window.setInterval(tickMockData, 3000)
+  dataTimer = window.setInterval(() => {
+    if (backendConnected.value) {
+      void runSimulationTick()
+    } else {
+      tickMockData()
+    }
+  }, 2000)
   trendChartResizeObserver = new ResizeObserver(resizeTrendChart)
   if (trendChartRef.value) trendChartResizeObserver.observe(trendChartRef.value)
   window.addEventListener('resize', resizeTrendChart)
