@@ -236,6 +236,7 @@ const commandLabel = (type: string) => {
     DEPART: '发车',
     REQUEST_ROUTE: '申请进路',
     REROUTE: '重排进路',
+    REQUEST_ROUTE: '申请进路',
     HEADWAY_TOO_SHORT: '拉开后车间隔',
     HEADWAY_TOO_LONG: '催发后车追赶',
   }
@@ -397,17 +398,6 @@ async function loadDispatchRoutes() {
   } catch (error) {
     routeOperationMessage.value = error instanceof Error ? `进路列表加载失败：${error.message}` : '进路列表加载失败'
   }
-}
-
-async function establishSelectedRoute() {
-  const routeId = selectedRouteId.value
-  const trainId = selectedRouteTrainId.value || trains.value[0]?.id || ''
-  if (!routeId || !trainId) return
-  const response = await dispatchApi.establishRoute(routeId, trainId)
-  routeOperationMessage.value = response.accepted
-    ? `联锁已直接为 ${trainId} 建立进路 ${routeId}`
-    : `联锁拒绝 ${routeId}：${response.rejectReason ?? '未知原因'}`
-  await loadDispatchRoutes()
 }
 
 async function requestSelectedRoute() {
@@ -850,39 +840,24 @@ function formatDelta(current: number | null | undefined, baseline: number | null
           </select>
           <button
             type="button"
-            class="demo-button"
             :disabled="!selectedRouteId || trains.length === 0 || routeRequestPending"
             @click="requestSelectedRoute"
           >
-            {{ routeRequestPending ? '提交中' : '调度申请进路' }}
-          </button>
-          <button type="button" :disabled="!selectedRouteId || trains.length === 0" @click="establishSelectedRoute">
-            联锁直接建路
+            {{ routeRequestPending ? '提交中' : '申请进路' }}
           </button>
           <button type="button" class="ghost-button" @click="loadDispatchRoutes">刷新</button>
         </div>
         <p v-if="routeOperationMessage" class="route-operation-message">{{ routeOperationMessage }}</p>
-        <div class="route-dispatch-state">
-          <h3>调度预约</h3>
-          <div class="compact-list">
-            <article v-for="reservation in routeReservations" :key="reservation.reservationId">
-              <strong>{{ reservation.trainId }} -> {{ reservation.routeId }}</strong>
-              <span :data-status="reservation.state">{{ routeReservationStateLabel(reservation.state) }}</span>
-              <small>{{ reservation.reservationId }} / 命令 {{ reservation.commandId }}</small>
-              <p>{{ reservation.rejectReason || '等待联锁反馈、释放或下一轮调度评估。' }}</p>
-            </article>
-            <p v-if="routeReservations.length === 0" class="empty">暂无调度侧进路预约。</p>
-          </div>
-          <h3>调度决策</h3>
-          <div class="compact-list">
-            <article v-for="decision in routeDecisions" :key="decision.decisionId">
-              <strong>{{ decision.selectedTrainId }} / {{ decision.selectedRouteId }}</strong>
-              <span :data-status="decision.status">{{ routeDecisionStatusLabel(decision.status) }}</span>
-              <small>{{ decision.decisionId }} / 命令 {{ decision.routeCommandId }}</small>
-              <p>{{ decision.rejectReason || decision.reason || '自动或人工进路请求。' }}</p>
-            </article>
-            <p v-if="routeDecisions.length === 0" class="empty">暂无调度侧进路决策。</p>
-          </div>
+        <div v-if="dispatch.routeDecisions.length > 0" class="route-trace-list">
+          <article v-for="decision in dispatch.routeDecisions" :key="decision.decisionId">
+            <strong>决策 {{ decision.decisionId }}</strong>
+            <span>{{ decision.status }}</span>
+            <small>指令 {{ decision.routeCommandId }} / 进路 {{ decision.selectedRouteId }}</small>
+            <p>
+              预留 {{ routeReservationByDecision.get(decision.decisionId)?.reservationId || '-' }}
+              / {{ routeReservationByDecision.get(decision.decisionId)?.state || '等待处理' }}
+            </p>
+          </article>
         </div>
         <div class="compact-list">
           <article v-for="route in routes" :key="route.routeId">
@@ -1075,18 +1050,23 @@ button:disabled {
   font-size: 13px;
 }
 
-.route-dispatch-state {
+.route-trace-list {
   display: grid;
-  gap: 10px;
-  margin-bottom: 12px;
-  border: 1px solid #dbeafe;
-  border-radius: 8px;
-  background: #f8fbff;
-  padding: 10px;
+  gap: 8px;
+  margin-bottom: 10px;
 }
 
-.route-dispatch-state h3 {
-  font-size: 14px;
+.route-trace-list article {
+  display: grid;
+  gap: 4px;
+  border-left: 3px solid #2563eb;
+  background: #eff6ff;
+  padding: 8px 10px;
+}
+
+.route-trace-list p {
+  color: #475569;
+  font-size: 12px;
 }
 
 .debug-banner,
