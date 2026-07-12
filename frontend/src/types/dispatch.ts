@@ -1,10 +1,14 @@
 export interface DispatchTrainProfile {
   trainId: string
+  regulatedTrainId: string
   frontTrainId: string | null
   headwayActualSeconds: number | null
+  headwayErrorSeconds: number | null
   headwayDeviationSeconds: number
   headwayState: string
   headwayAction: string
+  regulationAction: 'CATCH_UP' | 'SLOW_DOWN' | 'NORMAL' | 'OBSERVE' | string
+  regulationReason: string
   dwellDeviationSeconds: number
   departureDelaySeconds: number
 }
@@ -12,8 +16,10 @@ export interface DispatchTrainProfile {
 export interface DispatchDisturbance {
   id: string
   trainId: string
+  regulatedTrainId: string
   stationId: string
   disturbanceType: string
+  regulationAction?: string | null
   deviationValue: number
   headwayDirection?: string | null
   targetHeadwaySec?: number | null
@@ -26,9 +32,11 @@ export interface DispatchDisturbance {
 export interface DispatchCommandView {
   id: string
   trainId: string
+  regulatedTrainId?: string | null
   commandType: string
   status: string
   reason: string
+  regulationAction?: string | null
   payload?: Record<string, unknown>
   createdAt?: string
   appliedAt?: string | null
@@ -56,6 +64,7 @@ export interface DispatchRouteDecision {
   selectedTrainId: string
   selectedRouteId: string
   waitingTrainIds: string[]
+  priorityScores: Record<string, number>
   status: string
   routeCommandId: string
   reason: string
@@ -70,6 +79,8 @@ export interface DispatchRouteReservation {
   state: string
   commandId: string
   rejectReason: string | null
+  retryCount: number
+  expiresAt: string | null
 }
 
 export interface DispatchSnapshot {

@@ -21,7 +21,7 @@ class DisturbanceDetectorTests {
         detector.detect("RUN-1", Instant.EPOCH, plan, List.of(profile("TR-1", 100)));
         assertThat(detector.openEvents()).hasSize(1);
         DisturbanceEvent event = detector.openEvents().get(0);
-        assertThat(event.disturbanceType()).isEqualTo(DisturbanceType.HEADWAY_VIOLATION);
+        assertThat(event.disturbanceType()).isEqualTo(DisturbanceType.TRAIN_REGULATION);
         assertThat(event.headwayDirection()).isEqualTo("TOO_SHORT");
         assertThat(event.violationSec()).isEqualTo(110);
         assertThat(event.deviationValue()).isEqualTo(110);
@@ -38,7 +38,7 @@ class DisturbanceDetectorTests {
         detector.detect("RUN-1", Instant.EPOCH, plan, List.of(profile("TR-1", 600)));
         assertThat(detector.openEvents()).hasSize(1);
         DisturbanceEvent event = detector.openEvents().get(0);
-        assertThat(event.disturbanceType()).isEqualTo(DisturbanceType.HEADWAY_VIOLATION);
+        assertThat(event.disturbanceType()).isEqualTo(DisturbanceType.TRAIN_REGULATION);
         assertThat(event.headwayDirection()).isEqualTo("TOO_LONG");
         assertThat(event.violationSec()).isEqualTo(150);
         assertThat(event.deviationValue()).isEqualTo(150);
@@ -56,13 +56,33 @@ class DisturbanceDetectorTests {
             "RUN-1",
             Instant.EPOCH,
             plan,
-            List.of(profile("TR-1", 300, 31))
+            List.of(profileWithoutHeadway("TR-1", 31))
         );
 
         assertThat(created)
             .extracting(DisturbanceEvent::disturbanceType)
-            .containsExactly(DisturbanceType.DEPARTURE_DELAY);
+            .containsExactly(DisturbanceType.TRAIN_REGULATION);
+        assertThat(created.getFirst().headwayDirection()).isEqualTo("SCHEDULE_LATE");
         assertThat(detector.openEvents()).hasSize(1);
+    }
+
+    @Test
+    void validHeadwayReferenceSuppressesDuplicateScheduleDelayDisturbance() {
+        DisturbanceDetector detector = new DisturbanceDetector(properties);
+
+        List<DisturbanceEvent> created = detector.detect(
+            "RUN-1",
+            Instant.EPOCH,
+            plan,
+            List.of(profile("TR-1", 600, 120))
+        );
+
+        assertThat(created).hasSize(1);
+        assertThat(created.getFirst().disturbanceType()).isEqualTo(DisturbanceType.TRAIN_REGULATION);
+        assertThat(created.getFirst().trainId()).isEqualTo("TR-1");
+        assertThat(created.getFirst().headwayDirection()).isEqualTo("TOO_LONG");
+        assertThat(created)
+            .noneMatch(event -> "SCHEDULE_LATE".equals(event.headwayDirection()));
     }
 
     @Test
@@ -115,6 +135,27 @@ class DisturbanceDetectorTests {
             0,
             "ON_TARGET",
             "NONE",
+            departureDelaySec,
+            null
+        );
+    }
+
+    private static TrainRunProfile profileWithoutHeadway(String trainId, int departureDelaySec) {
+        return new TrainRunProfile(
+            trainId,
+            null,
+            100,
+            0,
+            0.35,
+            "RUNNING",
+            null,
+            0,
+            25,
+            0,
+            null,
+            0,
+            "LEADING_TRAIN",
+            "CATCH_UP",
             departureDelaySec,
             null
         );

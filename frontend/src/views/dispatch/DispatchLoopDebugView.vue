@@ -78,7 +78,7 @@ const headwayViolation = computed(() => {
       state: 'TOO_SHORT',
       label: '过短',
       value: headwayTooShortLimitSec.value - actual,
-      hint: '调度对象是后车：延长停站或压低速度'
+      hint: '间隔偏差为负，直接作用本车：延长停站或降低运行节奏'
     }
   }
   if (actual > headwayTooLongLimitSec.value) {
@@ -86,7 +86,7 @@ const headwayViolation = computed(() => {
       state: 'TOO_LONG',
       label: '过长',
       value: actual - headwayTooLongLimitSec.value,
-      hint: '调度对象是后车：缩短停站或适度追赶'
+      hint: '间隔偏差为正，直接作用本车：缩短停站或请求追赶运行'
     }
   }
   return {
@@ -98,6 +98,7 @@ const headwayViolation = computed(() => {
 })
 const headwayControlledTrainId = computed(() => primaryHeadwayProfile.value?.trainId ?? rearTrain.value?.id ?? '-')
 const headwayFrontTrainId = computed(() => primaryHeadwayProfile.value?.frontTrainId ?? frontTrain.value?.id ?? '-')
+const headwayRegulationAction = computed(() => primaryHeadwayProfile.value?.regulationAction ?? 'OBSERVE')
 const lineEndMeters = computed(() => {
   const ends = snapshot.value?.trackSegments.map((segment) => segment.endMeters) ?? []
   return ends.length > 0 ? Math.max(...ends) : null
@@ -140,7 +141,7 @@ const comparisonRows = computed(() => {
       label: '参考前车',
       before: baseline.frontTrainId ?? '-',
       after: targetProfile?.frontTrainId ?? '-',
-      delta: '看当前车相对前车'
+      delta: '只调节当前本车'
     },
     {
       label: '间隔状态',
@@ -223,9 +224,9 @@ interface ComparisonBaseline {
 
 const commandLabel = (type: string) => {
   const labels: Record<string, string> = {
-    SHORTEN_DWELL: '缩短停站/尽快发车',
-    EXTEND_DWELL: '延长停站',
-    HEADWAY_ADJUST: '调整行车间隔',
+    SHORTEN_DWELL: '本车追赶：缩短停站',
+    EXTEND_DWELL: '本车放慢：延长停站',
+    HEADWAY_ADJUST: '本车间隔调节',
     SPEED_BIAS: '速度偏置',
     SPEED_LIMIT: '临时限速',
     TEMP_SPEED_LIMIT: '临时限速',
@@ -236,8 +237,8 @@ const commandLabel = (type: string) => {
     DEPART: '发车',
     REQUEST_ROUTE: '申请进路',
     REROUTE: '重排进路',
-    HEADWAY_TOO_SHORT: '拉开后车间隔',
-    HEADWAY_TOO_LONG: '催发后车追赶',
+    HEADWAY_TOO_SHORT: '本车放慢',
+    HEADWAY_TOO_LONG: '本车追赶',
   }
   return labels[type] ?? type
 }
@@ -364,10 +365,13 @@ const headwayStateLabel = (state: string) => {
 
 const headwayActionLabel = (action: string) => {
   const labels: Record<string, string> = {
-    NONE: '无需干预',
+    NONE: '本车正常运行',
     OBSERVE: '继续观测',
-    SLOW_REAR_TRAIN: '后车减速/延长停站',
-    CATCH_UP_REAR_TRAIN: '后车追赶/缩短停站',
+    NORMAL: '本车正常运行',
+    SLOW_DOWN: '本车放慢',
+    CATCH_UP: '本车追赶',
+    SLOW_REAR_TRAIN: '本车放慢（兼容旧状态）',
+    CATCH_UP_REAR_TRAIN: '本车追赶（兼容旧状态）',
   }
   return labels[action] ?? action
 }
@@ -378,11 +382,14 @@ const formatNumber = (value: number | null | undefined, digits = 1) => {
 }
 
 const disturbanceMetricText = (disturbance: DispatchDisturbance) => {
-  if (disturbance.disturbanceType !== 'HEADWAY_VIOLATION') {
+  if (!['TRAIN_REGULATION', 'HEADWAY_VIOLATION'].includes(disturbance.disturbanceType)) {
     return `偏差 ${formatNumber(disturbance.deviationValue, 0)}s`
   }
+  if (disturbance.headwayDirection === 'SCHEDULE_LATE') {
+    return `无前车参考，按运行图恢复本车晚点 · ${headwayActionLabel(disturbance.regulationAction ?? 'CATCH_UP')}`
+  }
   const direction = disturbance.headwayDirection === 'TOO_SHORT' ? '过短' : '过长'
-  return `${direction} · 实际 ${formatNumber(disturbance.actualHeadwaySec, 0)}s / 目标 ${formatNumber(disturbance.targetHeadwaySec, 0)}s · 容差 ${formatNumber(disturbance.toleranceSec, 0)}s · 超限 ${formatNumber(disturbance.violationSec ?? disturbance.deviationValue, 0)}s`
+  return `${direction} · 实际 ${formatNumber(disturbance.actualHeadwaySec, 0)}s / 目标 ${formatNumber(disturbance.targetHeadwaySec, 0)}s · 本车动作 ${headwayActionLabel(disturbance.regulationAction ?? 'OBSERVE')}`
 }
 
 const formatPercent = (value: number | null | undefined) => {
@@ -468,7 +475,12 @@ async function submitHeadwayDemo(kind: 'tooShort' | 'tooLong') {
   await dispatchApi.submitCommand({
     trainId: targetTrain.id,
     commandType: 'HEADWAY_ADJUST',
-    targetHeadwaySec
+    targetHeadwaySec,
+    payload: {
+      regulatedTrainId: targetTrain.id,
+      regulationAction: kind === 'tooShort' ? 'SLOW_DOWN' : 'CATCH_UP',
+      regulationSource: 'MANUAL_DEMO'
+    }
   })
   await runSimulation('tick')
 }
@@ -602,11 +614,11 @@ function formatDelta(current: number | null | undefined, baseline: number | null
     <section class="headway-focus" :data-state="headwayViolation.state">
       <div class="panel-title">
         <h2>运行间隔关键指标</h2>
-        <span>后车相对前车 / 超限时间</span>
+        <span>本车相对前车 / 带符号间隔偏差</span>
       </div>
       <div class="headway-kpi-grid">
         <article class="headway-kpi controlled">
-          <span>调度对象</span>
+          <span>调节本车</span>
           <strong>{{ headwayControlledTrainId }}</strong>
           <small>参考前车 {{ headwayFrontTrainId }}</small>
         </article>
@@ -619,6 +631,11 @@ function formatDelta(current: number | null | undefined, baseline: number | null
           <span>实际间隔</span>
           <strong>{{ formatSeconds(headwayActualSec) }}</strong>
           <small>{{ primaryHeadwayProfile ? headwayStateLabel(primaryHeadwayProfile.headwayState) : '等待观测' }}</small>
+        </article>
+        <article class="headway-kpi">
+          <span>本车调节动作</span>
+          <strong>{{ headwayActionLabel(headwayRegulationAction) }}</strong>
+          <small>所有自动调节只作用当前本车</small>
         </article>
         <article class="headway-kpi">
           <span>允许范围</span>
@@ -649,18 +666,18 @@ function formatDelta(current: number | null | undefined, baseline: number | null
             发送限速闭环
           </button>
           <label>
-            <span>拉开后车目标间隔 s</span>
+            <span>本车放慢目标间隔 s</span>
             <input v-model.number="demoLongHeadwaySec" type="number" min="30" max="900" step="10" />
           </label>
           <button type="button" :disabled="trains.length === 0" @click="submitHeadwayDemo('tooShort')">
-            拉开后车间隔
+            本车放慢
           </button>
           <label>
-            <span>追赶后车目标间隔 s</span>
+            <span>本车追赶目标间隔 s</span>
             <input v-model.number="demoShortHeadwaySec" type="number" min="30" max="900" step="10" />
           </label>
           <button type="button" :disabled="trains.length === 0" @click="submitHeadwayDemo('tooLong')">
-            催发后车追赶
+            本车追赶
           </button>
         </div>
         <p v-if="dispatch.activeCommands.length === 0" class="empty">暂无调度指令。可以启动仿真并等待停站/间隔扰动触发。</p>
@@ -676,8 +693,8 @@ function formatDelta(current: number | null | undefined, baseline: number | null
                 <dd>{{ command.id }}</dd>
               </div>
               <div>
-                <dt>作用列车</dt>
-                <dd>{{ command.trainId }}</dd>
+                <dt>调节本车</dt>
+                <dd>{{ command.regulatedTrainId || command.trainId }}</dd>
               </div>
               <div>
                 <dt>原因</dt>
@@ -707,7 +724,7 @@ function formatDelta(current: number | null | undefined, baseline: number | null
           <article v-for="disturbance in dispatch.openDisturbances" :key="disturbance.id">
             <strong>{{ disturbance.disturbanceType }}</strong>
             <span>{{ disturbance.status }}</span>
-            <p>列车 {{ disturbance.trainId }} / 站点 {{ disturbance.stationId }}</p>
+            <p>调节本车 {{ disturbance.regulatedTrainId || disturbance.trainId }} / 站点 {{ disturbance.stationId }}</p>
             <small>{{ disturbanceMetricText(disturbance) }}</small>
           </article>
         </div>
@@ -719,7 +736,7 @@ function formatDelta(current: number | null | undefined, baseline: number | null
             <small>
               实际 {{ profile.headwayActualSeconds === null ? '-' : formatNumber(profile.headwayActualSeconds, 0) }}s
               / 偏差 {{ profile.headwayDeviationSeconds }}s
-              / 建议 {{ headwayActionLabel(profile.headwayAction) }}
+              / 本车动作 {{ headwayActionLabel(profile.regulationAction) }}
               / 停站偏差 {{ profile.dwellDeviationSeconds }}s
             </small>
           </article>
@@ -737,7 +754,7 @@ function formatDelta(current: number | null | undefined, baseline: number | null
         <span v-else>发送演示指令时自动记录基线</span>
       </div>
       <p v-if="!comparisonBaseline" class="empty">
-        暂无对比数据。点击“发送限速闭环”“拉开后车间隔”或“催发后车追赶”后，这里会记录调度前状态并与当前状态实时比较。
+        暂无对比数据。点击“发送限速闭环”“本车放慢”或“本车追赶”后，这里会记录调度前状态并与当前状态实时比较。
       </p>
       <div v-else-if="comparisonWarnings.length > 0" class="comparison-warnings">
         <p v-for="warning in comparisonWarnings" :key="warning">{{ warning }}</p>
@@ -1141,7 +1158,7 @@ small {
 
 .headway-kpi-grid {
   display: grid;
-  grid-template-columns: 1.1fr repeat(4, minmax(0, 1fr));
+  grid-template-columns: 1.1fr repeat(5, minmax(0, 1fr));
   gap: 10px;
 }
 

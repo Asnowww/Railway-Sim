@@ -43,11 +43,14 @@ public class StrategySelector {
                 continue;
             }
             DispatchCommand command = switch (event.disturbanceType()) {
-                case DWELL_EXTENDED -> dwellCommand(simulationRunId, simulatedAt, target.trainId(), -5, event);
-                case HEADWAY_VIOLATION -> headwayViolationCommand(simulationRunId, simulatedAt, target.trainId(), event);
-                case HEADWAY_SHRINK -> dwellCommand(simulationRunId, simulatedAt, target.trainId(), 5, event);
-                case HEADWAY_EXPAND -> dwellCommand(simulationRunId, simulatedAt, target.trainId(), -3, event);
-                case DEPARTURE_DELAY -> dwellCommand(simulationRunId, simulatedAt, event.trainId(), -3, event);
+                case DWELL_EXTENDED -> dwellCommand(
+                    simulationRunId, simulatedAt, target.trainId(), -5, TrainRegulationAction.CATCH_UP, event);
+                case TRAIN_REGULATION, HEADWAY_VIOLATION -> trainRegulationCommand(
+                    simulationRunId, simulatedAt, target.trainId(), event);
+                case HEADWAY_SHRINK -> dwellCommand(
+                    simulationRunId, simulatedAt, target.trainId(), 5, TrainRegulationAction.SLOW_DOWN, event);
+                case HEADWAY_EXPAND, DEPARTURE_DELAY -> dwellCommand(
+                    simulationRunId, simulatedAt, target.trainId(), -3, TrainRegulationAction.CATCH_UP, event);
                 case CROWDING -> headwayCommand(simulationRunId, simulatedAt, plan, event);
             };
             commands.add(command);
@@ -64,6 +67,7 @@ public class StrategySelector {
             event.disturbanceType() == DisturbanceType.DWELL_EXTENDED
                 || event.disturbanceType() == DisturbanceType.CROWDING
                 || event.disturbanceType() == DisturbanceType.DEPARTURE_DELAY
+                || event.disturbanceType() == DisturbanceType.TRAIN_REGULATION
                 || event.disturbanceType() == DisturbanceType.HEADWAY_VIOLATION
                 || event.disturbanceType() == DisturbanceType.HEADWAY_SHRINK
                 || event.disturbanceType() == DisturbanceType.HEADWAY_EXPAND
@@ -82,16 +86,18 @@ public class StrategySelector {
         return ordered.isEmpty() ? null : ordered.getLast();
     }
 
-    private DispatchCommand headwayViolationCommand(
+    private DispatchCommand trainRegulationCommand(
         String simulationRunId,
         Instant simulatedAt,
         String trainId,
         DisturbanceEvent event
     ) {
         if ("TOO_SHORT".equals(event.headwayDirection())) {
-            return dwellCommand(simulationRunId, simulatedAt, trainId, 5, event);
+            return dwellCommand(
+                simulationRunId, simulatedAt, trainId, 5, TrainRegulationAction.SLOW_DOWN, event);
         }
-        return dwellCommand(simulationRunId, simulatedAt, trainId, -3, event);
+        return dwellCommand(
+            simulationRunId, simulatedAt, trainId, -3, TrainRegulationAction.CATCH_UP, event);
     }
 
     private DispatchCommand dwellCommand(
@@ -99,6 +105,7 @@ public class StrategySelector {
         Instant simulatedAt,
         String trainId,
         int delta,
+        String regulationAction,
         DisturbanceEvent event
     ) {
         String type = delta >= 0 ? "EXTEND_DWELL" : "SHORTEN_DWELL";
@@ -106,6 +113,9 @@ public class StrategySelector {
         payload.put("deltaDwellSec", delta);
         payload.put("simulationRunId", simulationRunId);
         payload.put("disturbanceId", event.id());
+        payload.put("regulatedTrainId", trainId);
+        payload.put("regulationAction", regulationAction);
+        payload.put("regulationSource", event.disturbanceType().name());
         payload.put("executeOnNextDwell", true);
         if (event.stationId() != null && !event.stationId().isBlank()) {
             payload.put("targetStationId", event.stationId());
@@ -134,6 +144,9 @@ public class StrategySelector {
         payload.put("targetHeadwaySec", adjusted);
         payload.put("simulationRunId", simulationRunId);
         payload.put("disturbanceId", event.id());
+        payload.put("regulatedTrainId", event.trainId());
+        payload.put("regulationAction", TrainRegulationAction.CATCH_UP);
+        payload.put("regulationSource", event.disturbanceType().name());
         putHeadwayPayload(payload, event);
         return new DispatchCommand(
             "CMD-" + UUID.randomUUID().toString().substring(0, 8),

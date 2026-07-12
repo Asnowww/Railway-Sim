@@ -7,9 +7,9 @@ defineProps<{
 
 const commandLabel = (type: string) => {
   const labels: Record<string, string> = {
-    SHORTEN_DWELL: '缩短停站/尽快发车',
-    EXTEND_DWELL: '延长停站',
-    HEADWAY_ADJUST: '调整行车间隔',
+    SHORTEN_DWELL: '本车追赶：缩短停站',
+    EXTEND_DWELL: '本车放慢：延长停站',
+    HEADWAY_ADJUST: '本车间隔调节',
     SPEED_BIAS: '速度偏置',
     SPEED_LIMIT: '临时限速',
     TEMP_SPEED_LIMIT: '临时限速',
@@ -22,6 +22,16 @@ const commandLabel = (type: string) => {
     REROUTE: '重排进路',
   }
   return labels[type] ?? type
+}
+
+const regulationLabel = (action?: string | null) => {
+  const labels: Record<string, string> = {
+    CATCH_UP: '本车追赶',
+    SLOW_DOWN: '本车放慢',
+    NORMAL: '本车正常',
+    OBSERVE: '继续观测',
+  }
+  return action ? labels[action] ?? action : null
 }
 
 const statusLabel = (status: string) => {
@@ -65,7 +75,10 @@ const statusDescription = (status: string) => {
           <strong>{{ commandLabel(item.commandType) }}</strong>
           <span class="status" :data-status="item.status">{{ statusLabel(item.status) }}</span>
         </div>
-        <div class="meta">列车 {{ item.trainId }} · 原因 {{ item.reason }}</div>
+        <div class="meta">
+          作用本车 {{ item.regulatedTrainId || item.trainId }} · 原因 {{ item.reason }}
+          <span v-if="regulationLabel(item.regulationAction)"> · {{ regulationLabel(item.regulationAction) }}</span>
+        </div>
         <div class="description">{{ statusDescription(item.status) }}</div>
       </li>
     </ul>

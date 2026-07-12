@@ -57,7 +57,7 @@ class StrategySelectorTests {
             "RUN-1",
             "TR-001",
             null,
-            DisturbanceType.HEADWAY_VIOLATION,
+            DisturbanceType.TRAIN_REGULATION,
             90,
             "OPEN",
             Instant.now(),
@@ -84,7 +84,10 @@ class StrategySelectorTests {
         assertThat(commands).hasSize(1);
         assertThat(commands.get(0).trainId()).isEqualTo("TR-001");
         assertThat(commands.get(0).commandType()).isEqualTo("EXTEND_DWELL");
-        assertThat(commands.get(0).payload()).containsEntry("headwayViolationSec", 90.0);
+        assertThat(commands.get(0).payload())
+            .containsEntry("headwayViolationSec", 90.0)
+            .containsEntry("regulatedTrainId", "TR-001")
+            .containsEntry("regulationAction", "SLOW_DOWN");
     }
 
     @Test
@@ -95,12 +98,17 @@ class StrategySelectorTests {
             "RUN-1",
             "TR-001",
             null,
-            DisturbanceType.DEPARTURE_DELAY,
+            DisturbanceType.TRAIN_REGULATION,
             60,
             "OPEN",
             simulatedAt,
             null,
-            null
+            null,
+            "SCHEDULE_LATE",
+            300.0,
+            null,
+            30.0,
+            30.0
         );
 
         List<DispatchCommand> commands = selector.select(
@@ -116,6 +124,8 @@ class StrategySelectorTests {
             assertThat(command.payload())
                 .containsEntry("deltaDwellSec", -3)
                 .containsEntry("executeOnNextDwell", true)
+                .containsEntry("regulatedTrainId", "TR-001")
+                .containsEntry("regulationAction", "CATCH_UP")
                 .doesNotContainKey("speedBiasRatio");
         });
     }

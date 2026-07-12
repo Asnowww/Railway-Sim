@@ -24,11 +24,15 @@ public record DispatchSnapshot(
 
     public record TrainProfileView(
         String trainId,
+        String regulatedTrainId,
         String frontTrainId,
         Double headwayActualSeconds,
+        Double headwayErrorSeconds,
         int headwayDeviationSeconds,
         String headwayState,
         String headwayAction,
+        String regulationAction,
+        String regulationReason,
         int dwellDeviationSeconds,
         int departureDelaySeconds
     ) {
@@ -37,8 +41,10 @@ public record DispatchSnapshot(
     public record DisturbanceView(
         String id,
         String trainId,
+        String regulatedTrainId,
         String stationId,
         String disturbanceType,
+        String regulationAction,
         double deviationValue,
         String headwayDirection,
         Double targetHeadwaySec,
@@ -52,9 +58,11 @@ public record DispatchSnapshot(
     public record CommandView(
         String id,
         String trainId,
+        String regulatedTrainId,
         String commandType,
         String status,
-        String reason
+        String reason,
+        String regulationAction
     ) {
     }
 

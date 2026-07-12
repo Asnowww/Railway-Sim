@@ -3,6 +3,7 @@ package com.railwaysim.dispatch.monitor;
 import com.railwaysim.dispatch.plan.CurrentRunPlan;
 import com.railwaysim.dispatch.plan.OperationPlanLoader;
 import com.railwaysim.dispatch.plan.PlannedScheduleCalculator;
+import com.railwaysim.dispatch.strategy.TrainRegulationAction;
 import com.railwaysim.train.TrainState;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -88,6 +89,10 @@ public class TrainRunMonitor {
                 int plannedDwell = plan.defaultDwellTimeSec();
                 int dwellDeviation = Math.max(0, observedDwellElapsed - plannedDwell);
                 HeadwayObservation headwayObservation = classifyHeadway(frontTrainId, headwayActual, headwayDeviation, plan);
+                int departureDelay = latestDepartureDelayByTrain.getOrDefault(train.id(), 0);
+                String regulationAction = frontTrainId == null && departureDelay > 0
+                    ? TrainRegulationAction.CATCH_UP
+                    : headwayObservation.action();
                 profiles.add(new TrainRunProfile(
                     train.id(),
                     frontTrainId,
@@ -102,8 +107,8 @@ public class TrainRunMonitor {
                     headwayActual,
                     headwayDeviation,
                     headwayObservation.state(),
-                    headwayObservation.action(),
-                    latestDepartureDelayByTrain.getOrDefault(train.id(), 0),
+                    regulationAction,
+                    departureDelay,
                     lastDeparture
                 ));
                 frontTrainId = train.id();
@@ -141,19 +146,19 @@ public class TrainRunMonitor {
         CurrentRunPlan plan
     ) {
         if (frontTrainId == null) {
-            return new HeadwayObservation("LEADING_TRAIN", "NONE");
+            return new HeadwayObservation("LEADING_TRAIN", TrainRegulationAction.NORMAL);
         }
         if (headwayActual == null) {
-            return new HeadwayObservation("WAITING_DEPARTURE_DATA", "OBSERVE");
+            return new HeadwayObservation("WAITING_DEPARTURE_DATA", TrainRegulationAction.OBSERVE);
         }
         int tolerance = Math.max(5, plan.departureIntervalSec() / 10);
         if (headwayDeviation < -tolerance) {
-            return new HeadwayObservation("TOO_SHORT", "SLOW_REAR_TRAIN");
+            return new HeadwayObservation("TOO_SHORT", TrainRegulationAction.SLOW_DOWN);
         }
         if (headwayDeviation > tolerance) {
-            return new HeadwayObservation("TOO_LONG", "CATCH_UP_REAR_TRAIN");
+            return new HeadwayObservation("TOO_LONG", TrainRegulationAction.CATCH_UP);
         }
-        return new HeadwayObservation("ON_TARGET", "NONE");
+        return new HeadwayObservation("ON_TARGET", TrainRegulationAction.NORMAL);
     }
 
     private record HeadwayObservation(String state, String action) {

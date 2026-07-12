@@ -23,6 +23,7 @@ import com.railwaysim.dispatch.route.RouteReservation;
 import com.railwaysim.dispatch.route.RouteReservationState;
 import com.railwaysim.dispatch.route.TrainRouteIntent;
 import com.railwaysim.dispatch.strategy.StrategySelector;
+import com.railwaysim.dispatch.strategy.TrainRegulationAction;
 import com.railwaysim.signal.MovementAuthority;
 import com.railwaysim.signal.RouteState;
 import com.railwaysim.simulation.TickContext;
@@ -1215,11 +1216,15 @@ public class DispatchService {
         List<DispatchSnapshot.TrainProfileView> trainViews = profiles.stream()
             .map(profile -> new DispatchSnapshot.TrainProfileView(
                 profile.trainId(),
+                profile.trainId(),
                 profile.frontTrainId(),
                 profile.headwayActualSec(),
+                profile.headwayActualSec() == null ? null : (double) profile.headwayDeviationSec(),
                 profile.headwayDeviationSec(),
                 profile.headwayState(),
                 profile.headwayAction(),
+                profile.headwayAction(),
+                regulationReason(profile),
                 profile.dwellDeviationSec(),
                 profile.departureDelaySec()
             ))
@@ -1231,8 +1236,10 @@ public class DispatchService {
             .map(event -> new DispatchSnapshot.DisturbanceView(
                 event.id(),
                 event.trainId(),
+                event.trainId(),
                 event.stationId(),
                 event.disturbanceType().name(),
+                regulationAction(event),
                 event.deviationValue(),
                 event.headwayDirection(),
                 event.targetHeadwaySec(),
@@ -1246,9 +1253,13 @@ public class DispatchService {
             .map(command -> new DispatchSnapshot.CommandView(
                 command.id(),
                 command.trainId(),
+                payloadString(command, "regulatedTrainId") == null
+                    ? command.trainId()
+                    : payloadString(command, "regulatedTrainId"),
                 command.commandType(),
                 command.status(),
-                command.reason()
+                command.reason(),
+                payloadString(command, "regulationAction")
             ))
             .toList();
         boolean interventionActive = !disturbanceViews.isEmpty() || commandViews.stream()
@@ -1290,6 +1301,30 @@ public class DispatchService {
             decision.reason(),
             decision.rejectReason()
         );
+    }
+
+    private String regulationReason(TrainRunProfile profile) {
+        return switch (profile.headwayAction()) {
+            case TrainRegulationAction.CATCH_UP -> profile.headwayActualSec() == null
+                ? "SCHEDULE_DELAY_RECOVERY"
+                : "HEADWAY_TOO_LONG";
+            case TrainRegulationAction.SLOW_DOWN -> "HEADWAY_TOO_SHORT";
+            case TrainRegulationAction.NORMAL -> "HEADWAY_ON_TARGET";
+            default -> "WAITING_FOR_REFERENCE_DATA";
+        };
+    }
+
+    private String regulationAction(DisturbanceEvent event) {
+        if ("TOO_SHORT".equals(event.headwayDirection())) {
+            return TrainRegulationAction.SLOW_DOWN;
+        }
+        if ("TOO_LONG".equals(event.headwayDirection())
+            || "SCHEDULE_LATE".equals(event.headwayDirection())
+            || event.disturbanceType() == com.railwaysim.dispatch.disturbance.DisturbanceType.DEPARTURE_DELAY
+            || event.disturbanceType() == com.railwaysim.dispatch.disturbance.DisturbanceType.DWELL_EXTENDED) {
+            return TrainRegulationAction.CATCH_UP;
+        }
+        return TrainRegulationAction.OBSERVE;
     }
 
     private DispatchSnapshot.RouteReservationView routeReservationView(RouteReservation reservation) {

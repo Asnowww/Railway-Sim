@@ -51,6 +51,7 @@ class TrainRunMonitorTests {
         assertThat(rearTrain.frontTrainId()).isEqualTo("TR-002");
         assertThat(rearTrain.headwayActualSec()).isEqualTo(300);
         assertThat(rearTrain.headwayState()).isEqualTo("ON_TARGET");
+        assertThat(rearTrain.headwayAction()).isEqualTo("NORMAL");
     }
 
     @Test

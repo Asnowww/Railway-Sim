@@ -17,16 +17,38 @@ function render() {
     chart = echarts.init(chartRef.value)
   }
   const trainIds = props.profiles.map((item) => item.trainId)
-  const actual = props.profiles.map((item) => item.headwayActualSeconds ?? 0)
+  const actual = props.profiles.map((item) => ({
+    value: item.headwayActualSeconds,
+    itemStyle: {
+      color: item.regulationAction === 'CATCH_UP'
+        ? '#f59e0b'
+        : item.regulationAction === 'SLOW_DOWN'
+          ? '#ef4444'
+          : item.regulationAction === 'NORMAL'
+            ? '#10b981'
+            : '#94a3b8'
+    }
+  }))
   const target = props.profiles.map(() => props.targetHeadwaySeconds)
   chart.setOption({
-    tooltip: { trigger: 'axis' },
+    tooltip: {
+      trigger: 'axis',
+      formatter: (items: unknown) => {
+        const values = Array.isArray(items) ? items as Array<{ dataIndex: number; seriesName: string; value: number }> : []
+        const index = values[0]?.dataIndex ?? 0
+        const profile = props.profiles[index]
+        const actualText = profile?.headwayActualSeconds === null ? '-' : `${profile?.headwayActualSeconds.toFixed(0)} 秒`
+        const error = profile?.headwayErrorSeconds
+        const errorText = error === null || error === undefined ? '-' : `${error > 0 ? '+' : ''}${error.toFixed(0)} 秒`
+        return `${profile?.trainId ?? '-'}<br/>实际间隔：${actualText}<br/>间隔偏差：${errorText}<br/>本车动作：${profile?.regulationAction ?? 'OBSERVE'}`
+      }
+    },
     legend: { data: ['实际间隔', '目标间隔'] },
     grid: { left: 40, right: 16, top: 40, bottom: 30 },
     xAxis: { type: 'category', data: trainIds },
     yAxis: { type: 'value', name: '秒' },
     series: [
-      { name: '实际间隔', type: 'bar', data: actual, itemStyle: { color: '#3b82f6' } },
+      { name: '实际间隔', type: 'bar', data: actual },
       { name: '目标间隔', type: 'line', data: target, itemStyle: { color: '#94a3b8' } }
     ]
   })
@@ -42,7 +64,7 @@ onBeforeUnmount(() => {
 
 <template>
   <section class="panel">
-    <h2>发车间隔对比</h2>
+    <h2>本车发车间隔与目标对比</h2>
     <div ref="chartRef" class="chart" />
   </section>
 </template>
