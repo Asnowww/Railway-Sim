@@ -306,6 +306,8 @@ GET /api/vehicle/onboard-subsystems
 
 `GET /api/vehicle/onboard-subsystems` 返回中央侧纳管的单车基层智能子系统节点状态，用于查看本地/外部车辆控制节点是否在线、是否 fallback、租约是否仍有效。该接口只读，不用于调度越级控车。
 
+> ⚠️ **废弃**：该接口对应的 `OnboardTrainSubsystemManager` 及相关 LOCAL 控制引擎已标记 `@Deprecated(forRemoval=true)`。`EXTERNAL_HTTP` 模式下车辆控制节点状态通过 `GET /vehicle-runtime/instances`（9300）查询。本接口仅保留用于 `LOCAL` 降级兼容。
+
 ### 仿真故障注入
 
 仿真写接口只用于演示和联调。供电和车辆故障接口必须带二次确认字段；信号轨道故障接口
@@ -867,11 +869,13 @@ POST http://localhost:9000/step-fleet
 
 该协议不是面向前端或调度系统的 REST 接口，而是后端车辆运行时背后的实现。新 `vehicle-runtime-service` 健康时可同时接管车辆控制决策和车辆物理仿真；旧 `external-simulator` / FMU / UDP / RT-LAB 适配仍作为物理端口历史兼容路径保留。
 
-中央到车辆控制节点的调用通过 `railway.simulation.onboard-subsystem-mode` 切换：
+> ⚠️ **废弃**：`onboard-subsystem-mode` 对应的 `OnboardTrainSubsystemManager` 及 `HttpOnboardTrainSubsystemClient` 已标记 `@Deprecated(forRemoval=true)`。生产环境请使用 `railway.simulation.vehicle-runtime.mode=EXTERNAL_HTTP` 搭配 9300。`onboard-subsystem-mode` 仅保留用于 LOCAL 降级兼容。
+
+中央到车辆控制节点的调用通过 `railway.simulation.onboard-subsystem-mode` 切换（已废弃）：
 
 | mode | 行为 |
 |---|---|
-| `IN_PROCESS` | 使用进程内 `OnboardTrainSubsystem`，默认模式。 |
+| `IN_PROCESS` | 使用进程内 `OnboardTrainSubsystem`，仅 LOCAL 降级。 |
 | `EXTERNAL_HTTP` | 通过 `HttpOnboardTrainSubsystemClient` 调用旧 onboard 节点，失败时本地 fallback。该配置不是 `railway.simulation.vehicle-runtime.mode=EXTERNAL_HTTP`；生产 9300 车辆运行时失败会中止 tick，不使用本回退。 |
 | `DUAL_SHADOW` | 本地输出为权威，外部节点只做影子在线验证。 |
 
