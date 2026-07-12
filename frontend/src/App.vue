@@ -162,15 +162,30 @@ const trains = ref<TrainMonitorState[]>([
   { id: 'T509', serviceNo: 'G509', positionPercent: 89, speedKph: 44, loadRate: 37, faultCode: '', section: '会展中心-机场北' }
 ])
 
-// 6站正线均分0~6250m (maxPositionMeters=6250) → 每段百分比 = 里程/6250*100
-// T01:0-1250m→2-19%  T02:1250-2500m→19-38%  T03:2500-3750m→38-57%
-// T04:3750-5000m→57-76%  T05:5000-6250m→76-96%
+// 正线6站均分0~6250m (maxPositionMeters=6250)
+// T01:0-1250m→2%  T02:1250-2500m→19%  T03:2500-3750m→38%
+// T04:3750-5000m→57%  T05:5000-6250m→76%
 const trackSegments = ref<TrackSegmentState[]>([
-  { id: 'T01', name: '上京南-科创园', startPercent: 2, widthPercent: 17, occupancy: 'FREE', speedLimitKph: 72 },
-  { id: 'T02', name: '科创园-中央公园', startPercent: 19, widthPercent: 19, occupancy: 'FREE', speedLimitKph: 80 },
-  { id: 'T03', name: '中央公园-北城', startPercent: 38, widthPercent: 19, occupancy: 'FREE', speedLimitKph: 80 },
-  { id: 'T04', name: '北城-会展中心', startPercent: 57, widthPercent: 19, occupancy: 'FREE', speedLimitKph: 72 },
-  { id: 'T05', name: '会展中心-上京北', startPercent: 76, widthPercent: 20, occupancy: 'FREE', speedLimitKph: 80 }
+  // 正线 (0-6250m起点百分比/宽度)
+  { id: 'T01', name: '上京南-科创园', startPercent: 2, widthPercent: 18, occupancy: 'FREE', speedLimitKph: 72 },
+  { id: 'T02', name: '科创园-中央公园', startPercent: 20, widthPercent: 20, occupancy: 'FREE', speedLimitKph: 80 },
+  { id: 'T03', name: '中央公园-北城', startPercent: 40, widthPercent: 20, occupancy: 'FREE', speedLimitKph: 80 },
+  { id: 'T04', name: '北城-会展中心', startPercent: 60, widthPercent: 20, occupancy: 'FREE', speedLimitKph: 72 },
+  { id: 'T05', name: '会展中心-上京北', startPercent: 80, widthPercent: 16, occupancy: 'FREE', speedLimitKph: 80 },
+  // 车辆段 (0-1250m共享里程)
+  { id: 'T11', name: '试车线-车辆段', startPercent: 2, widthPercent: 5, occupancy: 'FREE', speedLimitKph: 36 },
+  { id: 'T12', name: '车辆段-科创园', startPercent: 7, widthPercent: 13, occupancy: 'FREE', speedLimitKph: 43 },
+  // 北侧绕行 (1250-5000m与正线平行)
+  { id: 'T06', name: '科创园-科技园北岔(绕行)', startPercent: 20, widthPercent: 3, occupancy: 'FREE', speedLimitKph: 54 },
+  { id: 'T07', name: '科技园北岔-广场北岔(绕行)', startPercent: 23, widthPercent: 16, occupancy: 'FREE', speedLimitKph: 65 },
+  { id: 'T08', name: '广场北岔-金融城北岔(绕行)', startPercent: 39, widthPercent: 16, occupancy: 'FREE', speedLimitKph: 65 },
+  { id: 'T09', name: '金融城北岔-会展北(绕行)', startPercent: 55, widthPercent: 19, occupancy: 'FREE', speedLimitKph: 65 },
+  { id: 'T10', name: '会展北-会展中心(绕行)', startPercent: 74, widthPercent: 6, occupancy: 'FREE', speedLimitKph: 54 },
+  // 折返线+支线 (2500-4260m与正线平行)
+  { id: 'T13', name: '中央公园-折返线西', startPercent: 40, widthPercent: 8, occupancy: 'FREE', speedLimitKph: 54 },
+  { id: 'T14', name: '折返线西-折返线东', startPercent: 48, widthPercent: 9, occupancy: 'FREE', speedLimitKph: 54 },
+  { id: 'T15', name: '折返线东-北城', startPercent: 57, widthPercent: 3, occupancy: 'FREE', speedLimitKph: 54 },
+  { id: 'T16', name: '折返线东-支线口', startPercent: 57, widthPercent: 11, occupancy: 'FREE', speedLimitKph: 54 }
 ])
 
 const powerSections = ref<PowerSectionState[]>([
