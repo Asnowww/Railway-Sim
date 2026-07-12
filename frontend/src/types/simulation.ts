@@ -223,7 +223,3 @@ export interface SocketMessage {
   type: 'snapshot'
   payload: SimulationSnapshot
 }
-<<<<<<< HEAD
-
-=======
->>>>>>> 3f3347648baf2fb973f4ad776bb1a9fd90fb93a4
