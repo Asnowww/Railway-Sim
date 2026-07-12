@@ -117,31 +117,37 @@ config/line-demo.yaml
 主要目录：
 
 ```text
-backend/src/main/java/com/railwaysim/train
-backend/src/main/java/com/railwaysim/vehicle
-backend/src/main/java/com/railwaysim/power
-fmu-service/
+backend/src/main/java/com/railwaysim/train          # 中央镜像
+backend/src/main/java/com/railwaysim/vehicle         # 集成层
+backend/src/main/java/com/railwaysim/power           # 供电
+vehicle-runtime-service/src/main/java/...            # 9300 权威（新增）
+fmu-service/                                          # FMU 物理计算
+power-network-service/                                # 供电网络计算
 frontend/src/views/power-train/
 frontend/src/components/power-train/
 ```
 
 先做任务：
 
-1. 维护 `OnboardTrainSubsystemManager` 和 onboard 客户端，把信号、轨道和供电约束转换为车辆物理输入；调度约束由信号模块先折算。
-2. 维护 `VehiclePhysicsClient` 接口，后续把 `FmuVehiclePhysicsAdapter` 从简化模型替换为 Python FMU 服务调用。
-3. 维护 `fmu-service` 的 `FmuManager`、`FleetStepper`、`TrainFMUInstance` 和 Modelica 模型草案。
-4. 完善车辆状态：牵引、制动、取流、电功率、再生制动、故障码。
-5. 在 `PowerService` 中根据列车取流估算负荷、电压、电流。
-6. 维护车辆/供电事件：牵引功率变化、制动力变化、再生功率、接触轨电压变化、FMU 失败和降级。
-7. 后续在供电车辆视图中展示车辆列表和供电分区状态。
+1. **9300 `TrainStateHolder`**（已创建）：维护每列车权威状态（位置/速度/力/能耗/TCMS诊断/车站追踪）。`snapshot()` 生成 `TrainStateSnapshot` 供中央镜像消费。
+2. **9300 `VehicleControlQueue`**（已存在）：把信号、轨道和供电约束转换为车辆物理输入；调度约束由信号模块先折算。读取 `TrainStateHolder` 获取当前状态。
+3. **9300 手动控制 API**（已创建）：`POST /vehicle-runtime/trains/{id}/manual-control` 独立控制单列车牵引/制动/紧急制动。
+4. **9300 自主时钟**（已创建）：`VehicleRuntimeTickClock`，`@Scheduled` 定时推进，通过 `POST /autonomous/enable|disable` 切换。
+5. 维护中央 `VehicleRuntimeIntegrationService`：`EXTERNAL_HTTP` 模式向 9300 发约束（无列车状态），接收 `trainStates[]` 更新镜像。`LOCAL` 模式保留 `OnboardTrainSubsystemManager + VehiclePhysicsClient` 降级路径。
+6. 维护 `fmu-service` 的 `FmuManager`、`FleetStepper`、`TrainFMUInstance` 和 Modelica 模型草案。
+7. 完善车辆状态：牵引、制动、取流、电功率、再生制动、故障码（9300 `TrainStateHolder` + 中央镜像同步）。
+8. 在 `PowerService` 中根据列车取流估算负荷、电压、电流。
+9. 维护车辆/供电事件：牵引功率变化、制动力变化、再生功率、接触轨电压变化、FMU 失败和降级。9300 事件通过 step-fleet 响应 `events[]` 桥接到中央 `SimpleEventBus`。
+10. 后续在供电车辆视图中展示车辆列表和供电分区状态。
 
 开发建议：
 
-- 车辆是对象，不是服务，不要给每辆车开线程。
-- 多车更新统一由 `TrainManager` 负责。
+- **列车状态权威在 9300**（`TrainStateHolder`），中央 `TrainEntity` 是镜像。`EXTERNAL_HTTP` 模式下中央不持有权威状态。
+- 车辆是对象，不是服务，不要给每辆车开线程。9300 内部 `VehicleRuntimeInstance` 管理每车控制/仿真队列，但使用同步批处理（`stepFleet()`）而非每车线程。
+- 多车更新在 `EXTERNAL_HTTP` 模式下由 9300 `VehicleRuntimeManager.stepFleet()` 批量处理；`LOCAL` 模式下由中央 `TrainManager.tickAll()` 处理。
 - 供电模块输出状态即可，不要直接操控列车，必要时通过事件或调度指令联动。
-- 调度、信号、供电、轨道不要直接调用 FMU，统一通过单车基层智能子系统边界进入车辆物理端口。
-- 实时状态优先放 `RealtimeStateCache`，MySQL 表只用于后续快照、日志和回放。
+- 调度、信号、供电、轨道不要直接调用 FMU 或 9300，统一通过 `step-fleet` 约束链路进入车辆物理边界。
+- 实时状态优先放 `RealtimeStateCache`（中央）和 `TrainStateHolder`（9300），MySQL 表只用于后续快照、日志和回放。
 - 调度命令只写入 `DispatchService`，再由信号模块折算为 MA、限速或后续 `SignalVehicleCommand`；车辆侧不直接消费 `DispatchConstraint`。
 
 ## 第一周推荐目标

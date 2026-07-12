@@ -680,14 +680,55 @@ GET  /vehicle-runtime/events
 }
 ```
 
-`POST /vehicle-runtime/step-fleet` 请求包含 `tick`、`deltaSeconds`、`requestedAt`、`trains[]`、`movementAuthorities[]`、`trackConstraints[]`、`dispatchConstraints[]`、`powerConstraints[]`、`simulationRunId`、`driverCommands[]`（已废弃，见下方说明）。`split` 模式忽略中央传入的 `powerConstraints[]`：9300 自行向 9200 请求权威供电约束。
+`POST /vehicle-runtime/step-fleet` 请求包含 `tick`、`deltaSeconds`、`requestedAt`、`movementAuthorities[]`、`trackConstraints[]`、`dispatchConstraints[]`、`powerConstraints[]`、`simulationRunId`、`driverCommands[]`。
 
-| 新增字段 | 类型 | 说明 |
+**重要变更**：请求不再包含 `trains[]`。9300 从本地 `TrainStateHolder` 读取每列车的权威状态（位置、速度、TCMS 诊断等）。中央只发送约束（轨道、信号、调度、供电），不再发送列车状态。
+
+| 字段 | 类型 | 说明 |
 |---|---|---|
 | `simulationRunId` | string | 当前仿真运行 ID，贯穿 8080→9300→9200 用于时间线对齐 |
-| `driverCommands[]` | array of `DriverControlCommandSnapshot` | 已废弃。PLC 输入现已直接发往 9300(`POST :9300/.../plc-input`)，不再经 step request 转发。字段保留仅为向后兼容。 |
+| `driverCommands[]` | array of `DriverControlCommandSnapshot` | 已废弃。PLC 和手动控制现已直接发往 9300，不再经 step request 转发。字段保留仅为向后兼容。 |
 
-9300 先为全车准备控制输入，每个 tick 只调用一次 9000 `/step-fleet`，再统一写回 `trainOutputs[]`、`trainReports[]` 和 `instanceStates[]`。当 PLC 命令被选中时，`trainReports[]` 的 `decisionSource=DRIVER`，并回传 `inputCommandId/inputTraceId`；8080 以该报告建立中央决策镜像，不再查询自己的旧 PLC Holder 推断来源。
+响应新增字段：
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `trainStates` | array of `TrainStateSnapshot` | 9300 的权威列车状态快照，中央用于镜像更新。包含全部 58+ 字段（位置、速度、力、能耗、TCMS 诊断、车站追踪、故障码）。 |
+| `events` | array of `VehicleRuntimeEvent` | 本 tick 内发生的事件列表（VehiclePhysicsUpdated、TractionPowerChanged、BrakeForceChanged、RegenerativePowerGenerated、TrainFaultStateChanged）。中央桥接到 `SimpleEventBus`。 |
+
+`TrainStateSnapshot` 新增字段：
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `currentStationId` | string/null | 列车当前所在车站 ID（不在站时为 null） |
+| `dwellElapsedSeconds` | int | 已停站秒数 |
+| `lastDepartureAt` | string/null | 上次发车时间戳 |
+
+9300 先为全车准备控制输入，每个 tick 只调用一次 9000 `/step-fleet`，再统一写回 `trainOutputs[]`、`trainReports[]`、`instanceStates[]`、`trainStates[]` 和 `events[]`。当 PLC 命令或手动控制被选中时，`trainReports[]` 的 `decisionSource=DRIVER`，并回传 `inputCommandId/inputTraceId`；8080 以该报告建立中央决策镜像，不再查询自己的旧 PLC Holder 推断来源。
+
+### 9300 新增端点
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| `POST` | `/vehicle-runtime/trains/{trainId}/manual-control` | 手动控制单列车：设置牵引/制动/紧急制动/方向。命令存入 `DriverCommandHolder`，下个 tick 通过 `VehicleControlQueue.decideDynamicsState()` 生效。 |
+| `GET` | `/vehicle-runtime/trains/{trainId}/state` | 获取单列车权威状态快照 |
+| `GET` | `/vehicle-runtime/trains/state` | 获取所有列车权威状态快照 |
+| `POST` | `/vehicle-runtime/autonomous/enable` | 开启 9300 自主 tick 模式 |
+| `POST` | `/vehicle-runtime/autonomous/disable` | 关闭 9300 自主 tick 模式 |
+| `POST` | `/vehicle-runtime/tick` | 手动触发一次自主 tick |
+
+手动控制请求体：
+
+```json
+{
+  "tractionCommand": 0.75,
+  "brakeCommand": 0.0,
+  "emergencyBrake": false,
+  "direction": 1.0,
+  "doorOpenRequest": null,
+  "timeoutMs": 5000
+}
+```
 
 `POST /vehicle-runtime/bootstrap` 还会携带供电仿真联动配置：
 
