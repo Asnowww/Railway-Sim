@@ -140,12 +140,22 @@ public class TrackService {
             }
         }
 
-        // ② 全车长范围覆盖 → OCCUPIED
+        // ② 全车长范围覆盖 → OCCUPIED (仅同轨道线的区段，避免并行支线误标)
         for (TrainState train : trains) {
             double tail = train.positionMeters() - train.lengthMeters();
             double head = train.positionMeters();
+            TrackSegmentState primarySeg = segmentAt(train.positionMeters());
             for (int i = 0; i < segments.size(); i++) {
                 TrackSegmentState seg = segments.get(i);
+                // 跳过不同轨道的并行段 (如列车在main, 不标north/loop/branch/depot)
+                if (primarySeg != null && !"main".equals(primarySeg.track())
+                    && !primarySeg.track().equals(seg.track())) {
+                    continue;
+                }
+                if (primarySeg != null && "main".equals(primarySeg.track())
+                    && !"main".equals(seg.track())) {
+                    continue;
+                }
                 if (overlaps(head, tail, seg.startMeters(), seg.endMeters())) {
                     occupyingTrainIdsBySegment
                         .computeIfAbsent(seg.id(), ignored -> new HashSet<>())

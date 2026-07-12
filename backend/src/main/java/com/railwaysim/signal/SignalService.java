@@ -499,8 +499,18 @@ public class SignalService {
 
         boolean stopped = Math.abs(head - nextStation.centerMeters()) <= STATION_STOP_WINDOW_METERS && train.zeroSpeed();
         if (releasedStationStops.contains(dwellKey)) {
-            atStationStop.remove(train.id());
-            return result;
+            // 列车已离开站台 → 清除释放标记（允许下次到站重新触发停站）
+            if (head > nextStation.centerMeters() + STATION_STOP_WINDOW_METERS) {
+                releasedStationStops.remove(dwellKey);
+            }
+            // 列车仍在站台但已经停着 → 上次释放是误释放，重入站停
+            if (stopped) {
+                releasedStationStops.remove(dwellKey);
+                // fall through to dwell logic below
+            } else {
+                atStationStop.remove(train.id());
+                return result;
+            }
         }
         int tickCount = stationDwellTicks.getOrDefault(dwellKey, 0);
 
