@@ -88,6 +88,11 @@ public class RouteInterlockingService {
                 routeHoldsByTrain.remove(trainId);
                 return null;
             }
+            // 正线进路允许多车共享——后车可在前车已占用进路时加入（MA 处理间距）
+            if (isMainTypeRoute(routeId) && route.status() == RouteStatus.OCCUPIED) {
+                routeHoldsByTrain.remove(trainId);
+                return null;
+            }
             return "Route " + routeId + " is " + route.status()
                 + " for train " + route.establishedByTrainId();
         }
