@@ -258,6 +258,21 @@ class VehicleRuntimeManagerTests {
     }
 
     @Test
+    void missingSimulationRunIdIsRejectedBeforeAnyPhysicsStep() {
+        VehicleRuntimeManager manager = manager();
+        TrainStateSnapshot train = train("TR-101", 100, 0);
+        VehicleRuntimeStepRequest invalid = new VehicleRuntimeStepRequest(
+            1, 0.1, Instant.parse("2026-07-09T00:00:00Z"), List.of(train), List.of(), List.of(),
+            List.of(), List.of(energized()), "", List.of()
+        );
+
+        assertThatThrownBy(() -> manager.stepFleet(invalid))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("simulationRunId is required");
+        assertThat(manager.instances()).isEmpty();
+    }
+
+    @Test
     void registerRejectsPathAndBodyTrainIdMismatch() {
         VehicleRuntimeController controller = new VehicleRuntimeController(manager());
 
