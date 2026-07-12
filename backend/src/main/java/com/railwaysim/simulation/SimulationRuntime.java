@@ -235,7 +235,7 @@ public class SimulationRuntime {
     private void autoDispatchTrains(TickContext context) {
         CurrentRunPlan plan = dispatchService.currentPlan();
         if (plan == null || plan.departureIntervalSec() <= 0) return;
-        long intervalMs = plan.departureIntervalSec() * 1000L;
+        long intervalMs = plan.departureIntervalSec() * 2 * 1000L; // 默认加倍
 
         List<StationInfo> stations = dispatchService.stations();
         if (stations.isEmpty()) return;

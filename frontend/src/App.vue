@@ -152,6 +152,7 @@ const backendConnected = ref(false)
 const backendErrorMessage = ref('')
 const backendTick = ref(0)
 const backendStatus = ref('STOPPED')
+const autoTickEnabled = ref(true)
 
 const stations = ['上京南', '科技园', '人民广场', '金融城', '会展中心', '机场北']
 
@@ -714,8 +715,11 @@ onMounted(() => {
     }
   }, 1000)
   dataTimer = window.setInterval(() => {
-    if (backendConnected.value) {
+    if (backendConnected.value && autoTickEnabled.value) {
       void runSimulationTick()
+    } else if (!autoTickEnabled.value) {
+      // auto off - 仅更新snapshot不推进
+      void loadBackendSnapshot()
     } else {
       tickMockData()
     }
@@ -749,6 +753,12 @@ onBeforeUnmount(() => {
           {{ backendConnected ? `后端已连接 · ${backendStatus} · Tick ${backendTick}` : '本地演示数据' }}
         </span>
         <span v-if="backendErrorMessage" class="backend-error">{{ backendErrorMessage }}</span>
+        <button type='button' class='sim-button reset' @click='simReset()'>Reset</button>
+        <button type='button' class='sim-button tick' @click='simTick()'>Tick</button>
+        <button type='button' class='sim-button tick50' @click='simTick50()'>+50</button>
+        <button type='button' :class='"sim-button auto"' @click='autoTickEnabled = !autoTickEnabled'>
+          {{ autoTickEnabled ? "Auto ON" : "Auto OFF" }}
+        </button>
         <span>{{ simulationClock }}</span>
         <button type="button" :class="['sound-button', { off: !soundEnabled }]" @click="soundEnabled = !soundEnabled">
           {{ soundEnabled ? '声警开启' : '声警关闭' }}

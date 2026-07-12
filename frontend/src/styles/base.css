@@ -98,6 +98,23 @@ h3 {
 }
 
 .status-pill,
+
+.sim-button {
+  border: 1px solid #d5deeb;
+  border-radius: 6px;
+  background: #ffffff;
+  padding: 6px 10px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  color: #42526a;
+}
+.sim-button:hover { background: #e9ecf1; }
+.sim-button.tick { color: #174ea6; }
+.sim-button.tick50 { color: #b45309; }
+.sim-button.auto { color: #758196; }
+.sim-button.auto.active { color: #047857; background: #e9f8f1; border-color: #bdebd4; }
+.sim-button.reset { color: #dc2626; }
 .sound-button {
   padding: 8px 12px;
 }
@@ -108,6 +125,23 @@ h3 {
   border-color: #bdebd4;
 }
 
+
+.sim-button {
+  border: 1px solid #d5deeb;
+  border-radius: 6px;
+  background: #ffffff;
+  padding: 6px 10px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  color: #42526a;
+}
+.sim-button:hover { background: #e9ecf1; }
+.sim-button.tick { color: #174ea6; }
+.sim-button.tick50 { color: #b45309; }
+.sim-button.auto { color: #758196; }
+.sim-button.auto.active { color: #047857; background: #e9f8f1; border-color: #bdebd4; }
+.sim-button.reset { color: #dc2626; }
 .sound-button {
   color: #174ea6;
   font-weight: 700;
