@@ -23,6 +23,7 @@ interface TrainMonitorState {
   loadRate: number
   faultCode: string
   section: string
+  segmentId: string
 }
 
 interface TrackSegmentState {
@@ -155,11 +156,11 @@ const backendStatus = ref('STOPPED')
 const stations = ['上京南', '科技园', '人民广场', '金融城', '会展中心', '机场北']
 
 const trains = ref<TrainMonitorState[]>([
-  { id: 'T101', serviceNo: 'G101', positionPercent: 12, speedKph: 62, loadRate: 46, faultCode: '', section: '上京南-科技园' },
-  { id: 'T203', serviceNo: 'G203', positionPercent: 31, speedKph: 71, loadRate: 83, faultCode: '', section: '科技园-人民广场' },
-  { id: 'T305', serviceNo: 'G305', positionPercent: 54, speedKph: 0, loadRate: 108, faultCode: 'VHL-23', section: '人民广场-金融城' },
-  { id: 'T407', serviceNo: 'G407', positionPercent: 76, speedKph: 58, loadRate: 69, faultCode: '', section: '金融城-会展中心' },
-  { id: 'T509', serviceNo: 'G509', positionPercent: 89, speedKph: 44, loadRate: 37, faultCode: '', section: '会展中心-机场北' }
+  { id: 'T101', serviceNo: 'G101', positionPercent: 12, speedKph: 62, loadRate: 46, faultCode: '', section: '上京南-科技园', segmentId: '' },
+  { id: 'T203', serviceNo: 'G203', positionPercent: 31, speedKph: 71, loadRate: 83, faultCode: '', section: '科技园-人民广场', segmentId: '' },
+  { id: 'T305', serviceNo: 'G305', positionPercent: 54, speedKph: 0, loadRate: 108, faultCode: 'VHL-23', section: '人民广场-金融城', segmentId: '' },
+  { id: 'T407', serviceNo: 'G407', positionPercent: 76, speedKph: 58, loadRate: 69, faultCode: '', section: '金融城-会展中心', segmentId: '' },
+  { id: 'T509', serviceNo: 'G509', positionPercent: 89, speedKph: 44, loadRate: 37, faultCode: '', section: '会展中心-机场北', segmentId: '' }
 ])
 
 // 正线6站均分0~6250m (maxPositionMeters=6250)
@@ -435,6 +436,18 @@ function clampRatio(value: number): number {
 }
 
 function resolveTrainTopologyAnchor(train: TrainMonitorState): { edgeId: string; ratio: number } | null {
+  // 优先用后端MA给出的精确区段ID（分叉口不混淆）
+  if (train.segmentId) {
+    const directEdge = topologyEdgeByTrackSegment[train.segmentId]
+    if (directEdge) {
+      const trackSegment = trackSegments.value.find((s) => s.id === train.segmentId)
+      if (trackSegment) {
+        const ratio = (train.positionPercent - trackSegment.startPercent) / trackSegment.widthPercent
+        return { edgeId: directEdge, ratio: clampRatio(ratio) }
+      }
+    }
+  }
+  // 回退：按位置百分比范围匹配（无MA数据时）
   const trackSegment = trackSegments.value.find(
     (segment) => train.positionPercent >= segment.startPercent && train.positionPercent <= segment.startPercent + segment.widthPercent
   )
@@ -555,6 +568,10 @@ function applyBackendSnapshot(snapshot: SimulationSnapshot): void {
   const maxPositionMeters = Math.max(1, ...snapshot.trackSegments.map((segment) => segment.endMeters), ...snapshot.trains.map((train) => train.positionMeters))
 
   // 性能策略：后端快照按模块整体替换，避免深层逐字段监听带来的额外渲染开销，复杂度 O(n)。
+  const segByTrain: Record<string, string> = {}
+  for (const ma of snapshot.authorities) {
+    if (ma.currentSegmentId) segByTrain[ma.trainId] = ma.currentSegmentId
+  }
   trains.value = snapshot.trains.map((train) => ({
     id: train.id,
     serviceNo: train.serviceNo || train.id,
@@ -562,7 +579,8 @@ function applyBackendSnapshot(snapshot: SimulationSnapshot): void {
     speedKph: Math.round(train.speedMetersPerSecond * 3.6),
     loadRate: Math.round((train.loadRate ?? 0) * 100),
     faultCode: train.faultCode || '',
-    section: train.currentStationId || `里程 ${Math.round(train.positionMeters)}m`
+    section: train.currentStationId || `里程 ${Math.round(train.positionMeters)}m`,
+    segmentId: segByTrain[train.id] || ''
   }))
 
   trackSegments.value = snapshot.trackSegments.map((segment) => ({
