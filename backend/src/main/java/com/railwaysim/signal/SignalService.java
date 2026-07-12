@@ -165,16 +165,15 @@ public class SignalService {
             }
 
             // 信号释放站台后通知车辆层: 已释放站台的车辆别刹停
-            try {
-                for (int j = 0; j < trackConstraints.size(); j++) {
-                    TrackConstraint tc = trackConstraints.get(j);
-                    if (releasedStationStops.stream().anyMatch(k -> k.startsWith(tc.trainId() + ":"))) {
-                        trackConstraints.set(j, new TrackConstraint(
-                            tc.trainId(), tc.segmentId(), tc.speedLimitMetersPerSecond(),
-                            tc.gradient(), tc.curveRadiusMeters(), 9999.0));
-                    }
+            // 信号释放站台后通知车辆层: 已释放站台的车辆别刹停(站距→大值)
+            for (int j = 0; j < trackConstraints.size(); j++) {
+                TrackConstraint tc = trackConstraints.get(j);
+                if (releasedStationStops.stream().anyMatch(k -> k.startsWith(tc.trainId() + ":"))) {
+                    trackConstraints.set(j, new TrackConstraint(
+                        tc.trainId(), tc.segmentId(), tc.speedLimitMetersPerSecond(),
+                        tc.gradient(), tc.curveRadiusMeters(), 9999.0));
                 }
-            } catch (UnsupportedOperationException ignored) { /* 测试用不可变列表 */ }
+            }
 
             trackService.applyReservations(fixedResult.reservedSegmentIds());
             authorities = List.copyOf(constrained);
@@ -269,18 +268,14 @@ public class SignalService {
                 reason, segId, endSegId, reasonCode));
         }
 
-        // 信号释放站台后通知车辆层: 已释放站台的车辆别刹停
-        try {
-            for (int i = 0; i < trackConstraints.size(); i++) {
-                TrackConstraint tc = trackConstraints.get(i);
-                if (releasedStationStops.stream().anyMatch(k -> k.startsWith(tc.trainId() + ":"))) {
-                    trackConstraints.set(i, new TrackConstraint(
-                        tc.trainId(), tc.segmentId(), tc.speedLimitMetersPerSecond(),
-                        tc.gradient(), tc.curveRadiusMeters(), 9999.0));
-                }
+        // 信号释放站台后通知车辆层: 已释放站台的车辆别刹停(站距→大值)
+        for (int i = 0; i < trackConstraints.size(); i++) {
+            TrackConstraint tc = trackConstraints.get(i);
+            if (releasedStationStops.stream().anyMatch(k -> k.startsWith(tc.trainId() + ":"))) {
+                trackConstraints.set(i, new TrackConstraint(
+                    tc.trainId(), tc.segmentId(), tc.speedLimitMetersPerSecond(),
+                    tc.gradient(), tc.curveRadiusMeters(), 9999.0));
             }
-        } catch (UnsupportedOperationException ignored) {
-            // 测试用不可变列表(List.of)时忽略
         }
 
         trackService.applyReservations(allReserved);
