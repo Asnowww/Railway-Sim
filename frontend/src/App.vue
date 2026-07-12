@@ -640,8 +640,8 @@ async function runSimulationTick(): Promise<void> {
   if (backendStatus.value !== 'RUNNING') {
     try { backendStatus.value = (await simulationApi.start()).status } catch { return }
   }
-  // 每次跑10帧，只渲染最后一帧
-  for (let i = 0; i < 10; i++) {
+  // 每次跑50帧，只渲染最后一帧
+  for (let i = 0; i < 50; i++) {
     try {
       const snapshot = await simulationApi.tick()
       if (i === 9) applyBackendSnapshot(snapshot)
