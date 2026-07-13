@@ -579,10 +579,6 @@ function formatDelta(current: number | null | undefined, baseline: number | null
       </section>
       <section class="debug-actions" aria-label="仿真控制">
         <button type="button" class="ghost-button" @click="$emit('back')">返回大屏</button>
-        <button type="button" @click="runSimulation('start')">启动</button>
-        <button type="button" @click="runSimulation('pause')">暂停</button>
-        <button type="button" @click="runSimulation('reset')">重置</button>
-        <button type="button" @click="runSimulation('tick')">步进</button>
         <button type="button" :class="{ active: autoRunning }" @click="toggleAutoRun">
           {{ autoRunning ? '停止自动步进' : '自动步进' }}
         </button>
