@@ -110,6 +110,38 @@ export interface OperationPlanView {
   rejectReason?: string | null
 }
 
+export interface SignalDispatchPlanPublicationEntry {
+  entryId: string
+  sourceType: 'SERVICE_PLAN' | 'OPERATION_PLAN' | string
+  sourceId: string
+  trainId: string
+  routeId: string
+  routeName: string
+  direction: 'UP' | 'DOWN' | string
+  originPointId: string | null
+  destinationPointId: string | null
+  viaPointIds: string[]
+  stationIds: string[]
+  segmentIds: string[]
+  plannedDepartureAt: string | null
+  status: 'ACCEPTED' | 'REJECTED' | string
+  rejectReason: string | null
+}
+
+export interface SignalDispatchPlanPublication {
+  publicationId: string
+  simulationRunId: string
+  dispatchPlanId: string
+  lineId: string
+  effectiveFrom: string
+  publishedAt: string
+  operator: string
+  status: 'ACCEPTED' | 'PARTIAL_ACCEPTED' | 'REJECTED' | string
+  acceptedCount: number
+  rejectedCount: number
+  entries: SignalDispatchPlanPublicationEntry[]
+}
+
 export interface DispatchRouteDecision {
   decisionId: string
   selectedTrainId: string

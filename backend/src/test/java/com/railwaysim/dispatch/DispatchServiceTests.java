@@ -26,6 +26,8 @@ import com.railwaysim.infrastructure.OperationalLineData;
 import com.railwaysim.signal.MovementAuthority;
 import com.railwaysim.signal.RouteState;
 import com.railwaysim.signal.RouteStatus;
+import com.railwaysim.signal.dispatch.SignalDispatchPlanPublication;
+import com.railwaysim.signal.dispatch.SignalDispatchPlanRegistry;
 import com.railwaysim.simulation.TickContext;
 import com.railwaysim.train.TrainEntity;
 import com.railwaysim.train.TrainState;
@@ -225,6 +227,25 @@ class DispatchServiceTests {
         assertThat(dispatchService.snapshot().routeReservations())
             .extracting(DispatchSnapshot.RouteReservationView::state)
             .containsExactly(RouteReservationState.EXPIRED);
+    }
+
+    @Test
+    void publishPlanToSignalIncludesServiceEntriesWithExistingRouteId() {
+        DispatchService service = dispatchService(routeLineData());
+        Instant effectiveFrom = Instant.parse("2026-07-09T00:00:00Z");
+
+        SignalDispatchPlanPublication publication = service.publishPlanToSignal("tester", effectiveFrom);
+
+        assertThat(publication.operator()).isEqualTo("tester");
+        assertThat(publication.effectiveFrom()).isEqualTo(effectiveFrom);
+        assertThat(publication.acceptedCount()).isGreaterThan(0);
+        assertThat(publication.rejectedCount()).isZero();
+        assertThat(publication.entries())
+            .extracting(SignalDispatchPlanPublication.Entry::sourceType)
+            .contains("SERVICE_PLAN");
+        assertThat(publication.entries())
+            .extracting(SignalDispatchPlanPublication.Entry::routeId)
+            .contains("R_MAIN");
     }
 
     @Test
@@ -1169,9 +1190,11 @@ class DispatchServiceTests {
                 new InMemoryCommandRecordStore(),
                 stationStore,
                 routeStore,
+                routeCatalog,
                 new RouteIntentResolver(routeCatalog, properties),
                 new RouteIntentArbiter(routeCatalog),
-                new OperationPlanningService(routeCatalog)
+                new OperationPlanningService(routeCatalog),
+                new SignalDispatchPlanRegistry()
             );
         } catch (IOException ex) {
             throw new IllegalStateException("failed to load dispatch test plan", ex);

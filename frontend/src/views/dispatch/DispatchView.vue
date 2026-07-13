@@ -9,6 +9,7 @@ import type {
   PlannedStop,
   RunPlanPeriod,
   RunPlanResponse,
+  SignalDispatchPlanPublication,
   TrainServicePlan
 } from '../../types/dispatch'
 import type { SimulationSnapshot, TrainState } from '../../types/simulation'
@@ -29,6 +30,9 @@ const demoSpeedLimitMps = ref(6)
 const demoDwellDeltaSec = ref(30)
 const demoPending = ref(false)
 const demoMessage = ref('')
+const publishPending = ref(false)
+const publishMessage = ref('')
+const latestPublication = ref<SignalDispatchPlanPublication | null>(null)
 
 const modeLabel = (mode: string) => {
   const labels: Record<string, string> = {
@@ -391,6 +395,23 @@ async function submitDwellDemo() {
     }).then(() => undefined)
   )
 }
+
+async function publishSignalPlan() {
+  publishPending.value = true
+  publishMessage.value = '正在向信号端发布调度计划...'
+  try {
+    const publication = await dispatchApi.publishSignalPlan({
+      operator: 'dispatch-workstation'
+    })
+    latestPublication.value = publication
+    publishMessage.value =
+      `已发布 ${publication.publicationId}，信号接收 ${publication.acceptedCount}/${publication.entries.length} 条计划。`
+  } catch (error) {
+    publishMessage.value = error instanceof Error ? `发布失败：${error.message}` : '发布失败。'
+  } finally {
+    publishPending.value = false
+  }
+}
 </script>
 
 <template>
@@ -591,7 +612,14 @@ async function submitDwellDemo() {
             <h2>信号轨道反馈</h2>
             <p>只展示调度相关的进路与预约状态</p>
           </div>
+          <div class="signal-actions">
+            <span v-if="latestPublication" class="pill">{{ latestPublication.status }}</span>
+            <button type="button" :disabled="publishPending" @click="publishSignalPlan">
+              {{ publishPending ? '发布中' : '发布计划' }}
+            </button>
+          </div>
         </header>
+        <p v-if="publishMessage" class="publish-message">{{ publishMessage }}</p>
         <div v-if="dispatch.routeReservations.length || dispatch.routeDecisions.length" class="signal-list">
           <article v-for="reservation in dispatch.routeReservations.slice(0, 5)" :key="reservation.reservationId">
             <strong>{{ reservation.routeId }}</strong>
@@ -824,6 +852,36 @@ header p {
 
 .demo-message {
   margin: 0;
+  color: #2452a6;
+  font-size: 13px;
+}
+
+.signal-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.signal-actions button {
+  min-height: 32px;
+  border: 1px solid #2452a6;
+  border-radius: 8px;
+  background: #2452a6;
+  color: #fff;
+  padding: 5px 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.signal-actions button:disabled {
+  border-color: #cbd5e1;
+  background: #e2e8f0;
+  color: #7a8a9d;
+  cursor: not-allowed;
+}
+
+.publish-message {
+  margin: -4px 0 12px;
   color: #2452a6;
   font-size: 13px;
 }

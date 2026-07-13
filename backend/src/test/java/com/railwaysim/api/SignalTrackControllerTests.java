@@ -9,6 +9,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.railwaysim.signal.RouteInterlockingService;
+import com.railwaysim.signal.dispatch.SignalDispatchPlanRegistry;
 import com.railwaysim.track.TrackService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -29,6 +30,9 @@ class SignalTrackControllerTests {
 
     @MockBean
     private RouteInterlockingService routeInterlockingService;
+
+    @MockBean
+    private SignalDispatchPlanRegistry signalDispatchPlanRegistry;
 
     @Test
     void injectsAValidatedFault() throws Exception {

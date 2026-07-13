@@ -15,6 +15,7 @@ import com.railwaysim.dispatch.plan.OperationPlanLoader;
 import com.railwaysim.dispatch.plan.RunModePeriod;
 import com.railwaysim.signal.RouteInterlockingService;
 import com.railwaysim.signal.RouteInterlockingService.RouteInfo;
+import com.railwaysim.signal.dispatch.SignalDispatchPlanPublication;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import java.time.Instant;
@@ -191,6 +192,16 @@ public class DispatchController {
         return dispatchService.cancelOperationPlan(planId);
     }
 
+    @PostMapping("/signal-publications")
+    public SignalDispatchPlanPublication publishSignalPlan(
+        @RequestBody(required = false) SignalPlanPublicationRequest request
+    ) {
+        return dispatchService.publishPlanToSignal(
+            request == null ? null : request.operator(),
+            request == null ? null : request.effectiveFrom()
+        );
+    }
+
     @PostMapping("/headway/adjust")
     public DispatchCommand adjustHeadway(@Valid @RequestBody HeadwayAdjustRequest request) {
         Map<String, Object> payload = new HashMap<>();
@@ -262,6 +273,12 @@ public class DispatchController {
         Double actualHeadwaySec,
         Double violationSec,
         String stationId
+    ) {
+    }
+
+    public record SignalPlanPublicationRequest(
+        String operator,
+        Instant effectiveFrom
     ) {
     }
 

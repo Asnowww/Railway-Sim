@@ -3,6 +3,8 @@ package com.railwaysim.api;
 import com.railwaysim.api.dto.SignalTrackFaultRequest;
 import com.railwaysim.signal.RouteInterlockingService;
 import com.railwaysim.signal.SignalTrackFaultType;
+import com.railwaysim.signal.dispatch.SignalDispatchPlanPublication;
+import com.railwaysim.signal.dispatch.SignalDispatchPlanRegistry;
 import com.railwaysim.track.TrackService;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
@@ -34,10 +36,16 @@ public class SignalTrackController {
 
     private final TrackService trackService;
     private final RouteInterlockingService routeInterlockingService;
+    private final SignalDispatchPlanRegistry signalDispatchPlanRegistry;
 
-    public SignalTrackController(TrackService trackService, RouteInterlockingService routeInterlockingService) {
+    public SignalTrackController(
+        TrackService trackService,
+        RouteInterlockingService routeInterlockingService,
+        SignalDispatchPlanRegistry signalDispatchPlanRegistry
+    ) {
         this.trackService = trackService;
         this.routeInterlockingService = routeInterlockingService;
+        this.signalDispatchPlanRegistry = signalDispatchPlanRegistry;
     }
 
     /** GET /api/signal-track/routes — 当前所有进路状态 */
@@ -59,6 +67,22 @@ public class SignalTrackController {
     @GetMapping("/route-events")
     public List<RouteInterlockingService.RouteLifecycleEvent> routeEvents() {
         return routeInterlockingService.drainLifecycleEvents();
+    }
+
+    /** GET /api/signal-track/dispatch-publications — 信号侧已接收的调度计划发布记录 */
+    @GetMapping("/dispatch-publications")
+    public List<SignalDispatchPlanPublication> dispatchPublications() {
+        return signalDispatchPlanRegistry.list();
+    }
+
+    /** GET /api/signal-track/dispatch-publications/latest — 最近一次调度计划发布 */
+    @GetMapping("/dispatch-publications/latest")
+    public SignalDispatchPlanPublication latestDispatchPublication() {
+        SignalDispatchPlanPublication publication = signalDispatchPlanRegistry.latest();
+        if (publication == null) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "no dispatch plan publication received");
+        }
+        return publication;
     }
 
     /** POST /api/signal-track/faults — 注入故障（WP-05） */

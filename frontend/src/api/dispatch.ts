@@ -9,6 +9,7 @@ import type {
   DispatchRouteInfo,
   DispatchSnapshot,
   RunPlanResponse,
+  SignalDispatchPlanPublication,
   TrainStationEvent
 } from '../types/dispatch'
 import type { DispatchDisturbance } from '../types/dispatch'
@@ -78,6 +79,12 @@ export const dispatchApi = {
   cancelOperationPlan: (planId: string) =>
     request<OperationPlanView>(`/dispatch/operation-plans/${encodeURIComponent(planId)}/cancel`, {
       method: 'POST'
+    }),
+  publishSignalPlan: (body?: { operator?: string; effectiveFrom?: string }) =>
+    request<SignalDispatchPlanPublication>('/dispatch/signal-publications', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body ?? {})
     }),
   adjustHeadway: (body: {
     trainId: string
