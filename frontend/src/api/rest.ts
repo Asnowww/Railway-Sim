@@ -16,6 +16,10 @@ export const simulationApi = {
   stop: () => request<SimulationSnapshot>('/simulation/stop', { method: 'POST' }),
   reset: () => request<SimulationSnapshot>('/simulation/reset', { method: 'POST' }),
   tick: () => request<SimulationSnapshot>('/simulation/tick', { method: 'POST' }),
+  injectTrackFault: (segmentId: string) =>
+    request<SimulationSnapshot>(`/simulation/fault/inject?segmentId=${encodeURIComponent(segmentId)}`, { method: 'POST' }),
+  clearTrackFault: (segmentId: string) =>
+    request<SimulationSnapshot>(`/simulation/fault/clear?segmentId=${encodeURIComponent(segmentId)}`, { method: 'POST' }),
   alarms: (runId?: string) => request<unknown[]>(runId ? `/alarms?runId=${encodeURIComponent(runId)}` : '/alarms'),
   acknowledgeAlarm: (alarmId: string) => request<unknown>(`/alarms/${encodeURIComponent(alarmId)}/acknowledge`, {
     method: 'POST',
@@ -23,4 +27,3 @@ export const simulationApi = {
     body: JSON.stringify({ operator: 'monitor-console' })
   })
 }
-

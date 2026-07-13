@@ -19,6 +19,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 export const signalTrackApi = {
   routes: () => request<unknown[]>('/signal-track/routes'),
   routeStatus: (routeId: string) => request<Record<string, unknown>>(`/signal-track/routes/${encodeURIComponent(routeId)}/status`),
+  routeEvents: () => request<unknown[]>('/signal-track/route-events'),
   faults: () => request<string[]>('/signal-track/faults'),
   injectFault: (body: SignalTrackFaultRequest) =>
     request<unknown>('/signal-track/faults', {

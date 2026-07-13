@@ -5,6 +5,7 @@ import { useSimulation } from '../../composables/useSimulation'
 import RunPlanPanel from '../../components/dispatch/RunPlanPanel.vue'
 import StationHeadwayPanel from '../../components/dispatch/StationHeadwayPanel.vue'
 import RouteClosurePanel from '../../components/dispatch/RouteClosurePanel.vue'
+import SignalOverviewPanel from '../../components/dispatch/SignalOverviewPanel.vue'
 import type { DispatchDisturbance, DispatchRouteInfo } from '../../types/dispatch'
 import type { TrainState } from '../../types/simulation'
 
@@ -674,29 +675,50 @@ function formatDelta(current: number | null | undefined, baseline: number | null
           <span>生成 -> 下发 -> 观测执行 -> 效果确认</span>
         </div>
         <div class="demo-control-bar">
-          <label>
-            <span>临时限速 m/s</span>
-            <input v-model.number="demoSpeedLimitMps" type="number" min="1" max="22.2" step="0.5" />
-          </label>
-          <button type="button" class="demo-button" :disabled="trains.length === 0" @click="submitLoopDemoCommand">
-            发送限速闭环
-          </button>
-          <label>
-            <span>本车放慢目标间隔 s</span>
-            <input v-model.number="demoLongHeadwaySec" type="number" min="30" max="900" step="10" />
-          </label>
-          <button type="button" :disabled="trains.length === 0" @click="submitHeadwayDemo('tooShort')">
-            本车放慢
-          </button>
-          <label>
-            <span>本车追赶目标间隔 s</span>
-            <input v-model.number="demoShortHeadwaySec" type="number" min="30" max="900" step="10" />
-          </label>
-          <button type="button" :disabled="trains.length === 0" @click="submitHeadwayDemo('tooLong')">
-            本车追赶
-          </button>
+          <article class="demo-action-card primary">
+            <div>
+              <strong>临时限速闭环</strong>
+              <span>生成限速指令并持续观测执行结果</span>
+            </div>
+            <label>
+              <span>限速值 m/s</span>
+              <input v-model.number="demoSpeedLimitMps" type="number" min="1" max="22.2" step="0.5" />
+            </label>
+            <button type="button" class="demo-button" :disabled="trains.length === 0" @click="submitLoopDemoCommand">
+              发送限速闭环
+            </button>
+          </article>
+          <article class="demo-action-card">
+            <div>
+              <strong>本车放慢</strong>
+              <span>拉大与前车间隔，验证间隔过短调节</span>
+            </div>
+            <label>
+              <span>目标间隔 s</span>
+              <input v-model.number="demoLongHeadwaySec" type="number" min="30" max="900" step="10" />
+            </label>
+            <button type="button" :disabled="trains.length === 0" @click="submitHeadwayDemo('tooShort')">
+              本车放慢
+            </button>
+          </article>
+          <article class="demo-action-card">
+            <div>
+              <strong>本车追赶</strong>
+              <span>缩短与前车间隔，验证间隔过长调节</span>
+            </div>
+            <label>
+              <span>目标间隔 s</span>
+              <input v-model.number="demoShortHeadwaySec" type="number" min="30" max="900" step="10" />
+            </label>
+            <button type="button" :disabled="trains.length === 0" @click="submitHeadwayDemo('tooLong')">
+              本车追赶
+            </button>
+          </article>
         </div>
-        <p v-if="dispatch.activeCommands.length === 0" class="empty">暂无调度指令。可以启动仿真并等待停站/间隔扰动触发。</p>
+        <p v-if="dispatch.activeCommands.length === 0" class="empty command-empty">
+          <strong>暂无调度指令</strong>
+          <span>启动仿真后，可等待停站/间隔扰动触发，或直接使用上方闭环操作生成演示指令。</span>
+        </p>
         <div v-else class="command-list">
           <article v-for="command in dispatch.activeCommands" :key="command.id" class="command-card">
             <header>
@@ -837,104 +859,25 @@ function formatDelta(current: number | null | undefined, baseline: number | null
       </div>
     </section>
 
-    <section class="debug-grid three">
-      <section class="debug-panel">
-        <div class="panel-title">
-          <h2>信号 MA</h2>
-          <span>调度到车辆的中间约束</span>
-        </div>
-        <div class="compact-list">
-          <article v-for="authority in authorities" :key="authority.trainId">
-            <strong>{{ authority.trainId }}</strong>
-            <span>{{ formatNumber(authority.speedLimitMetersPerSecond) }} m/s</span>
-            <small>{{ authority.currentSegmentId }} / 到 {{ formatNumber(authority.authorityEndMeters) }}m</small>
-            <p>{{ authority.reason }}</p>
-          </article>
-          <p v-if="authorities.length === 0" class="empty">暂无 MA 数据。</p>
-        </div>
-      </section>
-
-      <section class="debug-panel">
-        <div class="panel-title">
-          <h2>进路</h2>
-          <span>道岔调度相关状态</span>
-        </div>
-        <div class="route-control-bar">
-          <select v-model="selectedRouteId" aria-label="选择进路">
-            <option value="">选择进路</option>
-            <option v-for="route in dispatchRouteList" :key="route.routeId" :value="route.routeId">
-              {{ route.routeId }} · {{ route.name }} · {{ route.status }}
-            </option>
-          </select>
-          <select v-model="selectedRouteTrainId" aria-label="选择列车">
-            <option value="">默认首列车</option>
-            <option v-for="train in trains" :key="train.id" :value="train.id">{{ train.id }}</option>
-          </select>
-          <button
-            type="button"
-            :disabled="!selectedRouteId || trains.length === 0 || routeRequestPending"
-            @click="requestSelectedRoute"
-          >
-            {{ routeRequestPending ? '提交中' : '申请进路' }}
-          </button>
-          <button type="button" class="ghost-button" @click="loadDispatchRoutes">刷新</button>
-        </div>
-        <p v-if="routeOperationMessage" class="route-operation-message">{{ routeOperationMessage }}</p>
-        <div v-if="dispatch.routeDecisions.length > 0" class="route-trace-list">
-          <article v-for="decision in dispatch.routeDecisions" :key="decision.decisionId">
-            <strong>决策 {{ decision.decisionId }}</strong>
-            <span>{{ decision.status }}</span>
-            <small>指令 {{ decision.routeCommandId }} / 进路 {{ decision.selectedRouteId }}</small>
-            <p>
-              预留 {{ routeReservationByDecision.get(decision.decisionId)?.reservationId || '-' }}
-              / {{ routeReservationByDecision.get(decision.decisionId)?.state || '等待处理' }}
-            </p>
-          </article>
-        </div>
-        <div class="compact-list">
-          <article v-for="route in routes" :key="route.routeId">
-            <strong>{{ route.routeId }}</strong>
-            <span>{{ routeStatusLabel(route.status) }}</span>
-            <small>列车 {{ route.establishedByTrainId || '-' }}</small>
-            <p>锁闭道岔 {{ route.lockedSwitchIds.length }} 个 / 轴占区段 {{ route.axleSegmentIds.length }} 个</p>
-          </article>
-          <article v-for="route in dispatchRouteList" :key="`list-${route.routeId}`">
-            <strong>{{ route.routeId }}</strong>
-            <span>{{ routeStatusLabel(route.status) }}</span>
-            <small>{{ route.fromStation }} -> {{ route.toStation }}</small>
-            <p>{{ route.type }} / {{ route.segmentIds.length }} 个区段</p>
-          </article>
-          <p v-if="routes.length === 0 && dispatchRouteList.length === 0" class="empty">暂无进路数据。</p>
-        </div>
-      </section>
-
-      <section class="debug-panel">
-        <div class="panel-title">
-          <h2>道岔与信号机</h2>
-          <span>联锁输出</span>
-        </div>
-        <div class="switch-signal-grid">
-          <div>
-            <h3>道岔</h3>
-            <article v-for="item in switches.slice(0, 8)" :key="item.id">
-              <strong>{{ item.id }}</strong>
-              <span>{{ item.position === 'NORMAL' ? '定位' : '反位' }}</span>
-              <small>{{ item.locked ? '锁闭' : '未锁闭' }} / {{ item.activeSegmentId }}</small>
-            </article>
-            <p v-if="switches.length === 0" class="empty">暂无道岔数据。</p>
-          </div>
-          <div>
-            <h3>信号机</h3>
-            <article v-for="signal in signals.slice(0, 8)" :key="signal.signalId">
-              <strong>{{ signal.signalId }}</strong>
-              <span :data-aspect="signal.aspect">{{ signalAspectLabel(signal.aspect) }}</span>
-              <small>{{ signal.segmentId }} / {{ signal.reasonTrainId || '-' }}</small>
-            </article>
-            <p v-if="signals.length === 0" class="empty">暂无信号数据。</p>
-          </div>
-        </div>
-      </section>
-    </section>
+    <SignalOverviewPanel
+      v-model:selected-route-id="selectedRouteId"
+      v-model:selected-route-train-id="selectedRouteTrainId"
+      :authorities="authorities"
+      :dispatch-route-list="dispatchRouteList"
+      :trains="trains"
+      :route-request-pending="routeRequestPending"
+      :route-operation-message="routeOperationMessage"
+      :route-decisions="dispatch.routeDecisions"
+      :route-reservations-by-decision="routeReservationByDecision"
+      :routes="routes"
+      :switches="switches"
+      :signals="signals"
+      :format-number="formatNumber"
+      :route-status-label="routeStatusLabel"
+      :signal-aspect-label="signalAspectLabel"
+      @request-route="requestSelectedRoute"
+      @refresh-routes="loadDispatchRoutes"
+    />
   </main>
 </template>
 
@@ -1030,75 +973,84 @@ button:disabled {
 
 .demo-control-bar {
   display: grid;
-  grid-template-columns: minmax(130px, 1fr) auto minmax(150px, 1fr) auto minmax(150px, 1fr) auto;
-  align-items: end;
-  gap: 8px;
+  grid-template-columns: minmax(220px, 1.2fr) repeat(2, minmax(200px, 1fr));
+  align-items: stretch;
+  gap: 10px;
   margin-bottom: 12px;
-  border: 1px solid #e2e8f0;
-  border-radius: 8px;
-  background: #f8fafc;
-  padding: 10px;
 }
 
-.demo-control-bar label {
+.demo-action-card {
+  display: grid;
+  grid-template-rows: auto auto auto;
+  gap: 10px;
+  min-width: 0;
+  border: 1px solid #dbeafe;
+  border-radius: 12px;
+  background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+  padding: 12px;
+}
+
+.demo-action-card.primary {
+  border-color: #c4b5fd;
+  background: linear-gradient(180deg, #faf5ff 0%, #ffffff 100%);
+  box-shadow: inset 3px 0 0 #7c3aed;
+}
+
+.demo-action-card > div {
   display: grid;
   gap: 4px;
-  min-width: 0;
 }
 
-.demo-control-bar label span {
+.demo-action-card strong {
+  color: #172033;
+  font-size: 14px;
+}
+
+.demo-action-card > div span,
+.demo-action-card label span {
   color: #64748b;
   font-size: 12px;
   font-weight: 700;
+  line-height: 1.4;
 }
 
-.demo-control-bar input {
+.demo-action-card label {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+
+.demo-action-card input {
   width: 100%;
-  min-height: 36px;
+  min-height: 38px;
   border: 1px solid #cbd5e1;
-  border-radius: 8px;
-  padding: 6px 10px;
+  border-radius: 9px;
+  background: #fff;
+  padding: 7px 10px;
   font: inherit;
 }
 
-.route-control-bar {
-  display: grid;
-  grid-template-columns: minmax(160px, 1.2fr) minmax(120px, 0.8fr) auto auto auto;
-  gap: 8px;
-  margin-bottom: 10px;
+.demo-action-card button {
+  width: 100%;
+  justify-content: center;
 }
 
-.route-control-bar select {
-  min-height: 36px;
-  border: 1px solid #cbd5e1;
-  border-radius: 8px;
-  padding: 6px 10px;
-  font: inherit;
-}
-
-.route-operation-message {
-  margin: 0 0 10px;
-  color: #1d4ed8;
-  font-size: 13px;
-}
-
-.route-trace-list {
-  display: grid;
-  gap: 8px;
-  margin-bottom: 10px;
-}
-
-.route-trace-list article {
+.command-empty {
   display: grid;
   gap: 4px;
-  border-left: 3px solid #2563eb;
-  background: #eff6ff;
-  padding: 8px 10px;
+  border: 1px dashed #cbd5e1;
+  border-radius: 12px;
+  background: #f8fafc;
+  padding: 14px;
 }
 
-.route-trace-list p {
-  color: #475569;
-  font-size: 12px;
+.command-empty strong {
+  color: #334155;
+  font-size: 14px;
+}
+
+.command-empty span {
+  line-height: 1.5;
 }
 
 .debug-banner,
@@ -1495,24 +1447,6 @@ th {
   font-weight: 700;
 }
 
-.switch-signal-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 12px;
-}
-
-.switch-signal-grid h3 {
-  margin-bottom: 8px;
-  font-size: 14px;
-}
-
-.switch-signal-grid article {
-  display: grid;
-  gap: 4px;
-  border-bottom: 1px solid #eef2f7;
-  padding: 7px 0;
-}
-
 .empty {
   font-size: 13px;
 }
@@ -1536,10 +1470,13 @@ th {
   }
 
   .command-card dl,
-  .switch-signal-grid,
-  .demo-control-bar,
-  .route-control-bar {
+  .demo-control-bar {
+    grid-template-columns: 1fr;
+  }
+
+  .demo-action-card {
     grid-template-columns: 1fr;
   }
 }
+
 </style>

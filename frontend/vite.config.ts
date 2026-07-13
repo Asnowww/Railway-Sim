@@ -8,11 +8,11 @@ export default defineConfig({
     port: 5500,
     proxy: {
       '/api': {
-        target: process.env.VITE_BACKEND_TARGET ?? 'http://localhost:8080',
+        target: process.env.VITE_BACKEND_TARGET ?? 'http://localhost:18080',
         changeOrigin: true
       },
       '/ws': {
-        target: process.env.VITE_WS_TARGET ?? 'ws://localhost:8080',
+        target: process.env.VITE_WS_TARGET ?? 'ws://localhost:18080',
         ws: true
       }
     }
