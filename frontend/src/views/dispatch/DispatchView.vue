@@ -112,10 +112,35 @@ const regulationLabel = (action: string) => {
   const labels: Record<string, string> = {
     CATCH_UP: '追赶',
     SLOW_DOWN: '放慢',
+    EXTEND_DWELL: '延长停站',
+    SHORTEN_DWELL: '缩短停站',
     NORMAL: '正常',
     OBSERVE: '观察'
   }
   return labels[action] ?? action
+}
+
+const lineRegulationStatusLabel = (status: string) => {
+  const labels: Record<string, string> = {
+    GENERATED: '已生成',
+    ACTIVE: '执行中',
+    OBSERVE: '观察',
+    NO_ACTION: '无需动作',
+    EMPTY: '无方案'
+  }
+  return labels[status] ?? status
+}
+
+const signalConstraintLabel = (constraint: string | null | undefined) => {
+  const labels: Record<string, string> = {
+    NONE: '无约束',
+    MA_LIMITED: 'MA受限',
+    ROUTE_BLOCKED: '进路受阻',
+    SPEED_LIMITED: '限速受限',
+    COMMAND_ACTIVE: '已有命令',
+    ADJACENT_ACTION_CONFLICT: '相邻动作冲突'
+  }
+  return constraint ? labels[constraint] ?? constraint : '无约束'
 }
 
 const headwayStateLabel = (state: string) => {
@@ -150,6 +175,9 @@ const formatOffset = (seconds: number | null | undefined) => {
 
 const formatNumber = (value: number | null | undefined, digits = 0) =>
   value === null || value === undefined || Number.isNaN(value) ? '-' : value.toFixed(digits)
+
+const formatPercent = (value: number | null | undefined) =>
+  value === null || value === undefined || Number.isNaN(value) ? '-' : `${Math.round(value * 100)}%`
 
 const firstStop = (service: TrainServicePlan) => service.stops[0] ?? null
 const lastStop = (service: TrainServicePlan) => service.stops[service.stops.length - 1] ?? null
@@ -229,9 +257,138 @@ const confirmedCommandCount = computed(() =>
   props.dispatch.activeCommands.filter((command) => ['APPLIED', 'EFFECT_CONFIRMED', 'RELEASED'].includes(command.status)).length
 )
 
+const effectConfirmedCommandCount = computed(() =>
+  props.dispatch.activeCommands.filter((command) => command.status === 'EFFECT_CONFIRMED').length
+)
+
+const executingCommandCount = computed(() =>
+  props.dispatch.activeCommands.filter((command) => ['PENDING', 'SENT', 'APPLIED'].includes(command.status)).length
+)
+
+const failedCommandCount = computed(() =>
+  props.dispatch.activeCommands.filter((command) => ['TIMEOUT', 'SKIPPED'].includes(command.status)).length
+)
+
 const routeEvidenceCount = computed(() =>
   props.dispatch.routeReservations.filter((reservation) => ['ACCEPTED', 'LOCKED', 'ACTIVE', 'RELEASED'].includes(reservation.state)).length
 )
+
+const routeAcceptedCount = computed(() =>
+  props.dispatch.routeReservations.filter((reservation) => ['ACCEPTED', 'LOCKED', 'ACTIVE', 'RELEASED'].includes(reservation.state)).length
+)
+
+const routeRejectedCount = computed(() =>
+  props.dispatch.routeReservations.filter((reservation) => ['REJECTED', 'TIMEOUT'].includes(reservation.state)).length
+)
+
+const routeAcceptanceRate = computed(() => {
+  const total = props.dispatch.routeReservations.length
+  return total ? routeAcceptedCount.value / total : null
+})
+
+const headwayToleranceSeconds = computed(() =>
+  Math.max(5, Math.round((props.dispatch.targetHeadwaySeconds || 300) * 0.1))
+)
+
+const profileDeviation = (profile: { headwayErrorSeconds?: number | null; headwayDeviationSeconds?: number | null }) => {
+  const value = profile.headwayErrorSeconds ?? profile.headwayDeviationSeconds
+  return Number.isFinite(value) ? Number(value) : null
+}
+
+const profilesWithDeviation = computed(() =>
+  props.dispatch.trainProfiles
+    .map((profile) => ({
+      profile,
+      deviation: profileDeviation(profile)
+    }))
+    .filter((item): item is { profile: typeof props.dispatch.trainProfiles[number]; deviation: number } =>
+      item.deviation !== null
+    )
+)
+
+const maxAbsHeadwayDeviation = computed(() => {
+  const values = profilesWithDeviation.value.map((item) => Math.abs(item.deviation))
+  return values.length ? Math.max(...values) : null
+})
+
+const withinToleranceCount = computed(() =>
+  profilesWithDeviation.value.filter((item) => Math.abs(item.deviation) <= headwayToleranceSeconds.value).length
+)
+
+const maxDepartureDelaySeconds = computed(() => {
+  const values = props.dispatch.trainProfiles
+    .map((profile) => Math.abs(profile.departureDelaySeconds ?? 0))
+    .filter((value) => Number.isFinite(value))
+  return values.length ? Math.max(...values) : null
+})
+
+const commandConfirmationRate = computed(() => {
+  const total = props.dispatch.activeCommands.length
+  return total ? effectConfirmedCommandCount.value / total : null
+})
+
+const linePlan = computed(() => props.dispatch.lineRegulationPlan)
+
+const expectedHeadwayImprovement = computed(() => {
+  const current = linePlan.value?.currentMaxAbsHeadwayErrorSec
+  const predicted = linePlan.value?.predictedMaxAbsHeadwayErrorSec
+  if (current === null || current === undefined || predicted === null || predicted === undefined) return null
+  return Math.max(0, current - predicted)
+})
+
+const expectedImprovementPercent = computed(() => {
+  const current = linePlan.value?.currentMaxAbsHeadwayErrorSec
+  const improvement = expectedHeadwayImprovement.value
+  if (!current || improvement === null) return null
+  return improvement / current
+})
+
+const regulationDecisionByTrain = computed(() => {
+  const entries = linePlan.value?.decisions?.map((decision) => [decision.regulatedTrainId || decision.trainId, decision] as const) ?? []
+  return new Map(entries)
+})
+
+const assessmentRows = computed(() =>
+  props.dispatch.trainProfiles
+    .map((profile) => {
+      const trainId = profile.regulatedTrainId || profile.trainId
+      const deviation = profileDeviation(profile)
+      const decision = regulationDecisionByTrain.value.get(trainId) ?? null
+      const commands = commandByTrain.value.get(trainId) ?? []
+      const latestCommand = commands[0] ?? null
+      const predictedDeviation = decision?.predictedHeadwayErrorSec ?? null
+      const expectedImprovement = deviation !== null && predictedDeviation !== null
+        ? Math.max(0, Math.abs(deviation) - Math.abs(predictedDeviation))
+        : null
+      return {
+        trainId,
+        frontTrainId: profile.frontTrainId,
+        actual: profile.headwayActualSeconds,
+        target: props.dispatch.targetHeadwaySeconds,
+        deviation,
+        predictedDeviation,
+        expectedImprovement,
+        state: profile.headwayState,
+        action: decision?.action ?? profile.regulationAction,
+        signalConstraint: decision?.signalConstraint ?? 'NONE',
+        reason: decision?.reason ?? profile.regulationReason,
+        command: latestCommand
+      }
+    })
+    .sort((left, right) => Math.abs(right.deviation ?? 0) - Math.abs(left.deviation ?? 0))
+    .slice(0, 6)
+)
+
+const assessmentConclusion = computed(() => {
+  if (props.dispatch.trainProfiles.length === 0) return '暂无列车间隔观测，等待仿真快照。'
+  if (failedCommandCount.value > 0) return '存在超时或跳过命令，需优先检查命令执行链路。'
+  if ((maxAbsHeadwayDeviation.value ?? 0) <= headwayToleranceSeconds.value) return '当前列车间隔处于目标容差内，可保持观察。'
+  if ((expectedHeadwayImprovement.value ?? 0) > 0) {
+    return `线路级方案预计将最大偏差改善 ${formatSeconds(expectedHeadwayImprovement.value)}。`
+  }
+  if (executingCommandCount.value > 0) return '已有调度命令执行中，等待下一轮效果确认。'
+  return '存在间隔偏差，但当前未形成有效调度动作。'
+})
 
 const attentionRows = computed(() => {
   const disturbances = props.dispatch.openDisturbances.slice(0, 4).map((item) => ({
@@ -261,14 +418,17 @@ const effectRows = computed(() =>
     const trainId = profile.regulatedTrainId || profile.trainId
     const commands = commandByTrain.value.get(trainId) ?? []
     const latestCommand = commands[0] ?? null
+    const decision = regulationDecisionByTrain.value.get(trainId) ?? null
     return {
       trainId,
       frontTrainId: profile.frontTrainId,
       actual: profile.headwayActualSeconds,
       target: props.dispatch.targetHeadwaySeconds,
       remainingDeviation: profile.headwayErrorSeconds ?? profile.headwayDeviationSeconds,
+      predictedDeviation: decision?.predictedHeadwayErrorSec ?? null,
       state: profile.headwayState,
-      action: profile.regulationAction,
+      action: decision?.action ?? profile.regulationAction,
+      signalConstraint: decision?.signalConstraint ?? 'NONE',
       reason: profile.regulationReason,
       command: latestCommand
     }
@@ -563,7 +723,81 @@ async function publishSignalPlan() {
       <p v-else class="empty">暂无时刻表数据</p>
     </section>
 
-    <section class="workspace-grid lower-grid">
+    <section class="workspace-grid evaluation-grid">
+      <section class="panel assessment-panel">
+        <header>
+          <div>
+            <h2>调度效果评估</h2>
+            <p>用间隔偏差、预计改善和命令确认率判断本轮调度作用</p>
+          </div>
+          <span class="pill">{{ lineRegulationStatusLabel(linePlan.status) }}</span>
+        </header>
+
+        <div class="assessment-summary">
+          <article>
+            <span>最大间隔偏差</span>
+            <strong>{{ formatSeconds(maxAbsHeadwayDeviation) }}</strong>
+            <small>容差 ±{{ formatSeconds(headwayToleranceSeconds) }}</small>
+          </article>
+          <article>
+            <span>容差内列车</span>
+            <strong>{{ withinToleranceCount }}/{{ profilesWithDeviation.length }}</strong>
+            <small>最大发车偏差 {{ formatSeconds(maxDepartureDelaySeconds) }}</small>
+          </article>
+          <article>
+            <span>预计改善</span>
+            <strong>{{ formatSeconds(expectedHeadwayImprovement) }}</strong>
+            <small>{{ formatPercent(expectedImprovementPercent) }} · 预计最大偏差 {{ formatSeconds(linePlan.predictedMaxAbsHeadwayErrorSec) }}</small>
+          </article>
+          <article>
+            <span>命令确认率</span>
+            <strong>{{ formatPercent(commandConfirmationRate) }}</strong>
+            <small>确认 {{ effectConfirmedCommandCount }} · 执行 {{ executingCommandCount }} · 异常 {{ failedCommandCount }}</small>
+          </article>
+          <article>
+            <span>进路接受率</span>
+            <strong>{{ formatPercent(routeAcceptanceRate) }}</strong>
+            <small>接受 {{ routeAcceptedCount }} · 拒绝 {{ routeRejectedCount }}</small>
+          </article>
+        </div>
+
+        <div class="assessment-conclusion">{{ assessmentConclusion }}</div>
+
+        <div v-if="assessmentRows.length" class="assessment-table">
+          <table>
+            <thead>
+              <tr>
+                <th>列车</th>
+                <th>参考前车</th>
+                <th>实际/目标</th>
+                <th>当前偏差</th>
+                <th>预计偏差</th>
+                <th>预计改善</th>
+                <th>动作</th>
+                <th>命令状态</th>
+                <th>约束</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="row in assessmentRows" :key="row.trainId">
+                <td>{{ row.trainId }}</td>
+                <td>{{ row.frontTrainId ?? '-' }}</td>
+                <td>{{ formatSeconds(row.actual) }} / {{ formatSeconds(row.target) }}</td>
+                <td :data-risk="Math.abs(row.deviation ?? 0) > headwayToleranceSeconds">
+                  {{ formatSeconds(row.deviation) }}
+                </td>
+                <td>{{ formatSeconds(row.predictedDeviation) }}</td>
+                <td>{{ formatSeconds(row.expectedImprovement) }}</td>
+                <td>{{ regulationLabel(row.action) }}</td>
+                <td>{{ row.command ? `${commandLabel(row.command.commandType)} / ${commandStatusLabel(row.command.status)}` : '未下发' }}</td>
+                <td>{{ signalConstraintLabel(row.signalConstraint) }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <p v-else class="empty">暂无可评估的列车间隔数据</p>
+      </section>
+
       <section class="panel effect-panel">
         <header>
           <div>
@@ -591,8 +825,16 @@ async function publishSignalPlan() {
                 <dd>{{ formatSeconds(item.remainingDeviation) }}</dd>
               </div>
               <div>
+                <dt>预计偏差</dt>
+                <dd>{{ formatSeconds(item.predictedDeviation) }}</dd>
+              </div>
+              <div>
                 <dt>策略</dt>
                 <dd>{{ regulationLabel(item.action) }}</dd>
+              </div>
+              <div>
+                <dt>信号约束</dt>
+                <dd>{{ signalConstraintLabel(item.signalConstraint) }}</dd>
               </div>
             </dl>
             <p>
@@ -605,7 +847,9 @@ async function publishSignalPlan() {
         </div>
         <p v-else class="empty">暂无可评估的调度效果</p>
       </section>
+    </section>
 
+    <section class="workspace-grid lower-grid">
       <section class="panel signal-panel">
         <header>
           <div>
@@ -728,6 +972,8 @@ async function publishSignalPlan() {
 header p,
 .line-node span,
 .line-node small,
+.assessment-summary span,
+.assessment-summary small,
 .effect-list dt,
 .effect-list p,
 .signal-list small,
@@ -748,6 +994,11 @@ header p,
 
 .lower-grid {
   grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.evaluation-grid {
+  grid-template-columns: minmax(0, 1.45fr) minmax(360px, 0.55fr);
+  align-items: start;
 }
 
 .panel {
@@ -967,6 +1218,64 @@ header p {
   grid-column: 1 / -1;
 }
 
+.assessment-panel {
+  display: grid;
+  gap: 12px;
+}
+
+.assessment-summary {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.assessment-summary article {
+  display: grid;
+  gap: 6px;
+  min-height: 94px;
+  border: 1px solid #e5edf5;
+  border-radius: 8px;
+  padding: 10px;
+  background: #f7f9fc;
+}
+
+.assessment-summary strong {
+  font-size: 22px;
+  line-height: 1;
+}
+
+.assessment-summary small {
+  line-height: 1.35;
+}
+
+.assessment-conclusion {
+  border: 1px solid #c9daf8;
+  border-radius: 8px;
+  background: #eef5ff;
+  color: #1c4e93;
+  padding: 10px 12px;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.assessment-table {
+  overflow-x: auto;
+}
+
+.assessment-table table {
+  min-width: 980px;
+}
+
+.assessment-table td[data-risk='true'] {
+  color: #b42318;
+  font-weight: 800;
+}
+
+.assessment-table td[data-risk='false'] {
+  color: #08704f;
+  font-weight: 700;
+}
+
 .table-wrap {
   overflow-x: auto;
 }
@@ -1021,7 +1330,7 @@ th {
 
 dl {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
   margin: 10px 0 0;
 }
@@ -1065,10 +1374,15 @@ dd {
 @media (max-width: 1100px) {
   .kpi-strip,
   .workspace-grid,
+  .evaluation-grid,
   .lower-grid,
   .demo-controls,
   .demo-actions {
     grid-template-columns: 1fr;
+  }
+
+  .assessment-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
@@ -1087,6 +1401,10 @@ dd {
 
   dl {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .assessment-summary {
+    grid-template-columns: 1fr;
   }
 }
 </style>
