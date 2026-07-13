@@ -1286,7 +1286,8 @@ public class DispatchService {
 
         List<SignalDispatchPlanPublication.Entry> entries = new ArrayList<>();
         for (TrainServicePlan service : planLoader.services()) {
-            entries.add(publicationEntryFromService(service, signalRoutes.get("R_MAIN")));
+            String routeId = routeIdForService(service, signalRoutes);
+            entries.add(publicationEntryFromService(service, routeId, signalRoutes.get(routeId)));
         }
         for (OperationPlan plan : operationPlanningService.list(simulationRunId)) {
             if (!"CANCELLED".equals(plan.status())) {
@@ -1316,8 +1317,10 @@ public class DispatchService {
 
     private SignalDispatchPlanPublication.Entry publicationEntryFromService(
         TrainServicePlan service,
+        String routeId,
         DispatchRouteCandidate route
     ) {
+        String resolvedRouteId = routeId == null || routeId.isBlank() ? "R_MAIN" : routeId;
         PlannedStop origin = service.origin();
         PlannedStop terminus = service.terminus();
         List<String> stationIds = service.stops().stream()
@@ -1331,7 +1334,7 @@ public class DispatchService {
             : simulationStart.plusSeconds(origin.departureOffsetSec());
         String rejectReason = null;
         if (route == null) {
-            rejectReason = "routeId R_MAIN is not provided by signal route catalog";
+            rejectReason = "routeId " + resolvedRouteId + " is not provided by signal route catalog";
         } else if (origin == null) {
             rejectReason = "service has no origin stop";
         }
@@ -1340,7 +1343,7 @@ public class DispatchService {
             "SERVICE_PLAN",
             service.serviceId(),
             service.trainId(),
-            "R_MAIN",
+            resolvedRouteId,
             route == null ? "主线" : route.name(),
             service.direction(),
             origin == null ? null : origin.stationId(),
@@ -1352,6 +1355,29 @@ public class DispatchService {
             rejectReason == null ? "ACCEPTED" : "REJECTED",
             rejectReason
         );
+    }
+
+    private String routeIdForService(TrainServicePlan service, Map<String, DispatchRouteCandidate> signalRoutes) {
+        String direction = service == null || service.direction() == null
+            ? ""
+            : service.direction().trim().toUpperCase(java.util.Locale.ROOT);
+        if ("UP".equals(direction) && signalRoutes.containsKey("R_UP")) {
+            return "R_UP";
+        }
+        if ("DOWN".equals(direction) && signalRoutes.containsKey("R_DOWN")) {
+            return "R_DOWN";
+        }
+        if (signalRoutes.containsKey("R_UP")) {
+            return "R_UP";
+        }
+        if (signalRoutes.containsKey("R_MAIN")) {
+            return "R_MAIN";
+        }
+        return signalRoutes.values().stream()
+            .filter(DispatchRouteCandidate::mainline)
+            .map(DispatchRouteCandidate::routeId)
+            .findFirst()
+            .orElse("R_MAIN");
     }
 
     private SignalDispatchPlanPublication.Entry publicationEntryFromOperationPlan(

@@ -70,7 +70,7 @@ class TrainRunMonitorTests {
         monitor.reset(simulationStart);
 
         monitor.update("RUN-1", simulationStart, plan, List.of(
-            trainState("TR-001", 0, 0, "DWELLING", "S01", 10, null)
+            trainState("TR-001", 0, 0, "DWELLING", "S101", 10, null)
         ));
         List<TrainRunProfile> profiles = monitor.update("RUN-1", simulationStart.plusSeconds(60), plan, List.of(
             trainState("TR-001", 10, 4, "RUNNING", null, 0, simulationStart.plusSeconds(60).toString())

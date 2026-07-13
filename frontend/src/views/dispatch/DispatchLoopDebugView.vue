@@ -106,40 +106,53 @@ interface RoutePlannerCandidate {
 }
 
 const dispatchLineNodes: DispatchLineNode[] = [
-  { id: 'SHN', label: '上京南站', type: 'station', x: 8, y: 54, stationId: 'S01' },
-  { id: 'TECH', label: '科创园站', type: 'station', x: 24, y: 54, stationId: 'S02' },
-  { id: 'RENMIN', label: '中央公园站', type: 'station', x: 42, y: 54, stationId: 'S03' },
-  { id: 'FIN', label: '北城站', type: 'station', x: 58, y: 50, stationId: 'S04' },
-  { id: 'EXPO', label: '会展中心', type: 'station', x: 76, y: 54, stationId: 'S05' },
-  { id: 'AIR', label: '上京北站', type: 'station', x: 92, y: 54, stationId: 'S06' },
-  { id: 'DEPOT_A', label: '车辆段', type: 'depot', x: 12, y: 32 },
-  { id: 'DEPOT_B', label: '试车线', type: 'depot', x: 7, y: 22 },
-  { id: 'TECH_N', label: '科技园北岔', type: 'switch', x: 24, y: 32 },
-  { id: 'RENMIN_N', label: '广场北岔', type: 'switch', x: 42, y: 30 },
-  { id: 'FIN_N', label: '金融城北岔', type: 'switch', x: 58, y: 29 },
-  { id: 'EXPO_N', label: '会展北联络', type: 'junction', x: 76, y: 32 },
-  { id: 'LOOP_W', label: '折返线西', type: 'switch', x: 42, y: 78 },
-  { id: 'LOOP_E', label: '折返线东', type: 'switch', x: 58, y: 78 },
-  { id: 'BRANCH', label: '支线口', type: 'switch', x: 68, y: 70 },
+  { id: 'U_START', label: '上行起点', type: 'junction', x: 4, y: 58 },
+  { id: 'S101', label: '郭公庄站', type: 'station', x: 7, y: 58, stationId: 'S101' },
+  { id: 'S102', label: '丰台科技园站', type: 'station', x: 14, y: 58, stationId: 'S102' },
+  { id: 'S103', label: '科怡路站', type: 'station', x: 21, y: 58, stationId: 'S103' },
+  { id: 'S104', label: '丰台南路站', type: 'station', x: 28, y: 58, stationId: 'S104' },
+  { id: 'S105', label: '丰台东大街站', type: 'station', x: 35, y: 58, stationId: 'S105' },
+  { id: 'S106', label: '七里庄站', type: 'station', x: 42, y: 58, stationId: 'S106' },
+  { id: 'S107', label: '六里桥站', type: 'station', x: 49, y: 58, stationId: 'S107' },
+  { id: 'S108', label: '六里桥东站', type: 'station', x: 56, y: 58, stationId: 'S108' },
+  { id: 'S109', label: '北京西站', type: 'station', x: 63, y: 58, stationId: 'S109' },
+  { id: 'S110', label: '军事博物馆站', type: 'station', x: 70, y: 58, stationId: 'S110' },
+  { id: 'S111', label: '白堆子站', type: 'station', x: 77, y: 58, stationId: 'S111' },
+  { id: 'S112', label: '白石桥南站', type: 'station', x: 84, y: 58, stationId: 'S112' },
+  { id: 'S113', label: '国家图书馆站', type: 'station', x: 91, y: 58, stationId: 'S113' },
+  { id: 'D_START', label: '下行起点', type: 'junction', x: 96, y: 58 },
+  { id: 'TB_GGZ', label: '郭公庄折返', type: 'switch', x: 7, y: 74 },
+  { id: 'TB_LIB', label: '国图折返', type: 'switch', x: 91, y: 42 },
 ]
 
 const dispatchLineEdges: DispatchLineEdge[] = [
-  { id: 'E01', source: 'SHN', target: 'TECH', segmentId: 'T01', label: '20 Seg' },
-  { id: 'E02', source: 'TECH', target: 'RENMIN', segmentId: 'T02', label: '20 Seg' },
-  { id: 'E03', source: 'RENMIN', target: 'FIN', segmentId: 'T03', label: '20 Seg' },
-  { id: 'E04', source: 'FIN', target: 'EXPO', segmentId: 'T04', label: '20 Seg' },
-  { id: 'E05', source: 'EXPO', target: 'AIR', segmentId: 'T05', label: '20 Seg' },
-  { id: 'E06', source: 'DEPOT_B', target: 'DEPOT_A', segmentId: 'T11', label: '7 Seg' },
-  { id: 'E07', source: 'DEPOT_A', target: 'TECH', segmentId: 'T12', label: '13 Seg' },
-  { id: 'E08', source: 'TECH', target: 'TECH_N', segmentId: 'T06', label: '3 Seg' },
-  { id: 'E09', source: 'TECH_N', target: 'RENMIN_N', segmentId: 'T07', label: '16 Seg' },
-  { id: 'E10', source: 'RENMIN_N', target: 'FIN_N', segmentId: 'T08', label: '17 Seg' },
-  { id: 'E11', source: 'FIN_N', target: 'EXPO_N', segmentId: 'T09', label: '19 Seg' },
-  { id: 'E12', source: 'EXPO_N', target: 'EXPO', segmentId: 'T10', label: '6 Seg' },
-  { id: 'E13', source: 'RENMIN', target: 'LOOP_W', segmentId: 'T13', label: '8 Seg' },
-  { id: 'E14', source: 'LOOP_W', target: 'LOOP_E', segmentId: 'T14', label: '8 Seg' },
-  { id: 'E15', source: 'LOOP_E', target: 'FIN', segmentId: 'T15', label: '3 Seg' },
-  { id: 'E16', source: 'LOOP_E', target: 'BRANCH', segmentId: 'T16', label: '12 Seg' },
+  { id: 'EU02', source: 'U_START', target: 'S101', segmentId: 'U02', label: 'U02' },
+  { id: 'EU10', source: 'S101', target: 'S102', segmentId: 'U10', label: 'U10' },
+  { id: 'EU13', source: 'S102', target: 'S103', segmentId: 'U13', label: 'U13' },
+  { id: 'EU16', source: 'S103', target: 'S104', segmentId: 'U16', label: 'U16' },
+  { id: 'EU19', source: 'S104', target: 'S105', segmentId: 'U19', label: 'U19' },
+  { id: 'EU20', source: 'S105', target: 'S106', segmentId: 'U20', label: 'U20' },
+  { id: 'EU23', source: 'S106', target: 'S107', segmentId: 'U23', label: 'U23' },
+  { id: 'EU27', source: 'S107', target: 'S108', segmentId: 'U27', label: 'U27' },
+  { id: 'EU34', source: 'S108', target: 'S109', segmentId: 'U34', label: 'U34' },
+  { id: 'EU38', source: 'S109', target: 'S110', segmentId: 'U38', label: 'U38' },
+  { id: 'EU42', source: 'S110', target: 'S111', segmentId: 'U42', label: 'U42' },
+  { id: 'EU46', source: 'S111', target: 'S112', segmentId: 'U46', label: 'U46' },
+  { id: 'EU48', source: 'S112', target: 'S113', segmentId: 'U48', label: 'U48' },
+  { id: 'ED47', source: 'D_START', target: 'S113', segmentId: 'D47', label: 'D47' },
+  { id: 'ED43', source: 'S113', target: 'S112', segmentId: 'D43', label: 'D43' },
+  { id: 'ED36', source: 'S112', target: 'S111', segmentId: 'D36', label: 'D36' },
+  { id: 'ED28', source: 'S111', target: 'S110', segmentId: 'D28', label: 'D28' },
+  { id: 'ED24', source: 'S110', target: 'S109', segmentId: 'D24', label: 'D24' },
+  { id: 'ED21', source: 'S109', target: 'S108', segmentId: 'D21', label: 'D21' },
+  { id: 'ED17', source: 'S108', target: 'S107', segmentId: 'D17', label: 'D17' },
+  { id: 'ED14', source: 'S107', target: 'S106', segmentId: 'D14', label: 'D14' },
+  { id: 'ED11', source: 'S106', target: 'S105', segmentId: 'D11', label: 'D11' },
+  { id: 'ED07', source: 'S105', target: 'S104', segmentId: 'D07', label: 'D07' },
+  { id: 'ED04', source: 'S104', target: 'S103', segmentId: 'D04', label: 'D04' },
+  { id: 'ED03', source: 'S103', target: 'S102', segmentId: 'D03', label: 'D03' },
+  { id: 'EXGGZ', source: 'S101', target: 'U_START', segmentId: 'XGGZ', label: 'XGGZ' },
+  { id: 'EXLIB', source: 'S113', target: 'D_START', segmentId: 'XLIB', label: 'XLIB' },
 ]
 
 const routePlannerOpen = ref(false)
@@ -237,10 +250,8 @@ const selectedOperationPlan = computed(() =>
 const generatedOperationPlans = computed<OperationPlanView[]>(() => dispatch.value.operationPlans ?? [])
 const routePlannerCandidates = computed(() => {
   return operationRouteTemplates.value
-    .flatMap((template) => [
-      routeTemplateCandidate(template, 'UP'),
-      routeTemplateCandidate(template, 'DOWN')
-    ])
+    .flatMap((template) => routeTemplateDirections(template.routeId)
+      .map((direction) => routeTemplateCandidate(template, direction)))
     .filter((candidate): candidate is RoutePlannerCandidate => candidate !== null)
 })
 const selectedRoutePlannerCandidate = computed(() => {
@@ -982,12 +993,13 @@ function routeTemplateCandidate(
   template: OperationRouteTemplate,
   direction: 'UP' | 'DOWN'
 ): RoutePlannerCandidate | null {
-  const pointIds = direction === 'UP' ? template.pointIds : [...template.pointIds].reverse()
+  const directedTemplate = isDirectedSignalRoute(template.routeId)
+  const pointIds = direction === 'UP' || directedTemplate ? template.pointIds : [...template.pointIds].reverse()
   const nodeIds = pointIds
     .map(pointIdToNodeId)
     .filter((nodeId): nodeId is string => Boolean(nodeId))
   if (pointIds.length < 2 || nodeIds.length < 2) return null
-  const segmentIds = direction === 'UP' ? template.segmentIds : [...template.segmentIds].reverse()
+  const segmentIds = direction === 'UP' || directedTemplate ? template.segmentIds : [...template.segmentIds].reverse()
 
   return {
     key: `${template.routeId}:${direction}`,
@@ -1001,6 +1013,19 @@ function routeTemplateCandidate(
       .filter((stationId): stationId is string => Boolean(stationId)),
     segmentIds
   }
+}
+
+function routeTemplateDirections(routeId: string): Array<'UP' | 'DOWN'> {
+  if (routeId === 'R_UP' || routeId === 'R_TB_LIB' || routeId === 'R_TB_GGZ') return ['UP']
+  if (routeId === 'R_DOWN') return ['DOWN']
+  return ['UP', 'DOWN']
+}
+
+function isDirectedSignalRoute(routeId: string) {
+  return routeId === 'R_UP'
+    || routeId === 'R_DOWN'
+    || routeId === 'R_TB_LIB'
+    || routeId === 'R_TB_GGZ'
 }
 
 function handleDispatchLineNodeClick(node: DispatchLineNode) {
