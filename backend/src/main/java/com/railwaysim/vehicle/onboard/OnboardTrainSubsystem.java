@@ -18,6 +18,8 @@ import com.railwaysim.vehicle.control.VehicleControlArbiter;
 import com.railwaysim.vehicle.control.VehicleOperationMode;
 import java.util.Optional;
 
+/** @deprecated LOCAL mode only. Replaced by 9300's VehicleControlQueue.decideDynamicsState(). */
+@Deprecated(forRemoval=true, since="2.0")
 class OnboardTrainSubsystem {
 
     private static final double DEFAULT_ADHESION = 0.9;

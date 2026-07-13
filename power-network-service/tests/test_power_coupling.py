@@ -34,6 +34,7 @@ class PowerCouplingTests(unittest.TestCase):
         self.assertEqual(1, response["tick"])
         self.assertEqual("run-test", response["simulationRunId"])
         self.assertEqual(1, response["lastAcceptedTick"])
+        self.assertEqual(1, response["acceptedStepCount"])
         self.assertEqual("POWER_NETWORK_V1", response["modelVersion"])
         self.assertEqual("POWER_NETWORK_PARAMS_V1", response["parameterVersion"])
         self.assertRegex(response["topologyHash"], r"^[0-9a-f]{64}$")
@@ -153,12 +154,68 @@ class PowerCouplingTests(unittest.TestCase):
         self.assertEqual(0, response["powerConstraints"][0]["regenPowerAvailableWatts"])
         self.assertFalse(response["powerConstraints"][0]["regenAvailable"])
 
+    def test_authoritative_section_fault_drives_constraints_and_clear_restores_supply(self) -> None:
+        position = [{"trainId": "TR-A", "positionMeters": 200.0}]
+
+        injected = self.model.operate({
+            "operationType": "INJECT_FAULT",
+            "targetType": "POWER_SECTION",
+            "targetId": "P01",
+            "desiredState": "DEENERGIZED",
+            "traceId": "fault-inject",
+        })
+        unavailable = self.model.constraints_for_positions(position)[0]
+
+        self.assertTrue(injected["executed"])
+        self.assertFalse(unavailable["energized"])
+        self.assertEqual(0.0, unavailable["powerAvailableWatts"])
+        self.assertEqual("DEENERGIZED", unavailable["constraintReason"])
+
+        cleared = self.model.operate({
+            "operationType": "CLEAR_FAULT",
+            "targetType": "POWER_SECTION",
+            "targetId": "P01",
+            "desiredState": "NORMAL",
+            "traceId": "fault-clear",
+        })
+        restored = self.model.constraints_for_positions(position)[0]
+        self.assertTrue(cleared["executed"])
+        self.assertTrue(restored["energized"])
+        self.assertEqual("NORMAL", restored["constraintReason"])
+
+    def test_authoritative_derating_faults_remain_energized_but_limit_traction(self) -> None:
+        position = [{"trainId": "TR-A", "positionMeters": 200.0}]
+        normal = self.model.constraints_for_positions(position)[0]
+
+        self.model.operate({
+            "operationType": "INJECT_FAULT",
+            "targetType": "POWER_SECTION",
+            "targetId": "P01",
+            "desiredState": "UNDERVOLTAGE",
+        })
+        undervoltage = self.model.constraints_for_positions(position)[0]
+        self.assertTrue(undervoltage["energized"])
+        self.assertEqual("UNDERVOLTAGE", undervoltage["constraintReason"])
+        self.assertLess(undervoltage["powerAvailableWatts"], normal["powerAvailableWatts"])
+
+        self.model.operate({
+            "operationType": "INJECT_FAULT",
+            "targetType": "POWER_SECTION",
+            "targetId": "P01",
+            "desiredState": "OVERCURRENT",
+        })
+        overcurrent = self.model.constraints_for_positions(position)[0]
+        self.assertTrue(overcurrent["energized"])
+        self.assertEqual("OVERCURRENT", overcurrent["constraintReason"])
+        self.assertEqual(0.25, overcurrent["powerDeratingFactor"])
+
     def test_duplicate_tick_is_idempotent_and_backward_tick_is_rejected(self) -> None:
         positions = [{"trainId": "TR-A", "positionMeters": 200.0}]
         first = self.model.step("run-test", 2, load_payload("P01", ["TR-A"], 600_000, 0, 400), positions)
         duplicate = self.model.step("run-test", 2, load_payload("P01", ["TR-A"], 2_000_000, 0, 1300), positions)
 
         self.assertEqual(first, duplicate)
+        self.assertEqual(1, duplicate["acceptedStepCount"])
         with self.assertRaisesRegex(ValueError, "POWER_TICK_OUT_OF_ORDER"):
             self.model.step("run-test", 1, load_payload("P01", ["TR-A"], 0, 0, 0), positions)
 
@@ -172,6 +229,7 @@ class PowerCouplingTests(unittest.TestCase):
         first = self.model.step("run-new", 1, load_payload("P01", ["TR-A"], 0, 0, 0), positions)
         self.assertEqual("run-new", first["simulationRunId"])
         self.assertEqual(1, first["tick"])
+        self.assertEqual(2, first["acceptedStepCount"])
 
     def test_invalid_and_gap_positions_return_unknown_safe_constraint(self) -> None:
         gap_payload = two_section_payload()

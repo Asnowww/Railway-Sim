@@ -7,6 +7,8 @@ import java.time.Instant;
  * <p>
  * 仲裁器收集所有候选，按优先级选择生效的一个。
  */
+/** @deprecated LOCAL mode only. */
+@Deprecated(forRemoval=true, since="2.0")
 public record VehicleControlCandidate(
     String candidateId,
     String trainId,

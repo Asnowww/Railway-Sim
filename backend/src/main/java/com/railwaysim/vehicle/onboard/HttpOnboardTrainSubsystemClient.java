@@ -10,6 +10,8 @@ import org.springframework.http.MediaType;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.web.client.RestClient;
 
+/** @deprecated LOCAL mode only. */
+@Deprecated(forRemoval=true, since="2.0")
 class HttpOnboardTrainSubsystemClient implements OnboardTrainSubsystemClient {
 
     private final RestClient restClient;

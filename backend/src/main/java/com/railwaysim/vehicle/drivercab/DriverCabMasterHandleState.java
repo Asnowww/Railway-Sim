@@ -1,5 +1,7 @@
 package com.railwaysim.vehicle.drivercab;
 
+/** @deprecated LOCAL mode only. EXTERNAL_HTTP mode uses 9300's copy. */
+@Deprecated(forRemoval=true, since="2.0")
 public enum DriverCabMasterHandleState {
     ZERO(0),
     TRACTION(1),

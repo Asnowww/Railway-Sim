@@ -46,7 +46,7 @@ public class SignalService {
     /** 每列车当前是否在站台停车中 */
     private final Map<String, Boolean> atStationStop = new LinkedHashMap<>();
     /** 默认站台停站秒数（仅在没有调度停站时间时使用） */
-    private static final int DEFAULT_DWELL_SECONDS = 25;
+    private static final int DEFAULT_DWELL_SECONDS = 5;
 
     public SignalService(
         SimulationProperties simulationProperties,
@@ -164,6 +164,17 @@ public class SignalService {
                     reason, orig.currentSegmentId(), endSegId, reasonCode));
             }
 
+            // 信号释放站台后通知车辆层: 已释放站台的车辆别刹停
+            // 信号释放站台后通知车辆层: 已释放站台的车辆别刹停(站距→大值)
+            for (int j = 0; j < trackConstraints.size(); j++) {
+                TrackConstraint tc = trackConstraints.get(j);
+                if (releasedStationStops.stream().anyMatch(k -> k.startsWith(tc.trainId() + ":"))) {
+                    trackConstraints.set(j, new TrackConstraint(
+                        tc.trainId(), tc.segmentId(), tc.speedLimitMetersPerSecond(),
+                        tc.gradient(), tc.curveRadiusMeters(), 9999.0));
+                }
+            }
+
             trackService.applyReservations(fixedResult.reservedSegmentIds());
             authorities = List.copyOf(constrained);
             signalStates = computeSignalAspects(ordered);
@@ -180,8 +191,13 @@ public class SignalService {
             double nextTrainTailLimit = Double.POSITIVE_INFINITY;
             if (i + 1 < ordered.size()) {
                 TrainState nextTrain = ordered.get(i + 1);
-                double linearLimit = nextTrain.positionMeters() - nextTrain.lengthMeters() - effectiveSafetyGap;
-                nextTrainTailLimit = linearLimit;
+                // 终点站已停列车不再阻挡后车: 到终点的车视为"已清出线路"
+                if (nextTrain.positionMeters() >= lineLengthMeters - 10 && nextTrain.zeroSpeed()) {
+                    nextTrainTailLimit = Double.POSITIVE_INFINITY;
+                } else {
+                    double linearLimit = nextTrain.positionMeters() - nextTrain.lengthMeters() - effectiveSafetyGap;
+                    nextTrainTailLimit = linearLimit;
+                }
             }
             // 拓扑感知（移动闭塞）：沿本车路径查找前方障碍
             if ("MOVING".equalsIgnoreCase(simulationProperties.getBlockMode())) {
@@ -250,6 +266,16 @@ public class SignalService {
             String reasonCode = deriveReasonCode(reason);
             nextAuthorities.add(new MovementAuthority(train.id(), authorityEnd, speedLimit,
                 reason, segId, endSegId, reasonCode));
+        }
+
+        // 信号释放站台后通知车辆层: 已释放站台的车辆别刹停(站距→大值)
+        for (int i = 0; i < trackConstraints.size(); i++) {
+            TrackConstraint tc = trackConstraints.get(i);
+            if (releasedStationStops.stream().anyMatch(k -> k.startsWith(tc.trainId() + ":"))) {
+                trackConstraints.set(i, new TrackConstraint(
+                    tc.trainId(), tc.segmentId(), tc.speedLimitMetersPerSecond(),
+                    tc.gradient(), tc.curveRadiusMeters(), 9999.0));
+            }
         }
 
         trackService.applyReservations(allReserved);
@@ -499,8 +525,12 @@ public class SignalService {
 
         boolean stopped = Math.abs(head - nextStation.centerMeters()) <= STATION_STOP_WINDOW_METERS && train.zeroSpeed();
         if (releasedStationStops.contains(dwellKey)) {
+            // 已释放的站: 列车离开窗口后清除标记, 否则保持释放不干扰
+            if (head > nextStation.centerMeters() + STATION_STOP_WINDOW_METERS) {
+                releasedStationStops.remove(dwellKey);
+            }
             atStationStop.remove(train.id());
-            return result;
+            return result; // 不截断MA, 让列车自由通过
         }
         int tickCount = stationDwellTicks.getOrDefault(dwellKey, 0);
 
@@ -519,6 +549,13 @@ public class SignalService {
 
         int dwellTicks = stationDwellTicks.getOrDefault(dwellKey, 0);
         int targetDwellTicks = targetDwellTicks();
+        // 调度停站调整：deltaDwellSec正→延长, 负→缩短（本次生效）
+        if (dispatch != null && dispatch.deltaDwellSec() != null) {
+            int delta = dispatch.deltaDwellSec();
+            long tickMillis = Math.max(1, simulationProperties.getTickMillis());
+            int deltaTicks = Math.max(0, (int) Math.ceil(Math.abs(delta) * 1000.0 / tickMillis));
+            targetDwellTicks = delta >= 0 ? targetDwellTicks + deltaTicks : Math.max(1, targetDwellTicks - deltaTicks);
+        }
         int dwellElapsedSec = (int) Math.floor(dwellTicks * simulationProperties.getTickMillis() / 1000.0);
 
         // 站停未完成 → MA 截到站台位置

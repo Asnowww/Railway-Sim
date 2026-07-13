@@ -18,11 +18,6 @@ final class VehicleLoadPolicy {
         return explicitLoadMassKg > 0 ? explicitLoadMassKg : loadMassFromRate(loadRate);
     }
 
-    double loadMassFromRate(double loadRate) {
-        double maximumRate = parameters.maxOperatingLoadMassKg() / parameters.maxLoadMassKg();
-        return parameters.maxLoadMassKg() * clamp(loadRate, 0, maximumRate);
-    }
-
     double totalMassKg(double loadMassKg) {
         double totalMass = parameters.emptyMassKg() + Math.max(0, loadMassKg);
         if (totalMass > parameters.formation().hardMassLimitKg()) {
@@ -34,12 +29,8 @@ final class VehicleLoadPolicy {
     }
 
     String overloadStatus(double loadMassKg) {
-        if (loadMassKg > parameters.maxOperatingLoadMassKg()) {
-            return "CRUSH_OVERLOAD";
-        }
-        if (loadMassKg > parameters.maxLoadMassKg()) {
-            return "OVERLOAD";
-        }
+        if (loadMassKg > parameters.maxOperatingLoadMassKg()) return "CRUSH_OVERLOAD";
+        if (loadMassKg > parameters.maxLoadMassKg()) return "OVERLOAD";
         return "NORMAL";
     }
 
@@ -58,10 +49,17 @@ final class VehicleLoadPolicy {
         double unitFactor = normalizeUnitCount(availableBrakeCount, NOMINAL_BRAKE_UNITS) / (double) NOMINAL_BRAKE_UNITS;
         double loadPenalty = clamp(
             1.0 - Math.max(0, loadMassKg - parameters.maxLoadMassKg()) / parameters.maxLoadMassKg() * 0.25,
-            0.65,
-            1.0
+            0.65, 1.0
         );
         return clamp(unitFactor * loadPenalty, 0.2, 1.2);
+    }
+
+    static double loadRateFromMass(double loadMassKg) {
+        return loadMassKg <= 0 ? 0 : Math.min(loadMassKg / 60_000.0, 1.18);
+    }
+
+    static double loadMassFromRate(double loadRate) {
+        return 60_000.0 * clamp(loadRate, 0, 1.18);
     }
 
     int normalizeUnitCount(int value, int defaults) {
@@ -72,7 +70,7 @@ final class VehicleLoadPolicy {
         return overloaded(overloadStatus) ? "OVERLOAD_TRACTION_LIMIT" : "NONE";
     }
 
-    private double clamp(double value, double min, double max) {
+    static double clamp(double value, double min, double max) {
         return Math.max(min, Math.min(max, value));
     }
 }

@@ -9,6 +9,8 @@ import com.railwaysim.track.TrackSegmentState;
 import com.railwaysim.track.TrackService;
 import com.railwaysim.train.TrainState;
 import jakarta.annotation.PostConstruct;
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -28,6 +30,10 @@ public class RouteInterlockingService {
     private final TrackService trackService;
     private final Map<String, RouteState> routeStates = new LinkedHashMap<>();
     private final Map<String, String> routeHoldsByTrain = new LinkedHashMap<>();
+    private final List<RouteLifecycleEvent> lifecycleEvents = new ArrayList<>();
+
+    public record RouteLifecycleEvent(String routeId, String trainId, RouteStatus from, RouteStatus to,
+                                      long tick, String interlockingState, String detail) {}
 
     public RouteInterlockingService(
         StaticInfrastructureCatalog infrastructureCatalog,
@@ -80,9 +86,18 @@ public class RouteInterlockingService {
         if (trainId == null || trainId.isBlank()) {
             return "trainId is required";
         }
+        if (route.status() == RouteStatus.RELEASING) {
+            completeRelease(route);
+            route = routeStates.get(routeId);
+        }
         if (route.status().holdsInterlockingResources()) {
             if (trainId.equals(route.establishedByTrainId())
                 && route.status() != RouteStatus.RELEASING) {
+                routeHoldsByTrain.remove(trainId);
+                return null;
+            }
+            // 正线进路允许多车共享——后车可在前车已占用进路时加入（MA 处理间距）
+            if (isMainTypeRoute(routeId) && route.status() == RouteStatus.OCCUPIED) {
                 routeHoldsByTrain.remove(trainId);
                 return null;
             }
@@ -132,7 +147,9 @@ public class RouteInterlockingService {
                     "TRACK_FAULT:" + segId + " is in fault state");
             }
             Set<String> occupyingTrainIds = trackService.occupyingTrainIds(segId);
-            if (occupyingTrainIds.stream().anyMatch(occupyingTrainId -> !trainId.equals(occupyingTrainId))) {
+            // 正线进路允许多车追踪（MA 处理间距），仅非正线拒绝他车占用
+            boolean isMainRoute = isMainTypeRoute(routeId);
+            if (!isMainRoute && occupyingTrainIds.stream().anyMatch(id -> !trainId.equals(id))) {
                 return reject(route, RouteStatus.REJECTED,
                     "TRACK_OCCUPIED:" + segId + " is occupied by another train");
             }
@@ -344,7 +361,11 @@ public class RouteInterlockingService {
             }
         }
 
-        for (TrainState train : trains) {
+        // 前车优先建立进路：避免后车因前车占用区段被拒，而前车未及时建路
+        List<TrainState> sorted = new ArrayList<>(trains);
+        sorted.sort(Comparator.comparingDouble(TrainState::positionMeters).reversed());
+
+        for (TrainState train : sorted) {
             for (RouteState route : List.copyOf(routeStates.values())) {
                 if (route.status() != RouteStatus.AVAILABLE) {
                     continue;
@@ -370,7 +391,14 @@ public class RouteInterlockingService {
         }
     }
 
-    public record RouteDispatchResult(boolean accepted, String rejectReason) {}
+    public record RouteDispatchResult(boolean accepted, String rejectReason,
+                                     InterlockingFailureCode failureCode, boolean retryable) {
+        public RouteDispatchResult(boolean accepted, String rejectReason) {
+            this(accepted, rejectReason,
+                InterlockingFailureCode.fromRejectionReason(rejectReason),
+                InterlockingFailureCode.fromRejectionReason(rejectReason).isRetryable());
+        }
+    }
 
     public synchronized RouteDispatchResult applyDispatchCommand(String commandType, String detail, String trainId) {
         return switch (commandType) {
@@ -401,12 +429,44 @@ public class RouteInterlockingService {
     private RouteState transition(RouteState route, RouteStatus target) {
         RouteState next = route.transitionTo(target);
         routeStates.put(route.routeId(), next);
+        lifecycleEvents.add(new RouteLifecycleEvent(route.routeId(), route.establishedByTrainId(),
+            route.status(), target, 0, target.name(), "自动状态迁移"));
         return next;
+    }
+
+    /** 导出并清空本 tick 的进路生命周期事件（供调度反馈用）。 */
+    public synchronized List<RouteLifecycleEvent> drainLifecycleEvents() {
+        List<RouteLifecycleEvent> events = List.copyOf(lifecycleEvents);
+        lifecycleEvents.clear();
+        return events;
     }
 
     private String reject(RouteState route, RouteStatus target, String reason) {
         transition(route, target);
         return reason;
+    }
+
+    private boolean isMainTypeRoute(String routeId) {
+        return infrastructureCatalog.lineData().routes().stream()
+            .filter(r -> r.id().equals(routeId))
+            .findFirst()
+            .map(r -> "MAIN".equalsIgnoreCase(r.typeCode()))
+            .orElse(false);
+    }
+
+    /**
+     * 判断占用列车是否在前方同线追踪（允许MA处理间距，不需拒绝进路）。
+     */
+    private boolean isTrainOnRoutePath(String occupyingTrainId, Set<String> routeSegs, String requestingTrainId) {
+        // 只对同线路追踪放行：占用列车与请求列车在同一进路区段集合内
+        for (TrackSegmentState seg : trackService.states()) {
+            if (routeSegs.contains(seg.id())
+                && seg.occupancy() == TrackOccupancy.OCCUPIED
+                && trackService.occupyingTrainIds(seg.id()).contains(occupyingTrainId)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private void completeRelease(RouteState route) {
@@ -673,10 +733,22 @@ public class RouteInterlockingService {
             .orElse(null);
         if (station == null) return null;
 
+        // 收集进路起终点信号ID作为优选集合(正线信号优先)
+        List<OperationalLineData.RouteDefinition> routes = infrastructureCatalog.lineData().routes();
+        Set<String> routeSignalIds = routes != null
+            ? routes.stream()
+                .filter(r -> "MAIN".equalsIgnoreCase(r.typeCode()))
+                .flatMap(r -> java.util.stream.Stream.of(r.startSignalId(), r.endSignalId()))
+                .collect(java.util.stream.Collectors.toSet())
+            : Set.of();
+
         return signals.stream()
             .min((a, b) -> {
                 double da = Math.abs(a.positionMeters() - station.centerMeters());
                 double db = Math.abs(b.positionMeters() - station.centerMeters());
+                // 优先选择正线进路信号(+1000m惩罚非进路信号)
+                if (!routeSignalIds.contains(a.id())) da += 1000;
+                if (!routeSignalIds.contains(b.id())) db += 1000;
                 return Double.compare(da, db);
             })
             .map(OperationalLineData.SignalDefinition::id)

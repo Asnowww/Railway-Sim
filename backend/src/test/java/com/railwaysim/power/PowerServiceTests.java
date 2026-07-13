@@ -131,7 +131,7 @@ class PowerServiceTests {
     }
 
     @Test
-    void externalVoltageComparisonFlagsDeviatedSectionsWithoutReplacingCentralVoltage() {
+    void externalVoltageIsAuthoritativeWhileCentralCalculationRemainsAsDeviationDiagnostic() {
         PowerConstraintService constraintService = new PowerConstraintService(catalog());
         VehiclePhysicsOutput output = output("TR-001", 500, 1_200, 900_000, 0);
 
@@ -146,10 +146,10 @@ class PowerServiceTests {
             .findFirst()
             .orElseThrow();
 
-        // P01: 1500 V - 1200 A * (0.03 V/A + 0.00002 ohm/m * 4000 m) = 1368 V.
-        assertThat(section.voltage()).isCloseTo(1_368, within(0.001));
-        assertThat(section.voltage()).isNotEqualTo(section.externalVoltage());
+        // Central diagnostic calculation is 1368 V; current state mirrors authoritative 9200 at 1250 V.
+        assertThat(section.voltage()).isEqualTo(1_250);
         assertThat(section.externalVoltage()).isEqualTo(1_250);
+        assertThat(section.voltageDeviation()).isCloseTo(-118, within(0.001));
         assertThat(section.voltageComparisonStatus()).isEqualTo("DEVIATED");
         assertThat(section.externalSupportReason()).isEqualTo("test external voltage");
     }

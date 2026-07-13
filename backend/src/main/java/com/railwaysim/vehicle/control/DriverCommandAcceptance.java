@@ -5,6 +5,8 @@ import java.time.Instant;
 /**
  * POST plc-input 的响应结构。
  */
+/** @deprecated LOCAL mode only. EXTERNAL_HTTP mode uses 9300's DriverCommandAcceptance. */
+@Deprecated(forRemoval=true, since="2.0")
 public record DriverCommandAcceptance(
     boolean accepted,
     String commandId,

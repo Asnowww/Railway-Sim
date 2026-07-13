@@ -36,10 +36,10 @@ public class DisturbanceDetector {
                 profile.dwellDeviationSec() > properties.getDwellToleranceSec(), profile.dwellDeviationSec(), created);
             evaluateType(simulationRunId, simulatedAt, profile, DisturbanceType.CROWDING,
                 profile.loadRate() > properties.getCrowdingLoadRate(), profile.loadRate(), created);
-            evaluateType(simulationRunId, simulatedAt, profile, DisturbanceType.DEPARTURE_DELAY,
-                profile.departureDelaySec() > properties.getDepartureDelaySec(), profile.departureDelaySec(), created);
             if (profile.headwayActualSec() != null) {
                 evaluateHeadwayViolation(simulationRunId, simulatedAt, plan, profile, created);
+            } else if (profile.departureDelaySec() > properties.getDepartureDelaySec()) {
+                evaluateScheduleDeviation(simulationRunId, simulatedAt, plan, profile, created);
             }
         }
         resolveRecovered(plan, profiles, simulatedAt);
@@ -179,6 +179,26 @@ public class DisturbanceDetector {
         consecutiveHits.remove(headwayViolationKey(profile));
     }
 
+    private void evaluateScheduleDeviation(
+        String simulationRunId,
+        Instant simulatedAt,
+        CurrentRunPlan plan,
+        TrainRunProfile profile,
+        List<DisturbanceEvent> created
+    ) {
+        evaluateHeadwayViolation(
+            simulationRunId,
+            simulatedAt,
+            profile,
+            "SCHEDULE_LATE",
+            plan.departureIntervalSec(),
+            0,
+            properties.getDepartureDelaySec(),
+            profile.departureDelaySec() - properties.getDepartureDelaySec(),
+            created
+        );
+    }
+
     private void evaluateHeadwayViolation(
         String simulationRunId,
         Instant simulatedAt,
@@ -209,7 +229,7 @@ public class DisturbanceDetector {
             simulationRunId,
             profile.trainId(),
             profile.currentStationId(),
-            DisturbanceType.HEADWAY_VIOLATION,
+            DisturbanceType.TRAIN_REGULATION,
             Math.max(0, violationSec),
             "OPEN",
             simulatedAt,
@@ -238,7 +258,7 @@ public class DisturbanceDetector {
                 continue;
             }
             TrainRunProfile profile = profileByTrain.get(event.trainId());
-            if (profile == null || !isRecovered(event.disturbanceType(), profile, plan)) {
+            if (profile == null || !isRecovered(event, profile, plan)) {
                 consecutiveRecoveries.remove(entry.getKey());
                 continue;
             }
@@ -268,11 +288,16 @@ public class DisturbanceDetector {
         }
     }
 
-    private boolean isRecovered(DisturbanceType type, TrainRunProfile profile, CurrentRunPlan plan) {
+    private boolean isRecovered(DisturbanceEvent event, TrainRunProfile profile, CurrentRunPlan plan) {
         double recoverFactor = Math.max(0, properties.getRecoverRatio());
-        return switch (type) {
+        return switch (event.disturbanceType()) {
             case DWELL_EXTENDED -> profile.dwellDeviationSec() <= properties.getDwellToleranceSec() * recoverFactor;
             case CROWDING -> profile.loadRate() <= properties.getCrowdingLoadRate() * recoverFactor;
+            case TRAIN_REGULATION -> "SCHEDULE_LATE".equals(event.headwayDirection())
+                ? profile.departureDelaySec() <= properties.getDepartureDelaySec() * recoverFactor
+                : profile.headwayActualSec() != null
+                    && profile.headwayActualSec() >= plan.departureIntervalSec() * properties.getHeadwayShrinkRatio()
+                    && profile.headwayActualSec() <= plan.departureIntervalSec() * properties.getHeadwayExpandRatio();
             case HEADWAY_VIOLATION -> profile.headwayActualSec() != null
                 && profile.headwayActualSec() >= plan.departureIntervalSec() * properties.getHeadwayShrinkRatio()
                 && profile.headwayActualSec() <= plan.departureIntervalSec() * properties.getHeadwayExpandRatio();
@@ -285,6 +310,6 @@ public class DisturbanceDetector {
     }
 
     private String headwayViolationKey(TrainRunProfile profile) {
-        return profile.trainId() + ":" + DisturbanceType.HEADWAY_VIOLATION.name();
+        return profile.trainId() + ":" + DisturbanceType.TRAIN_REGULATION.name();
     }
 }

@@ -3,6 +3,9 @@ import { defineAsyncComponent } from 'vue'
 import CommandTimeline from '../../components/dispatch/CommandTimeline.vue'
 import DisturbanceList from '../../components/dispatch/DisturbanceList.vue'
 import RunPlanPanel from '../../components/dispatch/RunPlanPanel.vue'
+import SelfRegulationPanel from '../../components/dispatch/SelfRegulationPanel.vue'
+import StationHeadwayPanel from '../../components/dispatch/StationHeadwayPanel.vue'
+import RouteClosurePanel from '../../components/dispatch/RouteClosurePanel.vue'
 import type { DispatchSnapshot, RunPlanResponse } from '../../types/dispatch'
 import type { SimulationSnapshot } from '../../types/simulation'
 
@@ -52,6 +55,12 @@ const dynamicsReasonLabel = (reason: string) => {
       <HeadwayChart
         :profiles="dispatch.trainProfiles"
         :target-headway-seconds="dispatch.targetHeadwaySeconds"
+      />
+      <SelfRegulationPanel :profiles="dispatch.trainProfiles" />
+      <StationHeadwayPanel :observations="dispatch.stationHeadways" />
+      <RouteClosurePanel
+        :decisions="dispatch.routeDecisions"
+        :reservations="dispatch.routeReservations"
       />
       <DisturbanceList :disturbances="dispatch.openDisturbances" />
       <CommandTimeline :commands="dispatch.activeCommands" />

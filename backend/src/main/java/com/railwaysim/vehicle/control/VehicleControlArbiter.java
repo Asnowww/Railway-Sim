@@ -28,6 +28,8 @@ import org.slf4j.LoggerFactory;
  * 紧急制动必须输出 {@code brake=1} 和 {@code emergencyBrake=true}。
  * MANUAL 只提高人工命令在非安全候选中的优先级，不能绕过安全层。
  */
+/** @deprecated LOCAL mode only. Replaced by 9300's VehicleControlQueue. */
+@Deprecated(forRemoval=true, since="2.0")
 public class VehicleControlArbiter {
 
     private static final Logger logger = LoggerFactory.getLogger(VehicleControlArbiter.class);

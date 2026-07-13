@@ -55,6 +55,12 @@ public class SignalTrackController {
         );
     }
 
+    /** GET /api/signal-track/route-events — 进路生命周期事件（本tick状态变化） */
+    @GetMapping("/route-events")
+    public List<RouteInterlockingService.RouteLifecycleEvent> routeEvents() {
+        return routeInterlockingService.drainLifecycleEvents();
+    }
+
     /** POST /api/signal-track/faults — 注入故障（WP-05） */
     @PostMapping("/faults")
     public FaultMutationResponse injectFault(@Valid @RequestBody SignalTrackFaultRequest request) {

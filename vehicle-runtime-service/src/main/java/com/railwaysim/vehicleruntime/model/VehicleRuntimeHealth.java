@@ -23,6 +23,7 @@ public record VehicleRuntimeHealth(
     long lastAcceptedTick,
     String topologyHash,
     String configHash,
-    String stoppingParameterVersion
+    String stoppingParameterVersion,
+    boolean bootstrapped
 ) {
 }

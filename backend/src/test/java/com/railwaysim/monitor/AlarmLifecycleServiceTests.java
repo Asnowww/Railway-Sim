@@ -95,4 +95,25 @@ class AlarmLifecycleServiceTests {
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM alarm_record", Integer.class))
             .isEqualTo(1);
     }
+
+    @Test
+    void trackFaultUsesStableCodeAndStructuredSafetyImpact() {
+        Instant now = Instant.parse("2026-07-11T00:00:00Z");
+        Alarm candidate = new Alarm(
+            "TRACK_FAULT:T01", "track", "T01", 3,
+            "track fault", "faulted", now, false);
+
+        String first = service.reconcile("run-track", List.of(candidate), now).get(0).id();
+        String second = service.reconcile(
+            "run-track", List.of(candidate), now.plusMillis(100)).get(0).id();
+
+        assertThat(second).isEqualTo(first);
+        assertThat(service.records("run-track")).singleElement().satisfies(record -> {
+            assertThat(record.alarmCode()).isEqualTo("TRACK_FAULT:T01");
+            assertThat(record.impact().affectedSectionIds()).containsExactly("T01");
+            assertThat(record.impact().safetyAction())
+                .isEqualTo("STOP_BEFORE_FAULTED_SEGMENT_AND_SET_SIGNAL_RED");
+            assertThat(record.impact().clearCondition()).isEqualTo("TRACK_SEGMENT_FAULT_CLEARED");
+        });
+    }
 }

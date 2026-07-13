@@ -204,7 +204,9 @@ public class PowerController {
             return ResponseEntity.status(503).body(
                 ApiError.of("AUDIT_FAILED", "Audit log unavailable"));
         }
-        powerService.injectPowerFault(sectionId, requiredFaultType(request));
+        powerService.injectPowerFault(
+            sectionId, requiredFaultType(request), request.normalizedOperator(),
+            request.normalizedReason(), request.normalizedTraceId());
         return ResponseEntity.ok(section(sectionId));
     }
 
@@ -224,7 +226,9 @@ public class PowerController {
             return ResponseEntity.status(503).body(
                 ApiError.of("AUDIT_FAILED", "Audit log unavailable"));
         }
-        powerService.clearPowerFault(sectionId);
+        powerService.clearPowerFault(
+            sectionId, request.normalizedOperator(), request.normalizedReason(),
+            request.normalizedTraceId());
         return ResponseEntity.ok(section(sectionId));
     }
 

@@ -8,6 +8,7 @@ defineProps<{
 const typeLabel = (type: string) => {
   const labels: Record<string, string> = {
     DWELL_EXTENDED: '停站时间过长',
+    TRAIN_REGULATION: '本车运行调节',
     HEADWAY_VIOLATION: '运行间隔超限',
     HEADWAY_SHRINK: '行车间隔过小',
     HEADWAY_EXPAND: '行车间隔过大',
@@ -39,17 +40,30 @@ const statusDescription = (item: DispatchDisturbance) => {
   return '状态由调度闭环持续更新。'
 }
 
+const actionLabel = (action?: string | null) => {
+  const labels: Record<string, string> = {
+    CATCH_UP: '本车追赶',
+    SLOW_DOWN: '本车放慢',
+    NORMAL: '本车正常运行',
+    OBSERVE: '继续观测',
+  }
+  return labels[action ?? 'OBSERVE'] ?? action ?? '继续观测'
+}
+
 const deviationText = (item: DispatchDisturbance) => {
   if (item.disturbanceType === 'CROWDING') {
     return `满载率 ${(item.deviationValue * 100).toFixed(0)}%`
   }
-  if (item.disturbanceType === 'HEADWAY_VIOLATION') {
+  if (item.disturbanceType === 'TRAIN_REGULATION' || item.disturbanceType === 'HEADWAY_VIOLATION') {
+    if (item.headwayDirection === 'SCHEDULE_LATE') {
+      return `本车运行图晚点 · 超限 ${(item.violationSec ?? item.deviationValue).toFixed(0)} 秒 · ${actionLabel(item.regulationAction)}`
+    }
     const direction = item.headwayDirection === 'TOO_SHORT' ? '过短' : '过长'
     const actual = item.actualHeadwaySec ?? 0
     const target = item.targetHeadwaySec ?? 0
     const tolerance = item.toleranceSec ?? 0
     const violation = item.violationSec ?? item.deviationValue
-    return `${direction} · 实际 ${actual.toFixed(0)} 秒 / 目标 ${target.toFixed(0)} 秒 · 容差 ${tolerance.toFixed(0)} 秒 · 超限 ${violation.toFixed(0)} 秒`
+    return `${direction} · 实际 ${actual.toFixed(0)} 秒 / 目标 ${target.toFixed(0)} 秒 · 偏差 ${actual - target >= 0 ? '+' : ''}${(actual - target).toFixed(0)} 秒 · ${actionLabel(item.regulationAction)}`
   }
   if (item.disturbanceType === 'HEADWAY_SHRINK' || item.disturbanceType === 'HEADWAY_EXPAND') {
     return `实际间隔 ${item.deviationValue.toFixed(0)} 秒`
@@ -66,7 +80,8 @@ const deviationText = (item: DispatchDisturbance) => {
       <li v-for="item in disturbances" :key="item.id">
         <div class="title">{{ typeLabel(item.disturbanceType) }}</div>
         <div class="meta">
-          列车 {{ item.trainId }}
+          调节本车 {{ item.regulatedTrainId || item.trainId }}
+          <span v-if="item.trainId !== (item.regulatedTrainId || item.trainId)"> · 事件列车 {{ item.trainId }}</span>
           <span v-if="item.stationId"> · 站点 {{ item.stationId }}</span>
           · {{ deviationText(item) }}
         </div>

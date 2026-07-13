@@ -8,6 +8,8 @@ import com.railwaysim.track.TrackConstraint;
 import com.railwaysim.train.TrainState;
 import com.railwaysim.vehicle.control.DriverControlCommand;
 
+/** @deprecated LOCAL mode only. */
+@Deprecated(forRemoval=true, since="2.0")
 public record OnboardTrainControlInput(
     TrainState train,
     TickContext context,

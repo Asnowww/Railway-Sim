@@ -3,6 +3,8 @@ package com.railwaysim.vehicle.onboard;
 import com.railwaysim.vehicle.VehiclePhysicsInput;
 import com.railwaysim.vehicle.control.VehicleControlDecision;
 
+/** @deprecated LOCAL mode only. */
+@Deprecated(forRemoval=true, since="2.0")
 public record OnboardTrainControlOutput(
     String trainId,
     String subsystemId,

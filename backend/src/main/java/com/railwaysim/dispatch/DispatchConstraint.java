@@ -9,7 +9,8 @@ public record DispatchConstraint(
     Double targetSpeedMetersPerSecond,
     boolean releaseStationStop,
     String reason,
-    List<String> sourceCommandIds
+    List<String> sourceCommandIds,
+    Integer deltaDwellSec
 ) {
     public DispatchConstraint {
         sourceCommandIds = sourceCommandIds == null ? List.of() : List.copyOf(sourceCommandIds);
@@ -21,9 +22,21 @@ public record DispatchConstraint(
         double speedFactor,
         Double targetSpeedMetersPerSecond,
         boolean releaseStationStop,
+        String reason,
+        List<String> sourceCommandIds
+    ) {
+        this(trainId, holdTrain, speedFactor, targetSpeedMetersPerSecond, releaseStationStop, reason, sourceCommandIds, null);
+    }
+
+    public DispatchConstraint(
+        String trainId,
+        boolean holdTrain,
+        double speedFactor,
+        Double targetSpeedMetersPerSecond,
+        boolean releaseStationStop,
         String reason
     ) {
-        this(trainId, holdTrain, speedFactor, targetSpeedMetersPerSecond, releaseStationStop, reason, List.of());
+        this(trainId, holdTrain, speedFactor, targetSpeedMetersPerSecond, releaseStationStop, reason, List.of(), null);
     }
 
     public static DispatchConstraint none(String trainId) {

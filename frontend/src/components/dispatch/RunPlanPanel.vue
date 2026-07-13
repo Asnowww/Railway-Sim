@@ -24,6 +24,10 @@ function label(type: string) {
       <span class="badge">{{ label(runMode) }}</span>
     </header>
     <p class="summary">当前目标发车间隔：<strong>{{ targetHeadwaySeconds }}s</strong></p>
+    <p v-if="plan" class="summary">
+      正式计划：<strong>{{ plan.services?.length ?? 0 }}</strong> 个车次，
+      <strong>{{ plan.circulations?.length ?? 0 }}</strong> 个交路
+    </p>
     <table v-if="plan">
       <thead>
         <tr>
@@ -42,6 +46,15 @@ function label(type: string) {
         </tr>
       </tbody>
     </table>
+    <div v-if="plan?.services?.length" class="service-list">
+      <h3>车次与交路</h3>
+      <article v-for="service in plan.services" :key="service.serviceId">
+        <strong>{{ service.serviceId }}</strong>
+        <span>{{ service.trainId }} / {{ service.circulationId }}</span>
+        <span>{{ service.stops[0]?.stationId ?? '-' }} → {{ service.stops.at(-1)?.stationId ?? '-' }}</span>
+        <small>计划发车偏移 {{ service.stops[0]?.departureOffsetSec ?? 0 }}s</small>
+      </article>
+    </div>
   </section>
 </template>
 
@@ -89,5 +102,30 @@ td {
   border-bottom: 1px solid #f1f5f9;
   padding: 8px 6px;
   text-align: left;
+}
+
+.service-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.service-list h3 {
+  margin: 0;
+  font-size: 14px;
+}
+
+.service-list article {
+  display: grid;
+  grid-template-columns: 0.8fr 1fr 1fr auto;
+  gap: 8px;
+  padding: 8px;
+  border-radius: 8px;
+  background: #f8fafc;
+  font-size: 12px;
+}
+
+.service-list small {
+  color: #64748b;
 }
 </style>

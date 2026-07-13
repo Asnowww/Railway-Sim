@@ -202,6 +202,23 @@ class RouteInterlockingServiceTests {
     }
 
     @Test
+    void releasingRouteCanBeReassignedWithoutLosingATick() {
+        Fixture fixture = fixture(lineDataWithDirectRoute());
+        fixture.interlocking.init();
+        TrainState train = train("TR-1", 50);
+        fixture.trackService.updateOccupancy(List.of(train));
+        assertThat(fixture.interlocking.establishRoute("R_BRANCH", "TR-1")).isNull();
+        fixture.interlocking.touchRoutes(List.of(train));
+        fixture.interlocking.touchRoutes(List.of());
+        fixture.trackService.updateOccupancy(List.of());
+
+        assertThat(fixture.interlocking.establishRoute("R_BRANCH", "TR-2")).isNull();
+        assertThat(fixture.interlocking.state("R_BRANCH").status()).isEqualTo(RouteStatus.LOCKED);
+        assertThat(fixture.interlocking.state("R_BRANCH").establishedByTrainId()).isEqualTo("TR-2");
+        assertThat(fixture.trackService.switchStates().get(0).locked()).isTrue();
+    }
+
+    @Test
     void cancellingAnUnoccupiedLockedRouteIsVisibleAndUnlocksSwitches() {
         Fixture fixture = fixture(lineDataWithDirectRoute());
         fixture.interlocking.init();
@@ -309,7 +326,7 @@ class RouteInterlockingServiceTests {
     private static OperationalLineData lineDataWithDirectRoute() {
         return lineData(List.of(
             route("R_MAIN", "Main", List.of("SEG-1", "SEG-2")),
-            route("R_BRANCH", "Branch", List.of("SEG-1", "SEG-3"))
+            routeBranch("R_BRANCH", "Branch", List.of("SEG-1", "SEG-3"))
         ));
     }
 
@@ -413,10 +430,18 @@ class RouteInterlockingServiceTests {
     }
 
     private static OperationalLineData.RouteDefinition route(String id, String name, List<String> segments) {
+        return newRoute(id, name, "MAIN", segments);
+    }
+
+    private static OperationalLineData.RouteDefinition routeBranch(String id, String name, List<String> segments) {
+        return newRoute(id, name, "BRANCH", segments);
+    }
+
+    private static OperationalLineData.RouteDefinition newRoute(String id, String name, String type, List<String> segments) {
         return new OperationalLineData.RouteDefinition(
             id,
             name,
-            "MAIN",
+            type,
             "SIG-" + segments.get(0),
             "SIG-" + segments.get(segments.size() - 1),
             segments,
