@@ -2,12 +2,16 @@ package com.railwaysim.vehicle.runtime;
 
 import com.railwaysim.config.VehicleRuntimeProperties;
 import com.railwaysim.train.TrainState;
+import com.railwaysim.vehicle.runtime.peripheral.PeripheralChannel;
+import com.railwaysim.vehicle.runtime.peripheral.PeripheralFrame;
+import com.railwaysim.vehicle.runtime.peripheral.PeripheralFrameCodec;
 import com.railwaysim.vehicle.telemetry.VehicleTelemetryRequest;
 import com.railwaysim.vehicle.telemetry.VehicleTelemetryResponse;
 import java.time.Duration;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.springframework.http.MediaType;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
@@ -20,6 +24,8 @@ import org.springframework.web.client.RestClient;
 public class HttpVehicleRuntimeClient implements VehicleRuntimeClient {
 
     private final RestClient restClient;
+    private final PeripheralFrameCodec peripheralFrameCodec = new PeripheralFrameCodec();
+    private final AtomicInteger peripheralSequence = new AtomicInteger();
 
     public HttpVehicleRuntimeClient(VehicleRuntimeProperties properties, RestClient.Builder restClientBuilder) {
         this.restClient = restClientBuilder
@@ -114,24 +120,25 @@ public class HttpVehicleRuntimeClient implements VehicleRuntimeClient {
 
     @Override
     public Map<String, Object> forwardPlcInput(String trainId, byte[] payload) {
+        return forwardPeripheralFrame(trainId, PeripheralChannel.PLC_INPUT, payload);
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> forwardPeripheralFrame(
+        String trainId,
+        PeripheralChannel channel,
+        byte[] payload
+    ) {
+        int sequence = peripheralSequence.updateAndGet(value -> value == Integer.MAX_VALUE ? 1 : value + 1);
+        byte[] aggregate = peripheralFrameCodec.encode(new PeripheralFrame(channel, sequence, 0, trainId, payload));
         Map<String, Object> acceptance = restClient.post()
-            .uri("/api/vehicle/driver-cabs/{trainId}/plc-input", trainId)
+            .uri("/vehicle-runtime/peripherals/frame")
             .contentType(MediaType.APPLICATION_OCTET_STREAM)
-            .body(payload)
+            .body(aggregate)
             .accept(MediaType.APPLICATION_JSON)
             .retrieve()
             .body(Map.class);
-        return require(acceptance, "vehicle runtime PLC acceptance response is empty");
-    }
-
-    @Override
-    public void forwardTractionCut(String trainId, byte[] payload) {
-        restClient.post()
-            .uri("/api/vehicle/driver-cabs/{trainId}/traction-cut", trainId)
-            .contentType(MediaType.APPLICATION_OCTET_STREAM)
-            .body(payload)
-            .retrieve()
-            .toBodilessEntity();
+        return require(acceptance, "vehicle runtime peripheral acceptance response is empty");
     }
 
     private SimpleClientHttpRequestFactory requestFactory(long timeoutMillis) {

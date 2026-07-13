@@ -60,9 +60,12 @@ railway:
     fmu-service-timeout-millis: 500
     block-mode: MOVING
     vision:
+      enabled: false
+      train-id: TR-001
       target-host: 18.32.115.28
       target-port: 8302
       local-port: 0
+      interval-millis: 100
     vehicle-runtime:
       mode: EXTERNAL_HTTP
       base-url: http://localhost:9300

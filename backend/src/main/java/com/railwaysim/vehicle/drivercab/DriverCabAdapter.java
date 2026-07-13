@@ -25,8 +25,12 @@ public class DriverCabAdapter {
         return vehicleRuntimeIntegrationService.forwardPlcInput(trainId, plcGatewayEncoder.encode(input));
     }
 
-    public void forwardTractionCut(String trainId, byte[] payload) {
-        vehicleRuntimeIntegrationService.forwardTractionCut(trainId, payload);
+    /** Forward a validated-size raw frame received from the physical PLC. */
+    public Map<String, Object> forwardPlcInput(String trainId, byte[] payload) {
+        if (payload == null || payload.length != DriverCabPlcGatewayEncoder.PLC_INPUT_BYTES) {
+            throw new IllegalArgumentException("driver cab PLC input must be exactly 46 bytes");
+        }
+        return vehicleRuntimeIntegrationService.forwardPlcInput(trainId, payload);
     }
 
     public byte[] encodePlcOutput(TrainState train, SignalCabDisplayState display) {

@@ -27,7 +27,7 @@ public record VisionVehicleState(
             trainId.trim(),
             finiteOrNull(request.speedMetersPerSecond()),
             finiteOrNull(request.accelerationMetersPerSecondSquared()),
-            clampOrNull(request.accelerationPercent(), 0, 100),
+            clampOrNull(request.accelerationPercent(), -100, 100),
             finiteOrNull(request.headPositionMeters()),
             blankToNull(request.headSegmentId()),
             normalizeDirection(request.directionCode()),

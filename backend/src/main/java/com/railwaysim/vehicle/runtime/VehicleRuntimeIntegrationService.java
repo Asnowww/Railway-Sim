@@ -127,10 +127,6 @@ public class VehicleRuntimeIntegrationService implements VehiclePowerLoadForward
         return client.forwardPlcInput(trainId, payload);
     }
 
-    public void forwardTractionCut(String trainId, byte[] payload) {
-        client.forwardTractionCut(trainId, payload);
-    }
-
     public VehicleTelemetryResponse forwardTelemetry(VehicleTelemetryRequest request) {
         return client.forwardTelemetry(request);
     }

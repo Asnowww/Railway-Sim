@@ -2,7 +2,7 @@ package com.railwaysim.signal.vision;
 
 record VisionTrainProjection(
     String trainId,
-    double headPositionMeters,
+    double headOffsetMeters,
     String headSegmentId,
     int segmentNumber,
     double speedMetersPerSecond,

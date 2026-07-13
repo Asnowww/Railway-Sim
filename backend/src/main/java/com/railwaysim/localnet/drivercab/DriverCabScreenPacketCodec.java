@@ -11,9 +11,13 @@ import java.util.List;
 
 public class DriverCabScreenPacketCodec {
 
-    public static final int NETWORK_SCREEN_BYTES = 572;
+    /** Real HMI TCP payload. The legacy document incorrectly included a trailing faultCode WORD. */
+    public static final int NETWORK_SCREEN_BYTES = 570;
     public static final int NETWORK_SCREEN_INPUT_BYTES = 26;
-    public static final int SIGNAL_SCREEN_BYTES = 66;
+    /** Real MMI TCP payload. Its historical header still reports totalLen=62. */
+    public static final int SIGNAL_SCREEN_BYTES = 68;
+    public static final int SIGNAL_SCREEN_HEADER_TOTAL_BYTES = 62;
+    public static final int SIGNAL_SCREEN_HEADER_DATA_BYTES = 42;
     private static final byte[] IDENTIFY = {0x55, (byte) 0xaa, 0x55, (byte) 0xaa};
     private static final int HEADER_BYTES = 24;
 
@@ -33,7 +37,7 @@ public class DriverCabScreenPacketCodec {
         List<PowerSectionState> powerSections
     ) {
         ByteBuffer buffer = ByteBuffer.allocate(NETWORK_SCREEN_BYTES).order(byteOrder);
-        writeCommonHeader(buffer, NETWORK_SCREEN_BYTES, 0x1001);
+        writeCommonHeader(buffer, NETWORK_SCREEN_BYTES, NETWORK_SCREEN_BYTES - HEADER_BYTES, 0x1001);
         writeTimeFields(buffer, 24);
         buffer.put(36, stationCode(train.currentStationId()));
         buffer.put(37, (byte) 0);
@@ -55,14 +59,18 @@ public class DriverCabScreenPacketCodec {
         buffer.put(168, boundedByte(train.loadRate() * 100));
         buffer.put(174, boundedByte(Math.abs(train.railCurrentAmps())));
         buffer.putShort(244, boundedShort(averageVoltage(powerSections)));
-        buffer.putShort(568, boundedShort(train.faultLevel()));
-        buffer.putShort(570, boundedShort(trainNo(train.id())));
+        buffer.putShort(568, boundedShort(trainNo(train.id())));
         return buffer.array();
     }
 
     public byte[] encodeSignalScreen(TrainState train, SignalCabDisplayState display) {
         ByteBuffer buffer = ByteBuffer.allocate(SIGNAL_SCREEN_BYTES).order(byteOrder);
-        writeCommonHeader(buffer, SIGNAL_SCREEN_BYTES, 0x1002);
+        writeCommonHeader(
+            buffer,
+            SIGNAL_SCREEN_HEADER_TOTAL_BYTES,
+            SIGNAL_SCREEN_HEADER_DATA_BYTES,
+            0x1002
+        );
         writeTimeFields(buffer, 24);
         buffer.put(36, stationCode(train.currentStationId()));
         buffer.put(37, (byte) 0);
@@ -70,19 +78,20 @@ public class DriverCabScreenPacketCodec {
         buffer.put(39, (byte) 1);
         buffer.put(40, (byte) (display.doorControlMode() == SignalCabDisplayState.DoorControlMode.MANUAL ? 1 : 0));
         buffer.put(41, (byte) (display.currentDrivingMode() == SignalCabDisplayState.DrivingMode.ATO ? 1 : 0));
-        buffer.put(42, direction(train.direction()));
+        buffer.put(42, signalScreenDirection(train.direction()));
         buffer.put(43, (byte) 0);
-        buffer.putFloat(44, (float) train.speedMetersPerSecond());
+        buffer.putFloat(44, (float) (train.speedMetersPerSecond() * 3.6));
         buffer.putFloat(48, (float) train.accelerationMetersPerSecondSquared());
-        buffer.putShort(52, boundedShort(display.speedLimitMetersPerSecond()));
-        buffer.put(54, runMode(display));
-        buffer.put(55, train.tractionAvailable() ? (byte) 0 : (byte) 3);
-        buffer.put(56, train.brakeAvailable() ? (byte) 1 : (byte) 2);
-        buffer.put(57, display.emergencyBrake() ? (byte) 1 : (byte) 0);
-        buffer.put(58, (byte) 0);
-        buffer.put(59, signalState(display));
-        buffer.putShort(60, boundedShort(trainNo(train.id())));
-        buffer.putFloat(62, (float) display.distanceToNextStationMeters());
+        buffer.putShort(52, (short) 0);
+        buffer.putShort(54, boundedShort(display.speedLimitMetersPerSecond() * 3.6));
+        buffer.put(56, runMode(display));
+        buffer.put(57, train.tractionAvailable() ? (byte) 0 : (byte) 3);
+        buffer.put(58, train.brakeAvailable() ? (byte) 1 : (byte) 2);
+        buffer.put(59, display.emergencyBrake() ? (byte) 1 : (byte) 0);
+        buffer.put(60, (byte) 0);
+        buffer.put(61, signalState(display));
+        buffer.putShort(62, boundedShort(trainNo(train.id())));
+        buffer.putFloat(64, (float) display.distanceToNextStationMeters());
         return buffer.array();
     }
 
@@ -95,14 +104,59 @@ public class DriverCabScreenPacketCodec {
         return Byte.toUnsignedInt(payload[24]) & 0x3f;
     }
 
+    public NetworkScreenFrame decodeNetworkScreen(byte[] payload) {
+        validateCommonHeader(payload, NETWORK_SCREEN_BYTES, NETWORK_SCREEN_BYTES - HEADER_BYTES,
+            "network screen output");
+        ByteBuffer buffer = ByteBuffer.wrap(payload).order(byteOrder);
+        return new NetworkScreenFrame(
+            Short.toUnsignedInt(buffer.getShort(4)), Short.toUnsignedInt(buffer.getShort(6)),
+            Short.toUnsignedInt(buffer.getShort(22)),
+            Short.toUnsignedInt(buffer.getShort(24)), Short.toUnsignedInt(buffer.getShort(26)),
+            Short.toUnsignedInt(buffer.getShort(28)), Short.toUnsignedInt(buffer.getShort(30)),
+            Short.toUnsignedInt(buffer.getShort(32)), Short.toUnsignedInt(buffer.getShort(34)),
+            Byte.toUnsignedInt(buffer.get(36)), Byte.toUnsignedInt(buffer.get(37)),
+            Byte.toUnsignedInt(buffer.get(38)), Byte.toUnsignedInt(buffer.get(39)),
+            buffer.getFloat(40), buffer.getFloat(44), Short.toUnsignedInt(buffer.getShort(48)),
+            Short.toUnsignedInt(buffer.getShort(50)), Short.toUnsignedInt(buffer.getShort(52)),
+            Byte.toUnsignedInt(buffer.get(54)), Byte.toUnsignedInt(buffer.get(55)),
+            Short.toUnsignedInt(buffer.getShort(56)), Byte.toUnsignedInt(buffer.get(58)),
+            Byte.toUnsignedInt(buffer.get(59)), Short.toUnsignedInt(buffer.getShort(568)), payload.clone()
+        );
+    }
+
+    public SignalScreenFrame decodeSignalScreen(byte[] payload) {
+        validateWireAndHeader(
+            payload, SIGNAL_SCREEN_BYTES, SIGNAL_SCREEN_HEADER_TOTAL_BYTES,
+            SIGNAL_SCREEN_HEADER_DATA_BYTES, "signal screen output"
+        );
+        ByteBuffer buffer = ByteBuffer.wrap(payload).order(byteOrder);
+        return new SignalScreenFrame(
+            Short.toUnsignedInt(buffer.getShort(4)), Short.toUnsignedInt(buffer.getShort(6)),
+            Short.toUnsignedInt(buffer.getShort(22)),
+            Short.toUnsignedInt(buffer.getShort(24)), Short.toUnsignedInt(buffer.getShort(26)),
+            Short.toUnsignedInt(buffer.getShort(28)), Short.toUnsignedInt(buffer.getShort(30)),
+            Short.toUnsignedInt(buffer.getShort(32)), Short.toUnsignedInt(buffer.getShort(34)),
+            Byte.toUnsignedInt(buffer.get(36)), Byte.toUnsignedInt(buffer.get(37)),
+            Byte.toUnsignedInt(buffer.get(38)), Byte.toUnsignedInt(buffer.get(39)),
+            Byte.toUnsignedInt(buffer.get(40)), Byte.toUnsignedInt(buffer.get(41)),
+            Byte.toUnsignedInt(buffer.get(42)), Byte.toUnsignedInt(buffer.get(43)),
+            buffer.getFloat(44), buffer.getFloat(48), Short.toUnsignedInt(buffer.getShort(52)),
+            Short.toUnsignedInt(buffer.getShort(54)), Byte.toUnsignedInt(buffer.get(56)),
+            Byte.toUnsignedInt(buffer.get(57)), Byte.toUnsignedInt(buffer.get(58)),
+            Byte.toUnsignedInt(buffer.get(59)), Byte.toUnsignedInt(buffer.get(60)),
+            Byte.toUnsignedInt(buffer.get(61)), Short.toUnsignedInt(buffer.getShort(62)),
+            buffer.getFloat(64), payload.clone()
+        );
+    }
+
     public boolean isSignalScreenPacket(byte[] payload) {
         return hasIdentify(payload) && payload.length >= SIGNAL_SCREEN_BYTES;
     }
 
-    private void writeCommonHeader(ByteBuffer buffer, int totalLength, int msgId) {
+    private void writeCommonHeader(ByteBuffer buffer, int headerTotalLength, int dataLength, int msgId) {
         buffer.put(IDENTIFY);
-        buffer.putShort((short) totalLength);
-        buffer.putShort((short) (totalLength - HEADER_BYTES));
+        buffer.putShort((short) headerTotalLength);
+        buffer.putShort((short) dataLength);
         buffer.putLong(System.currentTimeMillis());
         buffer.putShort((short) 0);
         buffer.putShort((short) 0);
@@ -193,6 +247,53 @@ public class DriverCabScreenPacketCodec {
             return 2;
         }
         return (byte) 0xff;
+    }
+
+    private void validateWireAndHeader(
+        byte[] payload,
+        int wireLength,
+        int headerTotalLength,
+        int dataLength,
+        String label
+    ) {
+        if (payload == null || payload.length != wireLength || !hasIdentify(payload)) {
+            throw new IllegalArgumentException(label + " identify or wire frame length is invalid");
+        }
+        ByteBuffer header = ByteBuffer.wrap(payload).order(byteOrder);
+        if (Short.toUnsignedInt(header.getShort(4)) != headerTotalLength
+            || Short.toUnsignedInt(header.getShort(6)) != dataLength) {
+            throw new IllegalArgumentException(label + " header length fields are invalid");
+        }
+    }
+
+    public record NetworkScreenFrame(
+        int headerTotalLength, int dataLength, int messageId,
+        int year, int month, int day, int hour, int minute, int second,
+        int currentStation, int nextStation, int terminalStation, int controlState,
+        float speedMetersPerSecond, float accelerationMetersPerSecondSquared,
+        int tractionForce, int lineVoltage, int speedLimit, int levelPosition, int runMode,
+        int currentVoltage, int direction, int runningState, int trainNumber, byte[] rawPayload
+    ) {
+        public NetworkScreenFrame { rawPayload = rawPayload.clone(); }
+        @Override public byte[] rawPayload() { return rawPayload.clone(); }
+    }
+
+    public record SignalScreenFrame(
+        int headerTotalLength, int dataLength, int messageId,
+        int year, int month, int day, int hour, int minute, int second,
+        int currentStation, int nextStation, int terminalStation,
+        int centralMonitorState, int manualMode, int ctcState, int direction, int reserved,
+        float speedKilometersPerHour, float accelerationMetersPerSecondSquared,
+        int tractionCut, int speedLimitKilometersPerHour, int mode, int tractionState,
+        int brakeState, int emergencyBrake, int eventId, int signalState,
+        int trainNumber, float distanceToNextStationMeters, byte[] rawPayload
+    ) {
+        public SignalScreenFrame { rawPayload = rawPayload.clone(); }
+        @Override public byte[] rawPayload() { return rawPayload.clone(); }
+    }
+
+    private byte signalScreenDirection(String direction) {
+        return "DOWN".equalsIgnoreCase(direction) ? (byte) 1 : (byte) 0;
     }
 
     private byte signalState(SignalCabDisplayState display) {

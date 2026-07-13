@@ -31,7 +31,4 @@ public interface VehicleRuntimeClient {
         throw new UnsupportedOperationException("PLC forwarding is not configured");
     }
 
-    default void forwardTractionCut(String trainId, byte[] payload) {
-        // 默认空实现，子类按需覆盖
-    }
 }
