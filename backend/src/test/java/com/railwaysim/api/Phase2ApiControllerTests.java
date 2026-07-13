@@ -5,6 +5,8 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -13,6 +15,8 @@ import com.railwaysim.train.VehicleSpecificationCatalog;
 import com.railwaysim.vehicle.external.ExternalTrainDirection;
 import com.railwaysim.vehicle.protocol.SignalTrainContentCodec;
 import com.railwaysim.vehicle.protocol.TrainOperationalTelemetry;
+import com.railwaysim.vehicle.telemetry.VehicleTelemetryGatewayService;
+import com.railwaysim.vehicle.telemetry.VehicleTelemetryResponse;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Disabled;
@@ -20,6 +24,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -49,8 +54,13 @@ class Phase2ApiControllerTests {
     @Autowired
     private ObjectMapper objectMapper;
 
+    @MockBean
+    private VehicleTelemetryGatewayService telemetryGatewayService;
+
     @BeforeEach
     void createAuditAndRunTables() {
+        when(telemetryGatewayService.forward(any(), any()))
+            .thenReturn(new VehicleTelemetryResponse(true, List.of()));
         jdbcTemplate.execute("""
             CREATE TABLE IF NOT EXISTS operation_log (
               id BIGINT AUTO_INCREMENT PRIMARY KEY,
@@ -419,7 +429,8 @@ class Phase2ApiControllerTests {
                       }
                     ]
                     """))
-            .andExpect(status().isGone());
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.accepted").value(true));
 
         byte[] contentPacket = new SignalTrainContentCodec().encode(List.of(new TrainOperationalTelemetry(
             2,
@@ -436,7 +447,8 @@ class Phase2ApiControllerTests {
                 .param("trainCount", "1")
                 .contentType(MediaType.APPLICATION_OCTET_STREAM)
                 .content(contentPacket))
-            .andExpect(status().isGone());
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.accepted").value(true));
 
         mockMvc.perform(get("/api/signal/vehicles/commands"))
             .andExpect(status().isOk())

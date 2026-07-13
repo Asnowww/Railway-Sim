@@ -25,6 +25,8 @@ public class VehicleRuntimeProperties {
     private long centralTimeoutMillis = 300;
     private boolean autonomousTickEnabled;
     private long autonomousTickIntervalMillis = 100;
+    private long telemetryTimeoutMillis = 500;
+    private long telemetryMaximumAgeMillis = 500;
 
     public String getTrainParamsPath() {
         return trainParamsPath;
@@ -172,5 +174,21 @@ public class VehicleRuntimeProperties {
 
     public void setAutonomousTickIntervalMillis(long autonomousTickIntervalMillis) {
         this.autonomousTickIntervalMillis = Math.max(10, autonomousTickIntervalMillis);
+    }
+
+    public long getTelemetryTimeoutMillis() {
+        return telemetryTimeoutMillis;
+    }
+
+    public void setTelemetryTimeoutMillis(long telemetryTimeoutMillis) {
+        this.telemetryTimeoutMillis = Math.max(1, telemetryTimeoutMillis);
+    }
+
+    public long getTelemetryMaximumAgeMillis() {
+        return telemetryMaximumAgeMillis;
+    }
+
+    public void setTelemetryMaximumAgeMillis(long telemetryMaximumAgeMillis) {
+        this.telemetryMaximumAgeMillis = Math.max(1, telemetryMaximumAgeMillis);
     }
 }

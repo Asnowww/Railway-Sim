@@ -10,6 +10,9 @@ import com.railwaysim.signal.vision.VisionVehicleStateStore;
 import com.railwaysim.train.TrainManager;
 import com.railwaysim.train.TrainState;
 import com.railwaysim.vehicle.protocol.TrainOperationalTelemetry;
+import com.railwaysim.vehicle.protocol.SignalTrainContentCodec;
+import com.railwaysim.vehicle.telemetry.VehicleTelemetryGatewayService;
+import com.railwaysim.vehicle.telemetry.VehicleTelemetryResponse;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
@@ -35,15 +38,19 @@ public class SignalVehicleInterfaceController {
     private final TrainManager trainManager;
     private final SignalService signalService;
     private final VisionVehicleStateStore visionVehicleStateStore;
+    private final VehicleTelemetryGatewayService telemetryGatewayService;
+    private final SignalTrainContentCodec trainContentCodec = new SignalTrainContentCodec();
 
     public SignalVehicleInterfaceController(
         TrainManager trainManager,
         SignalService signalService,
-        VisionVehicleStateStore visionVehicleStateStore
+        VisionVehicleStateStore visionVehicleStateStore,
+        VehicleTelemetryGatewayService telemetryGatewayService
     ) {
         this.trainManager = trainManager;
         this.signalService = signalService;
         this.visionVehicleStateStore = visionVehicleStateStore;
+        this.telemetryGatewayService = telemetryGatewayService;
     }
 
     @GetMapping("/statuses")
@@ -63,11 +70,8 @@ public class SignalVehicleInterfaceController {
     }
 
     @PostMapping("/telemetry")
-    public List<VehicleSignalStatus> applyTelemetry(@RequestBody List<TrainOperationalTelemetry> telemetries) {
-        throw new ResponseStatusException(
-            HttpStatus.GONE,
-            "central vehicle telemetry writes are retired; 9300 trainStates snapshots are authoritative"
-        );
+    public VehicleTelemetryResponse applyTelemetry(@RequestBody List<TrainOperationalTelemetry> telemetries) {
+        return telemetryGatewayService.forward("SIGNAL_HTTP_JSON", telemetries);
     }
 
     @PutMapping("/{trainId}/vision-state")
@@ -87,7 +91,7 @@ public class SignalVehicleInterfaceController {
         value = "/telemetry/content-packet",
         consumes = MediaType.APPLICATION_OCTET_STREAM_VALUE
     )
-    public List<VehicleSignalStatus> applyContentPacket(
+    public VehicleTelemetryResponse applyContentPacket(
         @RequestParam int trainCount,
         @RequestBody byte[] payload
     ) {
@@ -97,9 +101,12 @@ public class SignalVehicleInterfaceController {
         if (payload == null || payload.length == 0) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "payload is required");
         }
-        throw new ResponseStatusException(
-            HttpStatus.GONE,
-            "central vehicle telemetry writes are retired; 9300 trainStates snapshots are authoritative"
-        );
+        try {
+            return telemetryGatewayService.forward(
+                "SIGNAL_HTTP_BINARY", trainContentCodec.decode(payload, trainCount)
+            );
+        } catch (IllegalArgumentException exception) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, exception.getMessage(), exception);
+        }
     }
 }

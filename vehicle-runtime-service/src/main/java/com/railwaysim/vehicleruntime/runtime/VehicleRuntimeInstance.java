@@ -13,6 +13,7 @@ import com.railwaysim.vehicleruntime.model.TrainStateSnapshot;
 import com.railwaysim.vehicleruntime.model.VehiclePhysicsInputDto;
 import com.railwaysim.vehicleruntime.model.VehiclePhysicsOutputDto;
 import com.railwaysim.vehicleruntime.model.VehicleRuntimeInstanceState;
+import com.railwaysim.vehicleruntime.model.VehicleTelemetrySample;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
@@ -72,6 +73,14 @@ final class VehicleRuntimeInstance {
 
     void applyTractionCut(boolean requested) {
         trainState.applyTractionCut(requested);
+    }
+
+    void applyAuthoritativeTelemetry(VehicleTelemetrySample telemetry, boolean emergencyBrakeLatched) {
+        trainState.applyAuthoritativeTelemetry(telemetry, emergencyBrakeLatched);
+    }
+
+    void applyTelemetryHold() {
+        trainState.markTelemetryHold();
     }
 
     void launch() {
@@ -230,12 +239,12 @@ final class VehicleRuntimeInstance {
             resolveTractionState(input, output),
             resolveBrakeState(input, output),
             resolveCurrentCollectionStatus(input, output),
-            input.doorClosed() && input.powerAvailableWatts() > 0 && input.railVoltage() > 0,
+            !telemetryHold(input) && input.doorClosed() && input.powerAvailableWatts() > 0 && input.railVoltage() > 0,
             !"BRAKE_UNAVAILABLE".equals(output.faultCode()),
             resolveSelfCheckStatus(input, output),
             resolveFaultLevel(input, output),
             resolveAvailableOperationMode(input, output),
-            resolveDataQuality(output),
+            resolveDataQuality(input, output),
             loadMassKg,
             overloadStatus,
             availableTractionCount,
@@ -270,6 +279,7 @@ final class VehicleRuntimeInstance {
     // ========== 状态解析方法（移植自 VehicleRuntimeInstance 旧版 buildReport） ==========
 
     private String resolveOperationMode(VehiclePhysicsInputDto input) {
+        if (telemetryHold(input)) return "DEGRADED";
         if (input.emergencyBrakeCommand()) return "ATP_BRAKE";
         if ("STATION_BRAKE".equals(input.dynamicsState()) || "STATION_STOPPED".equals(input.dynamicsState())) return "STATION_CONTROL";
         if ("POWER_DERATED".equals(input.dynamicsState()) || "OVERLOAD_DERATED".equals(input.dynamicsState())) return "DEGRADED";
@@ -296,11 +306,13 @@ final class VehicleRuntimeInstance {
     }
 
     private String resolveSelfCheckStatus(VehiclePhysicsInputDto input, VehiclePhysicsOutputDto output) {
+        if (telemetryHold(input)) return "WARN";
         if (!input.doorClosed() || "CURRENT_COLLECTION_LOST".equals(output.faultCode()) || input.railVoltage() <= 0 || input.powerAvailableWatts() <= 0) return "FAIL";
         return "OK".equals(output.faultCode()) ? "PASS" : "WARN";
     }
 
     private int resolveFaultLevel(VehiclePhysicsInputDto input, VehiclePhysicsOutputDto output) {
+        if (telemetryHold(input)) return 2;
         if (input.railVoltage() <= 0 || input.powerAvailableWatts() <= 0) return 3;
         if ("OVERLOAD_DERATED".equals(input.dynamicsState())) return 1;
         return switch (output.faultCode()) {
@@ -312,12 +324,18 @@ final class VehicleRuntimeInstance {
     }
 
     private String resolveAvailableOperationMode(VehiclePhysicsInputDto input, VehiclePhysicsOutputDto output) {
+        if (telemetryHold(input)) return "DEGRADED";
         int fl = resolveFaultLevel(input, output);
         return fl >= 3 ? "NO_DEPARTURE" : fl > 0 ? "DEGRADED" : "NORMAL";
     }
 
-    private String resolveDataQuality(VehiclePhysicsOutputDto output) {
+    private String resolveDataQuality(VehiclePhysicsInputDto input, VehiclePhysicsOutputDto output) {
+        if (telemetryHold(input)) return "STALE";
         return "OK".equals(output.faultCode()) ? "GOOD" : "INVALID";
+    }
+
+    private boolean telemetryHold(VehiclePhysicsInputDto input) {
+        return "EXTERNAL_TELEMETRY_STALE_HOLD".equals(input.dynamicsConstraintReason());
     }
 
     private String resolveVehicleProtectionReason(String overloadStatus) {
