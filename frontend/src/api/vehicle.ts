@@ -1,20 +1,40 @@
-import { apiBaseUrl } from './config'
+import { postJson, request, requestBinary } from '../shared/api/client'
+import type { VehicleRuntimeStatusResponse } from '../types/simulation'
+import type { DriverCommandAcceptance, VehicleMaintenanceState } from '../types/vehicles'
 
-async function request<T>(path: string): Promise<T> {
-  const response = await fetch(`${apiBaseUrl}${path}`)
-  if (!response.ok) {
-    throw new Error(`Request failed: ${response.status} ${response.statusText}`)
-  }
-  return response.json() as Promise<T>
+export interface DriverCabPlcInputPacket {
+  highVoltageClosedIndicator: boolean
+  doorsClosedLockedIndicator: boolean
+  networkFaultIndicator: boolean
+  automaticTurnbackAvailable: boolean
+  atoModeAvailable: boolean
+  atoModeActive: boolean
+  automaticTurnbackActive: boolean
+  emergencyBrakeButtonLocked: boolean
+  openLeftDoorFlag: boolean
+  openRightDoorFlag: boolean
+  closeLeftDoorFlag: boolean
+  closeRightDoorFlag: boolean
+  doorModeSwitchState?: string
+  modeUpgradeConfirmFlag: boolean
+  modeDowngradeConfirmFlag: boolean
+  automaticTurnbackFlag: boolean
+  atoStartFlag: boolean
+  keySwitchLocked: boolean
+  directionHandleState?: string
+  masterHandleState?: string
+  tractionNotchPercent: number
+  brakeNotchPercent: number
 }
 
 export const vehicleApi = {
-  maintenanceStates: () => request<unknown[]>('/vehicle/maintenance-states'),
-  onboardSubsystems: () => request<unknown[]>('/vehicle/onboard-subsystems'),
-  runtimeHealth: () => request<unknown>('/vehicle/runtime-health'),
-  latestControlDecision: (trainId: string) => request<unknown>(`/vehicle/control-decisions/${encodeURIComponent(trainId)}/latest`),
-  controlDecisionHistory: (trainId: string, limit = 50) =>
-    request<unknown[]>(`/vehicle/control-decisions/${encodeURIComponent(trainId)}/history?limit=${encodeURIComponent(String(limit))}`),
-  driverCabState: (trainId: string) => request<unknown>(`/vehicle/driver-cabs/${encodeURIComponent(trainId)}/state`),
-  driverCabPlcOutput: (trainId: string) => request<unknown>(`/vehicle/driver-cabs/${encodeURIComponent(trainId)}/plc-output`)
+  maintenanceStates: () => request<VehicleMaintenanceState[]>('/vehicle/maintenance-states'),
+  runtimeHealth: () => request<VehicleRuntimeStatusResponse>('/vehicle/runtime-health'),
+  driverCabState: (trainId: string) =>
+    request<Record<string, unknown>>(`/vehicle/driver-cabs/${encodeURIComponent(trainId)}/state`),
+  /** 浏览器结构化输入 → 8080 编码 46 字节 PLC → 转发 9300 */
+  driverCabPlcInput: (trainId: string, body: DriverCabPlcInputPacket) =>
+    postJson<DriverCommandAcceptance>(`/vehicle/driver-cabs/${encodeURIComponent(trainId)}/plc-input`, body),
+  driverCabPlcOutput: (trainId: string) =>
+    requestBinary(`/vehicle/driver-cabs/${encodeURIComponent(trainId)}/plc-output`)
 }

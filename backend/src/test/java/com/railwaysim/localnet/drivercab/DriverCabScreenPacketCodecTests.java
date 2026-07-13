@@ -26,10 +26,15 @@ class DriverCabScreenPacketCodecTests {
         ByteBuffer buffer = ByteBuffer.wrap(payload).order(ByteOrder.LITTLE_ENDIAN);
         assertThat(payload).hasSize(DriverCabScreenPacketCodec.NETWORK_SCREEN_BYTES);
         assertThat(payload).startsWith(0x55, (byte) 0xaa, 0x55, (byte) 0xaa);
-        assertThat(Short.toUnsignedInt(buffer.getShort(4))).isEqualTo(DriverCabScreenPacketCodec.NETWORK_SCREEN_BYTES);
+        assertThat(Short.toUnsignedInt(buffer.getShort(4))).isEqualTo(570);
+        assertThat(Short.toUnsignedInt(buffer.getShort(6))).isEqualTo(546);
         assertThat(buffer.getFloat(40)).isEqualTo(12.5f);
         assertThat(Short.toUnsignedInt(buffer.getShort(50))).isEqualTo(1480);
-        assertThat(Short.toUnsignedInt(buffer.getShort(570))).isEqualTo(1);
+        assertThat(Short.toUnsignedInt(buffer.getShort(568))).isEqualTo(1);
+        DriverCabScreenPacketCodec.NetworkScreenFrame decoded = codec.decodeNetworkScreen(payload);
+        assertThat(decoded.speedMetersPerSecond()).isEqualTo(12.5f);
+        assertThat(decoded.trainNumber()).isEqualTo(1);
+        assertThat(decoded.rawPayload()).isEqualTo(payload);
     }
 
     @Test
@@ -42,10 +47,18 @@ class DriverCabScreenPacketCodecTests {
         ByteBuffer buffer = ByteBuffer.wrap(payload).order(ByteOrder.LITTLE_ENDIAN);
         assertThat(payload).hasSize(DriverCabScreenPacketCodec.SIGNAL_SCREEN_BYTES);
         assertThat(payload).startsWith(0x55, (byte) 0xaa, 0x55, (byte) 0xaa);
-        assertThat(Short.toUnsignedInt(buffer.getShort(4))).isEqualTo(DriverCabScreenPacketCodec.SIGNAL_SCREEN_BYTES);
-        assertThat(buffer.getFloat(44)).isEqualTo(12.5f);
-        assertThat(Short.toUnsignedInt(buffer.getShort(52))).isEqualTo(18);
-        assertThat(Short.toUnsignedInt(buffer.getShort(60))).isEqualTo(1);
+        assertThat(Short.toUnsignedInt(buffer.getShort(4))).isEqualTo(62);
+        assertThat(Short.toUnsignedInt(buffer.getShort(6))).isEqualTo(42);
+        assertThat(buffer.get(42)).isZero();
+        assertThat(buffer.getFloat(44)).isEqualTo(45.0f);
+        assertThat(Short.toUnsignedInt(buffer.getShort(52))).isZero();
+        assertThat(Short.toUnsignedInt(buffer.getShort(54))).isEqualTo(65);
+        assertThat(Short.toUnsignedInt(buffer.getShort(62))).isEqualTo(1);
+        assertThat(buffer.getFloat(64)).isEqualTo(1_000_000.0f);
+        DriverCabScreenPacketCodec.SignalScreenFrame decoded = codec.decodeSignalScreen(payload);
+        assertThat(decoded.headerTotalLength()).isEqualTo(62);
+        assertThat(decoded.speedKilometersPerHour()).isEqualTo(45.0f);
+        assertThat(decoded.trainNumber()).isEqualTo(1);
     }
 
     @Test

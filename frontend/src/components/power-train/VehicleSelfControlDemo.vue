@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
 import { simulationApi } from '../../api/rest'
+import { vehicleApi } from '../../api/vehicle'
 import { simulationSocket } from '../../api/ws'
 import type { PowerSectionState, SimulationSnapshot, TrackSegmentState, TrainState } from '../../types/simulation'
 
@@ -258,7 +259,8 @@ const history = ref<HistoryPoint[]>([])
 // Driver cab state for PLC input
 const driverCabInput = reactive({
   selectedTrainId: 'TR-001',
-  keySwitchLocked: false,
+  // 9300 语义：keySwitchLocked=true 表示钥匙插入锁定（激活）；false 触发 DRIVER_CAB_KEY_OFF 防护
+  keySwitchLocked: true,
   directionHandleState: 'FORWARD' as 'FORWARD' | 'ZERO' | 'BACKWARD',
   masterHandleState: 'ZERO' as 'TRACTION' | 'ZERO' | 'BRAKE' | 'FAST_BRAKE',
   tractionNotchPercent: 0,
@@ -366,8 +368,8 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
+  // 只退订，不断开——WebSocket 是全局共享连接，由 connection store 统一管理
   unsubscribeSocket?.()
-  simulationSocket.disconnect()
   if (snapshotPollTimer !== undefined) {
     window.clearInterval(snapshotPollTimer)
   }
@@ -448,19 +450,10 @@ async function sendPlcInput() {
       tractionNotchPercent: driverCabInput.tractionNotchPercent,
       brakeNotchPercent: driverCabInput.brakeNotchPercent
     }
-    const resp = await fetch(`/api/vehicle/driver-cabs/${trainId}/plc-input`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body)
-    })
-    if (resp.ok) {
-      const result = await resp.json()
-      driverCabInput.sendResult = result.accepted ? '✅ 已接受' : '❌ 拒绝: ' + (result.reasonCode || 'UNKNOWN')
-    } else {
-      driverCabInput.sendResult = `❌ HTTP ${resp.status}`
-    }
-  } catch (e: any) {
-    driverCabInput.sendResult = '❌ ' + (e.message || '网络错误')
+    const result = await vehicleApi.driverCabPlcInput(trainId, body)
+    driverCabInput.sendResult = result.accepted ? '✅ 已接受' : '❌ 拒绝: ' + (result.reasonCode || 'UNKNOWN')
+  } catch (e) {
+    driverCabInput.sendResult = '❌ ' + (e instanceof Error ? e.message : '网络错误')
   } finally {
     driverCabInput.atoStartFlag = false
     driverCabInput.sendPending = false
@@ -1341,7 +1334,7 @@ function stateLabel(state: string) {
           <div style="display:flex;justify-content:space-between;font-size:9px;color:#94a3b8;padding:0 4px"><span>快速</span><span>制动</span><span>零位</span><span>牵引</span></div>
         </div>
         <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:10px">
-          <button type="button" class="cab-btn" :class="{ active: !driverCabInput.keySwitchLocked }" @click="driverCabInput.keySwitchLocked = !driverCabInput.keySwitchLocked">🔑 {{ driverCabInput.keySwitchLocked ? '关闭' : '激活' }}</button>
+          <button type="button" class="cab-btn" :class="{ active: driverCabInput.keySwitchLocked }" @click="driverCabInput.keySwitchLocked = !driverCabInput.keySwitchLocked">🔑 {{ driverCabInput.keySwitchLocked ? '激活' : '关闭' }}</button>
           <button type="button" class="cab-btn dir" :class="{ active: true }" @click="cycleDirection()">{{ driverCabInput.directionHandleState === 'FORWARD' ? '⬆️前进' : driverCabInput.directionHandleState === 'BACKWARD' ? '⬇️后退' : '⏸️零位' }}</button>
           <button type="button" class="cab-btn eb" :class="{ active: driverCabInput.emergencyBrakeButtonLocked }" @click="driverCabInput.emergencyBrakeButtonLocked = !driverCabInput.emergencyBrakeButtonLocked">🛑 {{ driverCabInput.emergencyBrakeButtonLocked ? '⚠紧急' : '紧急' }}</button>
           <button type="button" class="cab-btn" :class="{ active: !driverCabInput.doorsClosedLockedIndicator }" @click="driverCabInput.doorsClosedLockedIndicator = !driverCabInput.doorsClosedLockedIndicator">🚪 {{ driverCabInput.doorsClosedLockedIndicator ? '关门' : '开门' }}</button>
@@ -1366,7 +1359,7 @@ function stateLabel(state: string) {
             <span style="color:#627084">制动力</span><span style="font-weight:600;text-align:right;color:#c24132">{{ formatForce(selectedLiveTrain.brakeForceNewtons) }}</span>
             <span style="color:#627084">车门</span><span style="font-weight:600;text-align:right">{{ selectedLiveTrain.doorState || '—' }}</span>
             <span style="color:#627084">数据质量</span><span style="font-weight:600;text-align:right">{{ selectedLiveTrain.dataQuality || '—' }}</span>
-            <span style="color:#627084">网压</span><span style="font-weight:600;text-align:right">{{ Math.round((selectedLiveTrain as any).railVoltage || 0) }} V</span>
+            <span style="color:#627084">网侧电流</span><span style="font-weight:600;text-align:right">{{ Math.round(selectedLiveTrain.railCurrentAmps || 0) }} A</span>
             <span style="color:#627084">能耗</span><span style="font-weight:600;text-align:right">{{ (selectedLiveTrain.energyConsumedKwh || 0).toFixed(1) }} kWh</span>
           </div>
         </div>

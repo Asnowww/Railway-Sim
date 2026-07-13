@@ -1,6 +1,6 @@
-import { apiBaseUrl } from './config'
+import { postJson, request } from '../shared/api/client'
 
-type SignalTrackFaultRequest = {
+export interface SignalTrackFaultRequest {
   sourceId: string
   faultType: string
   operator?: string
@@ -8,26 +8,49 @@ type SignalTrackFaultRequest = {
   traceId?: string
 }
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${apiBaseUrl}${path}`, init)
-  if (!response.ok) {
-    throw new Error(`Request failed: ${response.status} ${response.statusText}`)
-  }
-  return response.json() as Promise<T>
+export interface FaultMutationResponse {
+  accepted: boolean
+  changed: boolean
+  idempotent: boolean
+  operation: string
+  sourceId: string
+  faultType?: string
+  operator?: string
+  reason?: string
+  traceId?: string
+}
+
+export interface RouteLifecycleEvent {
+  routeId?: string
+  trainId?: string | null
+  from?: string
+  to?: string
+  tick?: number
+  interlockingState?: string
+  detail?: string
+  [key: string]: unknown
+}
+
+export interface SignalRouteInfo {
+  routeId: string
+  name?: string
+  type?: string
+  fromStation?: string
+  toStation?: string
+  segmentIds?: string[]
+  status?: string
+  [key: string]: unknown
 }
 
 export const signalTrackApi = {
-  routes: () => request<unknown[]>('/signal-track/routes'),
-  routeStatus: (routeId: string) => request<Record<string, unknown>>(`/signal-track/routes/${encodeURIComponent(routeId)}/status`),
+  routes: () => request<SignalRouteInfo[]>('/signal-track/routes'),
+  routeStatus: (routeId: string) =>
+    request<{ routeId: string; status: string }>(`/signal-track/routes/${encodeURIComponent(routeId)}/status`),
+  routeEvents: () => request<RouteLifecycleEvent[]>('/signal-track/route-events'),
   faults: () => request<string[]>('/signal-track/faults'),
-  injectFault: (body: SignalTrackFaultRequest) =>
-    request<unknown>('/signal-track/faults', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body)
-    }),
+  injectFault: (body: SignalTrackFaultRequest) => postJson<FaultMutationResponse>('/signal-track/faults', body),
   clearFault: (segmentId: string, operator = 'monitor-console', reason = '', traceId = '') =>
-    request<unknown>(
+    request<FaultMutationResponse>(
       `/signal-track/faults/${encodeURIComponent(segmentId)}/clear?operator=${encodeURIComponent(operator)}&reason=${encodeURIComponent(reason)}&traceId=${encodeURIComponent(traceId)}`,
       { method: 'POST' }
     )

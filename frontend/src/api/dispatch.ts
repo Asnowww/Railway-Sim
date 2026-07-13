@@ -1,25 +1,28 @@
-import { apiBaseUrl } from './config'
+import { postJson, request } from '../shared/api/client'
 import type {
   DispatchCommandView,
+  DispatchDisturbance,
+  DispatchRouteEstablishResponse,
+  DispatchRouteInfo,
+  DispatchSnapshot,
   OperationPlanRequest,
   OperationPlanView,
   OperationRouteCandidate,
   OperationRouteTemplate,
-  DispatchRouteEstablishResponse,
-  DispatchRouteInfo,
-  DispatchSnapshot,
   RunPlanResponse,
   SignalDispatchPlanPublication,
   TrainStationEvent
 } from '../types/dispatch'
-import type { DispatchDisturbance } from '../types/dispatch'
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${apiBaseUrl}${path}`, init)
-  if (!response.ok) {
-    throw new Error(`${path} 请求失败：${response.status} ${response.statusText}`)
-  }
-  return response.json() as Promise<T>
+export interface ManualCommandRequest {
+  trainId: string
+  commandType: string
+  detail?: string
+  targetHeadwaySec?: number
+  speedBiasRatio?: number
+  deltaDwellSec?: number
+  routeId?: string
+  payload?: Record<string, unknown>
 }
 
 export const dispatchApi = {
@@ -27,6 +30,7 @@ export const dispatchApi = {
   currentPlan: () => request<Record<string, unknown>>('/dispatch/plan/current'),
   status: () => request<DispatchSnapshot>('/dispatch/status'),
   disturbances: () => request<DispatchDisturbance[]>('/dispatch/disturbances'),
+  /** 演示扰动注入（联调用） */
   injectDemoDisturbance: (body: {
     trainId?: string
     type?: string
@@ -35,68 +39,33 @@ export const dispatchApi = {
     actualHeadwaySec?: number
     violationSec?: number
     stationId?: string
-  }) =>
-    request<DispatchDisturbance>('/dispatch/disturbances/demo', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body)
-    }),
+  }) => postJson<DispatchDisturbance>('/dispatch/disturbances/demo', body),
   commands: () => request<DispatchCommandView[]>('/dispatch/commands'),
-  submitCommand: (body: {
-    trainId: string
-    commandType: string
-    detail?: string
-    targetHeadwaySec?: number
-    speedBiasRatio?: number
-    deltaDwellSec?: number
-    routeId?: string
-    payload?: Record<string, unknown>
-  }) =>
-    request<DispatchCommandView>('/dispatch/commands', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body)
-    }),
+  submitCommand: (body: ManualCommandRequest) => postJson<DispatchCommandView>('/dispatch/commands', body),
   cancelCommand: (commandId: string) =>
-    request<Record<string, unknown>>(`/dispatch/commands/${encodeURIComponent(commandId)}/cancel`, {
+    request<{ accepted: boolean; commandId: string }>(`/dispatch/commands/${encodeURIComponent(commandId)}/cancel`, {
       method: 'POST'
     }),
   routeList: () => request<DispatchRouteInfo[]>('/dispatch/route/list'),
+
+  /* ---- 运营进路计划（operation-route / operation-plans，来自团队 lq 分支） ---- */
   operationRouteTemplates: () => request<OperationRouteTemplate[]>('/dispatch/operation-route/templates'),
   previewOperationRoute: (body: OperationPlanRequest) =>
-    request<OperationRouteCandidate[]>('/dispatch/operation-route/preview', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body)
-    }),
+    postJson<OperationRouteCandidate[]>('/dispatch/operation-route/preview', body),
   operationPlans: () => request<OperationPlanView[]>('/dispatch/operation-plans'),
-  createOperationPlan: (body: OperationPlanRequest) =>
-    request<OperationPlanView>('/dispatch/operation-plans', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body)
-    }),
+  createOperationPlan: (body: OperationPlanRequest) => postJson<OperationPlanView>('/dispatch/operation-plans', body),
   cancelOperationPlan: (planId: string) =>
-    request<OperationPlanView>(`/dispatch/operation-plans/${encodeURIComponent(planId)}/cancel`, {
-      method: 'POST'
-    }),
+    request<OperationPlanView>(`/dispatch/operation-plans/${encodeURIComponent(planId)}/cancel`, { method: 'POST' }),
   publishSignalPlan: (body?: { operator?: string; effectiveFrom?: string }) =>
-    request<SignalDispatchPlanPublication>('/dispatch/signal-publications', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body ?? {})
-    }),
+    postJson<SignalDispatchPlanPublication>('/dispatch/signal-publications', body ?? {}),
   adjustHeadway: (body: {
     trainId: string
     targetHeadwaySec: number
     regulationAction?: string
     frontTrainId?: string
-  }) =>
-    request<DispatchCommandView>('/dispatch/headway/adjust', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body)
-    }),
+  }) => postJson<DispatchCommandView>('/dispatch/headway/adjust', body),
+
+  /** 联锁直连建路——仅供 /debug 联调，生产走 submitCommand({commandType:'REQUEST_ROUTE'}) 闭环 */
   establishRoute: (routeId: string, trainId: string) =>
     request<DispatchRouteEstablishResponse>(
       `/dispatch/route/establish?routeId=${encodeURIComponent(routeId)}&trainId=${encodeURIComponent(trainId)}`,

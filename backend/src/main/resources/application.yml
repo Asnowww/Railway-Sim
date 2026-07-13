@@ -31,7 +31,7 @@ railway:
     line-data-source: file
     line-id: "1"
     line-data-auto-import: false
-    line-data-path: ../config/line-topology-demo.yaml
+    line-data-path: ../config/line-m9.yaml
     power-config-path: ../config/power_third_rail.yaml
     fmu-step-millis: 100
     track-step-millis: 100
@@ -59,16 +59,15 @@ railway:
     fmu-service-url: http://localhost:9000
     fmu-service-timeout-millis: 500
     block-mode: MOVING
-    onboard-subsystem-mode: IN_PROCESS
-    onboard-subsystem-url: http://localhost:9100
-    onboard-subsystem-timeout-millis: 300
-    onboard-subsystem-lease-millis: 1000
     vision:
+      enabled: false
+      train-id: TR-001
       target-host: 18.32.115.28
       target-port: 8302
       local-port: 0
+      interval-millis: 100
     vehicle-runtime:
-      mode: LOCAL
+      mode: EXTERNAL_HTTP
       base-url: http://localhost:9300
       timeout-millis: 150
       auto-bootstrap: true

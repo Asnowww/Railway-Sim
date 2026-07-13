@@ -4,6 +4,7 @@ import com.railwaysim.infrastructure.OperationalLineData;
 import com.railwaysim.infrastructure.StaticInfrastructureCatalog;
 import com.railwaysim.signal.SignalAspect;
 import com.railwaysim.signal.SignalState;
+import com.railwaysim.signal.MovementAuthority;
 import com.railwaysim.signal.SignalService;
 import com.railwaysim.track.SwitchPosition;
 import com.railwaysim.track.SwitchState;
@@ -13,7 +14,6 @@ import com.railwaysim.train.TrainManager;
 import com.railwaysim.train.TrainState;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
-import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -34,6 +34,7 @@ public class VisionUdpPacketBuilder {
     private final Supplier<List<SignalState>> signalStatesSupplier;
     private final Supplier<List<SwitchState>> switchStatesSupplier;
     private final Supplier<List<TrackSegmentState>> trackStatesSupplier;
+    private final Supplier<List<MovementAuthority>> authoritiesSupplier;
     private final Function<Double, TrackSegmentState> segmentAt;
     private final StaticInfrastructureCatalog infrastructureCatalog;
     private final VisionVehicleStateStore vehicleStateStore;
@@ -53,6 +54,7 @@ public class VisionUdpPacketBuilder {
             trackService::switchStates,
             trackService::states,
             trackService::segmentAt,
+            signalService::authorities,
             infrastructureCatalog,
             vehicleStateStore
         );
@@ -64,9 +66,11 @@ public class VisionUdpPacketBuilder {
         Supplier<List<SwitchState>> switchStatesSupplier,
         Supplier<List<TrackSegmentState>> trackStatesSupplier,
         Function<Double, TrackSegmentState> segmentAt,
+        Supplier<List<MovementAuthority>> authoritiesSupplier,
         StaticInfrastructureCatalog infrastructureCatalog,
         VisionVehicleStateStore vehicleStateStore
     ) {
+        this.authoritiesSupplier = authoritiesSupplier;
         this.trainStatesSupplier = trainStatesSupplier;
         this.signalStatesSupplier = signalStatesSupplier;
         this.switchStatesSupplier = switchStatesSupplier;
@@ -138,14 +142,14 @@ public class VisionUdpPacketBuilder {
         buffer.putShort((short) selected.departureCountdownSeconds());
         buffer.put((byte) selected.operationCode());
         buffer.put((byte) selected.accelerationPercent());
-        buffer.putInt(clampInt(Math.round(selected.headPositionMeters() * 1000), 0, Integer.MAX_VALUE));
+        buffer.putInt(clampInt(Math.round(selected.headOffsetMeters() * 1000), 0, Integer.MAX_VALUE));
         buffer.putShort((short) selected.segmentNumber());
         buffer.put((byte) selected.directionCode());
         buffer.put((byte) otherCount);
 
         List<VisionTrainProjection> boundedOthers = others.subList(0, otherCount);
         for (VisionTrainProjection other : boundedOthers) {
-            buffer.putInt(clampInt(Math.round(other.headPositionMeters() * 1000), 0, Integer.MAX_VALUE));
+            buffer.putInt(clampInt(Math.round(other.headOffsetMeters() * 1000), 0, Integer.MAX_VALUE));
         }
         for (VisionTrainProjection other : boundedOthers) {
             buffer.putShort((short) other.segmentNumber());
@@ -163,7 +167,7 @@ public class VisionUdpPacketBuilder {
         double position = vehicleState != null && vehicleState.headPositionMeters() != null
             ? vehicleState.headPositionMeters()
             : train == null ? 0 : train.positionMeters();
-        TrackSegmentState segment = resolveSegment(position, vehicleState);
+        TrackSegmentState segment = resolveSegment(trainId, position, vehicleState, train);
         double speed = vehicleState != null && vehicleState.speedMetersPerSecond() != null
             ? vehicleState.speedMetersPerSecond()
             : train == null ? 0 : train.speedMetersPerSecond();
@@ -172,7 +176,7 @@ public class VisionUdpPacketBuilder {
             : train == null ? 0 : train.accelerationMetersPerSecondSquared();
         int accelerationPercent = vehicleState != null && vehicleState.accelerationPercent() != null
             ? vehicleState.accelerationPercent()
-            : clampInt(Math.round(Math.abs(acceleration) / 1.1 * 100), 0, 100);
+            : clampInt(Math.round(acceleration / 1.1 * 100), -100, 100);
         int directionCode = vehicleState != null && vehicleState.directionCode() != null
             ? vehicleState.directionCode()
             : directionCode(train);
@@ -190,7 +194,7 @@ public class VisionUdpPacketBuilder {
             : INVALID_DEPARTURE_DISPLAY;
         return new VisionTrainProjection(
             trainId,
-            Math.max(0, position),
+            segmentOffsetMeters(position, segment.id()),
             segment.id(),
             segmentNumber(segment.id()),
             Math.max(0, speed),
@@ -204,7 +208,7 @@ public class VisionUdpPacketBuilder {
         );
     }
 
-    private TrackSegmentState resolveSegment(double position, VisionVehicleState vehicleState) {
+    private TrackSegmentState resolveSegment(String trainId, double position, VisionVehicleState vehicleState, TrainState train) {
         if (vehicleState != null && vehicleState.headSegmentId() != null) {
             TrackSegmentState matching = trackStatesSupplier.get().stream()
                 .filter(segment -> segment.id().equals(vehicleState.headSegmentId()))
@@ -214,46 +218,111 @@ public class VisionUdpPacketBuilder {
                 return matching;
             }
         }
+        // 信号系统的 MA.currentSegmentId 是列车所在段的权威（联锁按拓扑推进），优先使用；
+        // 双线线路（9号线）上下行区段里程重叠，仅按里程/方向匹配会拿错股道边号。
+        String maSegment = authoritiesSupplier.get().stream()
+            .filter(authority -> authority.trainId().equals(trainId))
+            .map(MovementAuthority::currentSegmentId)
+            .filter(id -> id != null && !id.isBlank())
+            .findFirst()
+            .orElse(null);
+        if (maSegment != null) {
+            TrackSegmentState bySignal = trackStatesSupplier.get().stream()
+                .filter(segment -> segment.id().equals(maSegment))
+                .findFirst()
+                .orElse(null);
+            if (bySignal != null) {
+                return bySignal;
+            }
+        }
+        // 回退：按列车方向所属股道匹配（注意：当前引擎 direction=DOWN 实为里程递增，
+        // 否则下行车会被匹配到上行边号发给视景系统。track 命名约定 up/down 对应 direction UP/DOWN。
+        String direction = train != null ? train.direction() : null;
+        if (direction != null && !direction.isBlank()) {
+            TrackSegmentState onTrack = trackStatesSupplier.get().stream()
+                .filter(segment -> direction.equalsIgnoreCase(segment.track()))
+                .filter(segment -> position >= segment.startMeters() && position <= segment.endMeters())
+                .findFirst()
+                .orElse(null);
+            if (onTrack != null) {
+                return onTrack;
+            }
+        }
         return segmentAt.apply(position);
     }
 
     private List<Byte> signalAspectBytes() {
-        Map<String, SignalState> signalBySegment = signalStatesSupplier.get().stream()
-            .collect(Collectors.toMap(SignalState::segmentId, Function.identity(), (left, right) -> left));
+        List<SignalState> states = signalStatesSupplier.get();
         List<OperationalLineData.SignalDefinition> definitions = infrastructureCatalog.lineData().signals();
-        if (!definitions.isEmpty()) {
-            return definitions.stream()
-                .map(definition -> signalBySegment.get(definition.segmentId()))
-                .map(state -> state == null ? aspectByte(SignalAspect.GREEN) : aspectByte(state.aspect()))
-                .toList();
-        }
-        return signalStatesSupplier.get().stream()
-            .sorted(Comparator.comparingDouble(SignalState::positionMeters))
-            .map(state -> aspectByte(state.aspect()))
+        return VisionProtocolV13Layout.SIGNAL_IDS.stream()
+            .map(protocolId -> definitions.stream()
+                .filter(definition -> matchesProtocolId(protocolId, definition.interoperabilityId(), definition.id(), definition.name()))
+                .findFirst()
+                .orElse(null))
+            .map(definition -> signalState(definition, states))
+            .map(state -> state == null ? aspectByte(SignalAspect.RED) : aspectByte(state.aspect()))
             .toList();
     }
 
     private List<Byte> switchPositionBytes() {
-        Map<String, SwitchState> stateById = switchStatesSupplier.get().stream()
-            .collect(Collectors.toMap(SwitchState::id, Function.identity(), (left, right) -> left));
+        List<SwitchState> states = switchStatesSupplier.get();
         List<OperationalLineData.SwitchDefinition> definitions = infrastructureCatalog.lineData().switches();
-        if (!definitions.isEmpty()) {
-            return definitions.stream()
-                .map(definition -> stateById.get(definition.id()))
-                .map(state -> state == null ? (byte) 0x01 : switchByte(state.position()))
-                .toList();
-        }
-        return switchStatesSupplier.get().stream()
-            .sorted(Comparator.comparing(SwitchState::id))
-            .map(state -> switchByte(state.position()))
+        return VisionProtocolV13Layout.SWITCH_IDS.stream()
+            .map(protocolId -> definitions.stream()
+                .filter(definition -> matchesProtocolId(protocolId, definition.interoperabilityId(), definition.id(), definition.name()))
+                .findFirst()
+                .orElse(null))
+            .map(definition -> switchState(definition, states))
+            .map(state -> state == null ? (byte) 0x01 : switchByte(state.position()))
             .toList();
+    }
+
+    private SignalState signalState(
+        OperationalLineData.SignalDefinition definition,
+        List<SignalState> states
+    ) {
+        if (definition == null) {
+            return null;
+        }
+        return states.stream()
+            .filter(state -> state.signalId().equals(definition.id()))
+            .findFirst()
+            .or(() -> states.stream().filter(state -> state.segmentId().equals(definition.segmentId())).findFirst())
+            .orElse(null);
+    }
+
+    private SwitchState switchState(
+        OperationalLineData.SwitchDefinition definition,
+        List<SwitchState> states
+    ) {
+        if (definition == null) {
+            return null;
+        }
+        return states.stream().filter(state -> state.id().equals(definition.id())).findFirst().orElse(null);
+    }
+
+    private boolean matchesProtocolId(String protocolId, String... candidates) {
+        for (String candidate : candidates) {
+            if (protocolId.equals(normalizeProtocolId(candidate))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private String normalizeProtocolId(String value) {
+        if (value == null) {
+            return "";
+        }
+        String normalized = value.trim().toUpperCase();
+        return normalized.startsWith("0X") ? normalized.substring(2) : normalized;
     }
 
     private byte aspectByte(SignalAspect aspect) {
         return switch (aspect) {
             case RED -> 0x01;
-            case YELLOW -> 0x02;
-            case GREEN -> 0x04;
+            case GREEN -> 0x02;
+            case YELLOW -> 0x10;
         };
     }
 
@@ -264,6 +333,10 @@ public class VisionUdpPacketBuilder {
     private int segmentNumber(String segmentId) {
         Map<String, OperationalLineData.TrackSegmentDefinition> byId = infrastructureCatalog.lineData().trackSegmentById();
         OperationalLineData.TrackSegmentDefinition definition = byId.get(segmentId);
+        int protocolIndex = VisionProtocolV13Layout.SECTION_IDS.indexOf(normalizeProtocolId(segmentId));
+        if (protocolIndex >= 0) {
+            return protocolIndex + 1;
+        }
         if (definition != null && definition.rawSegmentId() > 0) {
             return clampInt(definition.rawSegmentId(), 0, 0xffff);
         }
@@ -273,6 +346,16 @@ public class VisionUdpPacketBuilder {
             indexById.put(segments.get(index).id(), index + 1);
         }
         return clampInt(indexById.getOrDefault(segmentId, 0), 0, 0xffff);
+    }
+
+    private double segmentOffsetMeters(double absolutePositionMeters, String segmentId) {
+        OperationalLineData.TrackSegmentDefinition definition = infrastructureCatalog.lineData()
+            .trackSegmentById()
+            .get(segmentId);
+        if (definition == null) {
+            return Math.max(0, absolutePositionMeters);
+        }
+        return Math.max(0, Math.min(definition.lengthMeters(), absolutePositionMeters - definition.startMeters()));
     }
 
     private int directionCode(TrainState train) {

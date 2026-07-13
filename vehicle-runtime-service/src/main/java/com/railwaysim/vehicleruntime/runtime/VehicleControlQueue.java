@@ -66,7 +66,7 @@ final class VehicleControlQueue {
         MovementAuthoritySnapshot authority, TrackConstraintSnapshot track,
         DispatchConstraintSnapshot dispatch, PowerConstraintSnapshot power
     ) {
-        double speedLimit = applyDispatchSpeed(resolveSpeedLimit(authority, track), dispatch);
+        double speedLimit = applyDispatchSpeed(resolveSpeedLimit(authority, track, state), dispatch);
         double maDistance = resolveMovementAuthorityDistance(state, authority);
         boolean doorClosed = "CLOSED_LOCKED".equals(state.getDoorState());
         double stationDistance = resolveStationDistance(track);
@@ -134,6 +134,25 @@ final class VehicleControlQueue {
         double brakingFactor = loadPolicy.brakingDecelerationFactor(loadMassKg, state.getAvailableBrakeCount());
         double stoppingDistance = stoppingDistanceMeters(speed, track == null ? 0 : track.gradient(), brakingFactor);
         double tractionCapacityFactor = loadPolicy.tractionCommandFactor(loadMassKg, state.getAvailableTractionCount());
+
+        if (state.isExternalEmergencyBrakeLatched()) {
+            return brakeDecision(
+                TrainDynamicsState.SAFETY_BRAKE,
+                "EXTERNAL_EMERGENCY_BRAKE_LATCHED",
+                speed,
+                stoppingDistance,
+                true
+            );
+        }
+        if (state.isTelemetryHold()) {
+            return brakeDecision(
+                TrainDynamicsState.SELF_CHECK_BLOCKED,
+                "EXTERNAL_TELEMETRY_STALE_HOLD",
+                speed,
+                stoppingDistance,
+                false
+            );
+        }
 
         if (driverCommand != null && driverCommand.emergencyBrake()) {
             return brakeDecision(
@@ -249,10 +268,16 @@ final class VehicleControlQueue {
         return new DynamicsDecision(dynState, reason, 0, 0, false, stoppingDistance);
     }
 
-    private double resolveSpeedLimit(MovementAuthoritySnapshot authority, TrackConstraintSnapshot track) {
+    private double resolveSpeedLimit(
+        MovementAuthoritySnapshot authority,
+        TrackConstraintSnapshot track,
+        TrainStateHolder state
+    ) {
         double authorityLimit = authority == null ? properties.getDefaultSpeedLimitMetersPerSecond() : authority.speedLimitMetersPerSecond();
         double trackLimit = track == null ? properties.getDefaultSpeedLimitMetersPerSecond() : track.speedLimitMetersPerSecond();
-        return Math.max(0, Math.min(authorityLimit, trackLimit));
+        double faultLimit = state.getVehicleFaultSpeedLimitMetersPerSecond();
+        double externalLimit = faultLimit > 0 ? faultLimit : properties.getDefaultSpeedLimitMetersPerSecond();
+        return Math.max(0, Math.min(Math.min(authorityLimit, trackLimit), externalLimit));
     }
 
     private double resolveMovementAuthorityDistance(TrainStateHolder state, MovementAuthoritySnapshot authority) {

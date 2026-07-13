@@ -1,6 +1,11 @@
 package com.railwaysim.localnet.signal;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 import com.railwaysim.signal.vehicle.SignalTrainLifecycleAction;
 import com.railwaysim.signal.vehicle.SignalTrainLifecycleCommand;
@@ -11,6 +16,8 @@ import com.railwaysim.train.TrainState;
 import com.railwaysim.vehicle.external.ExternalTrainDirection;
 import com.railwaysim.vehicle.protocol.SignalTrainContentCodec;
 import com.railwaysim.vehicle.protocol.TrainOperationalTelemetry;
+import com.railwaysim.vehicle.telemetry.VehicleTelemetryGatewayService;
+import com.railwaysim.vehicle.telemetry.VehicleTelemetryResponse;
 import java.util.ArrayList;
 import java.util.List;
 import org.junit.jupiter.api.Test;
@@ -20,7 +27,7 @@ class SignalFrameDomainMapperTests {
     @Test
     void appliesRealtimeLifecyclePacketToTrainManager() {
         CapturingTrainManager trainManager = new CapturingTrainManager();
-        SignalFrameDomainMapper mapper = new SignalFrameDomainMapper(trainManager);
+        SignalFrameDomainMapper mapper = new SignalFrameDomainMapper(trainManager, gateway());
         SignalTrainLifecycleCommandCodec codec = new SignalTrainLifecycleCommandCodec();
         byte[] payload = codec.encode(SignalTrainLifecycleCommand.add(
             List.of(SignalTrainLifecycleTrainSpec.add(3, 12, 640, ExternalTrainDirection.DOWN))
@@ -35,9 +42,10 @@ class SignalFrameDomainMapperTests {
     }
 
     @Test
-    void appliesOperationalTelemetryFromDatabaseNodeTrainContentFrame() {
+    void acceptsLegacyTrainContentWithoutOverwriting9300Mirror() {
         CapturingTrainManager trainManager = new CapturingTrainManager();
-        SignalFrameDomainMapper mapper = new SignalFrameDomainMapper(trainManager);
+        VehicleTelemetryGatewayService gateway = gateway();
+        SignalFrameDomainMapper mapper = new SignalFrameDomainMapper(trainManager, gateway);
         SignalTrainContentCodec contentCodec = new SignalTrainContentCodec();
         byte[] content = contentCodec.encode(List.of(new TrainOperationalTelemetry(
             7,
@@ -60,15 +68,15 @@ class SignalFrameDomainMapperTests {
         SignalFrameDomainMapper.SignalInboundResult result = mapper.applyInbound(new SignalDatabaseNodeFrameCodec().encode(frame));
 
         assertThat(result.accepted()).isTrue();
-        assertThat(result.summary()).contains("operational telemetry").contains("trains=1");
-        assertThat(trainManager.telemetries).hasSize(1);
-        assertThat(trainManager.telemetries.get(0).trainNo()).isEqualTo(7);
+        assertThat(result.summary()).contains("forwarded to 9300").contains("trains=1").contains("accepted=true");
+        assertThat(trainManager.telemetries).isEmpty();
+        verify(gateway).forward(eq("SIGNAL_LOCALNET"), any());
     }
 
     @Test
     void treatsF1DatabaseNodeFrameAsFullFrameBeforeLifecyclePacket() {
         CapturingTrainManager trainManager = new CapturingTrainManager();
-        SignalFrameDomainMapper mapper = new SignalFrameDomainMapper(trainManager);
+        SignalFrameDomainMapper mapper = new SignalFrameDomainMapper(trainManager, gateway());
         SignalDatabaseNodeFrame frame = new SignalDatabaseNodeFrame(
             SignalDatabaseNodeFrame.CAB_SWITCH_CONTENT,
             SignalDatabaseNodeFrameCodec.CENTRAL_SOURCE_ID,
@@ -81,6 +89,12 @@ class SignalFrameDomainMapperTests {
         assertThat(result.accepted()).isTrue();
         assertThat(result.summary()).contains("cab switch frame");
         assertThat(trainManager.applied).isNull();
+    }
+
+    private VehicleTelemetryGatewayService gateway() {
+        VehicleTelemetryGatewayService gateway = mock(VehicleTelemetryGatewayService.class);
+        when(gateway.forward(any(), any())).thenReturn(new VehicleTelemetryResponse(true, List.of()));
+        return gateway;
     }
 
     private static class CapturingTrainManager extends TrainManager {

@@ -188,8 +188,8 @@
   <header>
     <h1>车辆控制节点接入演示</h1>
     <div class="meta">
-      <span>后端接口：/api/trains/lifecycle、/api/simulation/tick、/api/vehicle/onboard-subsystems</span>
-      <span>模式：中央系统调用本地或外部车辆控制节点客户端</span>
+      <span>后端接口：/api/trains/lifecycle、/api/simulation/tick、/api/vehicle/runtime-health</span>
+      <span>模式：中央系统通过 9300 EXTERNAL_HTTP 车辆运行时获取权威状态</span>
     </div>
   </header>
 
@@ -302,22 +302,22 @@
       nodeRows.innerHTML = nodes.map(node => `
         <tr>
           <td>${node.trainId}</td>
-          <td>${node.requestedMode}</td>
-          <td>${node.activeMode}</td>
-          <td>${pill(node.connectionState)}</td>
+          <td>EXTERNAL_HTTP</td>
+          <td>${node.lifecycleState}</td>
+          <td>${pill(node.controlQueueStatus)} / ${pill(node.simulationQueueStatus)}</td>
           <td>${pill(node.dataQuality)}</td>
-          <td>${node.lastError || '-'}</td>
+          <td>${node.reason || '-'}</td>
         </tr>
       `).join('')
     }
 
     async function refresh() {
-      const [snapshot, nodes] = await Promise.all([
+      const [snapshot, runtime] = await Promise.all([
         request('/api/simulation/snapshot'),
-        request('/api/vehicle/onboard-subsystems')
+        request('/api/vehicle/runtime-health')
       ])
       renderTrains(snapshot.trains || [])
-      renderNodes(nodes || [])
+      renderNodes(runtime.instances || [])
       snapshotJson.textContent = JSON.stringify({
         tick: snapshot.tick,
         status: snapshot.status,

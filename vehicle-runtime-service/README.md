@@ -21,7 +21,11 @@ DELETE /vehicle-runtime/trains
 GET  /vehicle-runtime/instances
 POST /vehicle-runtime/step-fleet
 GET  /vehicle-runtime/events
+POST /vehicle-runtime/peripherals/frame
+GET  /vehicle-runtime/peripherals/status
 ```
+
+外设聚合入口使用 `application/octet-stream` 的 RSIM Version 1 帧。中央把现场 PLC 的原始 46 字节控制载荷连同车号、序号和 CRC32 封装后送入该入口；本服务只接受 `PLC_INPUT` 通道。`PLC_OUTPUT`、网络屏、信号屏和视景通道都是输出方向，提交到 9300 入站接口会返回 `400 CHANNEL_DIRECTION_INVALID`。网络屏、信号屏和视景系统不产生业务输入。完整帧布局见 `../docs/司机台与显示系统端口聚合协议.md`。
 
 启动列车示例：
 

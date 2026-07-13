@@ -9,8 +9,6 @@ import com.railwaysim.simulation.event.FmuFallbackActivatedEvent;
 import com.railwaysim.simulation.event.FmuStepFailedEvent;
 import com.railwaysim.track.TrackSegmentState;
 import com.railwaysim.train.TrainState;
-import com.railwaysim.vehicle.control.VehicleControlDecision;
-import com.railwaysim.vehicle.control.VehicleControlDecisionRepository;
 import java.sql.Timestamp;
 import java.util.List;
 import org.slf4j.Logger;
@@ -26,35 +24,11 @@ public class SimulationPersistenceService {
 
     private final JdbcTemplate jdbcTemplate;
     private final ObjectMapper objectMapper;
-    private final VehicleControlDecisionRepository decisionRepository;
     private boolean persistenceWarningLogged;
 
-    public SimulationPersistenceService(JdbcTemplate jdbcTemplate, ObjectMapper objectMapper,
-        VehicleControlDecisionRepository decisionRepository) {
+    public SimulationPersistenceService(JdbcTemplate jdbcTemplate, ObjectMapper objectMapper) {
         this.jdbcTemplate = jdbcTemplate;
         this.objectMapper = objectMapper;
-        this.decisionRepository = decisionRepository;
-    }
-
-    public void persistVehicleControlDecisions(TickContext context) {
-        try {
-            for (VehicleControlDecision decision : decisionRepository.byRunAndTick(
-                context.simulationRunId(), context.tick())) {
-                jdbcTemplate.update("""
-                    INSERT INTO vehicle_control_command_log (
-                      simulation_run_id, tick, train_id, command_id, trace_id,
-                      operation_mode, decision_source, traction_command, brake_command,
-                      emergency_brake, reason_code, decided_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """,
-                    decision.runId(), decision.tick(), decision.trainId(), decision.decisionId(),
-                    decision.traceId(), decision.mode().name(), decision.source(),
-                    decision.tractionCommand(), decision.brakeCommand(), decision.emergencyBrake(),
-                    decision.selectedReasonCode(), Timestamp.from(decision.decidedAt()));
-            }
-        } catch (DataAccessException ex) {
-            log.warn("Vehicle control decision persistence failed: {}", ex.getMessage());
-        }
     }
 
     public void persist(

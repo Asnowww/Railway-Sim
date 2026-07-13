@@ -30,11 +30,7 @@ public record VehicleRuntimeHealth(
             reason, "", "", "", "", -1, "", "", "", false);
     }
 
-    public static VehicleRuntimeHealth local() {
-        return new VehicleRuntimeHealth(VehicleRuntimeMode.LOCAL, "LOCAL", Instant.now(), 0, "GOOD", 0, "LOCAL_RUNTIME");
-    }
-
     public static VehicleRuntimeHealth fallback(VehicleRuntimeMode mode, String reason) {
-        return new VehicleRuntimeHealth(mode == null ? VehicleRuntimeMode.LOCAL : mode, "FALLBACK", Instant.now(), 0, "FALLBACK", 0, reason);
+        return new VehicleRuntimeHealth(mode == null ? VehicleRuntimeMode.EXTERNAL_HTTP : mode, "FALLBACK", Instant.now(), 0, "FALLBACK", 0, reason);
     }
 }

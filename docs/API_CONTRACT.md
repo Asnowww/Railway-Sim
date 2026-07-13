@@ -195,30 +195,32 @@ POST /api/signal/vehicles/telemetry/content-packet?trainCount=1
 
 | 端点 | 所属服务 | 端口 | 说明 |
 |---|---|---|---|
-| `POST .../plc-input` | vehicle-runtime-service | 9300 | PLC 输入编解码与命令存储 |
+| `POST .../plc-input` JSON | backend协议网关 | 8080 | 前端结构化输入校验、46字节编码和结果透传，不执行控制 |
+| `POST /vehicle-runtime/peripherals/frame` octet-stream | vehicle-runtime-service | 9300 | 聚合帧解码；仅接受 PLC 输入并执行命令存储与后续仲裁 |
 | `GET .../state` | backend | 8080 | 司机台显示状态（来自信号系统） |
 | `GET .../plc-output` | backend | 8080 | PLC 输出报文编码 |
 
 协议模型：
 
-- `DriverCabPlcCodec`：实现司机台 PLC 第 7 章报文内容定义的小端编解码。输入侧在 `vehicle-runtime-service:9300`，输出侧在 `backend:8080`。
+- `DriverCabPlcCodec`：实现司机台 PLC 第 7 章报文内容定义的小端编解码。8080 接收原始输入并封装聚合帧，9300 解聚合后执行输入；输出侧在 `backend:8080`。
 - `PLC -> 上位机`：46 字节，24 字节报文头 + 22 字节数据区，周期 100ms；固定标识 `55 AA 55 AA`，长度字段小端 `2E 00/16 00`。位偏移依现场表解码，其中紧急制动是 byte 28 bit0，开关门是 byte 29 bit0..3。
 - `上位机 -> PLC`：26 字节，24 字节报文头 + 2 字节数据区；由 backend 8080 编码，来源为 `TrainState` 与当前 `SignalVehicleCommand.cabDisplay`。
 
-后期无真实 TCP PLC 时使用 REST 二进制入口联调：
+无真实 TCP PLC 时使用 8080 结构化入口，或直接构造 RSIM 聚合帧联调：
 
 ```http
-POST http://localhost:9300/api/vehicle/driver-cabs/{trainId}/plc-input
+POST http://localhost:9300/vehicle-runtime/peripherals/frame
+GET  http://localhost:9300/vehicle-runtime/peripherals/status
 GET  http://localhost:8080/api/vehicle/driver-cabs/{trainId}/state
 GET  http://localhost:8080/api/vehicle/driver-cabs/{trainId}/plc-output
 ```
 
-- `POST plc-input` 由外部测试脚本或半实物仿真平台调用，使用 `application/octet-stream` 提交 46 字节 PLC 输入报文。IPv4 地址与端口为 `localhost:9300`（vehicle-runtime-service）。
+- 浏览器前端连接8080并提交结构化JSON；8080编码46字节后封装为聚合帧转发9300，并透传 `DriverCommandAcceptance`。聚合帧使用 `RSIM` 魔数、Version 1、通道、序号、车号、原始现场载荷和 CRC32；所有服务间外设数据复用9300端口。
 - 非法枚举码（门模式/方向手柄/主手柄）和越界百分比（0–100 范围外）将返回 `400` 和 `DriverCommandAcceptance{accepted:false, reasonCode: "DECODE_FAILED"}`，不再静默截断。
 - 合法报文返回 `DriverCommandAcceptance{accepted:true, commandId, trainId, reasonCode: "ACCEPTED", receivedAt, expiresAt}`。
 - 9300 未找到已启动的 `VehicleRuntimeInstance` 时返回 `404` 和 `reasonCode: "UNKNOWN_TRAIN"`，命令不进入 Holder。
 - `GET state/plc-output` 仍由 `backend:8080` 提供。
-- 真实 TCP 由 8080 `DriverCabTcpAdapter` 管理连接；在 `EXTERNAL_HTTP` 中它只把 PLC 原始帧和网络屏 26 字节牵引切除帧转发到 9300，不执行车辆控制。端点为 PLC `192.168.100.123:8001`、网络屏 `192.168.100.121:8888`、信号屏 `192.168.100.122:9999`。
+- 真实 TCP 由 8080 `DriverCabTcpAdapter` 管理连接；在 `EXTERNAL_HTTP` 中它只把 PLC 46 字节原始输入封装为聚合帧转发到 9300，不执行车辆控制。网络屏和信号屏均为纯输出显示端，不读取或转发任何屏幕输入。端点为 PLC `192.168.100.123:8001`、网络屏 `192.168.100.121:8888`、信号屏 `192.168.100.122:9999`；视景系统由 8080 向 `18.32.115.28:8302` 单向发送 UDP Version 1.3 报文。完整方向矩阵和 RSIM 帧布局见 `docs/司机台与显示系统端口聚合协议.md`。
 
 视景适配接口用于把车辆侧运行态补齐到信号/ATS 视图，再由信号模块按 UDP 包发送给外部视景系统：
 
@@ -253,7 +255,7 @@ POST /api/localnet/adapters/{adapterId}/replay
 `POST /api/localnet/adapters/{adapterId}/replay` 使用 `application/octet-stream`，不打开真实 socket，只把报文送入同一解析和领域映射路径：
 
 - `signal-udp` 支持完整 `0xff 0xf0/0xf1` 帧，以及实时 ADD/DELETE/CLEAR 生命周期包。
-- `driver-cab-tcp` 支持 46 字节 PLC 输入包和 26 字节网络屏牵引切除包回放，两者都转发到 9300 权威运行时。
+- `driver-cab-tcp` 只接受46字节 PLC 输入；网络屏570字节、信号屏68字节和视景Version 1.3 UDP都是中央到显示端的单向输出。
 - `power-points` 点表支持 YAML/CSV，字段包括 `pointId`、`name`、`direction`、`dataType`、`scale`、`address`、`domainTarget`、`defaultValue`、`quality`；replay 使用文本 `pointId=value`，例如 `ISO_P01_A_STATE=OPEN`。
 
 协议报文审计写入 `protocol_packet_log`，但审计是旁路能力；数据库写入失败不会阻塞现场链路或仿真 tick。
@@ -301,12 +303,9 @@ GET /api/power/external-health
 GET /api/energy/trains
 GET /api/energy/power-sections
 GET /api/vehicle/maintenance-states
-GET /api/vehicle/onboard-subsystems
 ```
 
-`GET /api/vehicle/onboard-subsystems` 返回中央侧纳管的单车基层智能子系统节点状态，用于查看本地/外部车辆控制节点是否在线、是否 fallback、租约是否仍有效。该接口只读，不用于调度越级控车。
-
-> ⚠️ **废弃**：该接口对应的 `OnboardTrainSubsystemManager` 及相关 LOCAL 控制引擎已标记 `@Deprecated(forRemoval=true)`。`EXTERNAL_HTTP` 模式下车辆控制节点状态通过 `GET /vehicle-runtime/instances`（9300）查询。本接口仅保留用于 `LOCAL` 降级兼容。
+`GET /api/vehicle/onboard-subsystems` 已移除。中央前端统一查询 `GET /api/vehicle/runtime-health`；9300内部实例明细由 `GET /vehicle-runtime/instances` 提供。
 
 ### 仿真故障注入
 
@@ -828,6 +827,8 @@ GET  /vehicle-runtime/events
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
+| `POST` | `/vehicle-runtime/peripherals/frame` | RSIM Version 1 外设聚合入口；仅接受 `PLC_INPUT`，其他通道返回 `CHANNEL_DIRECTION_INVALID`。 |
+| `GET` | `/vehicle-runtime/peripherals/status` | 查询聚合协议版本、允许通道、收拒帧计数、最近序号和车号。 |
 | `POST` | `/vehicle-runtime/trains/{trainId}/manual-control` | 手动控制单列车：设置牵引/制动/紧急制动/方向。命令存入 `DriverCommandHolder`，下个 tick 通过 `VehicleControlQueue.decideDynamicsState()` 生效。 |
 | `GET` | `/vehicle-runtime/trains/{trainId}/state` | 获取单列车权威状态快照 |
 | `GET` | `/vehicle-runtime/trains/state` | 获取所有列车权威状态快照 |
@@ -988,15 +989,7 @@ POST http://localhost:9000/step-fleet
 
 该协议不是面向前端或调度系统的 REST 接口，而是后端车辆运行时背后的实现。新 `vehicle-runtime-service` 健康时可同时接管车辆控制决策和车辆物理仿真；旧 `external-simulator` / FMU / UDP / RT-LAB 适配仍作为物理端口历史兼容路径保留。
 
-> ⚠️ **废弃**：`onboard-subsystem-mode` 对应的 `OnboardTrainSubsystemManager` 及 `HttpOnboardTrainSubsystemClient` 已标记 `@Deprecated(forRemoval=true)`。生产环境请使用 `railway.simulation.vehicle-runtime.mode=EXTERNAL_HTTP` 搭配 9300。`onboard-subsystem-mode` 仅保留用于 LOCAL 降级兼容。
-
-中央到车辆控制节点的调用通过 `railway.simulation.onboard-subsystem-mode` 切换（已废弃）：
-
-| mode | 行为 |
-|---|---|
-| `IN_PROCESS` | 使用进程内 `OnboardTrainSubsystem`，仅 LOCAL 降级。 |
-| `EXTERNAL_HTTP` | 通过 `HttpOnboardTrainSubsystemClient` 调用旧 onboard 节点，失败时本地 fallback。该配置不是 `railway.simulation.vehicle-runtime.mode=EXTERNAL_HTTP`；生产 9300 车辆运行时失败会中止 tick，不使用本回退。 |
-| `DUAL_SHADOW` | 本地输出为权威，外部节点只做影子在线验证。 |
+> ✅ **已移除**：`onboard-subsystem-mode` 对应的 `OnboardTrainSubsystemManager` 及 `HttpOnboardTrainSubsystemClient` 已删除。车辆控制使用 `railway.simulation.vehicle-runtime.mode=EXTERNAL_HTTP` 搭配 9300。
 
 配置：
 

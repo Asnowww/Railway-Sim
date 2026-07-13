@@ -4,6 +4,7 @@ import com.railwaysim.vehicleruntime.config.VehicleParameters;
 import com.railwaysim.vehicleruntime.drivercab.DriverCabMasterHandleState;
 import com.railwaysim.vehicleruntime.drivercab.DriverCabPlcInputPacket;
 import com.railwaysim.vehicleruntime.model.TrainStateSnapshot;
+import com.railwaysim.vehicleruntime.model.VehicleTelemetrySample;
 import com.railwaysim.vehicleruntime.model.VehiclePhysicsOutputDto;
 import java.util.ArrayList;
 import java.util.List;
@@ -63,6 +64,7 @@ public class TrainStateHolder {
     private double movementAuthorityDistanceMeters;
     private double stationDistanceMeters;
     private double stoppingDistanceMeters;
+    private double vehicleFaultSpeedLimitMetersPerSecond;
     private String faultCode = "OK";
 
     // ========== 故障注入 ==========
@@ -77,6 +79,7 @@ public class TrainStateHolder {
     // ========== 司控台状态 ==========
     private boolean driverCabKeyOn;
     private boolean driverCabEmergencyBrake;
+    private boolean externalEmergencyBrakeLatched;
 
     // ========== 约束快照（每 tick 由 prepare() 更新，供 snapshot() 使用） ==========
     private int linkId;
@@ -137,6 +140,7 @@ public class TrainStateHolder {
         this.movementAuthorityDistanceMeters = snapshot.movementAuthorityDistanceMeters();
         this.stationDistanceMeters = snapshot.stationDistanceMeters();
         this.stoppingDistanceMeters = snapshot.stoppingDistanceMeters();
+        this.vehicleFaultSpeedLimitMetersPerSecond = snapshot.vehicleFaultSpeedLimitMetersPerSecond();
         this.faultCode = snapshot.faultCode();
         this.linkId = snapshot.linkId();
         this.direction = snapshot.direction();
@@ -160,6 +164,47 @@ public class TrainStateHolder {
     public void applyConstraints(int tickLinkId, String tickDirection) {
         this.linkId = tickLinkId;
         this.direction = tickDirection;
+    }
+
+    public void applyAuthoritativeTelemetry(VehicleTelemetrySample telemetry, boolean emergencyBrakeLatched) {
+        this.positionMeters = telemetry.cumulativeDistanceMeters();
+        this.speedMetersPerSecond = telemetry.speedMetersPerSecond();
+        this.direction = telemetry.direction().toUpperCase(java.util.Locale.ROOT);
+        this.loadMassKg = telemetry.loadMassKg();
+        this.loadRate = VehicleLoadPolicy.loadRateFromMass(telemetry.loadMassKg());
+        this.overloadStatus = loadPolicy.overloadStatus(telemetry.loadMassKg());
+        this.vehicleFaultSpeedLimitMetersPerSecond = telemetry.faultSpeedLimitMetersPerSecond();
+        this.availableTractionCount = telemetry.availableTractionCount();
+        this.availableBrakeCount = telemetry.availableBrakeCount();
+        this.tractionAvailable = telemetry.availableTractionCount() > 0;
+        this.brakeAvailable = telemetry.availableBrakeCount() > 0;
+        this.externalEmergencyBrakeLatched = emergencyBrakeLatched;
+        this.dataQuality = "GOOD";
+        this.dynamicsState = "TELEMETRY_SYNCHRONIZED";
+        this.dynamicsConstraintReason = "EXTERNAL_TELEMETRY_APPLIED";
+        this.operationMode = "ATO";
+        this.availableOperationMode = "NORMAL";
+        this.selfCheckStatus = "PASS";
+        this.faultLevel = 0;
+        this.faultCode = "OK";
+        this.vehicleProtectionReason = emergencyBrakeLatched ? "EXTERNAL_EMERGENCY_BRAKE_LATCHED" : "NONE";
+        this.status = emergencyBrakeLatched ? "EMERGENCY_BRAKE" : "RUNNING";
+    }
+
+    public void markTelemetryHold() {
+        this.dataQuality = "STALE";
+        this.dynamicsState = "TELEMETRY_HOLD";
+        this.dynamicsConstraintReason = "EXTERNAL_TELEMETRY_STALE_HOLD";
+        this.operationMode = "DEGRADED";
+        this.availableOperationMode = "DEGRADED";
+        this.tractionAvailable = false;
+        this.tractionState = "IDLE";
+        this.brakeState = "SERVICE";
+        this.selfCheckStatus = "WARN";
+        this.faultLevel = Math.max(2, faultLevel);
+        this.faultCode = "EXTERNAL_TELEMETRY_STALE";
+        this.vehicleProtectionReason = "EXTERNAL_TELEMETRY_STALE_HOLD";
+        this.status = "DEGRADED";
     }
 
     // ========== 物理输出应用 ==========
@@ -256,9 +301,13 @@ public class TrainStateHolder {
             return;
         }
 
-        // 清除钥匙关闭故障
-        if ("DRIVER_CAB_KEY_OFF".equals(faultCode)) {
-            faultCode = "OK";
+        // 清除钥匙关闭故障。
+        // 注意：faultCode 可能已被物理链路（如 EXTERNAL_SIM_FALLBACK）逐 tick 覆盖，
+        // 必须以 vehicleProtectionReason 为准判断防护是否由钥匙触发，否则防护永远无法解除。
+        if ("DRIVER_CAB_KEY_OFF".equals(vehicleProtectionReason) || "DRIVER_CAB_KEY_OFF".equals(faultCode)) {
+            if ("DRIVER_CAB_KEY_OFF".equals(faultCode)) {
+                faultCode = "OK";
+            }
             faultLevel = 0;
             selfCheckStatus = "PASS";
             availableOperationMode = "NORMAL";
@@ -369,7 +418,7 @@ public class TrainStateHolder {
             effectiveTractionAvailable(), effectiveBrakeAvailable(),
             effSelfCheck, effFaultLevel, effAvailOpMode, effDataQuality,
             dynamicsState, dynamicsConstraintReason,
-            speedLimitMetersPerSecond, 0.0,
+            speedLimitMetersPerSecond, vehicleFaultSpeedLimitMetersPerSecond,
             movementAuthorityDistanceMeters, stationDistanceMeters, stoppingDistanceMeters,
             accelerationMetersPerSecondSquared,
             tractionForceNewtons, brakeForceNewtons, regenBrakeForceNewtons,
@@ -412,6 +461,9 @@ public class TrainStateHolder {
     public double getStationDistanceMeters() { return stationDistanceMeters; }
     public double getStoppingDistanceMeters() { return stoppingDistanceMeters; }
     public String getDynamicsConstraintReason() { return dynamicsConstraintReason; }
+    public double getVehicleFaultSpeedLimitMetersPerSecond() { return vehicleFaultSpeedLimitMetersPerSecond; }
+    public boolean isExternalEmergencyBrakeLatched() { return externalEmergencyBrakeLatched; }
+    public boolean isTelemetryHold() { return "TELEMETRY_HOLD".equals(dynamicsState); }
 
     // ========== 内部辅助方法（移植自 TrainEntity） ==========
 

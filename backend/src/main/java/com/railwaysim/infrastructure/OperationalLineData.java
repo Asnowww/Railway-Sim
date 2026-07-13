@@ -205,8 +205,22 @@ public record OperationalLineData(
         String anchorSegmentId,
         String directionCode,
         String rawCenterMark,
-        String interoperabilityId
+        String interoperabilityId,
+        double stopLeftMeters,
+        double stopRightMeters,
+        String platformSide
     ) {
+        /** 兼容旧调用（xls 工作簿路径）：无停车窗口/站台侧信息。 */
+        public PlatformDefinition(
+            String id,
+            double centerMeters,
+            String anchorSegmentId,
+            String directionCode,
+            String rawCenterMark,
+            String interoperabilityId
+        ) {
+            this(id, centerMeters, anchorSegmentId, directionCode, rawCenterMark, interoperabilityId, 0, 0, null);
+        }
     }
 
     public record SignalDefinition(

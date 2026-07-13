@@ -23,11 +23,11 @@
 | `/api/trains/{trainId}/faults` | POST | 注入车辆仿真故障。 |
 | `/api/trains/{trainId}/faults/clear` | POST | 清除车辆仿真故障。 |
 | `/api/trains/lifecycle` | POST | 外部车辆控制会话 ADD/DELETE/CLEAR 兼容入口；推荐上线流程已迁移到 9300 的 `launch`。 |
-| `/api/vehicle/onboard-subsystems` | GET | 查看中央侧已纳管车辆控制节点的模式、在线状态、数据质量和最近错误。 |
+| `/api/vehicle/runtime-health` | GET | 查看9300运行时健康、实例数量、数据质量和最近错误。 |
 
 写接口请求必须包含 `confirmToken=SIMULATION_CONFIRM`。
 
-综合监控侧应把 `/api/trains/lifecycle` 理解为联调/信号协议入口，而不是数据库维护入口。推荐启动链路是 `vehicle-runtime-service /vehicle-runtime/trains/launch -> /api/trains/runtime-registrations`，前端仍只看中央 `/api/vehicle/runtime-health`、`controlSessionState`、`signalNetworkStatus`、`powerNetworkStatus` 和 `/api/vehicle/onboard-subsystems` 判断是否真正上线；只有 `IN_SERVICE + ATTACHED + ATTACHED` 才表示已进入中央主循环。
+综合监控侧应把 `/api/trains/lifecycle` 理解为联调/信号协议入口，而不是数据库维护入口。推荐启动链路是 `vehicle-runtime-service /vehicle-runtime/trains/launch -> /api/trains/runtime-registrations`，前端通过中央 `/api/vehicle/runtime-health`、`controlSessionState`、`signalNetworkStatus` 和 `powerNetworkStatus` 判断是否真正上线；只有 `IN_SERVICE + ATTACHED + ATTACHED` 才表示已进入中央主循环。
 
 ## WebSocket 快照字段
 
@@ -41,7 +41,7 @@
 - 能耗：`tractionPowerWatts`、`regenPowerWatts`、`energyConsumedKwh`、`energyRegeneratedKwh`
 - 故障：`faultCode`、`faultLevel`、`availableOperationMode`、`dataQuality`
 
-快照顶层 `vehicleRuntime` 字段用于展示 `LOCAL`、`EXTERNAL_HTTP`、`DUAL_SHADOW`、`FALLBACK`、实例数量和最近错误。综合监控只读该字段，不直接访问外部 `vehicle-runtime-service:9300`。
+快照顶层 `vehicleRuntime` 字段用于展示 `EXTERNAL_HTTP`、`FALLBACK`、实例数量和最近错误。综合监控只读该字段，不直接写入外部 `vehicle-runtime-service:9300`。
 
 ## 增修机制记录
 

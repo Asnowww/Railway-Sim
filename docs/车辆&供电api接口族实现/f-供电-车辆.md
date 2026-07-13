@@ -2,7 +2,7 @@
 
 ## 实现范围
 
-本接口族是后端仿真热循环内的内部接口，不直接暴露给调度或前端作为控制入口。供电模块只输出约束，车辆模块通过 `OnboardTrainSubsystemManager` 或外部 `vehicle-runtime-service` 消费约束并生成车辆物理输出。业务模块仍只对接中央供电控制模块；仿真层仅允许 `EXTERNAL_HTTP` 权威模式下的 `vehicle-runtime-service:9300` 把列车取电负荷推送到 `power-network-service:9200`。
+本接口族是后端仿真热循环内的内部接口，不直接暴露给调度或前端作为控制入口。供电模块只输出约束，车辆模块固定由 `vehicle-runtime-service:9300` 消费约束并生成车辆物理输出。业务模块仍只对接中央供电控制模块；9300 是向 `power-network-service:9200` 写入列车负荷的唯一主体。
 
 列车上线推荐由 `vehicle-runtime-service` 的 `POST /vehicle-runtime/trains/launch` 发起：车辆仿真系统先创建实例并唤醒随车控制队列，再调用中央 `/api/trains/runtime-registrations` 建立状态镜像。新车被 `TrainManager` 纳管后，供电模块在下一轮 `constraintsForTrains()` 中按位置输出 `PowerConstraint`，再由车辆控制节点决定牵引、惰行或制动。
 
@@ -13,7 +13,7 @@
 | 供电到车辆 | `PowerService.constraintsForTrains()` -> `PowerConstraintService.constraintsForTrains()` | 根据列车位置匹配中央供电分区，输出 `PowerConstraint`。 |
 | 车辆到供电 | `PowerService.updateFromVehicleOutputs()` -> `PowerConstraintService.calculateStates()` | 聚合车辆电流、牵引功率、再生功率和受影响列车，并结合设备级状态重算分区能力。 |
 | 设备状态接入 | `PowerIntegrationService` | 中央供电控制内部使用；根据外部车辆运行时是否为 `EXTERNAL_HTTP` 权威写入方决定主动推负荷或只拉状态。 |
-| 单车基层智能子系统 | `vehicle-runtime-service /step-fleet` 或本地 `OnboardTrainSubsystemManager.control()` | 外部健康时由车辆运行时消费供电、信号和轨道约束；fallback 时中央本地链路接管。 |
+| 单车基层智能子系统 | `vehicle-runtime-service /step-fleet` | 9300 消费供电、信号和轨道约束；失败时中止 tick，中央不接管。 |
 | 快照输出 | `PowerSectionState`、`TrainState` | WebSocket 和 REST 共用同一状态对象。 |
 
 ## 数据流
@@ -22,14 +22,12 @@
 TrainState.positionMeters
   -> PowerService.constraintsForTrains()
   -> PowerConstraint(sectionId, railVoltage, powerAvailableWatts, powerDeratingFactor, regenAvailable)
-  -> LOCAL: OnboardTrainSubsystemManager + VehiclePhysicsClient
   -> EXTERNAL_HTTP: vehicle-runtime-service:9300
   -> VehiclePhysicsOutput
   -> PowerService.updateFromVehicleOutputs()
   -> PowerConstraintService.loadSnapshots()
   -> PowerIntegrationService.refreshSnapshot(sectionLoads)
-       -> vehicle runtime healthy: GET /power-network/state
-       -> fallback/local: POST /power-network/state/query
+       -> GET /power-network/state
   -> PowerConstraintService.calculateStates()
 ```
 

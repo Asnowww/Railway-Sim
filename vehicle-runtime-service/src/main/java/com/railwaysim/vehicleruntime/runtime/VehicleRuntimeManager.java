@@ -25,6 +25,10 @@ import com.railwaysim.vehicleruntime.model.VehicleRuntimeInstanceState;
 import com.railwaysim.vehicleruntime.model.VehicleParameterMetadata;
 import com.railwaysim.vehicleruntime.model.VehicleRuntimeStepRequest;
 import com.railwaysim.vehicleruntime.model.VehicleRuntimeStepResponse;
+import com.railwaysim.vehicleruntime.model.VehicleTelemetryModeRequest;
+import com.railwaysim.vehicleruntime.model.VehicleTelemetryModeState;
+import com.railwaysim.vehicleruntime.model.VehicleTelemetryRequest;
+import com.railwaysim.vehicleruntime.model.VehicleTelemetryResponse;
 import java.time.Duration;
 import java.time.Instant;
 import java.nio.charset.StandardCharsets;
@@ -35,6 +39,7 @@ import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -57,6 +62,7 @@ public class VehicleRuntimeManager {
     private final JavaFallbackVehiclePhysicsExecutor javaFallbackExecutor;
     private final DriverCommandHolder driverCommandHolder;
     private final StoppingControlProperties stoppingProperties;
+    private final VehicleTelemetryCoordinator telemetryCoordinator;
     private final Map<String, VehicleRuntimeInstance> instances = new ConcurrentHashMap<>();
     private final Map<String, FmuInstanceSessionState> fmuSessions = new ConcurrentHashMap<>();
     private final Map<String, PowerConstraintSnapshot> authoritativePowerByTrain = new ConcurrentHashMap<>();
@@ -66,8 +72,8 @@ public class VehicleRuntimeManager {
     private long missedDeadlineCount;
     private long fallbackEventCount;
     private long fmiErrorCount;
-    private String currentRunId = "";
-    private long lastAcceptedTick = -1;
+    private volatile String currentRunId = "";
+    private volatile long lastAcceptedTick = -1;
     private boolean bootstrapped;
     private List<TrainStateHolder.StationDef> stationDefinitions = List.of();
 
@@ -80,7 +86,8 @@ public class VehicleRuntimeManager {
         FmuHttpVehiclePhysicsExecutor fmuExecutor,
         JavaFallbackVehiclePhysicsExecutor javaFallbackExecutor,
         DriverCommandHolder driverCommandHolder,
-        StoppingControlProperties stoppingProperties
+        StoppingControlProperties stoppingProperties,
+        VehicleTelemetryCoordinator telemetryCoordinator
     ) {
         this.properties = properties;
         this.vehicleParameters = vehicleParameters;
@@ -90,6 +97,7 @@ public class VehicleRuntimeManager {
         this.javaFallbackExecutor = javaFallbackExecutor;
         this.driverCommandHolder = driverCommandHolder;
         this.stoppingProperties = stoppingProperties;
+        this.telemetryCoordinator = telemetryCoordinator;
         this.latestHealth = healthSnapshot("UP", 0, "GOOD", "READY", 0);
     }
 
@@ -103,7 +111,7 @@ public class VehicleRuntimeManager {
     ) {
         this(properties, vehicleParameters, powerNetworkLoadClient, centralTrainRegistrationClient,
             fmuExecutor, javaFallbackExecutor, DriverCommandHolder.getInstance(),
-            new StoppingControlProperties());
+            new StoppingControlProperties(), new VehicleTelemetryCoordinator(properties));
     }
 
     public VehicleRuntimeHealth health() {
@@ -235,6 +243,7 @@ public class VehicleRuntimeManager {
 
     public void remove(String trainId) {
         if (trainId != null && instances.remove(trainId) != null) {
+            telemetryCoordinator.remove(trainId);
             fmuSessions.remove(trainId);
             javaFallbackExecutor.deleteInstance(trainId);
             if (properties.getPhysicsMode() == VehiclePhysicsMode.FMU_HTTP) {
@@ -250,6 +259,7 @@ public class VehicleRuntimeManager {
 
     public void clear() {
         instances.clear();
+        telemetryCoordinator.clear();
         fmuSessions.clear();
         javaFallbackExecutor.resetAll();
         currentRunId = "";
@@ -346,6 +356,10 @@ public class VehicleRuntimeManager {
             // 新模式：从已注册实例确定列车列表，每个实例须有已初始化的 TrainStateHolder
             activeTrainIds = new ArrayList<>(instances.keySet());
         }
+
+        telemetryCoordinator.applyAtTick(
+            request.simulationRunId(), request.tick(), activeTrainIds, instances, startedAt
+        );
 
         Map<String, MovementAuthoritySnapshot> authorityByTrain = index(request.movementAuthorities(), MovementAuthoritySnapshot::trainId);
         Map<String, TrackConstraintSnapshot> trackByTrain = index(request.trackConstraints(), TrackConstraintSnapshot::trainId);
@@ -512,6 +526,7 @@ public class VehicleRuntimeManager {
 
     private void rolloverRunIfRequired(String incomingRunId, long incomingTick) {
         if (currentRunId.isBlank()) {
+            telemetryCoordinator.rollover();
             currentRunId = incomingRunId;
             return;
         }
@@ -524,6 +539,7 @@ public class VehicleRuntimeManager {
             );
         }
         String previousRunId = currentRunId;
+        telemetryCoordinator.rollover();
         currentRunId = incomingRunId;
         lastAcceptedTick = -1;
         authoritativePowerByTrain.clear();
@@ -737,6 +753,24 @@ public class VehicleRuntimeManager {
         return instances.values().stream()
             .map(VehicleRuntimeInstance::snapshotTrainState)
             .toList();
+    }
+
+    public VehicleTelemetryResponse acceptTelemetry(VehicleTelemetryRequest request) {
+        return telemetryCoordinator.accept(
+            request, currentRunId, Set.copyOf(instances.keySet()), Instant.now()
+        );
+    }
+
+    public VehicleTelemetryModeState configureTelemetryMode(
+        String trainId,
+        VehicleTelemetryModeRequest request
+    ) {
+        return telemetryCoordinator.configureMode(trainId, request, Set.copyOf(instances.keySet()));
+    }
+
+    public VehicleTelemetryModeState telemetryMode(String trainId) {
+        requireInstance(trainId);
+        return telemetryCoordinator.mode(trainId);
     }
 
     /** 司控台输入：应用状态变更。 */

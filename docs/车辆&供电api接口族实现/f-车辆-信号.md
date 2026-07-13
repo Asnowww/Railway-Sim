@@ -53,7 +53,7 @@ GET /api/signal/vehicles/statuses
 | `dataQuality` | 适配层 | GOOD、FALLBACK、INVALID。 |
 | `driverConsoleState` | 司机台 PLC 状态投影 | 对齐门模式开关、ATO 启动标志、模式升/降级确认、自动折返、方向手柄和主手柄状态。 |
 
-`driverConsoleState` 是信号侧展示投影：8080 有中央/信号侧 `DriverCabStateSnapshot` 时优先使用，否则由最终车辆状态派生。拆分部署中，真实 PLC 原始命令只在9300执行；是否生效以9300 `TrainStateReport.decisionSource/inputCommandId/inputTraceId` 和中央 `VehicleControlDecision` 为准，不以本展示字段反推。字段覆盖司机台 PLC 协议 T19/T20 中本期需要的开关量：
+`driverConsoleState` 是信号侧展示投影：8080 有9300快照携带的 `DriverCabStateSnapshot` 时优先使用，否则由最终车辆状态派生。真实 PLC 原始命令只在9300执行；是否生效以9300 `TrainStateReport.decisionSource/inputCommandId/inputTraceId` 为准，不以本展示字段反推。
 
 | 字段 | 取值 | 说明 |
 |---|---|---|
@@ -64,7 +64,7 @@ GET /api/signal/vehicles/statuses
 | `directionHandleState` | `ZERO`、`FORWARD`、`BACKWARD` | 当前按列车上下行接入方向投影为前进位。 |
 | `masterHandleState` | `ZERO`、`TRACTION`、`BRAKE`、`FAST_BRAKE` | 按牵引、常用制动、紧急制动状态投影。 |
 
-司机台 PLC 原始报文不属于车辆-信号接口本身，而属于车辆控制系统内部外设适配。PLC 输入侧（`POST plc-input`）由 `vehicle-runtime-service:9300` 的 `DriverCabInputController` 接收处理；信号系统只消费车辆控制系统整理后的 `driverConsoleState` 和 `cabDisplay`，两者均通过 `backend:8080` 提供给信号模块。
+司机台 PLC 原始报文不属于车辆-信号接口本身，而属于车辆控制系统内部外设适配。前端向 8080 `POST plc-input` 提交结构化 JSON，或现场 PLC 向 8001 发送 46 字节帧；8080 保持原生载荷并封装 RSIM 聚合帧，通过 `/vehicle-runtime/peripherals/frame` 转发，最终由 9300 `DriverCabInputController` 接收和执行。信号系统只消费车辆控制系统整理后的 `driverConsoleState` 和 `cabDisplay`。网络屏、信号屏和视景系统只接收输出，不属于控制输入源。
 
 9300 必须对 `trainId` 存在性、46字节帧头/长度、门模式/方向/主手柄枚举和0–100级位进行严格校验。合法命令与 MA、车门/自检和供电约束在下一tick仲裁；过期人工命令切除牵引并进入安全制动。
 
@@ -91,7 +91,7 @@ Content-Type: application/json
 ]
 ```
 
-该入口会调用 `TrainManager.applyOperationalTelemetry(...)`，同步更新车辆向信号暴露的速度、累计里程、载重、紧急制动状态、可用牵引单元和可用制动单元。
+该中央写入口已废弃并返回 `410 Gone`。车辆状态只由9300 `step-fleet` 返回的 `trainStates[]` 更新中央镜像；信号模块继续通过8080只读状态与命令投影。
 
 ### 车辆遥测二进制入口
 
@@ -186,7 +186,7 @@ POST /api/signal/vision/udp/send?trainId=TR-001&host=18.32.115.28&port=8302
 | `target-port` | `8302` | 默认目标端口；调用参数 `port` 可覆盖。 |
 | `local-port` | `0` | 默认随机本地端口；调用参数 `localPort` 可覆盖。 |
 
-UDP 包按小端编码，字段顺序为：数据报计数、信号机状态列表、道岔状态列表、本车车速、本车发车表示器、本车运行工况、本车加速度、本车车头位置、本车车头边号、本车方向、他车数量、他车距离列表、他车边号列表、他车方向列表、他车车速列表。信号机顺序优先使用线路数据 `signals` 顺序，道岔顺序优先使用线路数据 `switches` 顺序；他车信息由当前全车状态组成，但由信号/ATS 视景适配层统一发布。
+UDP 包按 Version 1.3 小端编码，字段顺序为：数据报计数、固定 77 个信号机状态、固定 29 个道岔状态、本车车速、本车发车表示器、本车运行工况、本车加速度、本车车头位置、本车车头边号、本车方向、他车数量、他车距离列表、他车边号列表、他车方向列表、他车车速列表。信号机和道岔不足固定数量时使用协议默认状态补齐，超出部分不进入 Version 1.3 固定区；包含 `L` 辆他车时长度为 `128 + 9L` 字节。他车距离为相对本车车头位置的有符号偏移，由信号/ATS 视景适配层统一发布。视景端只接收并显示，不向平台发送业务数据。
 
 ## 上线/下线场景
 
