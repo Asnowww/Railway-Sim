@@ -36,6 +36,7 @@ const switches = computed(() => snapshot.value?.switchStates ?? [])
 const signals = computed(() => snapshot.value?.signalStates ?? [])
 const routeDecisions = computed(() => dispatch.value.routeDecisions ?? [])
 const routeReservations = computed(() => dispatch.value.routeReservations ?? [])
+const lineRegulationPlan = computed(() => dispatch.value.lineRegulationPlan)
 
 const activeTrainCount = computed(() => trains.value.length)
 const dwellingTrainCount = computed(() => trains.value.filter((train) => train.status === 'DWELLING').length)
@@ -749,6 +750,37 @@ const routeDecisionStatusLabel = (statusText: string) => {
     CANCELLED: '已取消',
   }
   return labels[statusText] ?? statusText
+}
+
+const lineRegulationStatusLabel = (statusText: string) => {
+  const labels: Record<string, string> = {
+    NO_DATA: '等待数据',
+    NO_ACTION_NEEDED: '无需调节',
+    OBSERVING: '观察中',
+    COMMANDS_PROPOSED: '已生成方案',
+  }
+  return labels[statusText] ?? statusText
+}
+
+const lineDecisionStatusLabel = (statusText: string) => {
+  const labels: Record<string, string> = {
+    COMMAND_PROPOSED: '已选中',
+    OBSERVE: '观察',
+    OBSERVE_ACTIVE_COMMAND: '已有命令',
+    OBSERVE_CONFLICT_SUPPRESSED: '冲突抑制',
+    OBSERVE_SIGNAL_CONSTRAINED: '信号约束',
+  }
+  return labels[statusText] ?? statusText
+}
+
+const signalConstraintLabel = (constraint: string) => {
+  const labels: Record<string, string> = {
+    NONE: '无',
+    MA_LIMITED: 'MA受限',
+    SPEED_LIMITED: '限速受限',
+    ROUTE_BLOCKED: '进路受阻',
+  }
+  return labels[constraint] ?? constraint
 }
 
 const headwayStateLabel = (state: string) => {
@@ -1979,6 +2011,67 @@ function formatDelta(current: number | null | undefined, baseline: number | null
       <p class="headway-focus-hint">{{ headwayViolation.hint }}</p>
     </section>
 
+    <section class="line-regulation-panel" :data-status="lineRegulationPlan.status">
+      <div class="panel-title">
+        <h2>线路级调节方案</h2>
+        <span>{{ lineRegulationStatusLabel(lineRegulationPlan.status) }} / {{ lineRegulationPlan.commandCount }} 条本车命令</span>
+      </div>
+      <div class="line-regulation-summary">
+        <article>
+          <span>目标间隔</span>
+          <strong>{{ formatSeconds(lineRegulationPlan.targetHeadwaySec) }}</strong>
+          <small>{{ lineRegulationPlan.objective }}</small>
+        </article>
+        <article>
+          <span>当前最大偏差</span>
+          <strong>{{ formatSeconds(lineRegulationPlan.currentMaxAbsHeadwayErrorSec) }}</strong>
+          <small>全线绝对偏差</small>
+        </article>
+        <article>
+          <span>预计最大偏差</span>
+          <strong>{{ formatSeconds(lineRegulationPlan.predictedMaxAbsHeadwayErrorSec) }}</strong>
+          <small>本轮动作后估计</small>
+        </article>
+        <article>
+          <span>方案编号</span>
+          <strong>{{ lineRegulationPlan.planId || '-' }}</strong>
+          <small>{{ lineRegulationPlan.generatedAt ? formatPlannedTime(lineRegulationPlan.generatedAt) : '等待生成' }}</small>
+        </article>
+      </div>
+      <p v-if="lineRegulationPlan.decisions.length === 0" class="empty">暂无线路级调节方案。等待列车形成有效间隔观测或注入扰动。</p>
+      <div v-else class="line-decision-list">
+        <article v-for="decision in lineRegulationPlan.decisions" :key="`${decision.trainId}-${decision.status}-${decision.commandId || decision.reason}`">
+          <header>
+            <strong>{{ decision.trainId }} · {{ headwayActionLabel(decision.action) }}</strong>
+            <span :data-status="decision.status">{{ lineDecisionStatusLabel(decision.status) }}</span>
+          </header>
+          <dl>
+            <div>
+              <dt>参考前车</dt>
+              <dd>{{ decision.frontTrainId || '-' }}</dd>
+            </div>
+            <div>
+              <dt>实际/目标</dt>
+              <dd>{{ formatSeconds(decision.currentHeadwaySec) }} / {{ formatSeconds(decision.targetHeadwaySec) }}</dd>
+            </div>
+            <div>
+              <dt>偏差预测</dt>
+              <dd>{{ formatSeconds(decision.currentHeadwayErrorSec) }} → {{ formatSeconds(decision.predictedHeadwayErrorSec) }}</dd>
+            </div>
+            <div>
+              <dt>命令</dt>
+              <dd>{{ commandLabel(decision.commandType) }}</dd>
+            </div>
+            <div>
+              <dt>信号约束</dt>
+              <dd>{{ signalConstraintLabel(decision.signalConstraint) }}</dd>
+            </div>
+          </dl>
+          <p>{{ decision.reason }}</p>
+        </article>
+      </div>
+    </section>
+
     <section class="debug-grid">
       <section class="debug-panel command-panel">
         <div class="panel-title">
@@ -2708,6 +2801,7 @@ button:disabled {
 .debug-banner,
 .metric-grid,
 .debug-grid,
+.line-regulation-panel,
 .debug-panel {
   max-width: 1500px;
   margin-left: auto;
@@ -2857,6 +2951,106 @@ small {
   color: #475569;
   font-size: 13px;
   line-height: 1.5;
+}
+
+.line-regulation-panel {
+  margin-bottom: 12px;
+  border: 1px solid #c7d2fe;
+  border-radius: 8px;
+  background: #fbfdff;
+  padding: 14px;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.05);
+}
+
+.line-regulation-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.line-regulation-summary article {
+  display: grid;
+  align-content: start;
+  gap: 5px;
+  min-width: 0;
+  min-height: 86px;
+  border: 1px solid #dbeafe;
+  border-radius: 8px;
+  background: #fff;
+  padding: 12px;
+}
+
+.line-regulation-summary span,
+.line-decision-list dt {
+  color: #475569;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.line-regulation-summary strong {
+  overflow-wrap: anywhere;
+  color: #172033;
+  font-size: 20px;
+  line-height: 1.25;
+}
+
+.line-decision-list {
+  display: grid;
+  gap: 10px;
+}
+
+.line-decision-list article {
+  display: grid;
+  gap: 10px;
+  border-left: 3px solid #4f46e5;
+  background: #eef2ff;
+  padding: 10px 12px;
+}
+
+.line-decision-list header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.line-decision-list header strong {
+  overflow-wrap: anywhere;
+}
+
+.line-decision-list header span {
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: #fff;
+  color: #3730a3;
+  padding: 4px 8px;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.line-decision-list dl {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.line-decision-list dl div {
+  min-width: 0;
+}
+
+.line-decision-list dd {
+  overflow-wrap: anywhere;
+  color: #172033;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.line-decision-list p {
+  margin: 0;
+  color: #475569;
+  font-size: 13px;
+  line-height: 1.45;
 }
 
 .debug-grid {

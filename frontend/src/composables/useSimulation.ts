@@ -19,7 +19,18 @@ const emptyDispatch: DispatchSnapshot = {
   routeDispatchActive: false,
   routeDecisions: [],
   routeReservations: [],
-  operationPlans: []
+  operationPlans: [],
+  lineRegulationPlan: {
+    planId: '',
+    generatedAt: null,
+    objective: 'RESTORE_EVEN_HEADWAY',
+    status: 'NO_DATA',
+    targetHeadwaySec: 300,
+    currentMaxAbsHeadwayErrorSec: null,
+    predictedMaxAbsHeadwayErrorSec: null,
+    commandCount: 0,
+    decisions: []
+  }
 }
 
 export function useSimulation() {
@@ -47,7 +58,8 @@ export function useSimulation() {
       stationHeadways: payload.dispatch.stationHeadways ?? [],
       routeDecisions: payload.dispatch.routeDecisions ?? [],
           routeReservations: payload.dispatch.routeReservations ?? [],
-          operationPlans: payload.dispatch.operationPlans ?? []
+          operationPlans: payload.dispatch.operationPlans ?? [],
+          lineRegulationPlan: payload.dispatch.lineRegulationPlan ?? emptyDispatch.lineRegulationPlan
         }
       : emptyDispatch
     backendReady.value = true
