@@ -131,8 +131,7 @@ public class SignalFrameDomainMapper {
                 content,
                 content.length / SignalTrainContentCodec.BYTES_PER_TRAIN
             );
-            trainManager.applyOperationalTelemetry(telemetries);
-            return "signal operational telemetry trains=" + telemetries.size();
+            return "signal operational telemetry ignored (9300 authoritative) trains=" + telemetries.size();
         }
         return summarizeSignalToCentralTrainContent(content);
     }

@@ -9,7 +9,6 @@ import com.railwaysim.signal.vision.VisionVehicleStateRequest;
 import com.railwaysim.signal.vision.VisionVehicleStateStore;
 import com.railwaysim.train.TrainManager;
 import com.railwaysim.train.TrainState;
-import com.railwaysim.vehicle.protocol.SignalTrainContentCodec;
 import com.railwaysim.vehicle.protocol.TrainOperationalTelemetry;
 import java.util.List;
 import java.util.Map;
@@ -36,7 +35,6 @@ public class SignalVehicleInterfaceController {
     private final TrainManager trainManager;
     private final SignalService signalService;
     private final VisionVehicleStateStore visionVehicleStateStore;
-    private final SignalTrainContentCodec trainContentCodec = new SignalTrainContentCodec();
 
     public SignalVehicleInterfaceController(
         TrainManager trainManager,
@@ -66,8 +64,10 @@ public class SignalVehicleInterfaceController {
 
     @PostMapping("/telemetry")
     public List<VehicleSignalStatus> applyTelemetry(@RequestBody List<TrainOperationalTelemetry> telemetries) {
-        applyOperationalTelemetry(telemetries);
-        return statuses();
+        throw new ResponseStatusException(
+            HttpStatus.GONE,
+            "central vehicle telemetry writes are retired; 9300 trainStates snapshots are authoritative"
+        );
     }
 
     @PutMapping("/{trainId}/vision-state")
@@ -97,14 +97,9 @@ public class SignalVehicleInterfaceController {
         if (payload == null || payload.length == 0) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "payload is required");
         }
-        applyOperationalTelemetry(trainContentCodec.decode(payload, trainCount));
-        return statuses();
-    }
-
-    private void applyOperationalTelemetry(List<TrainOperationalTelemetry> telemetries) {
-        if (telemetries == null || telemetries.isEmpty()) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "telemetries are required");
-        }
-        trainManager.applyOperationalTelemetry(telemetries);
+        throw new ResponseStatusException(
+            HttpStatus.GONE,
+            "central vehicle telemetry writes are retired; 9300 trainStates snapshots are authoritative"
+        );
     }
 }

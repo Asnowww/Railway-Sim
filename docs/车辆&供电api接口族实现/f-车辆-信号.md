@@ -53,7 +53,7 @@ GET /api/signal/vehicles/statuses
 | `dataQuality` | 适配层 | GOOD、FALLBACK、INVALID。 |
 | `driverConsoleState` | 司机台 PLC 状态投影 | 对齐门模式开关、ATO 启动标志、模式升/降级确认、自动折返、方向手柄和主手柄状态。 |
 
-`driverConsoleState` 是信号侧展示投影：8080 有中央/信号侧 `DriverCabStateSnapshot` 时优先使用，否则由最终车辆状态派生。拆分部署中，真实 PLC 原始命令只在9300执行；是否生效以9300 `TrainStateReport.decisionSource/inputCommandId/inputTraceId` 和中央 `VehicleControlDecision` 为准，不以本展示字段反推。字段覆盖司机台 PLC 协议 T19/T20 中本期需要的开关量：
+`driverConsoleState` 是信号侧展示投影：8080 有9300快照携带的 `DriverCabStateSnapshot` 时优先使用，否则由最终车辆状态派生。真实 PLC 原始命令只在9300执行；是否生效以9300 `TrainStateReport.decisionSource/inputCommandId/inputTraceId` 为准，不以本展示字段反推。
 
 | 字段 | 取值 | 说明 |
 |---|---|---|
@@ -64,7 +64,7 @@ GET /api/signal/vehicles/statuses
 | `directionHandleState` | `ZERO`、`FORWARD`、`BACKWARD` | 当前按列车上下行接入方向投影为前进位。 |
 | `masterHandleState` | `ZERO`、`TRACTION`、`BRAKE`、`FAST_BRAKE` | 按牵引、常用制动、紧急制动状态投影。 |
 
-司机台 PLC 原始报文不属于车辆-信号接口本身，而属于车辆控制系统内部外设适配。PLC 输入侧（`POST plc-input`）由 `vehicle-runtime-service:9300` 的 `DriverCabInputController` 接收处理；信号系统只消费车辆控制系统整理后的 `driverConsoleState` 和 `cabDisplay`，两者均通过 `backend:8080` 提供给信号模块。
+司机台 PLC 原始报文不属于车辆-信号接口本身，而属于车辆控制系统内部外设适配。前端向8080 `POST plc-input` 提交结构化JSON，8080只负责编码46字节并转发；最终由9300 `DriverCabInputController` 接收和执行。信号系统只消费车辆控制系统整理后的 `driverConsoleState` 和 `cabDisplay`。
 
 9300 必须对 `trainId` 存在性、46字节帧头/长度、门模式/方向/主手柄枚举和0–100级位进行严格校验。合法命令与 MA、车门/自检和供电约束在下一tick仲裁；过期人工命令切除牵引并进入安全制动。
 
@@ -91,7 +91,7 @@ Content-Type: application/json
 ]
 ```
 
-该入口会调用 `TrainManager.applyOperationalTelemetry(...)`，同步更新车辆向信号暴露的速度、累计里程、载重、紧急制动状态、可用牵引单元和可用制动单元。
+该中央写入口已废弃并返回 `410 Gone`。车辆状态只由9300 `step-fleet` 返回的 `trainStates[]` 更新中央镜像；信号模块继续通过8080只读状态与命令投影。
 
 ### 车辆遥测二进制入口
 

@@ -1,27 +1,12 @@
 package com.railwaysim.vehicle.drivercab;
 
-/** @deprecated LOCAL mode only. EXTERNAL_HTTP mode uses 9300's copy. */
-@Deprecated(forRemoval=true, since="2.0")
 public enum DriverCabDoorModeSwitch {
-    SEMI_AUTOMATIC(0),
-    MANUAL(1),
-    AUTOMATIC(2);
-
+    AUTOMATIC(2), SEMI_AUTOMATIC(1), MANUAL(0);
     private final int protocolCode;
-
-    DriverCabDoorModeSwitch(int protocolCode) {
-        this.protocolCode = protocolCode;
-    }
-
-    public int protocolCode() {
-        return protocolCode;
-    }
-
+    DriverCabDoorModeSwitch(int protocolCode) { this.protocolCode = protocolCode; }
+    public int protocolCode() { return protocolCode; }
     public static DriverCabDoorModeSwitch fromProtocolCode(int code) {
-        return switch (code) {
-            case 1 -> MANUAL;
-            case 2 -> AUTOMATIC;
-            default -> SEMI_AUTOMATIC;
-        };
+        for (var v : values()) { if (v.protocolCode == code) return v; }
+        throw new IllegalArgumentException("Unsupported doorModeSwitchState code: " + code);
     }
 }

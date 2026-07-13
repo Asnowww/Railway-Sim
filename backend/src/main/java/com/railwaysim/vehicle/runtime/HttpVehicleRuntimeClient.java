@@ -5,6 +5,7 @@ import com.railwaysim.train.TrainState;
 import java.time.Duration;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 import org.springframework.http.MediaType;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
@@ -98,13 +99,15 @@ public class HttpVehicleRuntimeClient implements VehicleRuntimeClient {
     }
 
     @Override
-    public void forwardPlcInput(String trainId, byte[] payload) {
-        restClient.post()
+    public Map<String, Object> forwardPlcInput(String trainId, byte[] payload) {
+        Map<String, Object> acceptance = restClient.post()
             .uri("/api/vehicle/driver-cabs/{trainId}/plc-input", trainId)
             .contentType(MediaType.APPLICATION_OCTET_STREAM)
             .body(payload)
+            .accept(MediaType.APPLICATION_JSON)
             .retrieve()
-            .toBodilessEntity();
+            .body(Map.class);
+        return require(acceptance, "vehicle runtime PLC acceptance response is empty");
     }
 
     @Override

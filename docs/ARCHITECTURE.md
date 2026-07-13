@@ -14,7 +14,7 @@
 
 - **9300** 持有 `TrainStateHolder`（等效 `TrainEntity` 的 40+ 可变字段），是列车位置、速度、牵引力、能耗、TCMS 诊断等状态的权威源。
 - **线路基础设施仍由 8080 静态配置域持有**：车站/站台 ID 与里程只在 bootstrap 时作为只读拓扑下发。9300 用它执行停车、到站识别和停站计时，但不得自行生成车站。
-- **中央** 的 `TrainEntity` 在 `EXTERNAL_HTTP` 模式下为 9300 的状态镜像，在 `LOCAL` 模式下为本地计算状态。
+- **中央** 的 `TrainEntity` 固定为 9300 权威状态的镜像，不再承担本地车辆物理计算。
 - `SimulationRuntime` 提供中央统一仿真时钟；9300 在自主模式下有独立 `@Scheduled` 时钟。
 - 调度、信号、轨道在 `backend:8080` 内协作；拆分部署时，单车控制/状态/物理由 `vehicle-runtime-service:9300` 权威执行，权威供电计算由 `power-network-service:9200` 执行。
 - `step-fleet` 接口不再传输列车状态（9300 从 `TrainStateHolder` 读取），只传输约束（轨道/信号/调度/供电）。
@@ -76,9 +76,9 @@ SimulationRuntime.tick()
    → 中央通过 TrainManager.updateMirrorState() 更新镜像状态
    → 事件桥接到中央 SimpleEventBus
 
-→ LOCAL 模式 —— 中央计算（降级）：
-   → OnboardTrainSubsystemManager + VehiclePhysicsClient.stepFleet()
-   → TrainManager.applyPhysicsOutput()
+→ 9300 不可用 —— 当前 tick 失败并进入可观测降级状态：
+   → VehicleRuntimeIntegrationService 更新健康状态并抛出稳定领域异常
+   → SimulationRuntime 中止本 tick，不更新中央车辆镜像
 
 → TrackService.updateOccupancy()
 → PowerService.update()
@@ -110,7 +110,7 @@ SimulationRuntime.tick()
 
 后续如果加入客流、调度、故障注入，可以插入到主循环中，但要保持一个原则：模块之间优先使用内存对象和内部事件，不要在每个 tick 中走 REST、MySQL 或 WebSocket。
 
-车辆运行时主链路先通过 `vehicle-runtime-service` 暴露，每车内部包含控制队列、仿真队列和 `TrainStateHolder`（权威状态持有者）。中央本地 `VehiclePhysicsClient.stepFleet()` 仅保留作为 LOCAL 降级端口；`EXTERNAL_HTTP` 模式下 9300 异常会中止当前 tick，中央不计算替代物理状态。后续接入 Python FMU 服务或真实车辆模型时，只替换车辆运行时内部仿真层或本地 fallback 实现，不让信号、轨道、供电和调度模块直接操作 FMU。
+车辆运行时主链路通过 `vehicle-runtime-service` 暴露，每车内部包含控制队列、仿真队列和 `TrainStateHolder`（权威状态持有者）。9300 异常会中止当前 tick，中央不计算替代物理状态。后续接入 Python FMU 服务或真实车辆模型时，只替换9300内部仿真层或其内部 fallback 实现，不让信号、轨道、供电和调度模块直接操作 FMU。
 
 ## 数据分层
 

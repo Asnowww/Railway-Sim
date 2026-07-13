@@ -5,11 +5,9 @@ import com.railwaysim.signal.SignalService;
 import com.railwaysim.signal.vehicle.SignalVehicleCommand;
 import com.railwaysim.train.TrainManager;
 import com.railwaysim.train.TrainState;
-import com.railwaysim.vehicle.control.DriverCommandAcceptance;
 import com.railwaysim.vehicle.drivercab.DriverCabAdapter;
-import com.railwaysim.vehicle.drivercab.DriverCabPlcCodec;
-import com.railwaysim.vehicle.drivercab.DriverCabPlcInputPacket;
 import com.railwaysim.vehicle.drivercab.DriverCabStateSnapshot;
+import com.railwaysim.api.dto.DriverCabPlcGatewayRequest;
 import java.util.Map;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -33,7 +31,6 @@ public class DriverCabController {
     private final TrainManager trainManager;
     private final SignalService signalService;
     private final DriverCabAdapter driverCabAdapter;
-    private final DriverCabPlcCodec plcCodec = new DriverCabPlcCodec();
 
     public DriverCabController(
         TrainManager trainManager,
@@ -55,12 +52,12 @@ public class DriverCabController {
     }
 
     @PostMapping("/{trainId}/plc-input")
-    public DriverCommandAcceptance plcInput(
+    public Map<String, Object> plcInput(
         @PathVariable String trainId,
-        @RequestBody DriverCabPlcInputPacket input
+        @RequestBody DriverCabPlcGatewayRequest input
     ) {
-        byte[] binary = plcCodec.encodeInput(input);
-        return driverCabAdapter.applyAndAccept(trainId, binary);
+        trainState(trainId);
+        return driverCabAdapter.encodeAndForwardPlcInput(trainId, input);
     }
 
     @GetMapping(

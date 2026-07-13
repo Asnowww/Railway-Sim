@@ -86,6 +86,10 @@ public class RouteInterlockingService {
         if (trainId == null || trainId.isBlank()) {
             return "trainId is required";
         }
+        if (route.status() == RouteStatus.RELEASING) {
+            completeRelease(route);
+            route = routeStates.get(routeId);
+        }
         if (route.status().holdsInterlockingResources()) {
             if (trainId.equals(route.establishedByTrainId())
                 && route.status() != RouteStatus.RELEASING) {

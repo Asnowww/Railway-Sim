@@ -195,7 +195,8 @@ POST /api/signal/vehicles/telemetry/content-packet?trainCount=1
 
 | 端点 | 所属服务 | 端口 | 说明 |
 |---|---|---|---|
-| `POST .../plc-input` | vehicle-runtime-service | 9300 | PLC 输入编解码与命令存储 |
+| `POST .../plc-input` JSON | backend协议网关 | 8080 | 前端结构化输入校验、46字节编码和结果透传，不执行控制 |
+| `POST .../plc-input` octet-stream | vehicle-runtime-service | 9300 | PLC 输入解码、命令存储与后续仲裁 |
 | `GET .../state` | backend | 8080 | 司机台显示状态（来自信号系统） |
 | `GET .../plc-output` | backend | 8080 | PLC 输出报文编码 |
 
@@ -213,7 +214,7 @@ GET  http://localhost:8080/api/vehicle/driver-cabs/{trainId}/state
 GET  http://localhost:8080/api/vehicle/driver-cabs/{trainId}/plc-output
 ```
 
-- `POST plc-input` 由外部测试脚本或半实物仿真平台调用，使用 `application/octet-stream` 提交 46 字节 PLC 输入报文。IPv4 地址与端口为 `localhost:9300`（vehicle-runtime-service）。
+- 浏览器前端连接8080并提交结构化JSON；8080编码46字节后转发9300，并透传 `DriverCommandAcceptance`。外部测试脚本或半实物平台可直接向9300使用 `application/octet-stream` 提交46字节报文。
 - 非法枚举码（门模式/方向手柄/主手柄）和越界百分比（0–100 范围外）将返回 `400` 和 `DriverCommandAcceptance{accepted:false, reasonCode: "DECODE_FAILED"}`，不再静默截断。
 - 合法报文返回 `DriverCommandAcceptance{accepted:true, commandId, trainId, reasonCode: "ACCEPTED", receivedAt, expiresAt}`。
 - 9300 未找到已启动的 `VehicleRuntimeInstance` 时返回 `404` 和 `reasonCode: "UNKNOWN_TRAIN"`，命令不进入 Holder。
@@ -301,12 +302,9 @@ GET /api/power/external-health
 GET /api/energy/trains
 GET /api/energy/power-sections
 GET /api/vehicle/maintenance-states
-GET /api/vehicle/onboard-subsystems
 ```
 
-`GET /api/vehicle/onboard-subsystems` 返回中央侧纳管的单车基层智能子系统节点状态，用于查看本地/外部车辆控制节点是否在线、是否 fallback、租约是否仍有效。该接口只读，不用于调度越级控车。
-
-> ⚠️ **废弃**：该接口对应的 `OnboardTrainSubsystemManager` 及相关 LOCAL 控制引擎已标记 `@Deprecated(forRemoval=true)`。`EXTERNAL_HTTP` 模式下车辆控制节点状态通过 `GET /vehicle-runtime/instances`（9300）查询。本接口仅保留用于 `LOCAL` 降级兼容。
+`GET /api/vehicle/onboard-subsystems` 已移除。中央前端统一查询 `GET /api/vehicle/runtime-health`；9300内部实例明细由 `GET /vehicle-runtime/instances` 提供。
 
 ### 仿真故障注入
 
@@ -988,15 +986,7 @@ POST http://localhost:9000/step-fleet
 
 该协议不是面向前端或调度系统的 REST 接口，而是后端车辆运行时背后的实现。新 `vehicle-runtime-service` 健康时可同时接管车辆控制决策和车辆物理仿真；旧 `external-simulator` / FMU / UDP / RT-LAB 适配仍作为物理端口历史兼容路径保留。
 
-> ⚠️ **废弃**：`onboard-subsystem-mode` 对应的 `OnboardTrainSubsystemManager` 及 `HttpOnboardTrainSubsystemClient` 已标记 `@Deprecated(forRemoval=true)`。生产环境请使用 `railway.simulation.vehicle-runtime.mode=EXTERNAL_HTTP` 搭配 9300。`onboard-subsystem-mode` 仅保留用于 LOCAL 降级兼容。
-
-中央到车辆控制节点的调用通过 `railway.simulation.onboard-subsystem-mode` 切换（已废弃）：
-
-| mode | 行为 |
-|---|---|
-| `IN_PROCESS` | 使用进程内 `OnboardTrainSubsystem`，仅 LOCAL 降级。 |
-| `EXTERNAL_HTTP` | 通过 `HttpOnboardTrainSubsystemClient` 调用旧 onboard 节点，失败时本地 fallback。该配置不是 `railway.simulation.vehicle-runtime.mode=EXTERNAL_HTTP`；生产 9300 车辆运行时失败会中止 tick，不使用本回退。 |
-| `DUAL_SHADOW` | 本地输出为权威，外部节点只做影子在线验证。 |
+> ✅ **已移除**：`onboard-subsystem-mode` 对应的 `OnboardTrainSubsystemManager` 及 `HttpOnboardTrainSubsystemClient` 已删除。车辆控制使用 `railway.simulation.vehicle-runtime.mode=EXTERNAL_HTTP` 搭配 9300。
 
 配置：
 
