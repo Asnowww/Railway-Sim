@@ -9,6 +9,7 @@ import com.railwaysim.dispatch.operation.OperationPlanRequest;
 import com.railwaysim.dispatch.operation.OperationRouteCandidate;
 import com.railwaysim.dispatch.operation.OperationRouteTemplate;
 import com.railwaysim.dispatch.plan.CurrentRunPlan;
+import com.railwaysim.dispatch.plan.DispatchPlanFile.SegmentEntry;
 import com.railwaysim.dispatch.plan.OperationPlanLoader;
 import com.railwaysim.dispatch.plan.RunModePeriod;
 import com.railwaysim.signal.RouteInterlockingService;
@@ -60,6 +61,8 @@ public class DispatchController {
             planLoader.planId(),
             planLoader.lineId(),
             periods,
+            planLoader.stations(),
+            planLoader.segments(),
             planLoader.circulations(),
             planLoader.services()
         );
@@ -241,6 +244,8 @@ public class DispatchController {
         String planId,
         String lineId,
         List<PeriodView> periods,
+        List<com.railwaysim.dispatch.monitor.StationInfo> stations,
+        List<SegmentEntry> segments,
         List<com.railwaysim.dispatch.plan.CirculationPlan> circulations,
         List<com.railwaysim.dispatch.plan.TrainServicePlan> services
     ) {

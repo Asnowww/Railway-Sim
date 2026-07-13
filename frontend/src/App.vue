@@ -5,10 +5,11 @@ import * as echarts from 'echarts'
 import topologyTrainUrl from './assets/topology-train.svg'
 import { simulationApi } from './api/rest'
 import { simulationSocket } from './api/ws'
+import { useSimulation } from './composables/useSimulation'
 import type { SimulationSnapshot } from './types/simulation'
-import DispatchLoopDebugView from './views/dispatch/DispatchLoopDebugView.vue'
+import DispatchView from './views/dispatch/DispatchView.vue'
 
-type ActivePage = 'monitor' | 'dispatchLoop'
+type ActivePage = 'monitor' | 'dispatch'
 type LayerKey = 'trains' | 'track' | 'power' | 'signals' | 'passengers'
 type AlarmLevel = 1 | 2 | 3
 type HeatView = 'network' | 'station' | 'carriage'
@@ -152,6 +153,11 @@ const backendConnected = ref(false)
 const backendErrorMessage = ref('')
 const backendTick = ref(0)
 const backendStatus = ref('STOPPED')
+const {
+  plan: dispatchPlan,
+  snapshot: dispatchSnapshot,
+  dispatch: dispatchState
+} = useSimulation()
 
 const stations = ['上京南', '科技园', '人民广场', '金融城', '会展中心', '机场北']
 
@@ -736,7 +742,20 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <DispatchLoopDebugView v-if="activePage === 'dispatchLoop'" @back="activePage = 'monitor'" />
+  <main v-if="activePage === 'dispatch'" class="dispatch-shell">
+    <header class="dispatch-topbar">
+      <section>
+        <p class="eyebrow">Dispatch Workstation</p>
+        <h1>调度工作台</h1>
+      </section>
+      <button type="button" class="ghost-button" @click="activePage = 'monitor'">返回大屏</button>
+    </header>
+    <DispatchView
+      :plan="dispatchPlan"
+      :snapshot="dispatchSnapshot"
+      :dispatch="dispatchState"
+    />
+  </main>
   <main v-else class="monitor-shell">
     <header class="topbar">
       <section>
@@ -752,8 +771,8 @@ onBeforeUnmount(() => {
         <button type="button" :class="['sound-button', { off: !soundEnabled }]" @click="soundEnabled = !soundEnabled">
           {{ soundEnabled ? '声警开启' : '声警关闭' }}
         </button>
-        <button type="button" class="debug-entry-button" @click="activePage = 'dispatchLoop'">
-          调度闭环
+        <button type="button" class="debug-entry-button" @click="activePage = 'dispatch'">
+          调度工作台
         </button>
       </section>
     </header>
@@ -1104,6 +1123,43 @@ code {
   padding: 2px 6px;
   border-radius: 4px;
   font-size: 12px;
+}
+
+.dispatch-shell {
+  min-height: 100vh;
+  background: #f4f7fb;
+}
+
+.dispatch-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  max-width: 1440px;
+  margin: 0 auto;
+  padding: 18px 20px 0;
+}
+
+.dispatch-topbar h1 {
+  margin: 0;
+  font-size: 24px;
+}
+
+.ghost-button {
+  min-height: 34px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: #fff;
+  color: #334155;
+  padding: 7px 12px;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.ghost-button:hover {
+  border-color: #2563eb;
+  color: #1d4ed8;
 }
 
 .debug-entry-button {

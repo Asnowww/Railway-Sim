@@ -5,7 +5,12 @@ import { useSimulation } from '../../composables/useSimulation'
 import RunPlanPanel from '../../components/dispatch/RunPlanPanel.vue'
 import StationHeadwayPanel from '../../components/dispatch/StationHeadwayPanel.vue'
 import RouteClosurePanel from '../../components/dispatch/RouteClosurePanel.vue'
-import type { DispatchDisturbance, DispatchRouteInfo, OperationPlanView } from '../../types/dispatch'
+import type {
+  DispatchDisturbance,
+  DispatchRouteInfo,
+  OperationPlanView,
+  OperationRouteTemplate
+} from '../../types/dispatch'
 import type { TrainState } from '../../types/simulation'
 
 defineEmits<{
@@ -45,6 +50,7 @@ const manualActionPending = ref(false)
 const manualActionMessage = ref('')
 const comparisonBaseline = ref<ComparisonBaseline | null>(null)
 const dispatchRouteList = ref<DispatchRouteInfo[]>([])
+const operationRouteTemplates = ref<OperationRouteTemplate[]>([])
 const selectedRouteId = ref('')
 const selectedRouteTrainId = ref('')
 const routeOperationMessage = ref('')
@@ -62,7 +68,6 @@ interface DispatchLineNode {
   x: number
   y: number
   stationId?: string
-  routeIds: string[]
 }
 
 interface DispatchLineEdge {
@@ -71,7 +76,13 @@ interface DispatchLineEdge {
   target: string
   segmentId: string
   label: string
+}
+
+type DispatchLineVisibleEdge = DispatchLineEdge & {
   routeIds: string[]
+  state: DispatchLineEdgeState
+  routeStatus: string | null
+  reservationState: string | null
 }
 
 interface DispatchLineTrainMarker {
@@ -82,91 +93,52 @@ interface DispatchLineTrainMarker {
   selected: boolean
 }
 
-interface DispatchRouteTemplate {
-  routeId: string
-  name: string
-  nodeIds: string[]
-  segmentIds: string[]
-}
-
 interface RoutePlannerCandidate {
   key: string
   routeId: string
   routeName: string
   direction: 'UP' | 'DOWN'
+  pointIds: string[]
   nodeIds: string[]
   stationIds: string[]
   segmentIds: string[]
 }
 
 const dispatchLineNodes: DispatchLineNode[] = [
-  { id: 'SHN', label: '上京南站', type: 'station', x: 8, y: 54, stationId: 'S01', routeIds: ['R_MAIN', 'R01'] },
-  { id: 'TECH', label: '科创园站', type: 'station', x: 24, y: 54, stationId: 'S02', routeIds: ['R_MAIN', 'R01', 'R_DEPOT', 'R03'] },
-  { id: 'RENMIN', label: '中央公园站', type: 'station', x: 42, y: 54, stationId: 'S03', routeIds: ['R_MAIN', 'R01', 'R_LOOP', 'R_BRANCH', 'R03'] },
-  { id: 'FIN', label: '北城站', type: 'station', x: 58, y: 50, stationId: 'S04', routeIds: ['R_MAIN', 'R01', 'R_LOOP'] },
-  { id: 'EXPO', label: '会展中心', type: 'station', x: 76, y: 54, stationId: 'S05', routeIds: ['R_MAIN', 'R01', 'R_NORTH', 'R02'] },
-  { id: 'AIR', label: '上京北站', type: 'station', x: 92, y: 54, stationId: 'S06', routeIds: ['R_MAIN', 'R01'] },
-  { id: 'DEPOT_A', label: '车辆段', type: 'depot', x: 12, y: 32, routeIds: ['R_DEPOT', 'R03'] },
-  { id: 'DEPOT_B', label: '试车线', type: 'depot', x: 7, y: 22, routeIds: ['R_DEPOT', 'R03'] },
-  { id: 'TECH_N', label: '科技园北岔', type: 'switch', x: 24, y: 32, routeIds: ['R_NORTH', 'R02'] },
-  { id: 'RENMIN_N', label: '广场北岔', type: 'switch', x: 42, y: 30, routeIds: ['R_NORTH', 'R02'] },
-  { id: 'FIN_N', label: '金融城北岔', type: 'switch', x: 58, y: 29, routeIds: ['R_NORTH', 'R02'] },
-  { id: 'EXPO_N', label: '会展北联络', type: 'junction', x: 76, y: 32, routeIds: ['R_NORTH', 'R02'] },
-  { id: 'LOOP_W', label: '折返线西', type: 'switch', x: 42, y: 78, routeIds: ['R_LOOP', 'R_BRANCH', 'R03'] },
-  { id: 'LOOP_E', label: '折返线东', type: 'switch', x: 58, y: 78, routeIds: ['R_LOOP', 'R_BRANCH', 'R03'] },
-  { id: 'BRANCH', label: '支线口', type: 'switch', x: 68, y: 70, routeIds: ['R_BRANCH', 'R03'] },
+  { id: 'SHN', label: '上京南站', type: 'station', x: 8, y: 54, stationId: 'S01' },
+  { id: 'TECH', label: '科创园站', type: 'station', x: 24, y: 54, stationId: 'S02' },
+  { id: 'RENMIN', label: '中央公园站', type: 'station', x: 42, y: 54, stationId: 'S03' },
+  { id: 'FIN', label: '北城站', type: 'station', x: 58, y: 50, stationId: 'S04' },
+  { id: 'EXPO', label: '会展中心', type: 'station', x: 76, y: 54, stationId: 'S05' },
+  { id: 'AIR', label: '上京北站', type: 'station', x: 92, y: 54, stationId: 'S06' },
+  { id: 'DEPOT_A', label: '车辆段', type: 'depot', x: 12, y: 32 },
+  { id: 'DEPOT_B', label: '试车线', type: 'depot', x: 7, y: 22 },
+  { id: 'TECH_N', label: '科技园北岔', type: 'switch', x: 24, y: 32 },
+  { id: 'RENMIN_N', label: '广场北岔', type: 'switch', x: 42, y: 30 },
+  { id: 'FIN_N', label: '金融城北岔', type: 'switch', x: 58, y: 29 },
+  { id: 'EXPO_N', label: '会展北联络', type: 'junction', x: 76, y: 32 },
+  { id: 'LOOP_W', label: '折返线西', type: 'switch', x: 42, y: 78 },
+  { id: 'LOOP_E', label: '折返线东', type: 'switch', x: 58, y: 78 },
+  { id: 'BRANCH', label: '支线口', type: 'switch', x: 68, y: 70 },
 ]
 
 const dispatchLineEdges: DispatchLineEdge[] = [
-  { id: 'E01', source: 'SHN', target: 'TECH', segmentId: 'T01', label: '20 Seg', routeIds: ['R_MAIN', 'R01'] },
-  { id: 'E02', source: 'TECH', target: 'RENMIN', segmentId: 'T02', label: '20 Seg', routeIds: ['R_MAIN', 'R01'] },
-  { id: 'E03', source: 'RENMIN', target: 'FIN', segmentId: 'T03', label: '20 Seg', routeIds: ['R_MAIN', 'R01'] },
-  { id: 'E04', source: 'FIN', target: 'EXPO', segmentId: 'T04', label: '20 Seg', routeIds: ['R_MAIN', 'R01'] },
-  { id: 'E05', source: 'EXPO', target: 'AIR', segmentId: 'T05', label: '20 Seg', routeIds: ['R_MAIN', 'R01'] },
-  { id: 'E06', source: 'DEPOT_B', target: 'DEPOT_A', segmentId: 'T11', label: '7 Seg', routeIds: ['R_DEPOT', 'R03'] },
-  { id: 'E07', source: 'DEPOT_A', target: 'TECH', segmentId: 'T12', label: '13 Seg', routeIds: ['R_DEPOT', 'R03'] },
-  { id: 'E08', source: 'TECH', target: 'TECH_N', segmentId: 'T06', label: '3 Seg', routeIds: ['R_NORTH', 'R02'] },
-  { id: 'E09', source: 'TECH_N', target: 'RENMIN_N', segmentId: 'T07', label: '16 Seg', routeIds: ['R_NORTH', 'R02'] },
-  { id: 'E10', source: 'RENMIN_N', target: 'FIN_N', segmentId: 'T08', label: '17 Seg', routeIds: ['R_NORTH', 'R02'] },
-  { id: 'E11', source: 'FIN_N', target: 'EXPO_N', segmentId: 'T09', label: '19 Seg', routeIds: ['R_NORTH', 'R02'] },
-  { id: 'E12', source: 'EXPO_N', target: 'EXPO', segmentId: 'T10', label: '6 Seg', routeIds: ['R_NORTH', 'R02'] },
-  { id: 'E13', source: 'RENMIN', target: 'LOOP_W', segmentId: 'T13', label: '8 Seg', routeIds: ['R_LOOP', 'R_BRANCH', 'R03'] },
-  { id: 'E14', source: 'LOOP_W', target: 'LOOP_E', segmentId: 'T14', label: '8 Seg', routeIds: ['R_LOOP', 'R_BRANCH', 'R03'] },
-  { id: 'E15', source: 'LOOP_E', target: 'FIN', segmentId: 'T15', label: '3 Seg', routeIds: ['R_LOOP', 'R03'] },
-  { id: 'E16', source: 'LOOP_E', target: 'BRANCH', segmentId: 'T16', label: '12 Seg', routeIds: ['R_BRANCH', 'R03'] },
-]
-
-const dispatchRouteTemplates: DispatchRouteTemplate[] = [
-  {
-    routeId: 'R_MAIN',
-    name: '主线',
-    nodeIds: ['SHN', 'TECH', 'RENMIN', 'FIN', 'EXPO', 'AIR'],
-    segmentIds: ['T01', 'T02', 'T03', 'T04', 'T05']
-  },
-  {
-    routeId: 'R_NORTH',
-    name: '北线',
-    nodeIds: ['TECH', 'TECH_N', 'RENMIN_N', 'FIN_N', 'EXPO_N', 'EXPO'],
-    segmentIds: ['T06', 'T07', 'T08', 'T09', 'T10']
-  },
-  {
-    routeId: 'R_DEPOT',
-    name: '车辆段线',
-    nodeIds: ['DEPOT_B', 'DEPOT_A', 'TECH'],
-    segmentIds: ['T11', 'T12']
-  },
-  {
-    routeId: 'R_LOOP',
-    name: '折返联络线',
-    nodeIds: ['RENMIN', 'LOOP_W', 'LOOP_E', 'FIN'],
-    segmentIds: ['T13', 'T14', 'T15']
-  },
-  {
-    routeId: 'R_BRANCH',
-    name: '会展支线',
-    nodeIds: ['RENMIN', 'LOOP_W', 'LOOP_E', 'BRANCH'],
-    segmentIds: ['T13', 'T14', 'T16']
-  }
+  { id: 'E01', source: 'SHN', target: 'TECH', segmentId: 'T01', label: '20 Seg' },
+  { id: 'E02', source: 'TECH', target: 'RENMIN', segmentId: 'T02', label: '20 Seg' },
+  { id: 'E03', source: 'RENMIN', target: 'FIN', segmentId: 'T03', label: '20 Seg' },
+  { id: 'E04', source: 'FIN', target: 'EXPO', segmentId: 'T04', label: '20 Seg' },
+  { id: 'E05', source: 'EXPO', target: 'AIR', segmentId: 'T05', label: '20 Seg' },
+  { id: 'E06', source: 'DEPOT_B', target: 'DEPOT_A', segmentId: 'T11', label: '7 Seg' },
+  { id: 'E07', source: 'DEPOT_A', target: 'TECH', segmentId: 'T12', label: '13 Seg' },
+  { id: 'E08', source: 'TECH', target: 'TECH_N', segmentId: 'T06', label: '3 Seg' },
+  { id: 'E09', source: 'TECH_N', target: 'RENMIN_N', segmentId: 'T07', label: '16 Seg' },
+  { id: 'E10', source: 'RENMIN_N', target: 'FIN_N', segmentId: 'T08', label: '17 Seg' },
+  { id: 'E11', source: 'FIN_N', target: 'EXPO_N', segmentId: 'T09', label: '19 Seg' },
+  { id: 'E12', source: 'EXPO_N', target: 'EXPO', segmentId: 'T10', label: '6 Seg' },
+  { id: 'E13', source: 'RENMIN', target: 'LOOP_W', segmentId: 'T13', label: '8 Seg' },
+  { id: 'E14', source: 'LOOP_W', target: 'LOOP_E', segmentId: 'T14', label: '8 Seg' },
+  { id: 'E15', source: 'LOOP_E', target: 'FIN', segmentId: 'T15', label: '3 Seg' },
+  { id: 'E16', source: 'LOOP_E', target: 'BRANCH', segmentId: 'T16', label: '12 Seg' },
 ]
 
 const routePlannerOpen = ref(false)
@@ -187,6 +159,34 @@ const dispatchLineNodeByPointId = computed(() => {
   return new Map(entries)
 })
 const dispatchLineEdgeBySegmentId = computed(() => new Map(dispatchLineEdges.map((edge) => [edge.segmentId, edge])))
+const routeInfoById = computed(() => new Map(dispatchRouteList.value.map((route) => [route.routeId, route])))
+const routeSegmentsById = computed(() => {
+  const entries = new Map<string, string[]>()
+  for (const route of dispatchRouteList.value) {
+    entries.set(route.routeId, route.segmentIds)
+  }
+  for (const template of operationRouteTemplates.value) {
+    if (!entries.has(template.routeId) && template.segmentIds.length > 0) {
+      entries.set(template.routeId, template.segmentIds)
+    }
+  }
+  for (const route of routes.value) {
+    if (!entries.has(route.routeId) && route.axleSegmentIds.length > 0) {
+      entries.set(route.routeId, route.axleSegmentIds)
+    }
+  }
+  return entries
+})
+const dispatchLineRouteIdsBySegmentId = computed(() => {
+  const entries = new Map<string, string[]>()
+  for (const edge of dispatchLineEdges) {
+    const routeIds = [...routeSegmentsById.value.entries()]
+      .filter(([, segmentIds]) => segmentIds.includes(edge.segmentId))
+      .map(([routeId]) => routeId)
+    entries.set(edge.segmentId, routeIds)
+  }
+  return entries
+})
 const dispatchLineTrackBySegmentId = computed(() =>
   new Map((snapshot.value?.trackSegments ?? []).map((segment) => [segment.id, segment]))
 )
@@ -205,33 +205,40 @@ const dispatchLineMappedRoutes = computed(() => {
   const ids = new Set<string>()
   for (const route of dispatchRouteList.value) ids.add(route.routeId)
   for (const route of routes.value) ids.add(route.routeId)
-  return [...ids].filter((routeId) => dispatchLineEdges.some((edge) => edge.routeIds.includes(routeId)))
+  return [...ids].filter((routeId) => dispatchLineEdges.some((edge) =>
+    (dispatchLineRouteIdsBySegmentId.value.get(edge.segmentId) ?? []).includes(routeId)
+  ))
 })
 const dispatchLineUnmappedRoutes = computed(() =>
   dispatchRouteList.value
     .map((route) => route.routeId)
-    .filter((routeId) => !dispatchLineEdges.some((edge) => edge.routeIds.includes(routeId)))
+    .filter((routeId) => !dispatchLineEdges.some((edge) =>
+      (dispatchLineRouteIdsBySegmentId.value.get(edge.segmentId) ?? []).includes(routeId)
+    ))
 )
-const dispatchLineVisibleEdges = computed(() =>
-  dispatchLineEdges.map((edge) => ({
-    ...edge,
-    state: dispatchLineEdgeState(edge),
-    routeStatus: edge.routeIds.map((routeId) => dispatchLineRouteStateById.value.get(routeId)?.status).find(Boolean) ?? null,
-    reservationState: edge.routeIds
-      .map((routeId) => routeReservations.value.find((reservation) => reservation.routeId === routeId)?.state)
-      .find(Boolean) ?? null
-  }))
+const dispatchLineVisibleEdges = computed<DispatchLineVisibleEdge[]>(() =>
+  dispatchLineEdges.map((edge) => {
+    const routeIds = dispatchLineRouteIdsBySegmentId.value.get(edge.segmentId) ?? []
+    const visibleEdge: DispatchLineEdge & { routeIds: string[] } = { ...edge, routeIds }
+    return {
+      ...visibleEdge,
+      state: dispatchLineEdgeState(visibleEdge),
+      routeStatus: routeIds.map((routeId) => dispatchLineRouteStateById.value.get(routeId)?.status).find(Boolean) ?? null,
+      reservationState: routeIds
+        .map((routeId) => routeReservations.value.find((reservation) => reservation.routeId === routeId)?.state)
+        .find(Boolean) ?? null
+    }
+  })
 )
 const selectedOperationPlan = computed(() =>
   generatedOperationPlans.value.find((item) => item.planId === selectedOperationPlanId.value) ?? null
 )
 const generatedOperationPlans = computed<OperationPlanView[]>(() => dispatch.value.operationPlans ?? [])
 const routePlannerCandidates = computed(() => {
-  if (routePlannerNodeIds.value.length < 2) return []
-  return dispatchRouteTemplates
+  return operationRouteTemplates.value
     .flatMap((template) => [
-      matchRouteTemplate(template, routePlannerNodeIds.value, 'UP'),
-      matchRouteTemplate(template, routePlannerNodeIds.value, 'DOWN')
+      routeTemplateCandidate(template, 'UP'),
+      routeTemplateCandidate(template, 'DOWN')
     ])
     .filter((candidate): candidate is RoutePlannerCandidate => candidate !== null)
 })
@@ -258,7 +265,7 @@ const routePlannerPreviewSegmentIds = computed(() =>
 const routePlannerSelectedNodeSet = computed(() => new Set(routePlannerNodeIds.value))
 const routePlannerPreviewNodeSet = computed(() => new Set(routePlannerPreviewNodeIds.value))
 const routePlannerStops = computed(() =>
-  routePlannerNodeIds.value
+  (selectedRoutePlannerCandidate.value?.nodeIds ?? [])
     .map((nodeId) => dispatchLineNodeById.value.get(nodeId))
     .filter((node): node is DispatchLineNode => node !== undefined)
 )
@@ -291,7 +298,9 @@ const routePlannerNextDepartureTick = computed(() =>
     + generatedOperationPlans.value.filter((item) => item.status === 'PLANNED').length * normalizedPlannerSeconds(routePlannerHeadwaySeconds.value, 30, 3600)
 )
 const canCreateOperationPlan = computed(() =>
-  selectedRoutePlannerCandidate.value !== null && routePlannerAutoTrain.value !== null
+  operationRouteTemplates.value.length > 0
+    && selectedRoutePlannerCandidate.value !== null
+    && routePlannerAutoTrain.value !== null
 )
 const dispatchLineTrainMarkers = computed<DispatchLineTrainMarker[]>(() =>
   trains.value
@@ -827,11 +836,12 @@ function dispatchLineTrainStyle(marker: DispatchLineTrainMarker): Record<string,
 }
 
 function dispatchLineNodeClass(node: DispatchLineNode) {
-  const active = node.routeIds.some((routeId) => activeDispatchRouteIds.value.has(routeId))
+  const nodeRouteIds = dispatchLineNodeRouteIds(node)
+  const active = nodeRouteIds.some((routeId) => activeDispatchRouteIds.value.has(routeId))
   const selected = selectedRouteId.value
-    ? node.routeIds.includes(selectedRouteId.value)
+    ? nodeRouteIds.includes(selectedRouteId.value)
     : selectedTrainReservation.value
-      ? node.routeIds.includes(selectedTrainReservation.value.routeId)
+      ? nodeRouteIds.includes(selectedTrainReservation.value.routeId)
       : false
   const plannerSelected = routePlannerSelectedNodeSet.value.has(node.id)
   const plannerPreview = routePlannerPreviewNodeSet.value.has(node.id)
@@ -848,7 +858,25 @@ function dispatchLineNodeClass(node: DispatchLineNode) {
   ]
 }
 
-function dispatchLineEdgeClass(edge: DispatchLineEdge & { state: DispatchLineEdgeState }) {
+function dispatchLineNodeRouteIds(node: DispatchLineNode) {
+  const ids = new Set<string>()
+  const pointIds = new Set([node.id])
+  if (node.stationId) pointIds.add(node.stationId)
+  for (const template of operationRouteTemplates.value) {
+    if (template.pointIds.some((pointId) => pointIds.has(pointId))) {
+      ids.add(template.routeId)
+    }
+  }
+  for (const edge of dispatchLineEdges) {
+    if (edge.source !== node.id && edge.target !== node.id) continue
+    for (const routeId of dispatchLineRouteIdsBySegmentId.value.get(edge.segmentId) ?? []) {
+      ids.add(routeId)
+    }
+  }
+  return [...ids]
+}
+
+function dispatchLineEdgeClass(edge: DispatchLineVisibleEdge) {
   const selected = selectedRouteId.value
     ? edge.routeIds.includes(selectedRouteId.value)
     : selectedTrainReservation.value
@@ -862,7 +890,7 @@ function dispatchLineEdgeClass(edge: DispatchLineEdge & { state: DispatchLineEdg
   ]
 }
 
-function dispatchLineEdgeState(edge: DispatchLineEdge): DispatchLineEdgeState {
+function dispatchLineEdgeState(edge: DispatchLineEdge & { routeIds: string[] }): DispatchLineEdgeState {
   const reservation = routeReservations.value.find((item) => edge.routeIds.includes(item.routeId))
   if (reservation?.state === 'REJECTED' || reservation?.state === 'TIMEOUT') return 'REJECTED'
   if (reservation?.state === 'REQUESTED') return 'REQUESTED'
@@ -881,7 +909,7 @@ function dispatchLineEdgeState(edge: DispatchLineEdge): DispatchLineEdgeState {
   return 'FREE'
 }
 
-function dispatchLineEdgeTitle(edge: DispatchLineEdge & { state: DispatchLineEdgeState; routeStatus: string | null; reservationState: string | null }) {
+function dispatchLineEdgeTitle(edge: DispatchLineVisibleEdge) {
   const routeText = edge.routeIds.join(' / ')
   const reservationText = edge.reservationState ? routeReservationStateLabel(edge.reservationState) : '无预约'
   const routeStateText = edge.routeStatus ? routeStatusLabel(edge.routeStatus) : '未锁闭'
@@ -892,47 +920,33 @@ function isRoutePlannerNode(node: DispatchLineNode) {
   return Boolean(node.id)
 }
 
-function matchRouteTemplate(
-  template: DispatchRouteTemplate,
-  requiredNodeIds: string[],
+function routeTemplateCandidate(
+  template: OperationRouteTemplate,
   direction: 'UP' | 'DOWN'
 ): RoutePlannerCandidate | null {
-  const nodeIds = direction === 'UP' ? template.nodeIds : [...template.nodeIds].reverse()
+  const pointIds = direction === 'UP' ? template.pointIds : [...template.pointIds].reverse()
+  const nodeIds = pointIds
+    .map(pointIdToNodeId)
+    .filter((nodeId): nodeId is string => Boolean(nodeId))
+  if (pointIds.length < 2 || nodeIds.length < 2) return null
   const segmentIds = direction === 'UP' ? template.segmentIds : [...template.segmentIds].reverse()
-  const indexes: number[] = []
-  let cursor = -1
 
-  for (const nodeId of requiredNodeIds) {
-    const index = nodeIds.findIndex((candidateNodeId, candidateIndex) =>
-      candidateIndex > cursor && candidateNodeId === nodeId
-    )
-    if (index < 0) return null
-    indexes.push(index)
-    cursor = index
-  }
-
-  const startIndex = indexes[0] ?? 0
-  const endIndex = indexes[indexes.length - 1] ?? startIndex
-  if (endIndex <= startIndex) return null
-
-  const pathNodeIds = nodeIds.slice(startIndex, endIndex + 1)
-  const pathSegmentIds = segmentIds.slice(startIndex, endIndex)
   return {
     key: `${template.routeId}:${direction}`,
     routeId: template.routeId,
     routeName: template.name,
     direction,
-    nodeIds: pathNodeIds,
-    stationIds: pathNodeIds
+    pointIds,
+    nodeIds,
+    stationIds: nodeIds
       .map((nodeId) => dispatchLineNodeById.value.get(nodeId)?.stationId)
       .filter((stationId): stationId is string => Boolean(stationId)),
-    segmentIds: pathSegmentIds
+    segmentIds
   }
 }
 
 function handleDispatchLineNodeClick(node: DispatchLineNode) {
   if (!routePlannerOpen.value) return
-  if (!isRoutePlannerNode(node)) return
   const existingIndex = routePlannerNodeIds.value.indexOf(node.id)
   if (existingIndex >= 0) {
     routePlannerNodeIds.value = routePlannerNodeIds.value.slice(0, existingIndex + 1)
@@ -958,14 +972,18 @@ async function createOperationPlan() {
   const candidate = selectedRoutePlannerCandidate.value
   const train = routePlannerAutoTrain.value
   if (!candidate || !train) {
-    routePlannerMessage.value = candidate ? '暂无可自动绑定的列车。' : '当前点选节点没有匹配到固定路线。'
+    routePlannerMessage.value = operationRouteTemplates.value.length === 0
+      ? '尚未加载到信号端既有运营路线模板，不能由调度端自建路线。'
+      : candidate
+        ? '暂无可自动绑定的列车。'
+        : '当前点选节点未匹配到信号端既有进路。'
     return
   }
 
   routePlannerMessage.value = '正在提交运营计划。'
   try {
     const plan = await dispatchApi.createOperationPlan({
-      pointIds: routePlannerStops.value.map(routePlannerPointId),
+      pointIds: candidate.pointIds,
       routeId: candidate.routeId,
       candidateKey: candidate.key,
       trainId: train.id,
@@ -1068,10 +1086,15 @@ function formatPlannedTime(value: string | null | undefined) {
 
 async function loadDispatchRoutes() {
   try {
-    dispatchRouteList.value = await dispatchApi.routeList()
+    const [routeList, templates] = await Promise.all([
+      dispatchApi.routeList(),
+      dispatchApi.operationRouteTemplates()
+    ])
+    dispatchRouteList.value = routeList
+    operationRouteTemplates.value = templates
     selectedRouteId.value ||= dispatchRouteList.value[0]?.routeId ?? ''
   } catch (error) {
-    routeOperationMessage.value = error instanceof Error ? `进路列表加载失败：${error.message}` : '进路列表加载失败'
+    routeOperationMessage.value = error instanceof Error ? `信号进路数据加载失败：${error.message}` : '信号进路数据加载失败'
   }
 }
 
@@ -1526,7 +1549,7 @@ function formatDelta(current: number | null | undefined, baseline: number | null
       <section>
         <p class="eyebrow">Dispatch Closed Loop</p>
         <h1>调度闭环调试台</h1>
-        <p>实时跟随后端总循环查看调度指令、列车、MA、信号、进路和道岔；页面自动接收后续变化，调度页不单独控制仿真时钟。</p>
+        <p>实时跟随后端总循环查看调度指令、列车、MA、信号、既有进路和道岔；调度页只申请信号端已有进路，不新增轨道拓扑。</p>
       </section>
       <section class="debug-actions" aria-label="调度页操作">
         <button type="button" class="ghost-button" @click="$emit('back')">返回大屏</button>
@@ -1561,168 +1584,100 @@ function formatDelta(current: number | null | undefined, baseline: number | null
 
     <section class="debug-panel dispatch-line-panel">
       <div class="panel-title dispatch-line-title">
-        <h2>调度线路图</h2>
+        <h2>既有路线编排</h2>
         <div class="dispatch-line-title-actions">
-          <span>{{ dispatchLineSummary }}</span>
+          <span>{{ operationRouteTemplates.length }} 条信号模板</span>
+          <span>{{ dispatchLineMappedRoutes.length }} 条已映射进路</span>
           <span v-if="generatedOperationPlans.length > 0">{{ generatedOperationPlans.length }} 条待发车</span>
-          <button
-            type="button"
-            class="ghost-button"
-            :class="{ active: routePlannerOpen }"
-            @click="routePlannerOpen = !routePlannerOpen"
-          >
-            {{ routePlannerOpen ? '收起编排' : '路线编排' }}
-          </button>
         </div>
       </div>
-      <div class="dispatch-line-legend" aria-label="调度线路状态图例">
-        <span data-state="FREE">空闲</span>
-        <span data-state="OCCUPIED">占用/预留</span>
-        <span data-state="REQUESTED">已申请</span>
-        <span data-state="ACCEPTED">已锁闭/接受</span>
-        <span data-state="REJECTED">拒绝/超时</span>
-        <span data-state="FAULT">故障</span>
-      </div>
-      <div class="dispatch-line-workspace">
-        <div class="dispatch-line-map" aria-label="调度线路与进路对应图">
-          <svg viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
-            <line
-              v-for="edge in dispatchLineVisibleEdges"
-              :key="edge.id"
-              :class="dispatchLineEdgeClass(edge)"
-              :x1="dispatchLineEdgeLine(edge).x1"
-              :y1="dispatchLineEdgeLine(edge).y1"
-              :x2="dispatchLineEdgeLine(edge).x2"
-              :y2="dispatchLineEdgeLine(edge).y2"
-            />
-          </svg>
-          <button
-            v-for="node in dispatchLineNodes"
-            :key="node.id"
-            type="button"
-            :class="dispatchLineNodeClass(node)"
-            :style="dispatchLineNodeStyle(node)"
-            :title="node.stationId ? `${node.stationId} · ${node.label}` : node.label"
-            @click="handleDispatchLineNodeClick(node)"
-          >
-            <span>{{ node.label }}</span>
-            <small v-if="node.stationId">{{ node.stationId }}</small>
-          </button>
-          <span
-            v-for="edge in dispatchLineVisibleEdges"
-            :key="`label-${edge.id}`"
-            class="dispatch-line-edge-label"
-            :style="dispatchLineEdgeLabelStyle(edge)"
-            :title="dispatchLineEdgeTitle(edge)"
-          >
-            {{ edge.label }}
-          </span>
-          <button
-            v-for="marker in dispatchLineTrainMarkers"
-            :key="marker.id"
-            type="button"
-            class="dispatch-line-train"
-            :class="{ selected: marker.selected }"
-            :style="dispatchLineTrainStyle(marker)"
-            @click="selectTrain(marker.id)"
-          >
-            <strong>{{ marker.id }}</strong>
-            <span>{{ formatNumber(marker.speedMps) }} m/s</span>
-          </button>
-        </div>
-        <aside v-if="routePlannerOpen" class="route-planner-panel" aria-label="路线编排">
-          <section class="route-planner-card">
-            <div class="route-planner-heading">
-              <h3>路线编排</h3>
-              <span>{{ routePlannerCandidates.length }} 个候选</span>
-            </div>
-            <div class="route-stop-grid">
-              <article>
-                <span>起点</span>
-                <strong>{{ routePlannerOriginText }}</strong>
-              </article>
-              <article>
-                <span>经由</span>
-                <strong>{{ routePlannerViaText }}</strong>
-              </article>
-              <article>
-                <span>终点</span>
-                <strong>{{ routePlannerDestinationText }}</strong>
-              </article>
-            </div>
-            <div class="route-planner-actions">
-              <button type="button" @click="removeRoutePlannerStop" :disabled="routePlannerNodeIds.length === 0">撤销点</button>
-              <button type="button" @click="clearRoutePlanner" :disabled="routePlannerNodeIds.length === 0">清空</button>
-            </div>
-            <label>
-              <span>固定路线</span>
-              <select v-model="routePlannerCandidateKey" :disabled="routePlannerCandidates.length === 0">
-                <option v-if="routePlannerCandidates.length === 0" value="">未匹配</option>
-                <option
-                  v-for="candidate in routePlannerCandidates"
-                  :key="candidate.key"
-                  :value="candidate.key"
-                >
-                  {{ routePlannerCandidateLabel(candidate) }}
-                </option>
-              </select>
-            </label>
-            <div class="route-planner-fields">
-              <label>
-                <span>提前(s)</span>
-                <input v-model.number="routePlannerLeadSeconds" type="number" min="0" max="3600" step="30">
-              </label>
-              <label>
-                <span>间隔(s)</span>
-                <input v-model.number="routePlannerHeadwaySeconds" type="number" min="30" max="3600" step="30">
-              </label>
-            </div>
-            <div class="route-plan-preview">
-              <article>
-                <span>自动车辆</span>
-                <strong>{{ routePlannerAutoTrain?.id ?? '-' }}</strong>
-              </article>
-              <article>
-                <span>发车 tick</span>
-                <strong>{{ routePlannerNextDepartureTick }}</strong>
-              </article>
-              <article>
-                <span>轨段</span>
-                <strong>{{ selectedRoutePlannerCandidate?.segmentIds.join(' -> ') ?? '-' }}</strong>
-              </article>
-            </div>
-            <button
-              type="button"
-              class="demo-button"
-              :disabled="!canCreateOperationPlan"
-              @click="createOperationPlan"
-            >
-              生成运营计划
-            </button>
-            <p v-if="routePlannerMessage" class="route-planner-message">{{ routePlannerMessage }}</p>
-          </section>
-          <section class="route-planner-card">
-            <div class="route-planner-heading">
-              <h3>待发车计划</h3>
-              <span>{{ generatedOperationPlans.length }} 条</span>
-            </div>
-            <div v-if="generatedOperationPlans.length === 0" class="empty">暂无计划。</div>
-            <div v-else class="operation-plan-list">
-              <article
-                v-for="item in generatedOperationPlans"
-                :key="item.planId"
-                :class="{ selected: item.planId === selectedOperationPlanId }"
+      <p class="route-planner-source">
+        运营路线只来自信号轨道端既有 route/template；调度端在这里选择模板、绑定列车和发车时间，不新增线路拓扑。
+      </p>
+      <div class="dispatch-line-workspace route-planner-panel" aria-label="既有路线编排">
+        <section class="route-planner-card">
+          <div class="route-planner-heading">
+            <h3>选择信号路线模板</h3>
+            <span>{{ routePlannerCandidates.length }} 个模板方向</span>
+          </div>
+          <label>
+            <span>既有进路模板</span>
+            <select v-model="routePlannerCandidateKey" :disabled="routePlannerCandidates.length === 0">
+              <option v-if="routePlannerCandidates.length === 0" value="">暂无模板</option>
+              <option
+                v-for="candidate in routePlannerCandidates"
+                :key="candidate.key"
+                :value="candidate.key"
               >
-                <button type="button" @click="selectOperationPlan(item.planId)">
-                  <strong>{{ operationPlanTitle(item) }}</strong>
-                  <span>{{ operationPlanPathText(item) }}</span>
-                  <small>{{ item.segmentIds.join(' -> ') }}</small>
-                </button>
-                <button type="button" class="release-button" @click="removeOperationPlan(item.planId)">移除</button>
-              </article>
-            </div>
-          </section>
-        </aside>
+                {{ routePlannerCandidateLabel(candidate) }}
+              </option>
+            </select>
+          </label>
+          <div class="route-stop-grid">
+            <article>
+              <span>站点序列</span>
+              <strong>{{ selectedRoutePlannerCandidate?.stationIds.join(' -> ') || '-' }}</strong>
+            </article>
+            <article>
+              <span>轨道区段</span>
+              <strong>{{ selectedRoutePlannerCandidate?.segmentIds.join(' -> ') || '-' }}</strong>
+            </article>
+          </div>
+          <div class="route-planner-fields">
+            <label>
+              <span>首车等待(s)</span>
+              <input v-model.number="routePlannerLeadSeconds" type="number" min="0" max="3600" step="30">
+            </label>
+            <label>
+              <span>计划间隔(s)</span>
+              <input v-model.number="routePlannerHeadwaySeconds" type="number" min="30" max="3600" step="30">
+            </label>
+          </div>
+          <div class="route-plan-preview">
+            <article>
+              <span>自动车辆</span>
+              <strong>{{ routePlannerAutoTrain?.id ?? '-' }}</strong>
+            </article>
+            <article>
+              <span>发车 tick</span>
+              <strong>{{ routePlannerNextDepartureTick }}</strong>
+            </article>
+            <article>
+              <span>候选进路</span>
+              <strong>{{ selectedRoutePlannerCandidate?.routeId ?? '-' }}</strong>
+            </article>
+          </div>
+          <button
+            type="button"
+            class="demo-button"
+            :disabled="!canCreateOperationPlan"
+            @click="createOperationPlan"
+          >
+            生成运营计划
+          </button>
+          <p v-if="routePlannerMessage" class="route-planner-message">{{ routePlannerMessage }}</p>
+        </section>
+        <section class="route-planner-card">
+          <div class="route-planner-heading">
+            <h3>待发车计划</h3>
+            <span>{{ generatedOperationPlans.length }} 条</span>
+          </div>
+          <div v-if="generatedOperationPlans.length === 0" class="empty">暂无计划。</div>
+          <div v-else class="operation-plan-list">
+            <article
+              v-for="item in generatedOperationPlans"
+              :key="item.planId"
+              :class="{ selected: item.planId === selectedOperationPlanId }"
+            >
+              <button type="button" @click="selectOperationPlan(item.planId)">
+                <strong>{{ operationPlanTitle(item) }}</strong>
+                <span>{{ operationPlanPathText(item) }}</span>
+                <small>{{ item.segmentIds.join(' -> ') }}</small>
+              </button>
+              <button type="button" class="release-button" @click="removeOperationPlan(item.planId)">移除</button>
+            </article>
+          </div>
+        </section>
       </div>
       <div class="dispatch-line-route-chips">
         <span
@@ -2308,7 +2263,6 @@ button:disabled {
   margin-bottom: 12px;
 }
 
-.dispatch-line-legend,
 .dispatch-line-route-chips {
   display: flex;
   flex-wrap: wrap;
@@ -2316,7 +2270,6 @@ button:disabled {
   margin-bottom: 10px;
 }
 
-.dispatch-line-legend span,
 .dispatch-line-route-chips span {
   width: fit-content;
   border: 1px solid #dbeafe;
@@ -2328,217 +2281,9 @@ button:disabled {
   font-weight: 800;
 }
 
-.dispatch-line-legend span[data-state='FREE'] {
-  border-color: #bbf7d0;
-  color: #166534;
-}
-
-.dispatch-line-legend span[data-state='OCCUPIED'] {
-  border-color: #fed7aa;
-  color: #9a3412;
-}
-
-.dispatch-line-legend span[data-state='REQUESTED'] {
-  border-color: #bfdbfe;
-  color: #1d4ed8;
-}
-
-.dispatch-line-legend span[data-state='ACCEPTED'] {
-  border-color: #99f6e4;
-  color: #0f766e;
-}
-
-.dispatch-line-legend span[data-state='REJECTED'],
-.dispatch-line-legend span[data-state='FAULT'] {
-  border-color: #fecaca;
-  color: #b91c1c;
-}
-
 .dispatch-line-workspace {
   display: grid;
   gap: 12px;
-}
-
-.dispatch-line-map {
-  position: relative;
-  min-height: 390px;
-  overflow: hidden;
-  border: 1px solid #d9e2ef;
-  border-radius: 8px;
-  background:
-    linear-gradient(90deg, rgba(37, 99, 235, 0.08) 1px, transparent 1px),
-    linear-gradient(180deg, #f8fbff, #edf4fb);
-  background-size: 64px 100%, 100% 100%;
-}
-
-.dispatch-line-map svg {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  overflow: visible;
-}
-
-.dispatch-line-edge {
-  stroke: #16a34a;
-  stroke-width: 0.52;
-  stroke-linecap: round;
-  vector-effect: non-scaling-stroke;
-}
-
-.dispatch-line-edge.occupied {
-  stroke: #f59e0b;
-  stroke-width: 0.72;
-}
-
-.dispatch-line-edge.requested {
-  stroke: #2563eb;
-  stroke-width: 0.78;
-  stroke-dasharray: 2.2 1.4;
-}
-
-.dispatch-line-edge.accepted {
-  stroke: #0f766e;
-  stroke-width: 0.86;
-}
-
-.dispatch-line-edge.rejected,
-.dispatch-line-edge.fault {
-  stroke: #dc2626;
-  stroke-width: 0.9;
-}
-
-.dispatch-line-edge.selected {
-  stroke-width: 1.12;
-}
-
-.dispatch-line-edge.planned {
-  stroke: #7c3aed;
-  stroke-width: 1.18;
-  stroke-dasharray: 4 1.2;
-}
-
-.dispatch-line-node,
-.dispatch-line-train {
-  position: absolute;
-  z-index: 2;
-  transform: translate(-50%, -50%);
-  min-height: 0;
-  border-radius: 8px;
-  border: 1px solid #dbeafe;
-  background: rgba(255, 255, 255, 0.96);
-  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.08);
-  padding: 5px 8px;
-  cursor: default;
-}
-
-.dispatch-line-node {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  color: #172033;
-  font-size: 12px;
-  font-weight: 900;
-  white-space: nowrap;
-}
-
-.dispatch-line-node.planner-selectable {
-  cursor: pointer;
-}
-
-.dispatch-line-node::before {
-  content: '';
-  width: 11px;
-  height: 11px;
-  flex: 0 0 11px;
-  border: 2px solid #1e293b;
-  border-radius: 3px;
-  background: #38bdf8;
-}
-
-.dispatch-line-node.node-switch::before,
-.dispatch-line-node.node-junction::before {
-  width: 13px;
-  height: 13px;
-  border-radius: 4px;
-  background: #f59e0b;
-  transform: rotate(45deg);
-}
-
-.dispatch-line-node.node-depot::before {
-  background: #94a3b8;
-}
-
-.dispatch-line-node.active {
-  border-color: #22c55e;
-  background: #ecfdf5;
-}
-
-.dispatch-line-node.selected {
-  border-color: #2563eb;
-  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.14), 0 8px 18px rgba(15, 23, 42, 0.1);
-}
-
-.dispatch-line-node.planner-preview {
-  border-color: #7c3aed;
-  background: #f5f3ff;
-}
-
-.dispatch-line-node.planner-selected {
-  border-color: #7c3aed;
-  background: #ede9fe;
-  box-shadow: 0 0 0 4px rgba(124, 58, 237, 0.16), 0 10px 20px rgba(15, 23, 42, 0.12);
-}
-
-.dispatch-line-node small {
-  border-radius: 999px;
-  background: #eff6ff;
-  color: #1d4ed8;
-  padding: 1px 5px;
-  font-size: 10px;
-  font-weight: 900;
-}
-
-.dispatch-line-edge-label {
-  position: absolute;
-  z-index: 1;
-  transform: translate(-50%, -50%);
-  border: 1px solid #d9e2ef;
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.92);
-  color: #64748b;
-  padding: 2px 7px;
-  font-size: 12px;
-  font-weight: 900;
-  white-space: nowrap;
-  pointer-events: none;
-}
-
-.dispatch-line-train {
-  z-index: 3;
-  display: grid;
-  gap: 1px;
-  border-color: #2563eb;
-  background: #2563eb;
-  color: #fff;
-  cursor: pointer;
-  text-align: center;
-}
-
-.dispatch-line-train strong {
-  font-size: 12px;
-  line-height: 1.1;
-}
-
-.dispatch-line-train span {
-  font-size: 10px;
-  font-weight: 800;
-}
-
-.dispatch-line-train.selected {
-  border-color: #dc2626;
-  background: #dc2626;
-  box-shadow: 0 0 0 4px rgba(220, 38, 38, 0.18), 0 12px 24px rgba(15, 23, 42, 0.18);
 }
 
 .dispatch-line-route-chips {
@@ -2593,6 +2338,13 @@ button:disabled {
   padding: 3px 8px;
   font-size: 12px;
   font-weight: 800;
+}
+
+.route-planner-source {
+  margin: 0;
+  color: #475569;
+  font-size: 12px;
+  line-height: 1.5;
 }
 
 .route-stop-grid,
@@ -3386,15 +3138,6 @@ th {
   .dispatch-line-workspace,
   .route-planner-panel {
     grid-template-columns: 1fr;
-  }
-
-  .dispatch-line-map {
-    min-height: 430px;
-  }
-
-  .dispatch-line-node {
-    max-width: 118px;
-    white-space: normal;
   }
 
   .dispatch-line-title {

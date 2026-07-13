@@ -194,8 +194,23 @@ export interface RunPlanResponse {
   planId: string
   lineId: string
   periods: RunPlanPeriod[]
+  stations: DispatchPlanStation[]
+  segments: DispatchPlanSegment[]
   circulations: CirculationPlan[]
   services: TrainServicePlan[]
+}
+
+export interface DispatchPlanStation {
+  id: string
+  positionMeters: number
+  platformCapacity: number
+}
+
+export interface DispatchPlanSegment {
+  id: string
+  startMeters: number
+  endMeters: number
+  speedLimitMps: number
 }
 
 export interface CirculationPlan {
