@@ -559,10 +559,16 @@ const comparisonRows = computed(() => {
       delta: formatDelta(targetProfile?.headwayActualSeconds ?? null, baseline.headwayActualSeconds, 's')
     },
     {
-      label: '演示目标间隔',
+      label: '计划目标间隔',
       before: formatSeconds(baseline.targetHeadwaySeconds),
       after: formatSeconds(baseline.commandTargetHeadwaySeconds ?? dispatch.value.targetHeadwaySeconds),
       delta: formatDelta(baseline.commandTargetHeadwaySeconds ?? dispatch.value.targetHeadwaySeconds, baseline.targetHeadwaySeconds, 's')
+    },
+    {
+      label: '注入实际间隔',
+      before: formatSeconds(baseline.scenarioActualHeadwaySeconds),
+      after: formatSeconds(targetProfile?.headwayActualSeconds ?? null),
+      delta: baseline.scenarioActualHeadwaySeconds === null ? '-' : '扰动场景输入'
     },
     {
       label: '目标车速度',
@@ -604,6 +610,7 @@ interface ComparisonBaseline {
   headwayAction: string
   targetHeadwaySeconds: number
   commandTargetHeadwaySeconds: number | null
+  scenarioActualHeadwaySeconds: number | null
   headwayActualSeconds: number | null
   gapMeters: number | null
   speedMps: number | null
@@ -618,7 +625,7 @@ const commandLabel = (type: string) => {
     SHORTEN_DWELL: '本车追赶：缩短停站',
     EXTEND_DWELL: '本车放慢：延长停站',
     HEADWAY_ADJUST: '本车间隔调节',
-    SPEED_BIAS: '速度偏置',
+    SPEED_BIAS: '本车速度偏置',
     SPEED_LIMIT: '临时限速',
     TEMP_SPEED_LIMIT: '临时限速',
     SPEED_FACTOR: '速度系数',
@@ -630,6 +637,7 @@ const commandLabel = (type: string) => {
     REROUTE: '重排进路',
     HEADWAY_TOO_SHORT: '本车放慢',
     HEADWAY_TOO_LONG: '本车追赶',
+    SCHEDULE_LATE: '本车晚点恢复',
   }
   return labels[type] ?? type
 }
@@ -765,6 +773,24 @@ const headwayActionLabel = (action: string) => {
     CATCH_UP_REAR_TRAIN: '本车追赶（兼容旧状态）',
   }
   return labels[action] ?? action
+}
+
+const headwayDirectionLabel = (direction: string | null | undefined) => {
+  const labels: Record<string, string> = {
+    TOO_SHORT: '间隔过小',
+    TOO_LONG: '间隔过大',
+    SCHEDULE_LATE: '本车晚点',
+  }
+  return direction ? labels[direction] ?? direction : '-'
+}
+
+const disturbanceScenarioLabel = (kind: 'tooShort' | 'tooLong' | 'late') => {
+  const labels = {
+    tooShort: '间隔过小扰动',
+    tooLong: '间隔过大扰动',
+    late: '本车晚点扰动',
+  }
+  return labels[kind]
 }
 
 const formatNumber = (value: number | null | undefined, digits = 1) => {
@@ -1208,11 +1234,11 @@ function selectTrain(trainId: string) {
 async function acceptSuggestedAction() {
   const action = selectedTrainSuggestion.value.action
   if (action === 'SLOW_DOWN') {
-    await runManualAction('采纳本车放慢建议', () => submitHeadwayDemo('tooShort'))
+    await runManualAction('采纳本车放慢建议', () => submitHeadwayScenario('tooShort'))
     return
   }
   if (action === 'CATCH_UP') {
-    await runManualAction('采纳本车追赶建议', () => submitHeadwayDemo('tooLong'))
+    await runManualAction('采纳本车追赶建议', () => submitHeadwayScenario('tooLong'))
     return
   }
   manualActionMessage.value = suggestionDisabledReason.value || '当前没有可下发的调度建议'
@@ -1225,24 +1251,43 @@ async function requestRouteForSelected() {
   await requestSelectedRoute()
 }
 
-async function submitHeadwayDemo(kind: 'tooShort' | 'tooLong') {
+async function submitHeadwayScenario(kind: 'tooShort' | 'tooLong' | 'late') {
   const targetTrain = selectedDemoTrain.value
   if (!targetTrain) throw new Error('请先在上方列车运行表选择调度对象')
-  const targetHeadwaySec = kind === 'tooShort'
-    ? normalizedHeadway(demoLongHeadwaySec.value)
-    : normalizedHeadway(demoShortHeadwaySec.value)
-  captureBaseline(kind === 'tooShort' ? 'HEADWAY_TOO_SHORT' : 'HEADWAY_TOO_LONG', targetTrain, targetHeadwaySec)
-  await dispatchApi.submitCommand({
+  const targetHeadwaySec = dispatch.value.targetHeadwaySeconds
+  const actualHeadwaySec = kind === 'tooShort'
+    ? normalizedHeadway(demoShortHeadwaySec.value)
+    : kind === 'tooLong'
+      ? normalizedHeadway(demoLongHeadwaySec.value)
+      : 0
+  const headwayDirection = kind === 'tooShort'
+    ? 'TOO_SHORT'
+    : kind === 'tooLong'
+      ? 'TOO_LONG'
+      : 'SCHEDULE_LATE'
+  const violationSec = kind === 'tooShort'
+    ? Math.max(30, targetHeadwaySec * headwayShrinkRatio - actualHeadwaySec)
+    : kind === 'tooLong'
+      ? Math.max(30, actualHeadwaySec - targetHeadwaySec * headwayExpandRatio)
+      : Math.max(30, selectedTrainProfile.value?.departureDelaySeconds ?? 90)
+
+  captureBaseline(
+    kind === 'tooShort' ? 'HEADWAY_TOO_SHORT' : kind === 'tooLong' ? 'HEADWAY_TOO_LONG' : 'SCHEDULE_LATE',
+    targetTrain,
+    null,
+    actualHeadwaySec
+  )
+  const event = await dispatchApi.injectDemoDisturbance({
     trainId: targetTrain.id,
-    commandType: 'HEADWAY_ADJUST',
     targetHeadwaySec,
-    payload: {
-      regulatedTrainId: targetTrain.id,
-      regulationAction: kind === 'tooShort' ? 'SLOW_DOWN' : 'CATCH_UP',
-      regulationSource: 'MANUAL_DEMO'
-    }
+    actualHeadwaySec,
+    violationSec,
+    headwayDirection,
+    type: 'TRAIN_REGULATION',
+    stationId: targetTrain.currentStationId || undefined
   })
   await refreshSimulationSnapshot()
+  manualActionMessage.value = `已注入${disturbanceScenarioLabel(kind)}：${event.id}，等待后端策略在下一轮生成本车调度指令。`
 }
 
 async function runManualAction(label: string, action: () => Promise<void>) {
@@ -1256,7 +1301,9 @@ async function runManualAction(label: string, action: () => Promise<void>) {
   manualActionMessage.value = `${label}已提交，等待后端总循环处理。`
   try {
     await action()
-    manualActionMessage.value = `${label}已下发，请在运行表和闭环追踪中观察 MA、速度、停站或进路状态变化。`
+    if (!manualActionMessage.value.includes('已注入')) {
+      manualActionMessage.value = `${label}已下发，请在运行表和闭环追踪中观察 MA、速度、停站或进路状态变化。`
+    }
   } catch (error) {
     manualActionMessage.value = error instanceof Error ? `${label}失败：${error.message}` : `${label}失败。`
   } finally {
@@ -1265,7 +1312,11 @@ async function runManualAction(label: string, action: () => Promise<void>) {
 }
 
 async function submitManualHeadwayDemo(kind: 'tooShort' | 'tooLong') {
-  await runManualAction(kind === 'tooShort' ? '演示本车放慢' : '演示本车追赶', () => submitHeadwayDemo(kind))
+  await runManualAction(kind === 'tooShort' ? '演示间隔过小' : '演示间隔过大', () => submitHeadwayScenario(kind))
+}
+
+async function submitManualLateDemo() {
+  await runManualAction('演示本车晚点', () => submitHeadwayScenario('late'))
 }
 
 async function submitManualSpeedLimit() {
@@ -1342,6 +1393,21 @@ function commandEvidence(command: { commandType: string; trainId: string; status
     : {}
   const feedbackReason = textPayloadValue(payload.lastFeedbackReason)
   const pieces: string[] = []
+  const direction = textPayloadValue(payload.headwayDirection)
+  if (direction !== '-') pieces.push(headwayDirectionLabel(direction))
+  const action = textPayloadValue(payload.regulationAction)
+  if (action !== '-') pieces.push(headwayActionLabel(action))
+  const ratio = numberPayloadValue(payload.speedBiasRatio)
+  if (ratio !== null) pieces.push(`速度偏置 ${ratio.toFixed(2)}`)
+  const baselineError = numberPayloadValue(payload.baselineHeadwayErrorSec)
+  if (baselineError !== null) pieces.push(`基线偏差 ${formatSeconds(baselineError)}`)
+  const targetHeadway = numberPayloadValue(payload.targetHeadwaySec)
+  const actualHeadway = numberPayloadValue(payload.actualHeadwaySec)
+  if (targetHeadway !== null || actualHeadway !== null) {
+    pieces.push(`实际/目标 ${formatSeconds(actualHeadway)} / ${formatSeconds(targetHeadway)}`)
+  }
+  const deltaDwell = numberPayloadValue(payload.deltaDwellSec)
+  if (deltaDwell !== null) pieces.push(`停站调整 ${deltaDwell > 0 ? '+' : ''}${deltaDwell.toFixed(0)}s`)
   if (details.actualSpeed !== undefined) pieces.push(`实速 ${formatNumber(numberPayloadValue(details.actualSpeed))} m/s`)
   if (details.zeroSpeed !== undefined) pieces.push(`零速 ${details.zeroSpeed ? '是' : '否'}`)
   if (details.constraintReason !== undefined) pieces.push(`约束 ${dynamicsReasonLabel(String(details.constraintReason))}`)
@@ -1488,7 +1554,12 @@ function dispatchRouteStateText(
   return '未由调度申请'
 }
 
-function captureBaseline(commandType: string, targetTrain: TrainState, commandTargetHeadwaySeconds: number | null = null) {
+function captureBaseline(
+  commandType: string,
+  targetTrain: TrainState,
+  commandTargetHeadwaySeconds: number | null = null,
+  scenarioActualHeadwaySeconds: number | null = null
+) {
   const targetAuthority = authorityByTrain.value.get(targetTrain.id)
   const targetProfile = dispatch.value.trainProfiles.find((profile) => profile.trainId === targetTrain.id)
   comparisonBaseline.value = {
@@ -1500,6 +1571,7 @@ function captureBaseline(commandType: string, targetTrain: TrainState, commandTa
     headwayAction: targetProfile?.headwayAction ?? 'OBSERVE',
     targetHeadwaySeconds: dispatch.value.targetHeadwaySeconds,
     commandTargetHeadwaySeconds,
+    scenarioActualHeadwaySeconds,
     headwayActualSeconds: targetProfile?.headwayActualSeconds ?? null,
     gapMeters: currentGapMeters.value,
     speedMps: targetTrain.speedMetersPerSecond,
@@ -1806,8 +1878,17 @@ function formatDelta(current: number | null | undefined, baseline: number | null
           <strong>人工干预/联调演示</strong>
           <span>这些按钮用于异常处置或联调验证。正常运营中，进路应由调度策略按计划自动申请；间隔调节应在出现明确间隔偏差后由系统建议触发。</span>
         </div>
-        <button type="button" :disabled="manualActionPending" @click="submitManualHeadwayDemo('tooShort')">演示：本车放慢</button>
-        <button type="button" :disabled="manualActionPending" @click="submitManualHeadwayDemo('tooLong')">演示：本车追赶</button>
+        <label>
+          <span>间隔过小实际值 s</span>
+          <input v-model.number="demoShortHeadwaySec" type="number" min="30" max="900" step="30" />
+        </label>
+        <button type="button" :disabled="manualActionPending" @click="submitManualHeadwayDemo('tooShort')">注入：间隔过小</button>
+        <label>
+          <span>间隔过大实际值 s</span>
+          <input v-model.number="demoLongHeadwaySec" type="number" min="30" max="900" step="30" />
+        </label>
+        <button type="button" :disabled="manualActionPending" @click="submitManualHeadwayDemo('tooLong')">注入：间隔过大</button>
+        <button type="button" :disabled="manualActionPending" @click="submitManualLateDemo">注入：本车晚点</button>
         <label>
           <span>临时限速 m/s</span>
           <input v-model.number="demoSpeedLimitMps" type="number" min="1" max="22.2" step="0.5" />

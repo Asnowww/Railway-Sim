@@ -8,6 +8,7 @@ import com.railwaysim.dispatch.command.CommandValidator;
 import com.railwaysim.dispatch.command.InMemoryCommandRecordStore;
 import com.railwaysim.dispatch.config.DispatchProperties;
 import com.railwaysim.dispatch.disturbance.DisturbanceDetector;
+import com.railwaysim.dispatch.disturbance.DisturbanceType;
 import com.railwaysim.dispatch.disturbance.InMemoryDisturbanceRecordStore;
 import com.railwaysim.dispatch.monitor.InMemoryStationRecordStore;
 import com.railwaysim.dispatch.monitor.TrainRunMonitor;
@@ -706,6 +707,39 @@ class DispatchServiceTests {
         DispatchConstraint constraint = dispatchService.previewConstraintsForTrains(List.of(dwellingTrain("TR-1", 15))).get(0);
 
         assertThat(constraint.releaseStationStop()).isTrue();
+    }
+
+    @Test
+    void injectedHeadwayScenarioGeneratesSelfRegulationCommandOnNextEvaluation() {
+        DispatchService service = dispatchService();
+        Instant now = Instant.parse("2026-07-09T00:00:00Z");
+
+        service.evaluate(tick(1, now), List.of(runningTrainAt("TR-1", 100, 8)), List.of(authority("TR-1")));
+
+        service.injectDemoDisturbance(
+            "TR-1",
+            DisturbanceType.TRAIN_REGULATION,
+            "TOO_SHORT",
+            300.0,
+            120.0,
+            90.0,
+            null
+        );
+        service.evaluate(tick(2, now.plusSeconds(21)), List.of(runningTrainAt("TR-1", 120, 8)), List.of(authority("TR-1")));
+
+        assertThat(service.snapshot().activeCommands())
+            .filteredOn(command -> "SPEED_BIAS".equals(command.commandType()))
+            .singleElement()
+            .satisfies(command -> {
+                assertThat(command.trainId()).isEqualTo("TR-1");
+                assertThat(command.regulatedTrainId()).isEqualTo("TR-1");
+                assertThat(command.status()).isEqualTo(CommandStatus.PENDING);
+                assertThat(command.regulationAction()).isEqualTo("SLOW_DOWN");
+                assertThat(command.payload())
+                    .containsEntry("headwayDirection", "TOO_SHORT")
+                    .containsEntry("speedBiasRatio", 0.75)
+                    .containsEntry("regulatedTrainId", "TR-1");
+            });
     }
 
     @Test

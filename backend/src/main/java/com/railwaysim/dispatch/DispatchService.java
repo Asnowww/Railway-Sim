@@ -862,7 +862,7 @@ public class DispatchService {
         }
         return switch (command.commandType()) {
             case "SHORTEN_DWELL" -> isTimeRegulationEffectConfirmed(command, profile);
-            case "SPEED_BIAS" -> hasDepartedOrMoving(train);
+            case "SPEED_BIAS" -> isSpeedBiasEffectConfirmed(command, train, profile);
             case "EXTEND_DWELL" -> isTimeRegulationEffectConfirmed(command, profile);
             case "HEADWAY_ADJUST" -> isHeadwayRecovered(command, profile);
             case "HOLD", "HOLD_TRAIN" -> isStopped(train) && !isTimedHoldStillRequired(command, train);
@@ -909,21 +909,24 @@ public class DispatchService {
     }
 
     private String commandProgressDetail(DispatchCommand command, TrainRunProfile profile, Instant simulatedAt) {
-        if (!"HEADWAY_ADJUST".equals(command.commandType())) {
+        if (!"HEADWAY_ADJUST".equals(command.commandType()) && !"SPEED_BIAS".equals(command.commandType())) {
             return "";
         }
         int targetHeadway = payloadInt(command, "targetHeadwaySec", currentPlan.departureIntervalSec());
-        int tolerance = Math.max(5, currentPlan.departureIntervalSec() / 10);
+        int tolerance = payloadInt(command, "headwayToleranceSec", Math.max(5, currentPlan.departureIntervalSec() / 10));
         Double actual = profile == null ? null : profile.headwayActualSec();
         String violation = actual == null
             ? "unknown"
             : Math.round(Math.max(0, Math.abs(actual - targetHeadway) - tolerance)) + "s";
+        double baselineError = payloadDouble(command, "baselineHeadwayErrorSec", Double.NaN);
+        String baseline = Double.isNaN(baselineError) ? "-" : Math.round(baselineError) + "s";
         long elapsedSec = simulatedAt.getEpochSecond() - (
             command.appliedAt() == null ? command.createdAt() : command.appliedAt()
         ).getEpochSecond();
         return "headway actual=" + (actual == null ? "-" : Math.round(actual) + "s")
             + " target=" + targetHeadway + "s"
             + " tolerance=" + tolerance + "s"
+            + " baselineError=" + baseline
             + " violation=" + violation
             + " observedFor=" + elapsedSec + "s";
     }
@@ -948,7 +951,9 @@ public class DispatchService {
     }
 
     private boolean isTimeRegulationCommand(DispatchCommand command) {
-        return ("SHORTEN_DWELL".equals(command.commandType()) || "EXTEND_DWELL".equals(command.commandType()))
+        return ("SHORTEN_DWELL".equals(command.commandType())
+            || "EXTEND_DWELL".equals(command.commandType())
+            || "SPEED_BIAS".equals(command.commandType()))
             && payloadString(command, "regulationAction") != null;
     }
 
@@ -975,6 +980,36 @@ public class DispatchService {
             return profile.lastDepartureAt() != null
                 && profile.lastDepartureAt().isAfter(command.createdAt())
                 && baselineDelay - profile.departureDelaySec() >= properties.getHeadwayEffectMinImprovementSec();
+        }
+        return false;
+    }
+
+    private boolean isSpeedBiasEffectConfirmed(
+        DispatchCommand command,
+        TrainState train,
+        TrainRunProfile profile
+    ) {
+        if (isTimeRegulationEffectConfirmed(command, profile)) {
+            return true;
+        }
+        String direction = payloadString(command, "headwayDirection");
+        double baselineError = payloadDouble(command, "baselineHeadwayErrorSec", Double.NaN);
+        if (profile != null && profile.headwayActualSec() != null && !Double.isNaN(baselineError)) {
+            double currentError = profile.headwayActualSec() - payloadDouble(command, "targetHeadwaySec", currentPlan.departureIntervalSec());
+            double requiredImprovement = Math.max(
+                properties.getHeadwayEffectMinImprovementSec(),
+                Math.abs(baselineError) * properties.getHeadwayEffectImprovementRatio()
+            );
+            if (Math.abs(baselineError) - Math.abs(currentError) >= requiredImprovement) {
+                return true;
+            }
+        }
+        double ratio = payloadDouble(command, "speedBiasRatio", 1.0);
+        if ("TOO_SHORT".equals(direction) && ratio < 1.0) {
+            return train.speedMetersPerSecond() <= properties.getBaseCruiseSpeedMps() * Math.min(0.95, ratio + 0.1);
+        }
+        if (("TOO_LONG".equals(direction) || "SCHEDULE_LATE".equals(direction)) && ratio > 1.0) {
+            return hasDepartedOrMoving(train);
         }
         return false;
     }
@@ -1829,7 +1864,10 @@ public class DispatchService {
                 command.commandType(),
                 command.status(),
                 command.reason(),
-                payloadString(command, "regulationAction")
+                payloadString(command, "regulationAction"),
+                command.payload(),
+                command.createdAt(),
+                command.appliedAt()
             ))
             .toList();
         Map<String, DispatchCommand> commandById = new HashMap<>();

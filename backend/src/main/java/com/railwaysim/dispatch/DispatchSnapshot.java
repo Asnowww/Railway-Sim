@@ -68,8 +68,14 @@ public record DispatchSnapshot(
         String commandType,
         String status,
         String reason,
-        String regulationAction
+        String regulationAction,
+        Map<String, Object> payload,
+        Instant createdAt,
+        Instant appliedAt
     ) {
+        public CommandView {
+            payload = payload == null ? Map.of() : Map.copyOf(payload);
+        }
     }
 
     public record ServicePlanView(
