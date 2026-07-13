@@ -1,0 +1,75 @@
+@startuml
+skinparam backgroundColor white
+skinparam shadowing false
+skinparam defaultFontName Monospaced
+skinparam classBorderColor #0B357A
+skinparam classBackgroundColor white
+skinparam classHeaderBackgroundColor #EAF2FF
+skinparam ArrowColor #4A4A4A
+skinparam linetype ortho
+
+class OperationalPowerData <<record>> {
+  + nominalVoltage: double
+  + maxTractionCurrentAmps: double
+  + currentToVoltageDrop: double
+  + sections: List<PowerSectionDefinition>
+}
+
+class PowerSectionDefinition <<nested record>> {
+  + id: String
+  + substationId: String
+  + feederId: String
+  + startMeters: double
+  + endMeters: double
+  + supplyMode: String
+}
+
+class PowerNetworkStateSnapshot <<external DTO>> {
+  + simulationRunId: String
+  + lastAcceptedTick: long
+  + dataQuality: String
+  + thirdRailSections: List<ThirdRailSectionSnapshot>
+}
+
+class PowerConstraintService <<service>> {
+  - infrastructureCatalog: StaticInfrastructureCatalog
+  + initializeStates(snapshot: PowerNetworkStateSnapshot): List<PowerSectionState>
+  + loadSnapshots(outputs: List<VehiclePhysicsOutput>): List<PowerSectionLoadSnapshot>
+  + calculateStates(...): List<PowerSectionState>
+  + constraintsForTrains(trains: List<TrainState>, sections: List<PowerSectionState>): List<PowerConstraint>
+}
+
+class PowerSectionLoadSnapshot <<record>> {
+  + powerSectionId: String
+  + trainIds: List<String>
+  + tractionPowerWatts: double
+  + regenPowerWatts: double
+  + currentAmps: double
+}
+
+class PowerSectionState <<record>> {
+  + id: String
+  + voltage: double
+  + current: double
+  + status: String
+  + availablePowerWatts: double
+  + affectedTrainIds: List<String>
+}
+
+class PowerConstraint <<record>> {
+  + trainId: String
+  + sectionId: String
+  + railVoltage: double
+  + powerAvailableWatts: double
+  + energized: boolean
+  + powerDeratingFactor: double
+  + constraintReason: String
+}
+
+OperationalPowerData "1" *-- "1..*" PowerSectionDefinition
+PowerConstraintService ..> OperationalPowerData : reads
+PowerConstraintService ..> PowerNetworkStateSnapshot : reads
+PowerConstraintService ..> PowerSectionLoadSnapshot : creates
+PowerConstraintService ..> PowerSectionState : creates
+PowerConstraintService ..> PowerConstraint : creates
+@enduml
