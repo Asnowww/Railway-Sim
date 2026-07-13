@@ -57,6 +57,57 @@ export interface DispatchRouteEstablishResponse {
   routeId: string
   trainId: string
   rejectReason?: string | null
+  commandId?: string | null
+}
+
+export interface OperationRouteTemplate {
+  routeId: string
+  name: string
+  typeCode: string
+  pointIds: string[]
+  stationIds: string[]
+  segmentIds: string[]
+}
+
+export interface OperationRouteCandidate {
+  key: string
+  routeId: string
+  routeName: string
+  direction: 'UP' | 'DOWN' | string
+  pointIds: string[]
+  stationIds: string[]
+  segmentIds: string[]
+}
+
+export interface OperationPlanRequest {
+  pointIds: string[]
+  routeId?: string
+  candidateKey?: string
+  trainId?: string
+  plannedDepartureAt?: string
+  leadSeconds?: number
+  headwaySeconds?: number
+  priority?: number
+}
+
+export interface OperationPlanView {
+  planId: string
+  routeId: string
+  routeName: string
+  direction: 'UP' | 'DOWN' | string
+  trainId: string
+  originPointId: string
+  destinationPointId: string
+  viaPointIds: string[]
+  pointIds: string[]
+  stationIds: string[]
+  segmentIds: string[]
+  plannedDepartureAt: string
+  status: string
+  priority: number
+  version: number
+  routeCommandId?: string | null
+  rejectReason?: string | null
 }
 
 export interface DispatchRouteDecision {
@@ -128,6 +179,7 @@ export interface DispatchSnapshot {
   routeDispatchActive: boolean
   routeDecisions: DispatchRouteDecision[]
   routeReservations: DispatchRouteReservation[]
+  operationPlans: OperationPlanView[]
 }
 
 export interface RunPlanPeriod {

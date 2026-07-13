@@ -18,7 +18,8 @@ const emptyDispatch: DispatchSnapshot = {
   activeCommands: [],
   routeDispatchActive: false,
   routeDecisions: [],
-  routeReservations: []
+  routeReservations: [],
+  operationPlans: []
 }
 
 export function useSimulation() {
@@ -45,7 +46,8 @@ export function useSimulation() {
       services: payload.dispatch.services ?? [],
       stationHeadways: payload.dispatch.stationHeadways ?? [],
       routeDecisions: payload.dispatch.routeDecisions ?? [],
-          routeReservations: payload.dispatch.routeReservations ?? []
+          routeReservations: payload.dispatch.routeReservations ?? [],
+          operationPlans: payload.dispatch.operationPlans ?? []
         }
       : emptyDispatch
     backendReady.value = true

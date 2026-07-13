@@ -11,6 +11,8 @@ import com.railwaysim.dispatch.disturbance.DisturbanceDetector;
 import com.railwaysim.dispatch.disturbance.InMemoryDisturbanceRecordStore;
 import com.railwaysim.dispatch.monitor.InMemoryStationRecordStore;
 import com.railwaysim.dispatch.monitor.TrainRunMonitor;
+import com.railwaysim.dispatch.operation.OperationPlanRequest;
+import com.railwaysim.dispatch.operation.OperationPlanningService;
 import com.railwaysim.dispatch.plan.OperationPlanLoader;
 import com.railwaysim.dispatch.plan.PlannedScheduleCalculator;
 import com.railwaysim.dispatch.route.RouteDecisionStatus;
@@ -288,6 +290,41 @@ class DispatchServiceTests {
         assertThat(service.snapshot().services())
             .extracting(DispatchSnapshot.ServicePlanView::departureStatus)
             .containsOnly(CommandStatus.PENDING);
+    }
+
+    @Test
+    void operationPlanQueuesRouteRequestAtPlannedDeparture() {
+        DispatchService service = dispatchService();
+        Instant now = Instant.parse("2026-07-09T00:00:00Z");
+        service.evaluate(tick(1, now), List.of(train("TR-1")), List.of(authority("TR-1")));
+
+        var plan = service.createOperationPlan(new OperationPlanRequest(
+            List.of("S01", "S02"),
+            "R_MAIN",
+            "R_MAIN:UP",
+            null,
+            null,
+            0,
+            300,
+            0
+        ));
+
+        assertThat(plan.trainId()).isEqualTo("TR-1");
+        assertThat(service.snapshot().operationPlans())
+            .extracting(DispatchSnapshot.OperationPlanView::status)
+            .containsExactly("PLANNED");
+
+        service.evaluate(tick(2, now.plusSeconds(1)), List.of(train("TR-1")), List.of(authority("TR-1")));
+
+        List<DispatchCommand> routeCommands = service.drainCommandsOfType("REQUEST_ROUTE");
+        assertThat(routeCommands).singleElement().satisfies(command -> {
+            assertThat(command.payload()).containsEntry("operationPlanId", plan.planId());
+            assertThat(command.payload()).containsEntry("routeId", "R_MAIN");
+            assertThat(command.reason()).isEqualTo("OPERATION_PLAN");
+        });
+        assertThat(service.snapshot().operationPlans())
+            .extracting(DispatchSnapshot.OperationPlanView::status)
+            .containsExactly("ROUTE_REQUESTED");
     }
 
     @Test
@@ -1133,7 +1170,8 @@ class DispatchServiceTests {
                 stationStore,
                 routeStore,
                 new RouteIntentResolver(routeCatalog, properties),
-                new RouteIntentArbiter(routeCatalog)
+                new RouteIntentArbiter(routeCatalog),
+                new OperationPlanningService(routeCatalog)
             );
         } catch (IOException ex) {
             throw new IllegalStateException("failed to load dispatch test plan", ex);

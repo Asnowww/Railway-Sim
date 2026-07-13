@@ -1,6 +1,10 @@
 import { apiBaseUrl } from './config'
 import type {
   DispatchCommandView,
+  OperationPlanRequest,
+  OperationPlanView,
+  OperationRouteCandidate,
+  OperationRouteTemplate,
   DispatchRouteEstablishResponse,
   DispatchRouteInfo,
   DispatchSnapshot,
@@ -43,6 +47,35 @@ export const dispatchApi = {
       method: 'POST'
     }),
   routeList: () => request<DispatchRouteInfo[]>('/dispatch/route/list'),
+  operationRouteTemplates: () => request<OperationRouteTemplate[]>('/dispatch/operation-route/templates'),
+  previewOperationRoute: (body: OperationPlanRequest) =>
+    request<OperationRouteCandidate[]>('/dispatch/operation-route/preview', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    }),
+  operationPlans: () => request<OperationPlanView[]>('/dispatch/operation-plans'),
+  createOperationPlan: (body: OperationPlanRequest) =>
+    request<OperationPlanView>('/dispatch/operation-plans', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    }),
+  cancelOperationPlan: (planId: string) =>
+    request<OperationPlanView>(`/dispatch/operation-plans/${encodeURIComponent(planId)}/cancel`, {
+      method: 'POST'
+    }),
+  adjustHeadway: (body: {
+    trainId: string
+    targetHeadwaySec: number
+    regulationAction?: string
+    frontTrainId?: string
+  }) =>
+    request<DispatchCommandView>('/dispatch/headway/adjust', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    }),
   establishRoute: (routeId: string, trainId: string) =>
     request<DispatchRouteEstablishResponse>(
       `/dispatch/route/establish?routeId=${encodeURIComponent(routeId)}&trainId=${encodeURIComponent(trainId)}`,

@@ -193,19 +193,40 @@ public class SimulationRuntime {
         routeCommands.addAll(dispatchService.drainCommandsOfType("CANCEL_ROUTE"));
         List<DispatchCommandFeedback> routeFeedbacks = new ArrayList<>();
         for (DispatchCommand cmd : routeCommands) {
-            var result = interlockingService.applyDispatchCommand(cmd.commandType(), commandDetail(cmd), cmd.trainId());
+            RouteInterlockingService.DispatchRouteRequest routeRequest = dispatchRouteRequest(cmd);
+            var result = interlockingService.applyDispatchCommand(routeRequest);
             if (!result.accepted()) {
                 log.warn("[Runtime] 联锁拒绝调度指令 {}: {}", cmd.id(), result.rejectReason());
             }
-            String routeId = cmd.payload() == null || cmd.payload().get("routeId") == null
+            String routeId = routeRequest.routeId() == null || routeRequest.routeId().isBlank()
                 ? commandDetail(cmd)
-                : cmd.payload().get("routeId").toString();
+                : routeRequest.routeId();
             Map<String, Object> feedbackDetails = new java.util.LinkedHashMap<>();
             feedbackDetails.put("accepted", result.accepted());
             feedbackDetails.put("routeId", routeId);
+            if (routeRequest.operationPlanId() != null && !routeRequest.operationPlanId().isBlank()) {
+                feedbackDetails.put("operationPlanId", routeRequest.operationPlanId());
+            }
+            if (routeRequest.direction() != null && !routeRequest.direction().isBlank()) {
+                feedbackDetails.put("direction", routeRequest.direction());
+            }
+            if (routeRequest.originPointId() != null && !routeRequest.originPointId().isBlank()) {
+                feedbackDetails.put("originPointId", routeRequest.originPointId());
+            }
+            if (routeRequest.destinationPointId() != null && !routeRequest.destinationPointId().isBlank()) {
+                feedbackDetails.put("destinationPointId", routeRequest.destinationPointId());
+            }
+            if (!routeRequest.viaPointIds().isEmpty()) {
+                feedbackDetails.put("viaPointIds", routeRequest.viaPointIds());
+            }
+            if (!routeRequest.segmentIds().isEmpty()) {
+                feedbackDetails.put("segmentIds", routeRequest.segmentIds());
+            }
             feedbackDetails.put("resultCode", result.accepted()
                 ? ("CANCEL_ROUTE".equals(cmd.commandType()) ? "ROUTE_CANCELLED" : "ROUTE_ESTABLISHED")
                 : "INTERLOCKING_REJECTED");
+            feedbackDetails.put("failureCode", result.failureCode().name());
+            feedbackDetails.put("retryable", result.retryable());
             if (result.rejectReason() != null) {
                 feedbackDetails.put("rawReason", result.rejectReason());
             }
@@ -305,6 +326,34 @@ public class SimulationRuntime {
             }
         }
         return command.reason();
+    }
+
+    private RouteInterlockingService.DispatchRouteRequest dispatchRouteRequest(DispatchCommand command) {
+        Map<String, Object> payload = command.payload() == null ? Map.of() : command.payload();
+        return new RouteInterlockingService.DispatchRouteRequest(
+            command.id(),
+            command.commandType(),
+            commandDetail(command),
+            command.trainId(),
+            stringFromPayload(payload, "operationPlanId", null),
+            stringFromPayload(payload, "routeId", null),
+            stringFromPayload(payload, "direction", null),
+            stringFromPayload(payload, "originPointId", null),
+            stringFromPayload(payload, "destinationPointId", null),
+            stringListFromPayload(payload, "viaPointIds"),
+            stringListFromPayload(payload, "segmentIds")
+        );
+    }
+
+    private static List<String> stringListFromPayload(Map<String, Object> payload, String key) {
+        Object value = payload.get(key);
+        if (!(value instanceof List<?> list)) {
+            return List.of();
+        }
+        return list.stream()
+            .filter(item -> item != null)
+            .map(Object::toString)
+            .toList();
     }
 
     /**

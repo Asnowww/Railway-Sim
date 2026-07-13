@@ -4,6 +4,10 @@ import com.railwaysim.dispatch.command.CommandStatus;
 import com.railwaysim.dispatch.disturbance.DisturbanceEvent;
 import com.railwaysim.dispatch.monitor.StationRecordStore;
 import com.railwaysim.dispatch.monitor.TrainStationEvent;
+import com.railwaysim.dispatch.operation.OperationPlan;
+import com.railwaysim.dispatch.operation.OperationPlanRequest;
+import com.railwaysim.dispatch.operation.OperationRouteCandidate;
+import com.railwaysim.dispatch.operation.OperationRouteTemplate;
 import com.railwaysim.dispatch.plan.CurrentRunPlan;
 import com.railwaysim.dispatch.plan.OperationPlanLoader;
 import com.railwaysim.dispatch.plan.RunModePeriod;
@@ -20,6 +24,7 @@ import org.springframework.web.bind.annotation.CrossOrigin;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -126,6 +131,73 @@ public class DispatchController {
         return routeInterlockingService.queryRoutes();
     }
 
+    @PostMapping("/route/establish")
+    public RouteEstablishResponse establishRoute(
+        @RequestParam String routeId,
+        @RequestParam String trainId
+    ) {
+        DispatchCommand command = submit(new ManualCommandRequest(
+            trainId,
+            "REQUEST_ROUTE",
+            routeId,
+            null,
+            null,
+            null,
+            routeId,
+            Map.of("source", "MANUAL_ROUTE_ESTABLISH")
+        ));
+        return new RouteEstablishResponse(true, routeId, trainId, null, command.id());
+    }
+
+    @GetMapping("/operation-route/templates")
+    public List<OperationRouteTemplate> operationRouteTemplates() {
+        return dispatchService.operationRouteTemplates();
+    }
+
+    @PostMapping("/operation-route/preview")
+    public List<OperationRouteCandidate> previewOperationRoute(@RequestBody OperationPlanRequest request) {
+        return dispatchService.previewOperationPlan(request);
+    }
+
+    @GetMapping("/operation-plans")
+    public List<OperationPlan> operationPlans() {
+        return dispatchService.operationPlans();
+    }
+
+    @PostMapping("/operation-plans")
+    public OperationPlan createOperationPlan(@RequestBody OperationPlanRequest request) {
+        return dispatchService.createOperationPlan(request);
+    }
+
+    @PostMapping("/operation-plans/{planId}/cancel")
+    public OperationPlan cancelOperationPlan(@PathVariable String planId) {
+        return dispatchService.cancelOperationPlan(planId);
+    }
+
+    @PostMapping("/headway/adjust")
+    public DispatchCommand adjustHeadway(@Valid @RequestBody HeadwayAdjustRequest request) {
+        Map<String, Object> payload = new HashMap<>();
+        payload.put("targetHeadwaySec", request.targetHeadwaySec());
+        payload.put("regulatedTrainId", request.trainId());
+        payload.put("regulationAction", request.regulationAction() == null || request.regulationAction().isBlank()
+            ? "OBSERVE"
+            : request.regulationAction());
+        payload.put("regulationSource", "MANUAL_HEADWAY_ADJUST");
+        if (request.frontTrainId() != null && !request.frontTrainId().isBlank()) {
+            payload.put("frontTrainId", request.frontTrainId());
+        }
+        return submit(new ManualCommandRequest(
+            request.trainId(),
+            "HEADWAY_ADJUST",
+            null,
+            request.targetHeadwaySec(),
+            null,
+            null,
+            null,
+            payload
+        ));
+    }
+
     @GetMapping("/station-records")
     public List<TrainStationEvent> stationRecords() {
         return stationRecordStore.list(dispatchService.simulationRunId());
@@ -141,6 +213,28 @@ public class DispatchController {
         String routeId,
         Map<String, Object> payload
     ) {
+    }
+
+    public record RouteEstablishResponse(
+        boolean accepted,
+        String routeId,
+        String trainId,
+        String rejectReason,
+        String commandId
+    ) {
+    }
+
+    public record HeadwayAdjustRequest(
+        @NotBlank String trainId,
+        int targetHeadwaySec,
+        String regulationAction,
+        String frontTrainId
+    ) {
+        public HeadwayAdjustRequest {
+            if (targetHeadwaySec < 30 || targetHeadwaySec > 900) {
+                throw new IllegalArgumentException("targetHeadwaySec must be between 30 and 900");
+            }
+        }
     }
 
     public record PlanResponse(
