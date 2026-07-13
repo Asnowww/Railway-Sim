@@ -25,6 +25,7 @@ import com.railwaysim.train.TrainState;
 import com.railwaysim.vehicle.VehiclePhysicsOutput;
 import com.railwaysim.vehicle.external.ExternalTrainDirection;
 import com.railwaysim.vehicle.runtime.VehicleRuntimeIntegrationService;
+import com.railwaysim.vehicle.runtime.VehicleRuntimeStepResult;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -57,6 +58,7 @@ public class SimulationRuntime {
     private final SimulationRunService simulationRunService;
     private final SimulationRunContext simulationRunContext;
     private final TrainStopEvaluationService trainStopEvaluationService;
+    private final FinalControlDecisionPersistenceService finalControlDecisionPersistenceService;
     private List<DomainEvent> lastEvents = List.of();
     private long tick;
     private SimulationStatus status = SimulationStatus.STOPPED;
@@ -81,7 +83,8 @@ public class SimulationRuntime {
         VehicleRuntimeIntegrationService vehicleRuntimeIntegrationService,
         SimulationRunService simulationRunService,
         SimulationRunContext simulationRunContext,
-        TrainStopEvaluationService trainStopEvaluationService
+        TrainStopEvaluationService trainStopEvaluationService,
+        FinalControlDecisionPersistenceService finalControlDecisionPersistenceService
     ) {
         this.trainManager = trainManager;
         this.trackService = trackService;
@@ -100,6 +103,7 @@ public class SimulationRuntime {
         this.simulationRunService = simulationRunService;
         this.simulationRunContext = simulationRunContext;
         this.trainStopEvaluationService = trainStopEvaluationService;
+        this.finalControlDecisionPersistenceService = finalControlDecisionPersistenceService;
         this.simulationRunContext.update(dispatchService.simulationRunId(), tick);
     }
 
@@ -251,13 +255,15 @@ public class SimulationRuntime {
             ? List.of()
             : powerService.constraintsForTrains(beforeTrainStates);
 
-        List<VehiclePhysicsOutput> outputs = trainManager.tickAll(
+        VehicleRuntimeStepResult trainSteps = trainManager.tickAll(
             context,
             signalService.authorities(),
             trackConstraints,
             dispatchConstraints,
             powerConstraints
         );
+        List<VehiclePhysicsOutput> outputs = trainSteps.outputs();
+        finalControlDecisionPersistenceService.persistFinalControlDecisions(context, trainSteps.trainSteps());
         trainStopEvaluationService.evaluate(context, trainManager.states());
         powerService.updateFromVehicleOutputs(outputs);
         trackService.updateOccupancy(trainManager.states());

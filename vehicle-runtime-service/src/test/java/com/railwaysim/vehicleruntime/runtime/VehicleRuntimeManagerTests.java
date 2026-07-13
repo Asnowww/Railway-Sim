@@ -20,6 +20,11 @@ import com.railwaysim.vehicleruntime.model.VehicleRuntimeLaunchRequest;
 import com.railwaysim.vehicleruntime.model.VehicleRuntimeBootstrapRequest;
 import com.railwaysim.vehicleruntime.model.VehicleRuntimeStepRequest;
 import com.railwaysim.vehicleruntime.model.VehicleRuntimeStepResponse;
+import com.railwaysim.vehicleruntime.model.VehicleTelemetryMode;
+import com.railwaysim.vehicleruntime.model.VehicleTelemetryModeRequest;
+import com.railwaysim.vehicleruntime.model.VehicleTelemetryRequest;
+import com.railwaysim.vehicleruntime.model.VehicleTelemetrySample;
+import com.railwaysim.vehicleruntime.model.VehicleTelemetryStatus;
 import java.time.Instant;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
@@ -509,8 +514,147 @@ class VehicleRuntimeManagerTests {
         }
     }
 
+    @Test
+    void observeOnlyAcceptsTelemetryWithoutChangingAuthoritativeState() {
+        VehicleRuntimeManager manager = manager();
+        manager.stepFleet(request(1, train("TR-101", 100, 0), energized()));
+
+        var acceptance = manager.acceptTelemetry(telemetry(
+            "run-test", "SIGNAL-HIL-01", 1, sample("TR-101", 500, 0, false)
+        ));
+        var next = manager.stepFleet(request(2, train("TR-101", 100, 0), energized()));
+
+        assertThat(acceptance.accepted()).isTrue();
+        assertThat(acceptance.results()).singleElement()
+            .satisfies(result -> {
+                assertThat(result.status()).isEqualTo(VehicleTelemetryStatus.ACCEPTED);
+                assertThat(result.effectiveFromTick()).isEqualTo(2L);
+            });
+        assertThat(next.trainStates()).singleElement()
+            .satisfies(state -> assertThat(state.positionMeters()).isLessThan(200));
+    }
+
+    @Test
+    void authoritativeTelemetryIsFrozenAndAppliedAtTheNextTickBoundary() {
+        VehicleRuntimeManager manager = manager();
+        manager.stepFleet(request(1, train("TR-101", 100, 0), energized()));
+        manager.configureTelemetryMode(
+            "TR-101", new VehicleTelemetryModeRequest(VehicleTelemetryMode.AUTHORITATIVE, true, false)
+        );
+
+        manager.acceptTelemetry(telemetry(
+            "run-test", "SIGNAL-HIL-01", 1, sample("TR-101", 500, 0, false)
+        ));
+        assertThat(manager.getTrainState("TR-101").positionMeters()).isLessThan(200);
+
+        var next = manager.stepFleet(request(2, train("TR-101", 100, 0), energized()));
+
+        assertThat(next.trainStates()).singleElement().satisfies(state -> {
+            assertThat(state.positionMeters()).isGreaterThanOrEqualTo(500);
+            assertThat(state.loadMassKg()).isEqualTo(42_000);
+            assertThat(state.availableTractionCount()).isEqualTo(3);
+            assertThat(state.vehicleFaultSpeedLimitMetersPerSecond()).isEqualTo(15);
+        });
+    }
+
+    @Test
+    void telemetryRejectsWrongRunUnknownTrainAndNonIncreasingSequence() {
+        VehicleRuntimeManager manager = manager();
+        manager.stepFleet(request(1, train("TR-101", 100, 0), energized()));
+
+        assertThat(manager.acceptTelemetry(telemetry(
+            "old-run", "SOURCE-1", 1, sample("TR-101", 100, 0, false)
+        )).results()).singleElement()
+            .satisfies(result -> assertThat(result.status()).isEqualTo(VehicleTelemetryStatus.RUN_ID_MISMATCH));
+        assertThat(manager.acceptTelemetry(telemetry(
+            "run-test", "SOURCE-1", 1, sample("TR-404", 100, 0, false)
+        )).results()).singleElement()
+            .satisfies(result -> assertThat(result.status()).isEqualTo(VehicleTelemetryStatus.UNKNOWN_TRAIN));
+        assertThat(manager.acceptTelemetry(telemetry(
+            "run-test", "SOURCE-1", 1, sample("TR-101", 100, 0, false)
+        )).results()).singleElement()
+            .satisfies(result -> assertThat(result.status()).isEqualTo(VehicleTelemetryStatus.OUT_OF_ORDER));
+    }
+
+    @Test
+    void authoritativeTelemetryTimeoutLatchesStaleHoldUntilExplicitRecovery() throws Exception {
+        VehicleRuntimeProperties properties = new VehicleRuntimeProperties();
+        properties.setTelemetryTimeoutMillis(1);
+        VehicleRuntimeManager manager = manager(properties);
+        manager.stepFleet(request(1, train("TR-101", 100, 0), energized()));
+        manager.configureTelemetryMode(
+            "TR-101", new VehicleTelemetryModeRequest(VehicleTelemetryMode.AUTHORITATIVE, true, false)
+        );
+        manager.acceptTelemetry(telemetry(
+            "run-test", "SOURCE-1", 1, sample("TR-101", 100, 0, false)
+        ));
+        Thread.sleep(10);
+
+        var held = manager.stepFleet(request(2, train("TR-101", 100, 0), energized()));
+
+        assertThat(manager.telemetryMode("TR-101").holdLatched()).isTrue();
+        assertThat(held.trainStates()).singleElement().satisfies(state -> {
+            assertThat(state.dataQuality()).isEqualTo("STALE");
+            assertThat(state.dynamicsConstraintReason()).isEqualTo("EXTERNAL_TELEMETRY_STALE_HOLD");
+            assertThat(state.availableOperationMode()).isEqualTo("DEGRADED");
+        });
+    }
+
+    @Test
+    void authoritativeEmergencyBrakeRemainsLatchedUntilExplicitClear() {
+        VehicleRuntimeManager manager = manager();
+        manager.stepFleet(request(1, train("TR-101", 100, 0), energized()));
+        manager.configureTelemetryMode(
+            "TR-101", new VehicleTelemetryModeRequest(VehicleTelemetryMode.AUTHORITATIVE, true, false)
+        );
+        manager.acceptTelemetry(telemetry(
+            "run-test", "SOURCE-1", 1, sample("TR-101", 100, 0, true)
+        ));
+        var emergency = manager.stepFleet(request(2, train("TR-101", 100, 0), energized()));
+
+        manager.acceptTelemetry(telemetry(
+            "run-test", "SOURCE-1", 2, sample("TR-101", 100, 0, false)
+        ));
+        var stillLatched = manager.stepFleet(request(3, train("TR-101", 100, 0), energized()));
+
+        assertThat(emergency.trainReports()).singleElement()
+            .satisfies(report -> assertThat(report.emergencyBrakeCommand()).isTrue());
+        assertThat(stillLatched.trainReports()).singleElement()
+            .satisfies(report -> assertThat(report.selectedReasonCode())
+                .isEqualTo("EXTERNAL_EMERGENCY_BRAKE_LATCHED"));
+
+        manager.configureTelemetryMode(
+            "TR-101", new VehicleTelemetryModeRequest(VehicleTelemetryMode.AUTHORITATIVE, true, true)
+        );
+        manager.acceptTelemetry(telemetry(
+            "run-test", "SOURCE-1", 3, sample("TR-101", 100, 0, false)
+        ));
+        var cleared = manager.stepFleet(request(4, train("TR-101", 100, 0), energized()));
+        assertThat(cleared.trainReports()).singleElement()
+            .satisfies(report -> assertThat(report.emergencyBrakeCommand()).isFalse());
+    }
+
+    @Test
+    void disabledTelemetryModeRejectsIngress() {
+        VehicleRuntimeManager manager = manager();
+        manager.stepFleet(request(1, train("TR-101", 100, 0), energized()));
+        manager.configureTelemetryMode(
+            "TR-101", new VehicleTelemetryModeRequest(VehicleTelemetryMode.DISABLED, false, false)
+        );
+
+        assertThat(manager.acceptTelemetry(telemetry(
+            "run-test", "SOURCE-1", 1, sample("TR-101", 100, 0, false)
+        )).results()).singleElement()
+            .satisfies(result -> assertThat(result.status()).isEqualTo(VehicleTelemetryStatus.MODE_NOT_ALLOWED));
+    }
+
     private VehicleRuntimeManager manager() {
         VehicleRuntimeProperties properties = new VehicleRuntimeProperties();
+        properties.setQueueCapacity(1);
+        return manager(properties);
+    }
+
+    private VehicleRuntimeManager manager(VehicleRuntimeProperties properties) {
         properties.setQueueCapacity(1);
         VehicleParameters parameters = parameters(properties);
         return new VehicleRuntimeManager(
@@ -520,6 +664,26 @@ class VehicleRuntimeManagerTests {
             new CentralTrainRegistrationClient(properties, RestClient.builder()),
             new FmuHttpVehiclePhysicsExecutor(properties, RestClient.builder()),
             new JavaFallbackVehiclePhysicsExecutor(properties, parameters)
+        );
+    }
+
+    private VehicleTelemetryRequest telemetry(
+        String runId,
+        String sourceId,
+        long sequence,
+        VehicleTelemetrySample sample
+    ) {
+        return new VehicleTelemetryRequest(runId, sourceId, Instant.now(), sequence, List.of(sample));
+    }
+
+    private VehicleTelemetrySample sample(
+        String trainId,
+        double mileage,
+        double speed,
+        boolean emergencyBrake
+    ) {
+        return new VehicleTelemetrySample(
+            trainId, speed, mileage, "DOWN", 42_000, 15, emergencyBrake, 3, 4
         );
     }
 

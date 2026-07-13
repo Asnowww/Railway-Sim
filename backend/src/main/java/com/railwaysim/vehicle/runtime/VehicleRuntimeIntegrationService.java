@@ -13,6 +13,8 @@ import com.railwaysim.track.TrackConstraint;
 import com.railwaysim.train.TrainState;
 import com.railwaysim.vehicle.TrainStateReport;
 import com.railwaysim.vehicle.VehiclePhysicsOutput;
+import com.railwaysim.vehicle.telemetry.VehicleTelemetryRequest;
+import com.railwaysim.vehicle.telemetry.VehicleTelemetryResponse;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
@@ -127,6 +129,10 @@ public class VehicleRuntimeIntegrationService implements VehiclePowerLoadForward
 
     public void forwardTractionCut(String trainId, byte[] payload) {
         client.forwardTractionCut(trainId, payload);
+    }
+
+    public VehicleTelemetryResponse forwardTelemetry(VehicleTelemetryRequest request) {
+        return client.forwardTelemetry(request);
     }
 
     @Override

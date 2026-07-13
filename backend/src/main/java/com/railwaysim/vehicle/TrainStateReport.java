@@ -33,7 +33,8 @@ public record TrainStateReport(
     String faultCode,
     String decisionSource,
     String inputCommandId,
-    String inputTraceId
+    String inputTraceId,
+    String selectedReasonCode
 ) {
     public TrainStateReport(
         String trainId,
@@ -93,6 +94,7 @@ public record TrainStateReport(
             railVoltage,
             powerAvailableWatts,
             faultCode,
+            null,
             null,
             null,
             null

@@ -13,6 +13,7 @@ public class SimulationProperties {
     private long powerStepMillis = 100;
     private long dispatchStepMillis = 1000;
     private long persistenceStepMillis = 5000;
+    private int controlDecisionQueueCapacity = 4096;
     private double defaultLineLengthMeters = 5000;
     private double defaultSpeedLimitMetersPerSecond = 22.2;
     private double defaultCurveRadiusMeters = 1000;
@@ -91,6 +92,14 @@ public class SimulationProperties {
 
     public void setPersistenceStepMillis(long persistenceStepMillis) {
         this.persistenceStepMillis = persistenceStepMillis;
+    }
+
+    public int getControlDecisionQueueCapacity() {
+        return controlDecisionQueueCapacity;
+    }
+
+    public void setControlDecisionQueueCapacity(int controlDecisionQueueCapacity) {
+        this.controlDecisionQueueCapacity = Math.max(1, controlDecisionQueueCapacity);
     }
 
     public double getDefaultLineLengthMeters() {

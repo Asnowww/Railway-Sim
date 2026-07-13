@@ -85,7 +85,7 @@ public class TrainManager {
         faultRecords.clear();
     }
 
-    public synchronized List<VehiclePhysicsOutput> tickAll(
+    public synchronized VehicleRuntimeStepResult tickAll(
         TickContext context,
         List<MovementAuthority> authorities,
         List<TrackConstraint> trackConstraints,
@@ -114,7 +114,7 @@ public class TrainManager {
             updateMirrorState(resultTrainStates);
         }
 
-        return runtimeResult.outputs();
+        return runtimeResult;
     }
 
     public synchronized List<TrainState> applyLifecycleCommand(SignalTrainLifecycleCommand command) {

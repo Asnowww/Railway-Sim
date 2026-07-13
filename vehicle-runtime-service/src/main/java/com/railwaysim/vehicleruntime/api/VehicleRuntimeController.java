@@ -13,6 +13,10 @@ import com.railwaysim.vehicleruntime.model.VehicleRuntimeLaunchResponse;
 import com.railwaysim.vehicleruntime.model.VehicleRuntimeStepRequest;
 import com.railwaysim.vehicleruntime.model.VehicleRuntimeStepResponse;
 import com.railwaysim.vehicleruntime.model.VehicleParameterMetadata;
+import com.railwaysim.vehicleruntime.model.VehicleTelemetryModeRequest;
+import com.railwaysim.vehicleruntime.model.VehicleTelemetryModeState;
+import com.railwaysim.vehicleruntime.model.VehicleTelemetryRequest;
+import com.railwaysim.vehicleruntime.model.VehicleTelemetryResponse;
 import com.railwaysim.vehicleruntime.runtime.DriverCommandHolder;
 import com.railwaysim.vehicleruntime.runtime.VehicleRuntimeManager;
 import com.railwaysim.vehicleruntime.runtime.VehicleRuntimeTickClock;
@@ -100,6 +104,24 @@ public class VehicleRuntimeController {
     @PostMapping("/step-fleet")
     public VehicleRuntimeStepResponse stepFleet(@RequestBody VehicleRuntimeStepRequest request) {
         return manager.stepFleet(request);
+    }
+
+    @PostMapping("/telemetry")
+    public VehicleTelemetryResponse acceptTelemetry(@RequestBody VehicleTelemetryRequest request) {
+        return manager.acceptTelemetry(request);
+    }
+
+    @PutMapping("/trains/{trainId}/telemetry-mode")
+    public VehicleTelemetryModeState configureTelemetryMode(
+        @PathVariable String trainId,
+        @RequestBody VehicleTelemetryModeRequest request
+    ) {
+        return manager.configureTelemetryMode(trainId, request);
+    }
+
+    @GetMapping("/trains/{trainId}/telemetry-mode")
+    public VehicleTelemetryModeState telemetryMode(@PathVariable String trainId) {
+        return manager.telemetryMode(trainId);
     }
 
     @PostMapping("/physics/instances/{trainId}/reset")

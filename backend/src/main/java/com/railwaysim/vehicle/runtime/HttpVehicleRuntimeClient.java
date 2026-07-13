@@ -2,6 +2,8 @@ package com.railwaysim.vehicle.runtime;
 
 import com.railwaysim.config.VehicleRuntimeProperties;
 import com.railwaysim.train.TrainState;
+import com.railwaysim.vehicle.telemetry.VehicleTelemetryRequest;
+import com.railwaysim.vehicle.telemetry.VehicleTelemetryResponse;
 import java.time.Duration;
 import java.util.Arrays;
 import java.util.List;
@@ -96,6 +98,18 @@ public class HttpVehicleRuntimeClient implements VehicleRuntimeClient {
             .retrieve()
             .body(VehicleRuntimeStepResponse.class);
         return require(response, "vehicle runtime step response is empty");
+    }
+
+    @Override
+    public VehicleTelemetryResponse forwardTelemetry(VehicleTelemetryRequest request) {
+        VehicleTelemetryResponse response = restClient.post()
+            .uri("/vehicle-runtime/telemetry")
+            .contentType(MediaType.APPLICATION_JSON)
+            .accept(MediaType.APPLICATION_JSON)
+            .body(request)
+            .retrieve()
+            .body(VehicleTelemetryResponse.class);
+        return require(response, "vehicle runtime telemetry response is empty");
     }
 
     @Override
