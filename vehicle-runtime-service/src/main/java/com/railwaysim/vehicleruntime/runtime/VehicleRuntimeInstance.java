@@ -255,8 +255,16 @@ final class VehicleRuntimeInstance {
             output.faultCode(),
             driverSelected ? "DRIVER" : "CONTROL_OR_SAFETY",
             driverCommand == null ? null : driverCommand.commandId(),
-            driverCommand == null ? null : driverCommand.traceId()
+            driverCommand == null ? null : driverCommand.traceId(),
+            selectedReasonCode(input)
         );
+    }
+
+    private String selectedReasonCode(VehiclePhysicsInputDto input) {
+        if (input.dynamicsConstraintReason() != null && !input.dynamicsConstraintReason().isBlank()) {
+            return input.dynamicsConstraintReason();
+        }
+        return input.emergencyBrakeCommand() ? "EMERGENCY_BRAKE" : "NORMAL_CONTROL";
     }
 
     // ========== 状态解析方法（移植自 VehicleRuntimeInstance 旧版 buildReport） ==========
