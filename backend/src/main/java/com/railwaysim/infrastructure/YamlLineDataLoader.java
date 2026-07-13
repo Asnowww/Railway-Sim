@@ -47,7 +47,7 @@ public class YamlLineDataLoader {
         }
 
         // ---- 2. 解析区段中间数据 ----
-        record RawSeg(String id, String from, String to, double start, double end, double speed, String track) {}
+        record RawSeg(String id, String from, String to, double start, double end, double speed, String track, int rawId) {}
         List<RawSeg> raws = new ArrayList<>();
         if (lineFile.segments != null) {
             for (YamlSegment seg : lineFile.segments) {
@@ -55,7 +55,9 @@ public class YamlLineDataLoader {
                     seg.id, seg.from, seg.to,
                     seg.startMeters, seg.endMeters,
                     seg.speedLimitMetersPerSecond,
-                    seg.track != null ? seg.track : "main"
+                    seg.track != null ? seg.track : "main",
+                    // 视景边号：yaml 显式给出优先（视景 UDP segNo），否则回退区段 ID 数字后缀
+                    seg.rawSegmentId != null ? seg.rawSegmentId : parseNumericSuffix(seg.id)
                 ));
                 nodeIds.add(seg.from);
                 nodeIds.add(seg.to);
@@ -85,7 +87,7 @@ public class YamlLineDataLoader {
         for (RawSeg raw : raws) {
             segments.add(new OperationalLineData.TrackSegmentDefinition(
                 raw.id,
-                parseNumericSuffix(raw.id),
+                raw.rawId,
                 raw.start,
                 raw.end,
                 Math.max(0, raw.end - raw.start),
@@ -127,12 +129,39 @@ public class YamlLineDataLoader {
             }
         }
 
-        // ---- 7. 车站 & 道岔 ----
+        // ---- 7. 车站（含可选双向站台）& 道岔 ----
         List<OperationalLineData.StationDefinition> stations = new ArrayList<>();
+        List<OperationalLineData.PlatformDefinition> platforms = new ArrayList<>();
         if (lineFile.stations != null) {
             for (YamlStation st : lineFile.stations) {
+                List<String> platformIds = new ArrayList<>();
+                if (st.platforms != null) {
+                    for (YamlPlatform pl : st.platforms) {
+                        String track = pl.track != null ? pl.track : "main";
+                        String platformId = st.id + "-" + track.toUpperCase(java.util.Locale.ROOT);
+                        // anchorSegmentId：站台中心落在该股道的哪个区段
+                        String anchor = segments.stream()
+                            .filter(s -> track.equals(s.track())
+                                && pl.centerMeters >= s.startMeters() && pl.centerMeters <= s.endMeters())
+                            .map(OperationalLineData.TrackSegmentDefinition::id)
+                            .findFirst()
+                            .orElse(null);
+                        platforms.add(new OperationalLineData.PlatformDefinition(
+                            platformId,
+                            pl.centerMeters,
+                            anchor,
+                            track.toUpperCase(java.util.Locale.ROOT),
+                            null,
+                            null,
+                            pl.stopLeftMeters,
+                            pl.stopRightMeters,
+                            pl.side
+                        ));
+                        platformIds.add(platformId);
+                    }
+                }
                 stations.add(new OperationalLineData.StationDefinition(
-                    st.id, st.name, st.positionMeters, List.of()
+                    st.id, st.name, st.positionMeters, platformIds
                 ));
             }
         }
@@ -172,7 +201,7 @@ public class YamlLineDataLoader {
         return new OperationalLineData(
             lineId, lineName,
             points, segments, speedZones, List.of(),
-            switches, stations, List.of(), signals, List.of(),
+            switches, stations, platforms, signals, List.of(),
             routes
         );
     }
@@ -264,6 +293,17 @@ public class YamlLineDataLoader {
         public String id;
         public String name;
         @JsonProperty("position_meters") public double positionMeters;
+        /** 可选：双向站台（9号线上下行站中心/停车窗口不同） */
+        public List<YamlPlatform> platforms;
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    static final class YamlPlatform {
+        public String track;
+        @JsonProperty("center_meters") public double centerMeters;
+        @JsonProperty("stop_left_meters") public double stopLeftMeters;
+        @JsonProperty("stop_right_meters") public double stopRightMeters;
+        public String side;
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
@@ -275,6 +315,8 @@ public class YamlLineDataLoader {
         @JsonProperty("end_meters") public double endMeters;
         @JsonProperty("speed_limit_meters_per_second") public double speedLimitMetersPerSecond;
         public String track;
+        /** 可选：视景系统边号（UDP segNo）；缺省回退区段 ID 数字后缀 */
+        @JsonProperty("raw_segment_id") public Integer rawSegmentId;
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)

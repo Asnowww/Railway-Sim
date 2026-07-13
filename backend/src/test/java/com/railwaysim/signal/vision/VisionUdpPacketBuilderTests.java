@@ -58,6 +58,7 @@ class VisionUdpPacketBuilderTests {
             () -> switchStates,
             () -> trackStates,
             position -> position < 200 ? segmentA : segmentB,
+            List::of,
             catalog,
             store
         );

@@ -36,6 +36,10 @@ const props = withDefaults(
     selectedSegmentId?: string | null
     /** 组件高度（px） */
     height?: number
+    /** 投影模式：even=站点等距（默认，示意图）；proportional=真实里程比例 */
+    mode?: 'even' | 'proportional'
+    /** 区段 id → 视景边号（UDP segNo），用于 tooltip */
+    rawSegmentIds?: Record<string, number> | null
   }>(),
   {
     trains: () => [],
@@ -47,7 +51,9 @@ const props = withDefaults(
     highlightSegmentIds: null,
     selectedTrainId: null,
     selectedSegmentId: null,
-    height: 300
+    height: 300,
+    mode: 'even',
+    rawSegmentIds: null
   }
 )
 
@@ -63,21 +69,48 @@ const PAD_X = 46
 const LANE_GAP = 52
 /** 最上方车道之上给信号机/道岔/列车标签留的余量 */
 const TOP_PAD = 50
+/** 渡线股道标签：不占车道，画为跨车道斜线 */
+const CROSSOVER_TRACK = 'crossover'
 
 const lineLength = computed(() => {
   const ends = props.segments.map((segment) => segment.endMeters)
   return Math.max(1, ...ends)
 })
 
+/**
+ * 里程 → x 投影。
+ * - proportional：真实里程线性比例（工程视角）
+ * - even（默认）：车站锚点均匀分布、锚点间分段线性（示意图视角，
+ *   16.5km 全线站间距悬殊时保证站名不重叠——参考地铁线路图习惯）
+ */
+const evenAnchors = computed(() => {
+  const centers = [...new Set(props.stations.map((station) => station.centerMeters))].sort((a, b) => a - b)
+  const anchors = [0, ...centers.filter((c) => c > 0 && c < lineLength.value), lineLength.value]
+  return [...new Set(anchors)].sort((a, b) => a - b)
+})
+
 function x(mileage: number): number {
-  return PAD_X + (Math.min(Math.max(mileage, 0), lineLength.value) / lineLength.value) * (VIEW_W - PAD_X * 2)
+  const clamped = Math.min(Math.max(mileage, 0), lineLength.value)
+  const usable = VIEW_W - PAD_X * 2
+  if (props.mode === 'proportional' || evenAnchors.value.length < 3) {
+    return PAD_X + (clamped / lineLength.value) * usable
+  }
+  const anchors = evenAnchors.value
+  const slotWidth = usable / (anchors.length - 1)
+  let index = anchors.findIndex((anchor) => anchor >= clamped)
+  if (index <= 0) return PAD_X + (index === 0 ? 0 : usable)
+  const lo = anchors[index - 1]!
+  const hi = anchors[index]!
+  const ratio = hi === lo ? 0 : (clamped - lo) / (hi - lo)
+  return PAD_X + slotWidth * (index - 1 + ratio)
 }
 
-/** 车道分配：按 track 值分组；覆盖里程最长的 track 为正线（主车道，最下方），其余向上排。 */
+/** 车道分配：按 track 值分组；覆盖里程最长的 track 为正线（主车道，最下方），其余向上排。渡线不占车道。 */
 const orderedTracks = computed(() => {
   const lengthByTrack = new Map<string, number>()
   props.segments.forEach((segment) => {
     const track = segment.track || 'MAIN'
+    if (track === CROSSOVER_TRACK) return
     lengthByTrack.set(track, (lengthByTrack.get(track) ?? 0) + (segment.endMeters - segment.startMeters))
   })
   return [...lengthByTrack.entries()].sort((a, b) => b[1] - a[1]).map(([track]) => track)
@@ -112,33 +145,103 @@ function laneY(track?: string | null): number {
   return laneByTrack.value.get(track || 'MAIN') ?? MAIN_Y.value
 }
 
+/** 最上方车道的 y（双线时为 down 股道），用于车站竖线贯穿两股道 */
+const topLaneY = computed(() => {
+  let minY = MAIN_Y.value
+  laneByTrack.value.forEach((y) => {
+    if (y < minY) minY = y
+  })
+  return minY
+})
+
 const segmentById = computed(() => new Map(props.segments.map((segment) => [segment.id, segment])))
+
+/** 节点 → (车道y, x)：由非渡线段端点建立，用于渡线斜线定位 */
+const nodeAnchor = computed(() => {
+  const map = new Map<string, { px: number; py: number }>()
+  props.segments.forEach((segment) => {
+    if ((segment.track || 'MAIN') === CROSSOVER_TRACK) return
+    const y = laneY(segment.track)
+    if (segment.fromNode && !map.has(segment.fromNode)) map.set(segment.fromNode, { px: x(segment.startMeters), py: y })
+    if (segment.toNode && !map.has(segment.toNode)) map.set(segment.toNode, { px: x(segment.endMeters), py: y })
+  })
+  return map
+})
 
 interface SegmentShape {
   segment: TrackSegmentState
   x1: number
+  y1: number
   x2: number
-  y: number
+  y2: number
   cx: number
+  cy: number
   dimmed: boolean
   highlighted: boolean
+  rawId: number | null
 }
 
 const segmentShapes = computed<SegmentShape[]>(() => {
   const highlight = props.highlightSegmentIds
   return props.segments.map((segment) => {
-    const y = laneY(segment.track)
     const highlighted = Boolean(highlight?.includes(segment.id))
-    return {
-      segment,
-      x1: x(segment.startMeters),
-      x2: x(segment.endMeters),
-      y,
-      cx: (x(segment.startMeters) + x(segment.endMeters)) / 2,
-      highlighted,
-      dimmed: Boolean(highlight && highlight.length > 0 && !highlighted)
+    const rawId = props.rawSegmentIds?.[segment.id] ?? null
+    const dimmed = Boolean(highlight && highlight.length > 0 && !highlighted)
+    if ((segment.track || 'MAIN') === CROSSOVER_TRACK) {
+      // 渡线：跨车道斜线，端点取 from/to 节点在主车道上的锚点
+      const fromAnchor = nodeAnchor.value.get(segment.fromNode)
+      const toAnchor = nodeAnchor.value.get(segment.toNode)
+      const x1 = fromAnchor?.px ?? x(segment.startMeters)
+      const y1 = fromAnchor?.py ?? MAIN_Y.value
+      const x2 = toAnchor?.px ?? x(segment.endMeters)
+      const y2 = toAnchor?.py ?? MAIN_Y.value
+      return { segment, x1, y1, x2, y2, cx: (x1 + x2) / 2, cy: (y1 + y2) / 2, highlighted, dimmed, rawId }
     }
+    const y = laneY(segment.track)
+    const x1 = x(segment.startMeters)
+    const x2 = x(segment.endMeters)
+    return { segment, x1, y1: y, x2, y2: y, cx: (x1 + x2) / 2, cy: y, highlighted, dimmed, rawId }
   })
+})
+
+/** 站台矩形：双向站台画在对应股道车道上（up 车道下缘 / 其它上缘），侧别见 tooltip */
+const platformShapes = computed(() => {
+  const shapes: Array<{
+    key: string
+    x1: number
+    width: number
+    y: number
+    stationName: string
+    track: string
+    side: string | null
+    center: number
+  }> = []
+  props.stations.forEach((station) => {
+    const platforms = (station as { platforms?: Array<Record<string, unknown>> }).platforms
+    if (!platforms) return
+    platforms.forEach((platform) => {
+      const track = String(platform.track ?? 'main')
+      const lane = laneByTrack.value.get(track)
+      if (lane === undefined) return
+      const left = Number(platform.stopLeftMeters ?? 0)
+      const right = Number(platform.stopRightMeters ?? 0)
+      if (!(right > left)) return
+      const px1 = x(left)
+      const px2 = x(right)
+      const isLowestLane = lane === MAIN_Y.value
+      shapes.push({
+        key: `${station.id}-${track}`,
+        x1: px1,
+        width: Math.max(6, px2 - px1),
+        y: isLowestLane ? lane + 7 : lane - 13,
+        stationName: station.name,
+        track,
+        side: platform.side ? String(platform.side) : null,
+        center: Number(platform.centerMeters ?? 0)
+      })
+    })
+  })
+  return shapes
 })
 
 /** 跨车道连接线：同名节点出现在不同车道端点时画斜连线（分叉/汇合可视化）。 */
@@ -358,33 +461,54 @@ function powerClass(status: string): string {
         >
           <line
             :x1="shape.x1"
-            :y1="shape.y"
+            :y1="shape.y1"
             :x2="shape.x2"
-            :y2="shape.y"
+            :y2="shape.y2"
             :class="['segment', occupancyClass(shape.segment.occupancy), { highlighted: shape.highlighted, selected: shape.segment.id === props.selectedSegmentId }]"
           />
           <line
             v-if="shape.segment.occupancy === 'FAULT'"
             :x1="shape.x1"
-            :y1="shape.y"
+            :y1="shape.y1"
             :x2="shape.x2"
-            :y2="shape.y"
+            :y2="shape.y2"
             class="segment-fault-hatch blinking"
           />
-          <text v-if="shape.segment.occupancy === 'FAULT'" :x="shape.cx" :y="shape.y - 8" class="fault-icon" text-anchor="middle">⚠</text>
+          <text v-if="shape.segment.occupancy === 'FAULT'" :x="shape.cx" :y="shape.cy - 8" class="fault-icon" text-anchor="middle">⚠</text>
           <title>
             {{ shape.segment.id }} · {{ occupancyLabel(shape.segment.occupancy) }} · 限速
             {{ Math.round(shape.segment.speedLimitMetersPerSecond * 3.6) }}km/h ·
             {{ Math.round(shape.segment.startMeters) }}–{{ Math.round(shape.segment.endMeters) }}m
+            <template v-if="shape.rawId">· 视景边 {{ shape.rawId }}</template>
           </title>
         </g>
       </g>
 
-      <!-- 车站 -->
+      <!-- 站台（双向：up 车道下缘 / 其它车道上缘） -->
+      <g v-if="props.layers.track">
+        <rect
+          v-for="platform in platformShapes"
+          :key="platform.key"
+          :x="platform.x1"
+          :y="platform.y"
+          :width="platform.width"
+          height="6"
+          rx="1.5"
+          class="platform-rect"
+        >
+          <title>
+            {{ platform.stationName }} · {{ platform.track }} 股道站台 · 中心 {{ Math.round(platform.center) }}m ·
+            站台侧 {{ platform.side ?? '—' }}
+          </title>
+        </rect>
+      </g>
+
+      <!-- 车站（站名画在车道带下方居中） -->
       <g v-for="station in stationMarks" :key="station.id">
-        <line :x1="station.px" :y1="MAIN_Y - 10" :x2="station.px" :y2="MAIN_Y + 10" class="station-tick" />
+        <line :x1="station.px" :y1="topLaneY - 10" :x2="station.px" :y2="MAIN_Y + 10" class="station-tick" />
         <circle :cx="station.px" :cy="MAIN_Y" r="4.5" class="station-dot" />
-        <text :x="station.px" :y="MAIN_Y + 26" class="station-label" text-anchor="middle">{{ station.name }}</text>
+        <circle v-if="topLaneY !== MAIN_Y" :cx="station.px" :cy="topLaneY" r="4.5" class="station-dot" />
+        <text :x="station.px" :y="MAIN_Y + 30" class="station-label" text-anchor="middle">{{ station.name }}</text>
       </g>
 
       <!-- 移动授权带 -->
@@ -514,9 +638,15 @@ svg {
   stroke-dasharray: 1 0;
 }
 
-.station-tick { stroke: var(--text-muted); stroke-width: 1.5; }
+.station-tick { stroke: var(--text-muted); stroke-width: 1.5; stroke-dasharray: 2 3; }
 .station-dot { fill: var(--bg-inset); stroke: var(--text-secondary); stroke-width: 2; }
 .station-label { fill: var(--text-secondary); font-size: 11px; }
+
+.platform-rect {
+  fill: var(--accent-muted);
+  stroke: var(--accent);
+  stroke-width: 1;
+}
 
 .ma-band {
   stroke: var(--ma-band);

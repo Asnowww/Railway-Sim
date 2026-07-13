@@ -31,7 +31,7 @@ railway:
     line-data-source: file
     line-id: "1"
     line-data-auto-import: false
-    line-data-path: ../config/line-topology-demo.yaml
+    line-data-path: ../config/line-m9.yaml
     power-config-path: ../config/power_third_rail.yaml
     fmu-step-millis: 100
     track-step-millis: 100

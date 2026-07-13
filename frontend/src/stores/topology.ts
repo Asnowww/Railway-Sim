@@ -45,5 +45,16 @@ export const useTopologyStore = defineStore('topology', () => {
     return Math.max(0, ...(topology.value.segments ?? []).map((segment) => segment.endMeters))
   })
 
-  return { topology, loading, error, load, stations, stationName, stationNameById, lineLengthMeters }
+  /** 区段 id → 视景边号（UDP segNo），来自 topology.segments[].rawSegmentId */
+  const rawSegmentIds = computed<Record<string, number>>(() => {
+    const map: Record<string, number> = {}
+    for (const segment of topology.value?.segments ?? []) {
+      if (segment.rawSegmentId !== undefined && segment.rawSegmentId > 0) {
+        map[segment.id] = segment.rawSegmentId
+      }
+    }
+    return map
+  })
+
+  return { topology, loading, error, load, stations, stationName, stationNameById, lineLengthMeters, rawSegmentIds }
 })

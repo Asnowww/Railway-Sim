@@ -38,6 +38,7 @@ const layerLabels: Record<keyof DiagramLayers, string> = {
 }
 
 const selectedRouteId = ref('')
+const diagramMode = ref<'even' | 'proportional'>('even')
 const highlightSegments = computed(() => {
   if (!selectedRouteId.value) return null
   const route = routeStates.value.find((item) => item.routeId === selectedRouteId.value)
@@ -142,6 +143,10 @@ const stale = computed(() => !connection.dataTrusted)
               {{ label }}
             </label>
           </div>
+          <div class="segmented" role="group" aria-label="投影模式">
+            <button type="button" :class="{ active: diagramMode === 'even' }" @click="diagramMode = 'even'">等距站点</button>
+            <button type="button" :class="{ active: diagramMode === 'proportional' }" @click="diagramMode = 'proportional'">里程比例</button>
+          </div>
           <select v-model="selectedRouteId" aria-label="进路高亮">
             <option value="">无进路高亮</option>
             <option v-for="route in routeStates" :key="route.routeId" :value="route.routeId">
@@ -165,6 +170,8 @@ const stale = computed(() => !connection.dataTrusted)
           :power-sections="powerSections"
           :layers="layers"
           :highlight-segment-ids="highlightSegments"
+          :mode="diagramMode"
+          :raw-segment-ids="topology.rawSegmentIds"
           :height="320"
           @select-train="openTrain"
           @select-segment="openSegment"
@@ -335,6 +342,32 @@ const stale = computed(() => !connection.dataTrusted)
   font-size: var(--fs-xs);
   color: var(--text-secondary);
   cursor: pointer;
+}
+
+.segmented {
+  display: inline-flex;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.segmented button {
+  border: none;
+  background: var(--bg-panel-raised);
+  color: var(--text-secondary);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  padding: 5px 10px;
+  cursor: pointer;
+}
+
+.segmented button + button {
+  border-left: 1px solid var(--border);
+}
+
+.segmented button.active {
+  background: var(--accent-muted);
+  color: var(--accent);
 }
 
 .topo-error {

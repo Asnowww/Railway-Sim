@@ -4,6 +4,7 @@ import com.railwaysim.infrastructure.OperationalLineData;
 import com.railwaysim.infrastructure.StaticInfrastructureCatalog;
 import com.railwaysim.signal.SignalAspect;
 import com.railwaysim.signal.SignalState;
+import com.railwaysim.signal.MovementAuthority;
 import com.railwaysim.signal.SignalService;
 import com.railwaysim.track.SwitchPosition;
 import com.railwaysim.track.SwitchState;
@@ -33,6 +34,7 @@ public class VisionUdpPacketBuilder {
     private final Supplier<List<SignalState>> signalStatesSupplier;
     private final Supplier<List<SwitchState>> switchStatesSupplier;
     private final Supplier<List<TrackSegmentState>> trackStatesSupplier;
+    private final Supplier<List<MovementAuthority>> authoritiesSupplier;
     private final Function<Double, TrackSegmentState> segmentAt;
     private final StaticInfrastructureCatalog infrastructureCatalog;
     private final VisionVehicleStateStore vehicleStateStore;
@@ -52,6 +54,7 @@ public class VisionUdpPacketBuilder {
             trackService::switchStates,
             trackService::states,
             trackService::segmentAt,
+            signalService::authorities,
             infrastructureCatalog,
             vehicleStateStore
         );
@@ -63,9 +66,11 @@ public class VisionUdpPacketBuilder {
         Supplier<List<SwitchState>> switchStatesSupplier,
         Supplier<List<TrackSegmentState>> trackStatesSupplier,
         Function<Double, TrackSegmentState> segmentAt,
+        Supplier<List<MovementAuthority>> authoritiesSupplier,
         StaticInfrastructureCatalog infrastructureCatalog,
         VisionVehicleStateStore vehicleStateStore
     ) {
+        this.authoritiesSupplier = authoritiesSupplier;
         this.trainStatesSupplier = trainStatesSupplier;
         this.signalStatesSupplier = signalStatesSupplier;
         this.switchStatesSupplier = switchStatesSupplier;
@@ -162,7 +167,7 @@ public class VisionUdpPacketBuilder {
         double position = vehicleState != null && vehicleState.headPositionMeters() != null
             ? vehicleState.headPositionMeters()
             : train == null ? 0 : train.positionMeters();
-        TrackSegmentState segment = resolveSegment(position, vehicleState);
+        TrackSegmentState segment = resolveSegment(trainId, position, vehicleState, train);
         double speed = vehicleState != null && vehicleState.speedMetersPerSecond() != null
             ? vehicleState.speedMetersPerSecond()
             : train == null ? 0 : train.speedMetersPerSecond();
@@ -203,7 +208,7 @@ public class VisionUdpPacketBuilder {
         );
     }
 
-    private TrackSegmentState resolveSegment(double position, VisionVehicleState vehicleState) {
+    private TrackSegmentState resolveSegment(String trainId, double position, VisionVehicleState vehicleState, TrainState train) {
         if (vehicleState != null && vehicleState.headSegmentId() != null) {
             TrackSegmentState matching = trackStatesSupplier.get().stream()
                 .filter(segment -> segment.id().equals(vehicleState.headSegmentId()))
@@ -211,6 +216,36 @@ public class VisionUdpPacketBuilder {
                 .orElse(null);
             if (matching != null) {
                 return matching;
+            }
+        }
+        // 信号系统的 MA.currentSegmentId 是列车所在段的权威（联锁按拓扑推进），优先使用；
+        // 双线线路（9号线）上下行区段里程重叠，仅按里程/方向匹配会拿错股道边号。
+        String maSegment = authoritiesSupplier.get().stream()
+            .filter(authority -> authority.trainId().equals(trainId))
+            .map(MovementAuthority::currentSegmentId)
+            .filter(id -> id != null && !id.isBlank())
+            .findFirst()
+            .orElse(null);
+        if (maSegment != null) {
+            TrackSegmentState bySignal = trackStatesSupplier.get().stream()
+                .filter(segment -> segment.id().equals(maSegment))
+                .findFirst()
+                .orElse(null);
+            if (bySignal != null) {
+                return bySignal;
+            }
+        }
+        // 回退：按列车方向所属股道匹配（注意：当前引擎 direction=DOWN 实为里程递增，
+        // 否则下行车会被匹配到上行边号发给视景系统。track 命名约定 up/down 对应 direction UP/DOWN。
+        String direction = train != null ? train.direction() : null;
+        if (direction != null && !direction.isBlank()) {
+            TrackSegmentState onTrack = trackStatesSupplier.get().stream()
+                .filter(segment -> direction.equalsIgnoreCase(segment.track()))
+                .filter(segment -> position >= segment.startMeters() && position <= segment.endMeters())
+                .findFirst()
+                .orElse(null);
+            if (onTrack != null) {
+                return onTrack;
             }
         }
         return segmentAt.apply(position);

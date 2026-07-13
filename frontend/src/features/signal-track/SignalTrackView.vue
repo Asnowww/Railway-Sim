@@ -177,6 +177,7 @@ const stale = computed(() => !connection.dataTrusted)
         :layers="layers"
         :highlight-segment-ids="highlightSegments"
         :selected-segment-id="selectedSegmentId"
+        :raw-segment-ids="topology.rawSegmentIds"
         :height="300"
         @select-segment="(id) => (selectedSegmentId = id)"
       />
