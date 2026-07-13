@@ -7,9 +7,6 @@ import com.railwaysim.power.PowerSectionState;
 import com.railwaysim.simulation.event.FmuFallbackActivatedEvent;
 import com.railwaysim.simulation.event.FmuStepFailedEvent;
 import com.railwaysim.train.TrainState;
-import com.railwaysim.vehicle.control.VehicleControlDecisionRepository;
-import com.railwaysim.vehicle.control.VehicleControlDecision;
-import com.railwaysim.vehicle.control.VehicleOperationMode;
 import java.time.Instant;
 import java.util.List;
 import org.junit.jupiter.api.Test;
@@ -22,20 +19,10 @@ class SimulationPersistenceServiceTests {
     void persistWritesTrainAndPowerSnapshots() {
         JdbcTemplate jdbcTemplate = new JdbcTemplate(dataSource());
         createTables(jdbcTemplate);
-        VehicleControlDecisionRepository decisionRepository = new VehicleControlDecisionRepository();
         SimulationPersistenceService persistenceService = new SimulationPersistenceService(
             jdbcTemplate,
-            new ObjectMapper(),
-            decisionRepository
+            new ObjectMapper()
         );
-
-        decisionRepository.store(new VehicleControlDecision(
-            "decision-25", "run-persist", 25, "TR-001", VehicleOperationMode.MANUAL,
-            "DRIVER", 0.4, 0, false, 1, true, true, true, true,
-            List.of(), "DRIVER_TRACTION", Instant.parse("2026-07-07T00:00:04Z"),
-            Instant.parse("2026-07-07T00:00:05Z"), "trace-25", 1));
-        persistenceService.persistVehicleControlDecisions(
-            new TickContext(25, 200, 0.2, Instant.parse("2026-07-07T00:00:05Z"), "run-persist"));
 
         persistenceService.persist(
             new TickContext(25, 200, 0.2, Instant.parse("2026-07-07T00:00:05Z"), "run-persist"),
@@ -111,10 +98,6 @@ class SimulationPersistenceServiceTests {
             "SELECT COUNT(*) FROM fmu_fault_log WHERE simulation_run_id = 'run-persist'",
             Integer.class
         )).isEqualTo(2);
-        assertThat(jdbcTemplate.queryForObject(
-            "SELECT trace_id FROM vehicle_control_command_log WHERE simulation_run_id = 'run-persist'",
-            String.class
-        )).isEqualTo("trace-25");
         assertThat(jdbcTemplate.queryForObject(
             "SELECT fallback_activated FROM fmu_fault_log WHERE fault_code = 'FMU_FALLBACK_ACTIVATED'",
             Boolean.class

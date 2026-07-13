@@ -1,29 +1,12 @@
 package com.railwaysim.vehicle.drivercab;
 
-/** @deprecated LOCAL mode only. EXTERNAL_HTTP mode uses 9300's copy. */
-@Deprecated(forRemoval=true, since="2.0")
 public enum DriverCabMasterHandleState {
-    ZERO(0),
-    TRACTION(1),
-    BRAKE(2),
-    FAST_BRAKE(4);
-
+    ZERO(0), TRACTION(1), BRAKE(2), FAST_BRAKE(4);
     private final int protocolCode;
-
-    DriverCabMasterHandleState(int protocolCode) {
-        this.protocolCode = protocolCode;
-    }
-
-    public int protocolCode() {
-        return protocolCode;
-    }
-
+    DriverCabMasterHandleState(int protocolCode) { this.protocolCode = protocolCode; }
+    public int protocolCode() { return protocolCode; }
     public static DriverCabMasterHandleState fromProtocolCode(int code) {
-        return switch (code) {
-            case 1 -> TRACTION;
-            case 2 -> BRAKE;
-            case 4 -> FAST_BRAKE;
-            default -> ZERO;
-        };
+        for (var v : values()) { if (v.protocolCode == code) return v; }
+        throw new IllegalArgumentException("Unsupported masterHandleState code: " + code);
     }
 }

@@ -448,7 +448,7 @@ async function sendPlcInput() {
       tractionNotchPercent: driverCabInput.tractionNotchPercent,
       brakeNotchPercent: driverCabInput.brakeNotchPercent
     }
-    const resp = await fetch(`/api/vehicle/driver-cabs/${trainId}/plc-input`, {
+    const resp = await fetch(`/api/vehicle/driver-cabs/${encodeURIComponent(trainId)}/plc-input`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body)

@@ -24,22 +24,6 @@ public record DriverCabStateSnapshot(
         updatedAt = updatedAt == null ? Instant.now() : updatedAt;
     }
 
-    public static DriverCabStateSnapshot fromInput(DriverCabPlcInputPacket packet, Instant updatedAt) {
-        return new DriverCabStateSnapshot(
-            packet.doorModeSwitchState(),
-            packet.atoStartFlag(),
-            packet.modeUpgradeConfirmFlag(),
-            packet.modeDowngradeConfirmFlag(),
-            packet.automaticTurnbackFlag(),
-            packet.directionHandleState(),
-            packet.masterHandleState(),
-            packet.keySwitchLocked(),
-            packet.tractionNotchPercent(),
-            packet.brakeNotchPercent(),
-            updatedAt
-        );
-    }
-
     private static void requirePercent(String field, int value) {
         if (value < 0 || value > 100) {
             throw new IllegalArgumentException(field + " must be in 0..100: " + value);

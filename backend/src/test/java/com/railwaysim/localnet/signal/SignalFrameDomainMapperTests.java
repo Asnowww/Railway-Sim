@@ -35,7 +35,7 @@ class SignalFrameDomainMapperTests {
     }
 
     @Test
-    void appliesOperationalTelemetryFromDatabaseNodeTrainContentFrame() {
+    void acceptsLegacyTrainContentWithoutOverwriting9300Mirror() {
         CapturingTrainManager trainManager = new CapturingTrainManager();
         SignalFrameDomainMapper mapper = new SignalFrameDomainMapper(trainManager);
         SignalTrainContentCodec contentCodec = new SignalTrainContentCodec();
@@ -60,9 +60,8 @@ class SignalFrameDomainMapperTests {
         SignalFrameDomainMapper.SignalInboundResult result = mapper.applyInbound(new SignalDatabaseNodeFrameCodec().encode(frame));
 
         assertThat(result.accepted()).isTrue();
-        assertThat(result.summary()).contains("operational telemetry").contains("trains=1");
-        assertThat(trainManager.telemetries).hasSize(1);
-        assertThat(trainManager.telemetries.get(0).trainNo()).isEqualTo(7);
+        assertThat(result.summary()).contains("operational telemetry ignored").contains("trains=1");
+        assertThat(trainManager.telemetries).isEmpty();
     }
 
     @Test

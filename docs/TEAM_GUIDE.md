@@ -133,7 +133,7 @@ frontend/src/components/power-train/
 2. **9300 `VehicleControlQueue`**（已存在）：把信号、轨道和供电约束转换为车辆物理输入；调度约束由信号模块先折算。读取 `TrainStateHolder` 获取当前状态。
 3. **9300 手动控制 API**（已创建）：`POST /vehicle-runtime/trains/{id}/manual-control` 独立控制单列车牵引/制动/紧急制动。
 4. **9300 自主时钟**（已创建）：`VehicleRuntimeTickClock`，`@Scheduled` 定时推进，通过 `POST /autonomous/enable|disable` 切换。
-5. 维护中央 `VehicleRuntimeIntegrationService`：`EXTERNAL_HTTP` 模式向 9300 发约束（无列车状态），接收 `trainStates[]` 更新镜像。`LOCAL` 模式保留 `OnboardTrainSubsystemManager + VehiclePhysicsClient` 降级路径。
+5. 维护中央 `VehicleRuntimeIntegrationService`：固定向 9300 发约束（无列车状态），接收 `trainStates[]` 更新镜像；9300 异常时中止 tick，不在 8080 计算替代车辆状态。
 6. 维护 `fmu-service` 的 `FmuManager`、`FleetStepper`、`TrainFMUInstance` 和 Modelica 模型草案。
 7. 完善车辆状态：牵引、制动、取流、电功率、再生制动、故障码（9300 `TrainStateHolder` + 中央镜像同步）。
 8. 在 `PowerService` 中根据列车取流估算负荷、电压、电流。
@@ -144,9 +144,9 @@ frontend/src/components/power-train/
 
 - **列车状态权威在 9300**（`TrainStateHolder`），中央 `TrainEntity` 是镜像。`EXTERNAL_HTTP` 模式下中央不持有权威状态。
 - 车辆是对象，不是服务，不要给每辆车开线程。9300 内部 `VehicleRuntimeInstance` 管理每车控制/仿真队列，但使用同步批处理（`stepFleet()`）而非每车线程。
-- 多车更新在 `EXTERNAL_HTTP` 模式下由 9300 `VehicleRuntimeManager.stepFleet()` 批量处理；`LOCAL` 模式下由中央 `TrainManager.tickAll()` 处理。
+- 多车更新固定由 9300 `VehicleRuntimeManager.stepFleet()` 批量处理；中央 `TrainManager.tickAll()` 只编排约束并更新镜像。
 
-⚠️ **废弃标记说明**：中央 `vehicle/onboard/`（10 个文件）、`vehicle/control/`（10 个文件）、`vehicle/drivercab/` 中的重复模型（4 个文件 + TrainEntity.applyDriverCabInput）、`VehiclePhysicsClient` 及相关物理适配器（3 个文件）已标记 `@Deprecated(forRemoval=true, since="2.0")`。这些类仅保留供 `LOCAL` 降级模式使用。`EXTERNAL_HTTP` 模式下不应新增对它们的依赖。新控制逻辑全部写入 `vehicle-runtime-service` 的 `VehicleControlQueue` 和 `TrainStateHolder`。
+✅ **LOCAL 模式已移除**：中央 `vehicle/onboard/`、`vehicle/control/`、重复的 `vehicle/drivercab/` 模型、`VehiclePhysicsClient` 及物理适配器已全部删除。生产模式固定为 `EXTERNAL_HTTP`。新控制逻辑全部写入 `vehicle-runtime-service` 的 `VehicleControlQueue` 和 `TrainStateHolder`。
 - 供电模块输出状态即可，不要直接操控列车，必要时通过事件或调度指令联动。
 - 调度、信号、供电、轨道不要直接调用 FMU 或 9300，统一通过 `step-fleet` 约束链路进入车辆物理边界。
 - 实时状态优先放 `RealtimeStateCache`（中央）和 `TrainStateHolder`（9300），MySQL 表只用于后续快照、日志和回放。

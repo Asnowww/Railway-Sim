@@ -257,7 +257,6 @@ public class SimulationRuntime {
             dispatchConstraints,
             powerConstraints
         );
-        persistenceService.persistVehicleControlDecisions(context);
         trainStopEvaluationService.evaluate(context, trainManager.states());
         powerService.updateFromVehicleOutputs(outputs);
         trackService.updateOccupancy(trainManager.states());

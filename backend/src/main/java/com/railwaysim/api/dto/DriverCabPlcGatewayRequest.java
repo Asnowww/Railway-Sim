@@ -1,6 +1,11 @@
-package com.railwaysim.vehicle.drivercab;
+package com.railwaysim.api.dto;
 
-public record DriverCabPlcInputPacket(
+import com.railwaysim.vehicle.drivercab.DriverCabDirectionHandleState;
+import com.railwaysim.vehicle.drivercab.DriverCabDoorModeSwitch;
+import com.railwaysim.vehicle.drivercab.DriverCabMasterHandleState;
+
+/** Structured browser input encoded by 8080 into the 46-byte PLC protocol for 9300. */
+public record DriverCabPlcGatewayRequest(
     boolean highVoltageClosedIndicator,
     boolean doorsClosedLockedIndicator,
     boolean networkFaultIndicator,
@@ -24,7 +29,7 @@ public record DriverCabPlcInputPacket(
     int tractionNotchPercent,
     int brakeNotchPercent
 ) {
-    public DriverCabPlcInputPacket {
+    public DriverCabPlcGatewayRequest {
         doorModeSwitchState = doorModeSwitchState == null ? DriverCabDoorModeSwitch.SEMI_AUTOMATIC : doorModeSwitchState;
         directionHandleState = directionHandleState == null ? DriverCabDirectionHandleState.ZERO : directionHandleState;
         masterHandleState = masterHandleState == null ? DriverCabMasterHandleState.ZERO : masterHandleState;
@@ -32,48 +37,7 @@ public record DriverCabPlcInputPacket(
         requirePercent("brakeNotchPercent", brakeNotchPercent);
     }
 
-    public boolean emergencyBrakeRequested() {
-        return emergencyBrakeButtonLocked || masterHandleState == DriverCabMasterHandleState.FAST_BRAKE;
-    }
-
-    public boolean openDoorRequested() {
-        return openLeftDoorFlag || openRightDoorFlag;
-    }
-
-    public boolean closeDoorRequested() {
-        return closeLeftDoorFlag || closeRightDoorFlag;
-    }
-
-    public static DriverCabPlcInputPacket neutral() {
-        return new DriverCabPlcInputPacket(
-            true,
-            true,
-            false,
-            false,
-            true,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            DriverCabDoorModeSwitch.AUTOMATIC,
-            false,
-            false,
-            false,
-            false,
-            true,
-            DriverCabDirectionHandleState.FORWARD,
-            DriverCabMasterHandleState.ZERO,
-            0,
-            0
-        );
-    }
-
     private static void requirePercent(String field, int value) {
-        if (value < 0 || value > 100) {
-            throw new IllegalArgumentException(field + " must be in 0..100: " + value);
-        }
+        if (value < 0 || value > 100) throw new IllegalArgumentException(field + " must be in 0..100");
     }
 }

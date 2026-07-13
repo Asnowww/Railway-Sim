@@ -10,11 +10,7 @@ async function request<T>(path: string): Promise<T> {
 
 export const vehicleApi = {
   maintenanceStates: () => request<unknown[]>('/vehicle/maintenance-states'),
-  onboardSubsystems: () => request<unknown[]>('/vehicle/onboard-subsystems'),
   runtimeHealth: () => request<unknown>('/vehicle/runtime-health'),
-  latestControlDecision: (trainId: string) => request<unknown>(`/vehicle/control-decisions/${encodeURIComponent(trainId)}/latest`),
-  controlDecisionHistory: (trainId: string, limit = 50) =>
-    request<unknown[]>(`/vehicle/control-decisions/${encodeURIComponent(trainId)}/history?limit=${encodeURIComponent(String(limit))}`),
   driverCabState: (trainId: string) => request<unknown>(`/vehicle/driver-cabs/${encodeURIComponent(trainId)}/state`),
   driverCabPlcOutput: (trainId: string) => request<unknown>(`/vehicle/driver-cabs/${encodeURIComponent(trainId)}/plc-output`)
 }
