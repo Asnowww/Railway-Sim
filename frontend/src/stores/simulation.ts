@@ -16,7 +16,8 @@ const emptyDispatch: DispatchSnapshot = {
   activeCommands: [],
   routeDispatchActive: false,
   routeDecisions: [],
-  routeReservations: []
+  routeReservations: [],
+  operationPlans: []
 }
 
 /**
@@ -60,7 +61,8 @@ export const useSimulationStore = defineStore('simulation', () => {
       openDisturbances: raw.openDisturbances ?? [],
       activeCommands: raw.activeCommands ?? [],
       routeDecisions: raw.routeDecisions ?? [],
-      routeReservations: raw.routeReservations ?? []
+      routeReservations: raw.routeReservations ?? [],
+      operationPlans: raw.operationPlans ?? []
     }
   })
 

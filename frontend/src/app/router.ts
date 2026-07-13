@@ -22,6 +22,11 @@ export const routes: RouteRecordRaw[] = [
     meta: { nav: '调度运行', icon: '⇄' }
   },
   {
+    path: '/operation-plan',
+    component: () => import('../features/dispatch/OperationPlanPage.vue'),
+    meta: { nav: '运营计划', icon: '▤' }
+  },
+  {
     path: '/vehicles',
     component: () => import('../features/vehicles/VehiclesView.vue'),
     meta: { nav: '车辆监控', icon: '▣' }

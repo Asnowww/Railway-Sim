@@ -301,9 +301,13 @@ public class TrainStateHolder {
             return;
         }
 
-        // 清除钥匙关闭故障
-        if ("DRIVER_CAB_KEY_OFF".equals(faultCode)) {
-            faultCode = "OK";
+        // 清除钥匙关闭故障。
+        // 注意：faultCode 可能已被物理链路（如 EXTERNAL_SIM_FALLBACK）逐 tick 覆盖，
+        // 必须以 vehicleProtectionReason 为准判断防护是否由钥匙触发，否则防护永远无法解除。
+        if ("DRIVER_CAB_KEY_OFF".equals(vehicleProtectionReason) || "DRIVER_CAB_KEY_OFF".equals(faultCode)) {
+            if ("DRIVER_CAB_KEY_OFF".equals(faultCode)) {
+                faultCode = "OK";
+            }
             faultLevel = 0;
             selfCheckStatus = "PASS";
             availableOperationMode = "NORMAL";

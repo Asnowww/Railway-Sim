@@ -26,6 +26,15 @@ export function useSimulation() {
     plan.value = await dispatchApi.plan()
   }
 
+  /** 主动用 REST 拉一次快照进全局 store（供调试页在操作后立刷）。 */
+  async function refreshSimulationSnapshot(): Promise<void> {
+    try {
+      store.applySnapshot(await simulationApi.snapshot())
+    } catch (error) {
+      errorMessage.value = error instanceof Error ? error.message : '快照刷新失败'
+    }
+  }
+
   async function runSimulation(action: 'start' | 'pause' | 'reset' | 'tick'): Promise<void> {
     errorMessage.value = ''
     try {
@@ -82,6 +91,7 @@ export function useSimulation() {
     backendReady,
     autoRunning,
     runSimulation,
+    refreshSimulationSnapshot,
     toggleAutoRun
   }
 }
