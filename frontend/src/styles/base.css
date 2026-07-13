@@ -1,38 +1,20 @@
-:root {
+/*
+ * 遗留样式表：仅供 /debug 下的旧调试页（调度闭环调试台、车辆演示）使用。
+ * 全局标签规则已移除（避免污染新暗色壳），页面级浅色底由 .legacy-surface 提供。
+ * 新工作台一律使用 tokens.css / app.css，不得引用本文件中的类。
+ */
+.legacy-surface {
   color: #172033;
-  background: #edf1f7;
+  background: linear-gradient(180deg, #e6ecf5, #f6f8fb);
+  min-height: 100%;
   font-family:
     Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
     "Microsoft YaHei", sans-serif;
-  font-synthesis: none;
-  text-rendering: optimizeLegibility;
 }
 
-* {
-  box-sizing: border-box;
-}
-
-body {
-  margin: 0;
-  min-width: 320px;
-  min-height: 100vh;
-  background: linear-gradient(180deg, #e6ecf5, #f6f8fb);
-}
-
-button,
-input,
-select {
-  font: inherit;
-}
-
-button {
-  cursor: pointer;
-}
-
-button:disabled {
-  cursor: not-allowed;
-  opacity: 0.5;
-}
+.legacy-surface h1 { color: #101827; }
+.legacy-surface h2 { color: #172033; }
+.legacy-surface h3 { color: #233044; }
 
 .monitor-shell {
   width: min(1920px, 100%);
@@ -48,35 +30,31 @@ button:disabled {
   margin-bottom: 16px;
 }
 
-.eyebrow,
-h1,
-h2,
-h3,
-p {
-  margin: 0;
-}
-
 .eyebrow {
-  margin-bottom: 4px;
+  margin: 0 0 4px;
   color: #2563eb;
   font-size: 13px;
   font-weight: 700;
 }
 
-h1 {
-  color: #101827;
+.legacy-surface h1 {
+  margin: 0;
   font-size: 28px;
   line-height: 1.2;
 }
 
-h2 {
-  color: #172033;
+.legacy-surface h2 {
+  margin: 0;
   font-size: 17px;
 }
 
-h3 {
-  color: #233044;
+.legacy-surface h3 {
+  margin: 0;
   font-size: 14px;
+}
+
+.legacy-surface p {
+  margin: 0;
 }
 
 .topbar-actions {

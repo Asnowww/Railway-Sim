@@ -1,0 +1,115 @@
+/*
+ * 设计 token —— 全站唯一的颜色/间距/字号来源。
+ * 约束：业务组件内禁止出现裸十六进制色值，一律引用这里的变量。
+ * 主题：深色工业监控（默认）。状态色必须与文字/图标成对使用（双通道），
+ *       颜色本身不允许作为唯一的状态载体。
+ */
+:root {
+  /* ---- 中性层级（深色底） ---- */
+  --bg-app: #0d1117;          /* 应用底 */
+  --bg-shell: #10161f;        /* 壳层（顶栏/侧栏） */
+  --bg-panel: #161d29;        /* 面板 */
+  --bg-panel-raised: #1c2534; /* 浮起面板/表头 */
+  --bg-inset: #0a0e14;        /* 内嵌区域（图/代码） */
+  --bg-hover: #222c3d;
+  --border: #283246;
+  --border-strong: #3a475f;
+
+  --text-primary: #e6ebf3;
+  --text-secondary: #9aa7ba;
+  --text-muted: #66738a;
+  --text-inverse: #0d1117;
+
+  /* ---- 品牌/交互 ---- */
+  --accent: #4c8dff;
+  --accent-hover: #6ba1ff;
+  --accent-muted: rgba(76, 141, 255, 0.16);
+  --focus-ring: 0 0 0 2px rgba(76, 141, 255, 0.55);
+
+  /* ---- 状态语义色（工业安全语义） ---- */
+  --status-ok: #34d17b;        /* 正常/空闲/UP */
+  --status-ok-bg: rgba(52, 209, 123, 0.12);
+  --status-warn: #f5b83d;      /* 预留/预警/DEGRADED */
+  --status-warn-bg: rgba(245, 184, 61, 0.14);
+  --status-danger: #f0564f;    /* 占用/CRITICAL/RED */
+  --status-danger-bg: rgba(240, 86, 79, 0.14);
+  --status-fault: #fb8b3c;     /* 设备故障 FAULT/FALLBACK */
+  --status-fault-bg: rgba(251, 139, 60, 0.15);
+  --status-info: #58a6ff;      /* INFO/提示 */
+  --status-info-bg: rgba(88, 166, 255, 0.13);
+  --status-neutral: #66738a;   /* FREE/无数据/中性 */
+  --status-neutral-bg: rgba(102, 115, 138, 0.15);
+  --status-stale: #8b98c9;     /* 数据过期 STALE */
+  --status-stale-bg: rgba(139, 152, 201, 0.14);
+
+  /* ---- 轨道/信号图专用 ---- */
+  --track-free: #3b4451;
+  --track-reserved: #b8860b;
+  --track-occupied: #dc2626;
+  --track-fault: #f97316;
+  --signal-green: #22c55e;
+  --signal-yellow: #eab308;
+  --signal-red: #ef4444;
+  --switch-node: #a78bfa;      /* 道岔节点紫 */
+  --ma-band: rgba(52, 209, 123, 0.35);
+  --power-energized: rgba(76, 141, 255, 0.28);
+  --power-lost: rgba(240, 86, 79, 0.30);
+  --train-body: #dbe4f0;
+  --train-fault: #f0564f;
+
+  /* ---- 排版 ---- */
+  --font-ui: 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', system-ui, sans-serif;
+  --font-mono: 'Cascadia Mono', 'JetBrains Mono', Consolas, monospace;
+  --fs-xs: 11px;
+  --fs-sm: 12px;
+  --fs-base: 13px;
+  --fs-md: 15px;
+  --fs-lg: 18px;
+  --fs-xl: 24px;
+
+  /* ---- 布局 ---- */
+  --gap-xs: 4px;
+  --gap-sm: 8px;
+  --gap-md: 12px;
+  --gap-lg: 16px;
+  --gap-xl: 24px;
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 10px;
+  --shadow-panel: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-overlay: 0 12px 40px rgba(0, 0, 0, 0.55);
+
+  --topbar-height: 52px;
+  --nav-width: 176px;
+
+  color-scheme: dark;
+}
+
+/* 数字统一等宽，保证跳动的读数不抖动布局 */
+.num,
+.mono {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 降低动效：仅允许 CRITICAL/FAULT 闪烁，且尊重系统减少动效设置 */
+@keyframes status-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
+.blinking {
+  animation: status-blink 1.2s step-end infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .blinking {
+    animation: none;
+    outline: 2px solid currentColor;
+    outline-offset: 1px;
+  }
+  * {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+  }
+}

@@ -1,50 +1,55 @@
-import { apiBaseUrl } from './config'
+import { postJson, request, SIMULATION_CONFIRM_TOKEN } from '../shared/api/client'
 import type { PowerSectionState } from '../types/simulation'
+import type {
+  IsolatorState,
+  PowerEnergyResponse,
+  PowerExternalHealth,
+  PowerMaintenanceLock,
+  StrayCurrentRisk,
+  SubstationDevice,
+  SubstationState
+} from '../types/power'
 
-type ConfirmedMutationRequest = {
+export interface PowerFaultMutationRequest {
   faultType?: string
   reason?: string
   operator?: string
   traceId?: string
-  confirmToken: 'SIMULATION_CONFIRM'
 }
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${apiBaseUrl}${path}`, init)
-  if (!response.ok) {
-    throw new Error(`Request failed: ${response.status} ${response.statusText}`)
-  }
-  return response.json() as Promise<T>
+export interface PowerOperationRequest {
+  targetType: string
+  targetId: string
+  desiredState: string
+  operator?: string
+  reason?: string
+  traceId?: string
 }
 
 export const powerApi = {
   sections: () => request<PowerSectionState[]>('/power/sections'),
   section: (sectionId: string) => request<PowerSectionState>(`/power/sections/${encodeURIComponent(sectionId)}`),
   events: (sectionId: string) => request<unknown[]>(`/power/sections/${encodeURIComponent(sectionId)}/events`),
-  energy: () => request<unknown>('/power/energy'),
-  maintenanceLocks: () => request<unknown[]>('/power/maintenance-locks'),
-  substations: () => request<unknown[]>('/power/substations'),
-  substationDevices: (substationId: string) => request<unknown[]>(`/power/substations/${encodeURIComponent(substationId)}/devices`),
-  isolators: () => request<unknown[]>('/power/isolators'),
-  strayCurrent: () => request<unknown[]>('/power/stray-current'),
-  externalHealth: () => request<unknown>('/power/external-health'),
+  energy: () => request<PowerEnergyResponse>('/power/energy'),
+  maintenanceLocks: () => request<PowerMaintenanceLock[]>('/power/maintenance-locks'),
+  substations: () => request<SubstationState[]>('/power/substations'),
+  substationDevices: (substationId: string) =>
+    request<SubstationDevice[]>(`/power/substations/${encodeURIComponent(substationId)}/devices`),
+  isolators: () => request<IsolatorState[]>('/power/isolators'),
+  strayCurrent: () => request<StrayCurrentRisk[]>('/power/stray-current'),
+  externalHealth: () => request<PowerExternalHealth>('/power/external-health'),
   externalEvents: () => request<unknown[]>('/power/external-events'),
-  operate: (body: Record<string, unknown> & { confirmToken: 'SIMULATION_CONFIRM' }) =>
-    request<unknown>('/power/operations', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body)
+  /** 危险写：设备级操作（隔离开关/断路器/排流柜），必须先经二次确认 */
+  operate: (body: PowerOperationRequest) =>
+    postJson<unknown>('/power/operations', { ...body, confirmToken: SIMULATION_CONFIRM_TOKEN }),
+  injectFault: (sectionId: string, body: PowerFaultMutationRequest) =>
+    postJson<unknown>(`/power/sections/${encodeURIComponent(sectionId)}/faults`, {
+      ...body,
+      confirmToken: SIMULATION_CONFIRM_TOKEN
     }),
-  injectFault: (sectionId: string, body: ConfirmedMutationRequest) =>
-    request<unknown>(`/power/sections/${encodeURIComponent(sectionId)}/faults`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body)
-    }),
-  clearFault: (sectionId: string, body: ConfirmedMutationRequest) =>
-    request<unknown>(`/power/sections/${encodeURIComponent(sectionId)}/faults/clear`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body)
+  clearFault: (sectionId: string, body: PowerFaultMutationRequest) =>
+    postJson<unknown>(`/power/sections/${encodeURIComponent(sectionId)}/faults/clear`, {
+      ...body,
+      confirmToken: SIMULATION_CONFIRM_TOKEN
     })
 }

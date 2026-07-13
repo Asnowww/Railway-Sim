@@ -43,10 +43,21 @@ function render() {
         return `${profile?.trainId ?? '-'}<br/>实际间隔：${actualText}<br/>间隔偏差：${errorText}<br/>本车动作：${profile?.regulationAction ?? 'OBSERVE'}`
       }
     },
-    legend: { data: ['实际间隔', '目标间隔'] },
+    legend: { data: ['实际间隔', '目标间隔'], textStyle: { color: '#9aa7ba' } },
     grid: { left: 40, right: 16, top: 40, bottom: 30 },
-    xAxis: { type: 'category', data: trainIds },
-    yAxis: { type: 'value', name: '秒' },
+    xAxis: {
+      type: 'category',
+      data: trainIds,
+      axisLabel: { color: '#9aa7ba' },
+      axisLine: { lineStyle: { color: '#3a475f' } }
+    },
+    yAxis: {
+      type: 'value',
+      name: '秒',
+      nameTextStyle: { color: '#9aa7ba' },
+      axisLabel: { color: '#9aa7ba' },
+      splitLine: { lineStyle: { color: '#283246' } }
+    },
     series: [
       { name: '实际间隔', type: 'bar', data: actual },
       { name: '目标间隔', type: 'line', data: target, itemStyle: { color: '#94a3b8' } }
