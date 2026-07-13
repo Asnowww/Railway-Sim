@@ -53,6 +53,14 @@ class YamlLineDataLoaderTests {
         }
     }
 
+    @Test
+    void speedLimitLookupUsesCurrentSegmentWhenMileageOverlaps() throws Exception {
+        OperationalLineData line = new YamlLineDataLoader().load(Path.of("..", "config", "line-topology-demo.yaml"));
+
+        assertThat(line.speedLimitAt(427, "T01", 20.0)).isEqualTo(20.0);
+        assertThat(line.speedLimitAt(427, "T12", 12.0)).isEqualTo(12.0);
+    }
+
     private static OperationalPowerData emptyPowerData() {
         return new OperationalPowerData(
             1500, 1000, 900, 3000, 3500, 0.02, true, "BRAKE_RESISTOR",

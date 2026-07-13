@@ -4,23 +4,53 @@ import com.railwaysim.dispatch.DispatchCommand;
 import com.railwaysim.dispatch.DispatchCommandFeedback;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 
 public final class InterlockingFeedbackParser {
+
+    private static final Set<String> STANDARD_INTERLOCKING_CODES = Set.of(
+        "ROUTE_ESTABLISHED",
+        "ROUTE_NOT_FOUND",
+        "NO_MATCHING_ROUTE",
+        "TRACK_NOT_FOUND",
+        "TRACK_OCCUPIED",
+        "TRACK_FAULT",
+        "ROUTE_CONFLICT",
+        "SWITCH_LOCKED",
+        "SWITCH_MOVE_FAILED",
+        "ROUTE_NOT_AVAILABLE",
+        "SWITCH_POSITION_MISMATCH",
+        "UNSUPPORTED_COMMAND",
+        "INTERNAL_ERROR"
+    );
 
     private InterlockingFeedbackParser() {
     }
 
     public static InterlockingFeedback parse(DispatchCommand command, DispatchCommandFeedback feedback) {
-        Map<String, Object> details = feedback.details();
+        Map<String, Object> details = feedback.details() == null ? Map.of() : feedback.details();
         boolean accepted = booleanValue(details.get("accepted"));
         String reason = firstNonBlank(stringValue(details.get("rawReason")), feedback.reason());
         String routeId = firstNonBlank(stringValue(details.get("routeId")), RouteDispatchRecordStore.routeIdFrom(command));
         String state = stringValue(details.get("interlockingState"));
-        String explicitCode = stringValue(details.get("resultCode"));
+        String resultCode = normalizedCode(stringValue(details.get("resultCode")));
+        String failureCode = normalizedCode(stringValue(details.get("failureCode")));
+        String explicitCode = firstNonBlank(failureCode, resultCode);
+        String structuredCode = structuredCode(failureCode, resultCode);
         Boolean explicitRetryable = nullableBooleanValue(details.get("retryable"));
         if (accepted) {
-            return new InterlockingFeedback(true, firstNonBlank(explicitCode, "ROUTE_ESTABLISHED"),
+            return new InterlockingFeedback(true, firstNonBlank(resultCode, firstNonBlank(failureCode, "ROUTE_ESTABLISHED")),
                 "NONE", false, routeId, state, reason);
+        }
+        if (structuredCode != null) {
+            return rejected(
+                structuredCode,
+                categoryForStandardCode(structuredCode),
+                explicitRetryable != null ? explicitRetryable : retryableForStandardCode(structuredCode),
+                routeId,
+                state,
+                reason
+            );
         }
 
         String normalized = reason == null ? "" : reason.toLowerCase(Locale.ROOT);
@@ -93,5 +123,41 @@ public final class InterlockingFeedbackParser {
         return explicitCode == null || explicitCode.isBlank() || "INTERLOCKING_REJECTED".equals(explicitCode)
             ? classifiedCode
             : explicitCode;
+    }
+
+    private static String normalizedCode(String code) {
+        return code == null || code.isBlank() ? null : code.trim().toUpperCase(Locale.ROOT);
+    }
+
+    private static String structuredCode(String failureCode, String resultCode) {
+        if (failureCode != null && STANDARD_INTERLOCKING_CODES.contains(failureCode)) {
+            return failureCode;
+        }
+        String normalizedResultCode = normalizedCode(resultCode);
+        if (normalizedResultCode != null
+            && STANDARD_INTERLOCKING_CODES.contains(normalizedResultCode)
+            && !"ROUTE_ESTABLISHED".equals(normalizedResultCode)) {
+            return normalizedResultCode;
+        }
+        return null;
+    }
+
+    private static String categoryForStandardCode(String code) {
+        return switch (code) {
+            case "ROUTE_NOT_FOUND", "NO_MATCHING_ROUTE", "TRACK_NOT_FOUND" -> "CONFIGURATION";
+            case "UNSUPPORTED_COMMAND" -> "INVALID_REQUEST";
+            case "TRACK_OCCUPIED", "ROUTE_CONFLICT", "SWITCH_LOCKED" -> "RESOURCE_CONFLICT";
+            case "TRACK_FAULT", "SWITCH_MOVE_FAILED", "ROUTE_NOT_AVAILABLE" -> "TEMPORARY";
+            case "SWITCH_POSITION_MISMATCH" -> "SWITCH_STATE";
+            default -> "UNKNOWN";
+        };
+    }
+
+    private static boolean retryableForStandardCode(String code) {
+        return switch (code) {
+            case "TRACK_OCCUPIED", "TRACK_FAULT", "ROUTE_CONFLICT", "SWITCH_LOCKED",
+                "SWITCH_MOVE_FAILED", "ROUTE_NOT_AVAILABLE" -> true;
+            default -> false;
+        };
     }
 }

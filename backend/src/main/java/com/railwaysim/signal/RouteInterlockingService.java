@@ -400,14 +400,47 @@ public class RouteInterlockingService {
         }
     }
 
+    public record DispatchRouteRequest(
+        String commandId,
+        String commandType,
+        String detail,
+        String trainId,
+        String operationPlanId,
+        String routeId,
+        String direction,
+        String originPointId,
+        String destinationPointId,
+        List<String> viaPointIds,
+        List<String> segmentIds
+    ) {
+        public DispatchRouteRequest {
+            viaPointIds = viaPointIds == null ? List.of() : List.copyOf(viaPointIds);
+            segmentIds = segmentIds == null ? List.of() : List.copyOf(segmentIds);
+        }
+
+        String routeSelector() {
+            return routeId != null && !routeId.isBlank() ? routeId : detail;
+        }
+    }
+
     public synchronized RouteDispatchResult applyDispatchCommand(String commandType, String detail, String trainId) {
-        return switch (commandType) {
+        return applyDispatchCommand(new DispatchRouteRequest(
+            null, commandType, detail, trainId, null, null, null, null, null, List.of(), List.of()
+        ));
+    }
+
+    public synchronized RouteDispatchResult applyDispatchCommand(DispatchRouteRequest request) {
+        if (request == null) {
+            return new RouteDispatchResult(false, "Unsupported route command: null");
+        }
+        String detail = request.routeSelector();
+        return switch (request.commandType()) {
             case "REROUTE", "REQUEST_ROUTE" -> {
                 String routeId = findBestRoute(detail);
                 if (routeId == null) {
                     yield new RouteDispatchResult(false, "No matching route for detail=" + detail);
                 }
-                String rejection = establishRoute(routeId, trainId);
+                String rejection = establishRoute(routeId, request.trainId());
                 yield rejection == null
                     ? new RouteDispatchResult(true, null)
                     : new RouteDispatchResult(false, rejection);
@@ -422,7 +455,7 @@ public class RouteInterlockingService {
                     ? new RouteDispatchResult(true, null)
                     : new RouteDispatchResult(false, rejection);
             }
-            default -> new RouteDispatchResult(false, "Unsupported route command: " + commandType);
+            default -> new RouteDispatchResult(false, "Unsupported route command: " + request.commandType());
         };
     }
 

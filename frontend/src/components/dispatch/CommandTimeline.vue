@@ -38,8 +38,8 @@ const statusLabel = (status: string) => {
   const labels: Record<string, string> = {
     PENDING: '待下发',
     SENT: '已下发',
-    APPLIED: '已观测到执行',
-    EFFECT_CONFIRMED: '闭环已完成',
+    APPLIED: '约束已出现',
+    EFFECT_CONFIRMED: '效果已闭环',
     TIMEOUT: '执行超时',
     SKIPPED: '已跳过',
     CANCELLED: '已取消',
@@ -52,9 +52,9 @@ const statusLabel = (status: string) => {
 const statusDescription = (status: string) => {
   const descriptions: Record<string, string> = {
     PENDING: '调度已生成指令，等待进入信号/车辆执行链路。',
-    SENT: '指令已经下发，调度正在观察列车状态、MA 和间隔变化。',
-    APPLIED: '已经从车辆状态或信号授权中观察到指令产生作用。',
-    EFFECT_CONFIRMED: '调度已经确认扰动恢复，或该指令不需要继续施加约束。',
+    SENT: '指令已经下发，尚未看到可核对的 MA、速度、停站或进路状态变化。',
+    APPLIED: '已经看到中间约束或车辆状态变化，但还不等于最终运行效果恢复。',
+    EFFECT_CONFIRMED: '调度已经确认目标效果满足，指令可以退出持续约束。',
     TIMEOUT: '超过观察窗口仍未看到效果，需要检查信号、车辆或线路约束。',
     SKIPPED: '指令被校验规则跳过，没有进入执行链路。',
     CANCELLED: '指令已取消。',

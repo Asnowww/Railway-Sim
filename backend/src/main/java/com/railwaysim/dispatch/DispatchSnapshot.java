@@ -17,13 +17,15 @@ public record DispatchSnapshot(
     List<CommandView> activeCommands,
     boolean routeDispatchActive,
     List<RouteDecisionView> routeDecisions,
-    List<RouteReservationView> routeReservations
+    List<RouteReservationView> routeReservations,
+    List<OperationPlanView> operationPlans
 ) {
     public DispatchSnapshot {
         services = services == null ? List.of() : List.copyOf(services);
         stationHeadways = stationHeadways == null ? List.of() : List.copyOf(stationHeadways);
         routeDecisions = routeDecisions == null ? List.of() : List.copyOf(routeDecisions);
         routeReservations = routeReservations == null ? List.of() : List.copyOf(routeReservations);
+        operationPlans = operationPlans == null ? List.of() : List.copyOf(operationPlans);
     }
 
     public record TrainProfileView(
@@ -133,6 +135,33 @@ public record DispatchSnapshot(
     ) {
     }
 
+    public record OperationPlanView(
+        String planId,
+        String routeId,
+        String routeName,
+        String direction,
+        String trainId,
+        String originPointId,
+        String destinationPointId,
+        List<String> viaPointIds,
+        List<String> pointIds,
+        List<String> stationIds,
+        List<String> segmentIds,
+        Instant plannedDepartureAt,
+        String status,
+        int priority,
+        int version,
+        String routeCommandId,
+        String rejectReason
+    ) {
+        public OperationPlanView {
+            viaPointIds = viaPointIds == null ? List.of() : List.copyOf(viaPointIds);
+            pointIds = pointIds == null ? List.of() : List.copyOf(pointIds);
+            stationIds = stationIds == null ? List.of() : List.copyOf(stationIds);
+            segmentIds = segmentIds == null ? List.of() : List.copyOf(segmentIds);
+        }
+    }
+
     public static DispatchSnapshot empty() {
         return new DispatchSnapshot(
             "FLAT",
@@ -146,6 +175,7 @@ public record DispatchSnapshot(
             List.of(),
             List.of(),
             false,
+            List.of(),
             List.of(),
             List.of()
         );

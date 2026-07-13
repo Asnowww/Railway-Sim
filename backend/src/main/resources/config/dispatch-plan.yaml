@@ -38,6 +38,9 @@ stations:
   - id: S05
     positionMeters: 5000
     platformCapacity: 1200
+  - id: S06
+    positionMeters: 6250
+    platformCapacity: 1200
 
 segments:
   - id: T01
@@ -56,6 +59,10 @@ segments:
     startMeters: 3750
     endMeters: 5000
     speedLimitMps: 20
+  - id: T05
+    startMeters: 5000
+    endMeters: 6250
+    speedLimitMps: 22.2
 
 circulations:
   - id: CIRC-001
@@ -84,7 +91,8 @@ services:
       - { stationId: S02, arrivalOffsetSec: 94, departureOffsetSec: 119 }
       - { stationId: S03, arrivalOffsetSec: 189, departureOffsetSec: 214 }
       - { stationId: S04, arrivalOffsetSec: 284, departureOffsetSec: 309 }
-      - { stationId: S05, arrivalOffsetSec: 403, departureOffsetSec: 403 }
+      - { stationId: S05, arrivalOffsetSec: 403, departureOffsetSec: 428 }
+      - { stationId: S06, arrivalOffsetSec: 522, departureOffsetSec: 522 }
   - serviceId: SVC-002
     circulationId: CIRC-002
     trainId: TR-002
@@ -97,7 +105,8 @@ services:
       - { stationId: S02, arrivalOffsetSec: 394, departureOffsetSec: 419 }
       - { stationId: S03, arrivalOffsetSec: 489, departureOffsetSec: 514 }
       - { stationId: S04, arrivalOffsetSec: 584, departureOffsetSec: 609 }
-      - { stationId: S05, arrivalOffsetSec: 703, departureOffsetSec: 703 }
+      - { stationId: S05, arrivalOffsetSec: 703, departureOffsetSec: 728 }
+      - { stationId: S06, arrivalOffsetSec: 822, departureOffsetSec: 822 }
   - serviceId: SVC-003
     circulationId: CIRC-003
     trainId: TR-003
@@ -110,7 +119,8 @@ services:
       - { stationId: S02, arrivalOffsetSec: 694, departureOffsetSec: 719 }
       - { stationId: S03, arrivalOffsetSec: 789, departureOffsetSec: 814 }
       - { stationId: S04, arrivalOffsetSec: 884, departureOffsetSec: 909 }
-      - { stationId: S05, arrivalOffsetSec: 1003, departureOffsetSec: 1003 }
+      - { stationId: S05, arrivalOffsetSec: 1003, departureOffsetSec: 1028 }
+      - { stationId: S06, arrivalOffsetSec: 1122, departureOffsetSec: 1122 }
   - serviceId: SVC-004
     circulationId: CIRC-004
     trainId: TR-004
@@ -123,4 +133,5 @@ services:
       - { stationId: S02, arrivalOffsetSec: 994, departureOffsetSec: 1019 }
       - { stationId: S03, arrivalOffsetSec: 1089, departureOffsetSec: 1114 }
       - { stationId: S04, arrivalOffsetSec: 1184, departureOffsetSec: 1209 }
-      - { stationId: S05, arrivalOffsetSec: 1303, departureOffsetSec: 1303 }
+      - { stationId: S05, arrivalOffsetSec: 1303, departureOffsetSec: 1328 }
+      - { stationId: S06, arrivalOffsetSec: 1422, departureOffsetSec: 1422 }

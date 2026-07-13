@@ -11,6 +11,8 @@ import com.railwaysim.dispatch.disturbance.DisturbanceDetector;
 import com.railwaysim.dispatch.disturbance.InMemoryDisturbanceRecordStore;
 import com.railwaysim.dispatch.monitor.InMemoryStationRecordStore;
 import com.railwaysim.dispatch.monitor.TrainRunMonitor;
+import com.railwaysim.dispatch.operation.OperationPlanRequest;
+import com.railwaysim.dispatch.operation.OperationPlanningService;
 import com.railwaysim.dispatch.plan.OperationPlanLoader;
 import com.railwaysim.dispatch.plan.PlannedScheduleCalculator;
 import com.railwaysim.dispatch.route.RouteDecisionStatus;
@@ -24,6 +26,8 @@ import com.railwaysim.infrastructure.OperationalLineData;
 import com.railwaysim.signal.MovementAuthority;
 import com.railwaysim.signal.RouteState;
 import com.railwaysim.signal.RouteStatus;
+import com.railwaysim.signal.dispatch.SignalDispatchPlanPublication;
+import com.railwaysim.signal.dispatch.SignalDispatchPlanRegistry;
 import com.railwaysim.simulation.TickContext;
 import com.railwaysim.train.TrainEntity;
 import com.railwaysim.train.TrainState;
@@ -134,6 +138,40 @@ class DispatchServiceTests {
     }
 
     @Test
+    void routeInterlockingFeedbackStoresStructuredFailureCodeAndRetryPolicy() {
+        dispatchService.submit(commandWithPayload("TR-1", "REQUEST_ROUTE", Map.of("routeId", "R_BRANCH")));
+
+        dispatchService.acceptFeedback(List.of(new DispatchCommandFeedback(
+            "DC-test-REQUEST_ROUTE",
+            "TR-1",
+            "REQUEST_ROUTE",
+            "SIGNAL_INTERLOCKING",
+            CommandStatus.SKIPPED,
+            "TRACK_OCCUPIED:T03 is occupied by another train",
+            Instant.parse("2026-07-09T00:00:00Z"),
+            Map.of(
+                "accepted", false,
+                "resultCode", "INTERLOCKING_REJECTED",
+                "failureCode", "TRACK_OCCUPIED",
+                "retryable", true,
+                "rawReason", "TRACK_OCCUPIED:T03 is occupied by another train"
+            )
+        )));
+
+        assertThat(dispatchService.snapshot().routeDecisions())
+            .extracting(DispatchSnapshot.RouteDecisionView::status)
+            .containsExactly(RouteDecisionStatus.REJECTED);
+        assertThat(dispatchService.snapshot().routeReservations())
+            .singleElement()
+            .satisfies(reservation -> {
+                assertThat(reservation.state()).isEqualTo(RouteReservationState.REJECTED);
+                assertThat(reservation.failureCode()).isEqualTo("TRACK_OCCUPIED");
+                assertThat(reservation.failureCategory()).isEqualTo("RESOURCE_CONFLICT");
+                assertThat(reservation.retryable()).isTrue();
+            });
+    }
+
+    @Test
     void routeReservationIsReleasedWhenInterlockingRouteIsNoLongerEstablished() {
         dispatchService.submit(commandWithPayload("TR-1", "REQUEST_ROUTE", Map.of("routeId", "R_BRANCH")));
         dispatchService.acceptFeedback(List.of(new DispatchCommandFeedback(
@@ -189,6 +227,25 @@ class DispatchServiceTests {
         assertThat(dispatchService.snapshot().routeReservations())
             .extracting(DispatchSnapshot.RouteReservationView::state)
             .containsExactly(RouteReservationState.EXPIRED);
+    }
+
+    @Test
+    void publishPlanToSignalIncludesServiceEntriesWithExistingRouteId() {
+        DispatchService service = dispatchService(routeLineData());
+        Instant effectiveFrom = Instant.parse("2026-07-09T00:00:00Z");
+
+        SignalDispatchPlanPublication publication = service.publishPlanToSignal("tester", effectiveFrom);
+
+        assertThat(publication.operator()).isEqualTo("tester");
+        assertThat(publication.effectiveFrom()).isEqualTo(effectiveFrom);
+        assertThat(publication.acceptedCount()).isGreaterThan(0);
+        assertThat(publication.rejectedCount()).isZero();
+        assertThat(publication.entries())
+            .extracting(SignalDispatchPlanPublication.Entry::sourceType)
+            .contains("SERVICE_PLAN");
+        assertThat(publication.entries())
+            .extracting(SignalDispatchPlanPublication.Entry::routeId)
+            .contains("R_MAIN");
     }
 
     @Test
@@ -254,6 +311,41 @@ class DispatchServiceTests {
         assertThat(service.snapshot().services())
             .extracting(DispatchSnapshot.ServicePlanView::departureStatus)
             .containsOnly(CommandStatus.PENDING);
+    }
+
+    @Test
+    void operationPlanQueuesRouteRequestAtPlannedDeparture() {
+        DispatchService service = dispatchService();
+        Instant now = Instant.parse("2026-07-09T00:00:00Z");
+        service.evaluate(tick(1, now), List.of(train("TR-1")), List.of(authority("TR-1")));
+
+        var plan = service.createOperationPlan(new OperationPlanRequest(
+            List.of("S01", "S02"),
+            "R_MAIN",
+            "R_MAIN:UP",
+            null,
+            null,
+            0,
+            300,
+            0
+        ));
+
+        assertThat(plan.trainId()).isEqualTo("TR-1");
+        assertThat(service.snapshot().operationPlans())
+            .extracting(DispatchSnapshot.OperationPlanView::status)
+            .containsExactly("PLANNED");
+
+        service.evaluate(tick(2, now.plusSeconds(1)), List.of(train("TR-1")), List.of(authority("TR-1")));
+
+        List<DispatchCommand> routeCommands = service.drainCommandsOfType("REQUEST_ROUTE");
+        assertThat(routeCommands).singleElement().satisfies(command -> {
+            assertThat(command.payload()).containsEntry("operationPlanId", plan.planId());
+            assertThat(command.payload()).containsEntry("routeId", "R_MAIN");
+            assertThat(command.reason()).isEqualTo("OPERATION_PLAN");
+        });
+        assertThat(service.snapshot().operationPlans())
+            .extracting(DispatchSnapshot.OperationPlanView::status)
+            .containsExactly("ROUTE_REQUESTED");
     }
 
     @Test
@@ -1098,8 +1190,11 @@ class DispatchServiceTests {
                 new InMemoryCommandRecordStore(),
                 stationStore,
                 routeStore,
+                routeCatalog,
                 new RouteIntentResolver(routeCatalog, properties),
-                new RouteIntentArbiter(routeCatalog)
+                new RouteIntentArbiter(routeCatalog),
+                new OperationPlanningService(routeCatalog),
+                new SignalDispatchPlanRegistry()
             );
         } catch (IOException ex) {
             throw new IllegalStateException("failed to load dispatch test plan", ex);

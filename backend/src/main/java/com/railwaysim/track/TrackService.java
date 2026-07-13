@@ -443,6 +443,7 @@ public class TrackService {
                 TrackSegmentState segment = segmentForTrain(train);
                 double speedLimit = lineData.speedLimitAt(
                     train.positionMeters(),
+                    segment.id(),
                     segment.speedLimitMetersPerSecond()
                 );
                 double stationControlDistance = lineData.stationControlDistanceMeters(
