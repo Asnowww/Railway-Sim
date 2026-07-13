@@ -33,10 +33,11 @@ public final class InterlockingFeedbackParser {
         String reason = firstNonBlank(stringValue(details.get("rawReason")), feedback.reason());
         String routeId = firstNonBlank(stringValue(details.get("routeId")), RouteDispatchRecordStore.routeIdFrom(command));
         String state = stringValue(details.get("interlockingState"));
-        String resultCode = stringValue(details.get("resultCode"));
+        String resultCode = normalizedCode(stringValue(details.get("resultCode")));
         String failureCode = normalizedCode(stringValue(details.get("failureCode")));
+        String explicitCode = firstNonBlank(failureCode, resultCode);
         String structuredCode = structuredCode(failureCode, resultCode);
-        Boolean explicitRetryable = booleanValueOrNull(details.get("retryable"));
+        Boolean explicitRetryable = nullableBooleanValue(details.get("retryable"));
         if (accepted) {
             return new InterlockingFeedback(true, firstNonBlank(resultCode, firstNonBlank(failureCode, "ROUTE_ESTABLISHED")),
                 "NONE", false, routeId, state, reason);
@@ -56,41 +57,34 @@ public final class InterlockingFeedbackParser {
         String commandType = command == null ? "" : command.commandType();
         if (normalized.contains("does not exist") || normalized.contains("no matching route")
             || normalized.contains("not found")) {
-            return rejected(classifiedCode(resultCode, "ROUTE_NOT_FOUND"), "CONFIGURATION",
-                retryableOrDefault(explicitRetryable, false),
+            return rejected(classifiedCode(explicitCode, "ROUTE_NOT_FOUND"), "CONFIGURATION", retryable(explicitRetryable, false),
                 routeId, state, reason);
         }
         if (normalized.contains("unsupported") || normalized.contains("invalid")
             || normalized.contains("requires route")) {
-            return rejected(classifiedCode(resultCode, "INVALID_ROUTE_REQUEST"), "INVALID_REQUEST",
-                retryableOrDefault(explicitRetryable, false),
+            return rejected(classifiedCode(explicitCode, "INVALID_ROUTE_REQUEST"), "INVALID_REQUEST", retryable(explicitRetryable, false),
                 routeId, state, reason);
         }
         if ("CANCEL_ROUTE".equals(commandType)
             && (normalized.contains("after a train has entered") || normalized.contains("cannot be cancelled"))) {
-            return rejected(classifiedCode(resultCode, "ROUTE_CANCEL_NOT_ALLOWED"), "CANCEL_NOT_ALLOWED",
-                retryableOrDefault(explicitRetryable, false),
+            return rejected(classifiedCode(explicitCode, "ROUTE_CANCEL_NOT_ALLOWED"), "CANCEL_NOT_ALLOWED", retryable(explicitRetryable, false),
                 routeId, state, reason);
         }
         if (normalized.contains("occupied") || normalized.contains("conflict")
             || normalized.contains("locked") || normalized.contains("reserved")) {
-            return rejected(classifiedCode(resultCode, "INTERLOCKING_RESOURCE_BUSY"), "RESOURCE_CONFLICT",
-                retryableOrDefault(explicitRetryable, true),
+            return rejected(classifiedCode(explicitCode, "INTERLOCKING_RESOURCE_BUSY"), "RESOURCE_CONFLICT", retryable(explicitRetryable, true),
                 routeId, state, reason);
         }
         if (normalized.contains("switch") || normalized.contains("道岔")) {
-            return rejected(classifiedCode(resultCode, "SWITCH_UNAVAILABLE"), "SWITCH_STATE",
-                retryableOrDefault(explicitRetryable, true),
+            return rejected(classifiedCode(explicitCode, "SWITCH_UNAVAILABLE"), "SWITCH_STATE", retryable(explicitRetryable, true),
                 routeId, state, reason);
         }
         if (normalized.contains("timeout") || normalized.contains("超时")
             || normalized.contains("temporar") || normalized.contains("busy")) {
-            return rejected(classifiedCode(resultCode, "INTERLOCKING_TEMPORARY_FAILURE"), "TEMPORARY",
-                retryableOrDefault(explicitRetryable, true),
+            return rejected(classifiedCode(explicitCode, "INTERLOCKING_TEMPORARY_FAILURE"), "TEMPORARY", retryable(explicitRetryable, true),
                 routeId, state, reason);
         }
-        return rejected(firstNonBlank(resultCode, "INTERLOCKING_REJECTED"), "UNKNOWN",
-            retryableOrDefault(explicitRetryable, false),
+        return rejected(firstNonBlank(explicitCode, "INTERLOCKING_REJECTED"), "UNKNOWN", retryable(explicitRetryable, false),
             routeId, state, reason);
     }
 
@@ -109,8 +103,12 @@ public final class InterlockingFeedbackParser {
         return value instanceof Boolean flag ? flag : value != null && Boolean.parseBoolean(value.toString());
     }
 
-    private static Boolean booleanValueOrNull(Object value) {
+    private static Boolean nullableBooleanValue(Object value) {
         return value == null ? null : booleanValue(value);
+    }
+
+    private static boolean retryable(Boolean explicitValue, boolean fallback) {
+        return explicitValue == null ? fallback : explicitValue;
     }
 
     private static String stringValue(Object value) {
@@ -125,10 +123,6 @@ public final class InterlockingFeedbackParser {
         return explicitCode == null || explicitCode.isBlank() || "INTERLOCKING_REJECTED".equals(explicitCode)
             ? classifiedCode
             : explicitCode;
-    }
-
-    private static boolean retryableOrDefault(Boolean retryable, boolean fallback) {
-        return retryable == null ? fallback : retryable;
     }
 
     private static String normalizedCode(String code) {

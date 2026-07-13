@@ -202,6 +202,23 @@ class RouteInterlockingServiceTests {
     }
 
     @Test
+    void releasingRouteCanBeReassignedWithoutLosingATick() {
+        Fixture fixture = fixture(lineDataWithDirectRoute());
+        fixture.interlocking.init();
+        TrainState train = train("TR-1", 50);
+        fixture.trackService.updateOccupancy(List.of(train));
+        assertThat(fixture.interlocking.establishRoute("R_BRANCH", "TR-1")).isNull();
+        fixture.interlocking.touchRoutes(List.of(train));
+        fixture.interlocking.touchRoutes(List.of());
+        fixture.trackService.updateOccupancy(List.of());
+
+        assertThat(fixture.interlocking.establishRoute("R_BRANCH", "TR-2")).isNull();
+        assertThat(fixture.interlocking.state("R_BRANCH").status()).isEqualTo(RouteStatus.LOCKED);
+        assertThat(fixture.interlocking.state("R_BRANCH").establishedByTrainId()).isEqualTo("TR-2");
+        assertThat(fixture.trackService.switchStates().get(0).locked()).isTrue();
+    }
+
+    @Test
     void cancellingAnUnoccupiedLockedRouteIsVisibleAndUnlocksSwitches() {
         Fixture fixture = fixture(lineDataWithDirectRoute());
         fixture.interlocking.init();

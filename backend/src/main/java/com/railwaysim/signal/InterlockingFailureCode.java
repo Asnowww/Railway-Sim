@@ -65,6 +65,9 @@ public enum InterlockingFailureCode {
         if (normalized.contains("TRACK_OCCUPIED") || normalized.contains("OCCUPIED BY ANOTHER")) return TRACK_OCCUPIED;
         if (normalized.contains("TRACK_FAULT") || normalized.contains("FAULT STATE")) return TRACK_FAULT;
         if (normalized.contains("CONFLICT")) return ROUTE_CONFLICT;
+        if (normalized.contains("ROUTE") && (normalized.contains(" IS LOCKED")
+            || normalized.contains(" IS OCCUPIED") || normalized.contains(" IS RELEASING")
+            || normalized.contains(" IS VALIDATING"))) return ROUTE_NOT_AVAILABLE;
         if (normalized.contains("SWITCH") && normalized.contains("LOCKED")) return SWITCH_LOCKED;
         if (normalized.contains("SWITCH") && (normalized.contains("CANNOT MOVE") || normalized.contains("MOVE"))) return SWITCH_MOVE_FAILED;
         if (normalized.contains("BOTH NORMAL AND REVERSE") || normalized.contains("MISMATCH")) return SWITCH_POSITION_MISMATCH;

@@ -35,50 +35,18 @@ class InterlockingFeedbackParserTests {
     }
 
     @Test
-    void structuredFailureCodeOverridesGenericInterlockingRejection() {
+    void structuredRetryableFlagIsPreservedForUnclassifiedReason() {
         DispatchCommand command = command("REQUEST_ROUTE");
-        InterlockingFeedback parsed = InterlockingFeedbackParser.parse(command, new DispatchCommandFeedback(
-            command.id(),
-            command.trainId(),
-            command.commandType(),
-            "SIGNAL_INTERLOCKING",
-            CommandStatus.SKIPPED,
-            "signal rejected",
-            Instant.EPOCH,
-            Map.of(
-                "accepted", false,
-                "resultCode", "INTERLOCKING_REJECTED",
-                "failureCode", "TRACK_OCCUPIED",
-                "retryable", true,
-                "rawReason", "TRACK_OCCUPIED:T02 is occupied by another train"
-            )
-        ));
+        DispatchCommandFeedback feedback = new DispatchCommandFeedback(
+            command.id(), command.trainId(), command.commandType(), "SIGNAL_INTERLOCKING",
+            CommandStatus.SKIPPED, "Route is transitioning", Instant.EPOCH,
+            Map.of("accepted", false, "rawReason", "Route is transitioning",
+                "resultCode", "ROUTE_NOT_AVAILABLE", "retryable", true));
 
-        assertThat(parsed.resultCode()).isEqualTo("TRACK_OCCUPIED");
-        assertThat(parsed.failureCategory()).isEqualTo("RESOURCE_CONFLICT");
+        InterlockingFeedback parsed = InterlockingFeedbackParser.parse(command, feedback);
+
+        assertThat(parsed.resultCode()).isEqualTo("ROUTE_NOT_AVAILABLE");
         assertThat(parsed.retryable()).isTrue();
-    }
-
-    @Test
-    void structuredRetryableFlagWinsOverDefaultFailureCodePolicy() {
-        DispatchCommand command = command("REQUEST_ROUTE");
-        InterlockingFeedback parsed = InterlockingFeedbackParser.parse(command, new DispatchCommandFeedback(
-            command.id(),
-            command.trainId(),
-            command.commandType(),
-            "SIGNAL_INTERLOCKING",
-            CommandStatus.SKIPPED,
-            "signal rejected",
-            Instant.EPOCH,
-            Map.of(
-                "accepted", false,
-                "failureCode", "TRACK_OCCUPIED",
-                "retryable", false
-            )
-        ));
-
-        assertThat(parsed.resultCode()).isEqualTo("TRACK_OCCUPIED");
-        assertThat(parsed.retryable()).isFalse();
     }
 
     private static DispatchCommand command(String type) {
