@@ -62,7 +62,7 @@ segments:
   - id: T05
     startMeters: 5000
     endMeters: 6250
-    speedLimitMps: 20
+    speedLimitMps: 22.2
 
 circulations:
   - id: CIRC-001

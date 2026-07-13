@@ -26,6 +26,20 @@ export const dispatchApi = {
   currentPlan: () => request<Record<string, unknown>>('/dispatch/plan/current'),
   status: () => request<DispatchSnapshot>('/dispatch/status'),
   disturbances: () => request<DispatchDisturbance[]>('/dispatch/disturbances'),
+  injectDemoDisturbance: (body: {
+    trainId?: string
+    type?: string
+    headwayDirection?: string
+    targetHeadwaySec?: number
+    actualHeadwaySec?: number
+    violationSec?: number
+    stationId?: string
+  }) =>
+    request<DispatchDisturbance>('/dispatch/disturbances/demo', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    }),
   commands: () => request<DispatchCommandView[]>('/dispatch/commands'),
   submitCommand: (body: {
     trainId: string

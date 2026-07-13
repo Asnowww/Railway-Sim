@@ -8,6 +8,7 @@ import com.railwaysim.dispatch.config.DispatchProperties;
 import com.railwaysim.dispatch.disturbance.DisturbanceDetector;
 import com.railwaysim.dispatch.disturbance.DisturbanceEvent;
 import com.railwaysim.dispatch.disturbance.DisturbanceRecordStore;
+import com.railwaysim.dispatch.disturbance.DisturbanceType;
 import com.railwaysim.dispatch.monitor.InMemoryStationRecordStore;
 import com.railwaysim.dispatch.monitor.StationInfo;
 import com.railwaysim.dispatch.monitor.StationHeadwayObservation;
@@ -1225,8 +1226,97 @@ public class DispatchService {
         return disturbanceRecordStore.list(simulationRunId);
     }
 
+    public synchronized DisturbanceEvent injectDemoDisturbance(
+        String trainId,
+        DisturbanceType type,
+        String headwayDirection,
+        Double targetHeadwaySec,
+        Double actualHeadwaySec,
+        Double violationSec,
+        String stationId
+    ) {
+        String targetTrainId = trainId == null || trainId.isBlank()
+            ? latestTrains.stream().findFirst().map(TrainState::id).orElse("TR-001")
+            : trainId;
+        TrainState train = latestTrains.stream()
+            .filter(item -> targetTrainId.equals(item.id()))
+            .findFirst()
+            .orElse(null);
+        String eventStationId = stationId == null || stationId.isBlank()
+            ? train == null ? "" : train.currentStationId()
+            : stationId;
+        DisturbanceType eventType = type == null ? DisturbanceType.TRAIN_REGULATION : type;
+        String direction = headwayDirection == null || headwayDirection.isBlank()
+            ? "TOO_SHORT"
+            : headwayDirection;
+        double target = targetHeadwaySec == null || targetHeadwaySec <= 0
+            ? currentPlan.departureIntervalSec()
+            : targetHeadwaySec;
+        double actual = actualHeadwaySec == null || actualHeadwaySec < 0
+            ? demoActualHeadway(direction, target)
+            : actualHeadwaySec;
+        double tolerance = "TOO_LONG".equals(direction)
+            ? Math.max(0, target * properties.getHeadwayExpandRatio() - target)
+            : Math.max(0, target - target * properties.getHeadwayShrinkRatio());
+        double violation = violationSec == null || violationSec < 0
+            ? demoViolation(direction, target, actual)
+            : violationSec;
+        Instant recordedAt = lastEvaluatedAt.equals(Instant.EPOCH) ? Instant.now() : lastEvaluatedAt;
+        DisturbanceEvent event = new DisturbanceEvent(
+            "DIST-DEMO-" + UUID.randomUUID().toString().substring(0, 6),
+            simulationRunId,
+            targetTrainId,
+            eventStationId,
+            eventType,
+            Math.max(0, violation),
+            "OPEN",
+            recordedAt,
+            null,
+            null,
+            eventType == DisturbanceType.TRAIN_REGULATION || eventType == DisturbanceType.HEADWAY_VIOLATION
+                ? direction
+                : null,
+            eventType == DisturbanceType.TRAIN_REGULATION || eventType == DisturbanceType.HEADWAY_VIOLATION
+                ? target
+                : null,
+            eventType == DisturbanceType.TRAIN_REGULATION || eventType == DisturbanceType.HEADWAY_VIOLATION
+                ? actual
+                : null,
+            eventType == DisturbanceType.TRAIN_REGULATION || eventType == DisturbanceType.HEADWAY_VIOLATION
+                ? tolerance
+                : null,
+            eventType == DisturbanceType.TRAIN_REGULATION || eventType == DisturbanceType.HEADWAY_VIOLATION
+                ? Math.max(0, violation)
+                : null
+        );
+        DisturbanceEvent injected = disturbanceDetector.inject(event);
+        disturbanceRecordStore.save(injected);
+        refreshSnapshot();
+        return injected;
+    }
+
     public synchronized List<DispatchCommand> commands() {
         return commandRecordStore.list(simulationRunId);
+    }
+
+    private double demoActualHeadway(String direction, double target) {
+        if ("TOO_LONG".equals(direction)) {
+            return Math.round(target * Math.max(properties.getHeadwayExpandRatio() + 0.35, 1.65));
+        }
+        if ("SCHEDULE_LATE".equals(direction)) {
+            return 0;
+        }
+        return Math.round(target * Math.max(0.2, properties.getHeadwayShrinkRatio() - 0.25));
+    }
+
+    private double demoViolation(String direction, double target, double actual) {
+        if ("TOO_LONG".equals(direction)) {
+            return Math.max(30, actual - target * properties.getHeadwayExpandRatio());
+        }
+        if ("SCHEDULE_LATE".equals(direction)) {
+            return Math.max(30, properties.getDepartureDelaySec());
+        }
+        return Math.max(30, target * properties.getHeadwayShrinkRatio() - actual);
     }
 
     private void drainQueuedCommands(List<DispatchCommand> consumed) {

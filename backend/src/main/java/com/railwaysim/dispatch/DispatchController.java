@@ -2,6 +2,7 @@ package com.railwaysim.dispatch;
 
 import com.railwaysim.dispatch.command.CommandStatus;
 import com.railwaysim.dispatch.disturbance.DisturbanceEvent;
+import com.railwaysim.dispatch.disturbance.DisturbanceType;
 import com.railwaysim.dispatch.monitor.StationRecordStore;
 import com.railwaysim.dispatch.monitor.TrainStationEvent;
 import com.railwaysim.dispatch.operation.OperationPlan;
@@ -81,6 +82,19 @@ public class DispatchController {
     @GetMapping("/disturbances")
     public List<DisturbanceEvent> disturbances() {
         return dispatchService.disturbances();
+    }
+
+    @PostMapping("/disturbances/demo")
+    public DisturbanceEvent injectDemoDisturbance(@RequestBody DemoDisturbanceRequest request) {
+        return dispatchService.injectDemoDisturbance(
+            request.trainId(),
+            request.type(),
+            request.headwayDirection(),
+            request.targetHeadwaySec(),
+            request.actualHeadwaySec(),
+            request.violationSec(),
+            request.stationId()
+        );
     }
 
     @GetMapping("/commands")
@@ -238,6 +252,17 @@ public class DispatchController {
                 throw new IllegalArgumentException("targetHeadwaySec must be between 30 and 900");
             }
         }
+    }
+
+    public record DemoDisturbanceRequest(
+        String trainId,
+        DisturbanceType type,
+        String headwayDirection,
+        Double targetHeadwaySec,
+        Double actualHeadwaySec,
+        Double violationSec,
+        String stationId
+    ) {
     }
 
     public record PlanResponse(

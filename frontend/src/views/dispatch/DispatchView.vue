@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
+import { dispatchApi } from '../../api/dispatch'
 import CommandTimeline from '../../components/dispatch/CommandTimeline.vue'
 import DisturbanceList from '../../components/dispatch/DisturbanceList.vue'
 import type {
@@ -17,6 +18,17 @@ const props = defineProps<{
   snapshot: SimulationSnapshot | null
   dispatch: DispatchSnapshot
 }>()
+
+const emit = defineEmits<{
+  refreshRequested: []
+}>()
+
+const selectedDemoTrainId = ref('')
+const demoTargetHeadwaySec = ref(0)
+const demoSpeedLimitMps = ref(6)
+const demoDwellDeltaSec = ref(30)
+const demoPending = ref(false)
+const demoMessage = ref('')
 
 const modeLabel = (mode: string) => {
   const labels: Record<string, string> = {
@@ -105,9 +117,14 @@ const regulationLabel = (action: string) => {
 const headwayStateLabel = (state: string) => {
   const labels: Record<string, string> = {
     NORMAL: '正常',
+    ON_TARGET: '间隔正常',
+    HEADWAY_ON_TARGET: '间隔正常',
     TOO_SHORT: '间隔过小',
     TOO_LONG: '间隔过大',
+    LEADING_TRAIN: '头车',
     SCHEDULE_LATE: '运行图晚点',
+    WAITING_DEPARTURE_DATA: '等待发车数据',
+    WAITING_FOR_REFERENCE_DATA: '等待参考数据',
     UNKNOWN: '待观测'
   }
   return labels[state] ?? state
@@ -145,6 +162,18 @@ const trainById = computed(() => {
   return new Map(entries)
 })
 
+const liveTrains = computed(() => props.snapshot?.trains ?? [])
+
+const demoTrainId = computed(() =>
+  selectedDemoTrainId.value || liveTrains.value[0]?.id || props.plan?.services?.[0]?.trainId || ''
+)
+
+const demoTargetHeadway = computed(() =>
+  normalizedSeconds(demoTargetHeadwaySec.value || props.dispatch.targetHeadwaySeconds || 300, 30, 900)
+)
+
+const canSubmitDemo = computed(() => Boolean(demoTrainId.value) && !demoPending.value)
+
 const commandByTrain = computed(() => {
   const map = new Map<string, DispatchCommandView[]>()
   props.dispatch.activeCommands.forEach((command) => {
@@ -158,6 +187,11 @@ const commandByTrain = computed(() => {
 
 const profileByTrain = computed(() => {
   const entries = props.dispatch.trainProfiles.map((profile) => [profile.regulatedTrainId || profile.trainId, profile] as const)
+  return new Map(entries)
+})
+
+const authorityByTrain = computed(() => {
+  const entries = props.snapshot?.authorities.map((authority) => [authority.trainId, authority] as const) ?? []
   return new Map(entries)
 })
 
@@ -270,6 +304,93 @@ function trainNextStop(service: TrainServicePlan, train: TrainState | undefined)
   })
   return next?.stationId ?? lastStop(service)?.stationId ?? '-'
 }
+
+function currentSegmentForTrain(train: TrainState) {
+  const authoritySegmentId = authorityByTrain.value.get(train.id)?.currentSegmentId
+  const segments = props.snapshot?.trackSegments ?? []
+  if (authoritySegmentId) {
+    const segment = segments.find((item) => item.id === authoritySegmentId)
+    if (segment) return segment
+  }
+  return segments
+    .filter((segment) => train.positionMeters >= segment.startMeters && train.positionMeters < segment.endMeters)
+    .sort((left, right) => {
+      const leftRank = left.track === 'main' ? 0 : 1
+      const rightRank = right.track === 'main' ? 0 : 1
+      return leftRank - rightRank || left.startMeters - right.startMeters
+    })[0] ?? null
+}
+
+function baseSpeedLimitForTrain(train: TrainState) {
+  return currentSegmentForTrain(train)?.speedLimitMetersPerSecond ?? null
+}
+
+function normalizedSeconds(value: number, minimum: number, maximum: number) {
+  if (!Number.isFinite(value)) return minimum
+  return Math.min(Math.max(Math.round(value), minimum), maximum)
+}
+
+function normalizedSpeedLimit() {
+  if (!Number.isFinite(demoSpeedLimitMps.value)) return 6
+  return Math.min(Math.max(Math.round(demoSpeedLimitMps.value * 10) / 10, 1), 22.2)
+}
+
+async function runDemoCommand(label: string, action: () => Promise<void>) {
+  if (!canSubmitDemo.value) {
+    demoMessage.value = '当前没有可调度列车。'
+    return
+  }
+  demoPending.value = true
+  demoMessage.value = `${label}已提交。`
+  try {
+    await action()
+    emit('refreshRequested')
+    demoMessage.value = `${label}已下发，等待后端总循环确认执行效果。`
+  } catch (error) {
+    demoMessage.value = error instanceof Error ? `${label}失败：${error.message}` : `${label}失败。`
+  } finally {
+    demoPending.value = false
+  }
+}
+
+async function submitHeadwayDemo(kind: 'tooShort' | 'tooLong') {
+  const targetHeadwaySec = kind === 'tooShort'
+    ? Math.min(900, Math.max(demoTargetHeadway.value, props.dispatch.targetHeadwaySeconds + 180))
+    : Math.max(30, Math.min(demoTargetHeadway.value, props.dispatch.targetHeadwaySeconds - 120))
+  await runDemoCommand(kind === 'tooShort' ? '注入间隔过短扰动' : '注入间隔过长扰动', () =>
+    dispatchApi.injectDemoDisturbance({
+      trainId: demoTrainId.value,
+      type: 'TRAIN_REGULATION',
+      headwayDirection: kind === 'tooShort' ? 'TOO_SHORT' : 'TOO_LONG',
+      targetHeadwaySec
+    }).then(() => undefined)
+  )
+}
+
+async function submitSpeedLimitDemo() {
+  await runDemoCommand('演示临时限速', () =>
+    dispatchApi.submitCommand({
+      trainId: demoTrainId.value,
+      commandType: 'SPEED_LIMIT',
+      detail: String(normalizedSpeedLimit()),
+      payload: {
+        speedLimitMps: normalizedSpeedLimit(),
+        regulationSource: 'DISPATCH_WORKSTATION_DEMO'
+      }
+    }).then(() => undefined)
+  )
+}
+
+async function submitDwellDemo() {
+  const delta = normalizedSeconds(demoDwellDeltaSec.value, 5, 180)
+  await runDemoCommand('注入停站延长扰动', () =>
+    dispatchApi.injectDemoDisturbance({
+      trainId: demoTrainId.value,
+      type: 'DWELL_EXTENDED',
+      violationSec: delta
+    }).then(() => undefined)
+  )
+}
 </script>
 
 <template>
@@ -297,12 +418,51 @@ function trainNextStop(service: TrainServicePlan, train: TrainState | undefined)
       </article>
     </section>
 
+    <section class="panel demo-panel">
+      <header>
+        <div>
+          <h2>演示触发</h2>
+          <p>通过后端调度命令触发间隔、限速和停站调节</p>
+        </div>
+        <span class="pill">{{ demoPending ? '提交中' : '可操作' }}</span>
+      </header>
+      <div class="demo-controls">
+        <label>
+          <span>调度对象</span>
+          <select v-model="selectedDemoTrainId" :disabled="liveTrains.length === 0 || demoPending">
+            <option v-for="train in liveTrains" :key="train.id" :value="train.id">
+              {{ train.id }} · {{ train.positionMeters.toFixed(0) }}m · {{ trainStatusLabel(train.status) }}
+            </option>
+          </select>
+        </label>
+        <label>
+          <span>目标间隔(s)</span>
+          <input v-model.number="demoTargetHeadwaySec" type="number" min="30" max="900" step="30" :placeholder="String(dispatch.targetHeadwaySeconds)" />
+        </label>
+        <label>
+          <span>临时限速(m/s)</span>
+          <input v-model.number="demoSpeedLimitMps" type="number" min="1" max="22.2" step="0.5" />
+        </label>
+        <label>
+          <span>延长停站(s)</span>
+          <input v-model.number="demoDwellDeltaSec" type="number" min="5" max="180" step="5" />
+        </label>
+      </div>
+      <div class="demo-actions">
+        <button type="button" :disabled="!canSubmitDemo" @click="submitHeadwayDemo('tooShort')">间隔过短</button>
+        <button type="button" :disabled="!canSubmitDemo" @click="submitHeadwayDemo('tooLong')">间隔过长</button>
+        <button type="button" :disabled="!canSubmitDemo" @click="submitSpeedLimitDemo">临时限速</button>
+        <button type="button" :disabled="!canSubmitDemo" @click="submitDwellDemo">延长停站</button>
+      </div>
+      <p v-if="demoMessage" class="demo-message">{{ demoMessage }}</p>
+    </section>
+
     <section class="workspace-grid">
       <section class="panel plan-panel">
         <header>
           <div>
             <h2>线路计划</h2>
-            <p>{{ plan?.planId ?? dispatch.planId }} · {{ plan?.lineId ?? '-' }}</p>
+            <p>{{ plan?.planId ?? dispatch.planId }} · {{ plan?.lineId ?? '-' }} · 区间基础限速</p>
           </div>
           <span class="pill">{{ plan?.services?.length ?? 0 }} 个车次</span>
         </header>
@@ -316,7 +476,7 @@ function trainNextStop(service: TrainServicePlan, train: TrainState | undefined)
             </div>
             <small v-if="item.nextSegment">
               {{ item.nextSegment.id }} · {{ item.nextSegment.startMeters.toFixed(0) }}-{{ item.nextSegment.endMeters.toFixed(0) }}m ·
-              {{ item.nextSegment.speedLimitMps.toFixed(1) }}m/s
+              基础限速 {{ item.nextSegment.speedLimitMps.toFixed(1) }}m/s
             </small>
           </div>
         </div>
@@ -471,7 +631,9 @@ function trainNextStop(service: TrainServicePlan, train: TrainState | undefined)
               <th>状态</th>
               <th>站点</th>
               <th>停站(s)</th>
-              <th>限速(m/s)</th>
+              <th>区段</th>
+              <th>基础限速(m/s)</th>
+              <th>有效限速(m/s)</th>
               <th>MA距离(m)</th>
               <th>车辆约束</th>
               <th>间隔偏差</th>
@@ -486,6 +648,8 @@ function trainNextStop(service: TrainServicePlan, train: TrainState | undefined)
               <td>{{ trainStatusLabel(train.status) }}</td>
               <td>{{ train.currentStationId || '-' }}</td>
               <td>{{ train.dwellElapsedSeconds ?? 0 }}</td>
+              <td>{{ currentSegmentForTrain(train)?.id ?? '-' }}</td>
+              <td>{{ formatNumber(baseSpeedLimitForTrain(train), 1) }}</td>
               <td>{{ train.speedLimitMetersPerSecond.toFixed(1) }}</td>
               <td>{{ train.movementAuthorityDistanceMeters.toFixed(1) }}</td>
               <td>{{ dynamicsReasonLabel(train.dynamicsConstraintReason || '-') }}</td>
@@ -591,6 +755,79 @@ header p {
   font-weight: 700;
 }
 
+.demo-panel {
+  display: grid;
+  gap: 12px;
+}
+
+.demo-controls {
+  display: grid;
+  grid-template-columns: 1.35fr repeat(3, minmax(120px, 0.55fr));
+  gap: 10px;
+}
+
+.demo-controls label {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.demo-controls span {
+  color: #65758b;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.demo-controls select,
+.demo-controls input {
+  width: 100%;
+  min-height: 36px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: #fff;
+  padding: 6px 10px;
+  font: inherit;
+}
+
+.demo-actions {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.demo-actions button {
+  min-height: 38px;
+  border: 1px solid #2563eb;
+  border-radius: 8px;
+  background: #2563eb;
+  color: #fff;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.demo-actions button:nth-child(3) {
+  border-color: #9a4f00;
+  background: #b85f00;
+}
+
+.demo-actions button:nth-child(4) {
+  border-color: #08704f;
+  background: #0f7d5d;
+}
+
+.demo-actions button:disabled {
+  border-color: #cbd5e1;
+  background: #e2e8f0;
+  color: #7a8a9d;
+  cursor: not-allowed;
+}
+
+.demo-message {
+  margin: 0;
+  color: #2452a6;
+  font-size: 13px;
+}
+
 .line-plan {
   display: grid;
   gap: 0;
@@ -678,7 +915,7 @@ header p {
 
 table {
   width: 100%;
-  min-width: 920px;
+  min-width: 1080px;
   border-collapse: collapse;
   font-size: 12px;
 }
@@ -770,7 +1007,9 @@ dd {
 @media (max-width: 1100px) {
   .kpi-strip,
   .workspace-grid,
-  .lower-grid {
+  .lower-grid,
+  .demo-controls,
+  .demo-actions {
     grid-template-columns: 1fr;
   }
 }

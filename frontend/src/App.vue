@@ -156,7 +156,8 @@ const backendStatus = ref('STOPPED')
 const {
   plan: dispatchPlan,
   snapshot: dispatchSnapshot,
-  dispatch: dispatchState
+  dispatch: dispatchState,
+  refreshSimulationSnapshot: refreshDispatchSnapshot
 } = useSimulation()
 
 const stations = ['上京南', '科技园', '人民广场', '金融城', '会展中心', '机场北']
@@ -754,6 +755,7 @@ onBeforeUnmount(() => {
       :plan="dispatchPlan"
       :snapshot="dispatchSnapshot"
       :dispatch="dispatchState"
+      @refresh-requested="refreshDispatchSnapshot"
     />
   </main>
   <main v-else class="monitor-shell">

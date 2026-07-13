@@ -69,6 +69,22 @@ public record OperationalLineData(
             .orElse(fallbackMetersPerSecond);
     }
 
+    public double speedLimitAt(double positionMeters, String segmentId, double fallbackMetersPerSecond) {
+        return speedLimitZones.stream()
+            .filter(zone -> zoneAppliesToSegment(zone, segmentId))
+            .filter(zone -> positionMeters >= zone.startMeters() && positionMeters < zone.endMeters())
+            .mapToDouble(SpeedLimitZone::speedLimitMetersPerSecond)
+            .min()
+            .orElse(fallbackMetersPerSecond);
+    }
+
+    private static boolean zoneAppliesToSegment(SpeedLimitZone zone, String segmentId) {
+        if (segmentId == null || segmentId.isBlank()) {
+            return true;
+        }
+        return zone.segmentId() == null || zone.segmentId().isBlank() || zone.segmentId().equals(segmentId);
+    }
+
     public double gradientAt(double positionMeters) {
         return gradientZones.stream()
             .filter(zone -> positionMeters >= zone.startMeters() && positionMeters < zone.endMeters())

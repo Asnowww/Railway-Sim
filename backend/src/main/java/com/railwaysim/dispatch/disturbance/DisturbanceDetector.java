@@ -56,6 +56,18 @@ public class DisturbanceDetector {
         return List.copyOf(openEvents.values());
     }
 
+    public DisturbanceEvent inject(DisturbanceEvent event) {
+        String key = event.disturbanceType() == DisturbanceType.TRAIN_REGULATION
+            || event.disturbanceType() == DisturbanceType.HEADWAY_VIOLATION
+            ? event.trainId() + ":" + DisturbanceType.TRAIN_REGULATION.name()
+            : event.trainId() + ":" + event.disturbanceType().name();
+        openEvents.put(key, event);
+        consecutiveHits.put(key, properties.getConfirmTicks());
+        consecutiveRecoveries.remove(key);
+        lastTriggeredAt.put(key, event.recordedAt());
+        return event;
+    }
+
     public void reset() {
         consecutiveHits.clear();
         consecutiveRecoveries.clear();
