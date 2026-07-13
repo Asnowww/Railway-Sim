@@ -149,13 +149,22 @@ public class TrackService {
 
         // Resolve each train onto one topology path before applying body occupancy.
         for (TrainState train : trains) {
+            // 终点站已停列车不再标记占用——后车可跟随进站
+            if (train.positionMeters() >= infrastructureCatalog.lineData().lineLengthMeters() - 10
+                && train.zeroSpeed()) {
+                continue;
+            }
             double tail = train.positionMeters() - train.lengthMeters();
             double head = train.positionMeters();
             TrackSegmentState current = segmentForTrain(train);
             String previousId = previousTrainSegmentIds.get(train.id());
             for (int i = 0; i < segments.size(); i++) {
                 TrackSegmentState seg = segments.get(i);
-                boolean onTrainPath = seg.id().equals(current.id()) || seg.id().equals(previousId);
+                // 跳过不同轨道的并行段 (如列车在main, 不标north/loop/branch/depot)
+                boolean sameTrack = seg.track() == null || current.track() == null
+                    || seg.track().equals(current.track())
+                    || ("main".equals(current.track()) && "main".equals(seg.track()));
+                boolean onTrainPath = (seg.id().equals(current.id()) || seg.id().equals(previousId)) && sameTrack;
                 if (onTrainPath && overlaps(head, tail, seg.startMeters(), seg.endMeters())) {
                     occupyingTrainIdsBySegment
                         .computeIfAbsent(seg.id(), ignored -> new HashSet<>())
@@ -450,7 +459,7 @@ public class TrackService {
                     stationControlDistance
                 );
             })
-            .toList();
+            .collect(java.util.stream.Collectors.toCollection(ArrayList::new));
     }
 
     /**

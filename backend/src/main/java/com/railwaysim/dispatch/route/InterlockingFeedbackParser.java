@@ -17,6 +17,7 @@ public final class InterlockingFeedbackParser {
         String routeId = firstNonBlank(stringValue(details.get("routeId")), RouteDispatchRecordStore.routeIdFrom(command));
         String state = stringValue(details.get("interlockingState"));
         String explicitCode = stringValue(details.get("resultCode"));
+        Boolean explicitRetryable = nullableBooleanValue(details.get("retryable"));
         if (accepted) {
             return new InterlockingFeedback(true, firstNonBlank(explicitCode, "ROUTE_ESTABLISHED"),
                 "NONE", false, routeId, state, reason);
@@ -26,34 +27,34 @@ public final class InterlockingFeedbackParser {
         String commandType = command == null ? "" : command.commandType();
         if (normalized.contains("does not exist") || normalized.contains("no matching route")
             || normalized.contains("not found")) {
-            return rejected(classifiedCode(explicitCode, "ROUTE_NOT_FOUND"), "CONFIGURATION", false,
+            return rejected(classifiedCode(explicitCode, "ROUTE_NOT_FOUND"), "CONFIGURATION", retryable(explicitRetryable, false),
                 routeId, state, reason);
         }
         if (normalized.contains("unsupported") || normalized.contains("invalid")
             || normalized.contains("requires route")) {
-            return rejected(classifiedCode(explicitCode, "INVALID_ROUTE_REQUEST"), "INVALID_REQUEST", false,
+            return rejected(classifiedCode(explicitCode, "INVALID_ROUTE_REQUEST"), "INVALID_REQUEST", retryable(explicitRetryable, false),
                 routeId, state, reason);
         }
         if ("CANCEL_ROUTE".equals(commandType)
             && (normalized.contains("after a train has entered") || normalized.contains("cannot be cancelled"))) {
-            return rejected(classifiedCode(explicitCode, "ROUTE_CANCEL_NOT_ALLOWED"), "CANCEL_NOT_ALLOWED", false,
+            return rejected(classifiedCode(explicitCode, "ROUTE_CANCEL_NOT_ALLOWED"), "CANCEL_NOT_ALLOWED", retryable(explicitRetryable, false),
                 routeId, state, reason);
         }
         if (normalized.contains("occupied") || normalized.contains("conflict")
             || normalized.contains("locked") || normalized.contains("reserved")) {
-            return rejected(classifiedCode(explicitCode, "INTERLOCKING_RESOURCE_BUSY"), "RESOURCE_CONFLICT", true,
+            return rejected(classifiedCode(explicitCode, "INTERLOCKING_RESOURCE_BUSY"), "RESOURCE_CONFLICT", retryable(explicitRetryable, true),
                 routeId, state, reason);
         }
         if (normalized.contains("switch") || normalized.contains("道岔")) {
-            return rejected(classifiedCode(explicitCode, "SWITCH_UNAVAILABLE"), "SWITCH_STATE", true,
+            return rejected(classifiedCode(explicitCode, "SWITCH_UNAVAILABLE"), "SWITCH_STATE", retryable(explicitRetryable, true),
                 routeId, state, reason);
         }
         if (normalized.contains("timeout") || normalized.contains("超时")
             || normalized.contains("temporar") || normalized.contains("busy")) {
-            return rejected(classifiedCode(explicitCode, "INTERLOCKING_TEMPORARY_FAILURE"), "TEMPORARY", true,
+            return rejected(classifiedCode(explicitCode, "INTERLOCKING_TEMPORARY_FAILURE"), "TEMPORARY", retryable(explicitRetryable, true),
                 routeId, state, reason);
         }
-        return rejected(firstNonBlank(explicitCode, "INTERLOCKING_REJECTED"), "UNKNOWN", false,
+        return rejected(firstNonBlank(explicitCode, "INTERLOCKING_REJECTED"), "UNKNOWN", retryable(explicitRetryable, false),
             routeId, state, reason);
     }
 
@@ -70,6 +71,14 @@ public final class InterlockingFeedbackParser {
 
     private static boolean booleanValue(Object value) {
         return value instanceof Boolean flag ? flag : value != null && Boolean.parseBoolean(value.toString());
+    }
+
+    private static Boolean nullableBooleanValue(Object value) {
+        return value == null ? null : booleanValue(value);
+    }
+
+    private static boolean retryable(Boolean explicitValue, boolean fallback) {
+        return explicitValue == null ? fallback : explicitValue;
     }
 
     private static String stringValue(Object value) {
