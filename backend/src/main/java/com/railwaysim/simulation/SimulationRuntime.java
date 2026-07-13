@@ -205,7 +205,8 @@ public class SimulationRuntime {
             feedbackDetails.put("routeId", routeId);
             feedbackDetails.put("resultCode", result.accepted()
                 ? ("CANCEL_ROUTE".equals(cmd.commandType()) ? "ROUTE_CANCELLED" : "ROUTE_ESTABLISHED")
-                : "INTERLOCKING_REJECTED");
+                : result.failureCode().name());
+            feedbackDetails.put("retryable", result.retryable());
             if (result.rejectReason() != null) {
                 feedbackDetails.put("rawReason", result.rejectReason());
             }
