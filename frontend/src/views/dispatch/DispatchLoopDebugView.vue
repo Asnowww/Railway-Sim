@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { dispatchApi } from '../../api/dispatch'
 import { useSimulation } from '../../composables/useSimulation'
 import RunPlanPanel from '../../components/dispatch/RunPlanPanel.vue'
@@ -20,9 +20,7 @@ const {
   tick,
   errorMessage,
   backendReady,
-  autoRunning,
-  runSimulation,
-  toggleAutoRun,
+  refreshSimulationSnapshot,
 } = useSimulation()
 
 const trains = computed(() => snapshot.value?.trains ?? [])
@@ -41,6 +39,10 @@ const openDisturbanceCount = computed(() => dispatch.value.openDisturbances.leng
 const demoSpeedLimitMps = ref(6)
 const demoShortHeadwaySec = ref(180)
 const demoLongHeadwaySec = ref(540)
+const selectedTrainId = ref('')
+const manualToolsOpen = ref(false)
+const manualActionPending = ref(false)
+const manualActionMessage = ref('')
 const comparisonBaseline = ref<ComparisonBaseline | null>(null)
 const dispatchRouteList = ref<DispatchRouteInfo[]>([])
 const selectedRouteId = ref('')
@@ -55,10 +57,18 @@ const orderedTrains = computed(() =>
 )
 const rearTrain = computed(() => orderedTrains.value[0] ?? null)
 const frontTrain = computed(() => orderedTrains.value[1] ?? null)
+const selectedDemoTrain = computed(() =>
+  selectedTrainId.value ? trains.value.find((train) => train.id === selectedTrainId.value) ?? null : null
+)
+const selectedFrontTrain = computed(() => {
+  const target = selectedDemoTrain.value
+  if (!target) return null
+  return orderedTrains.value.find((train) => train.positionMeters > target.positionMeters && train.id !== target.id) ?? null
+})
 const primaryHeadwayProfile = computed(() => {
-  if (rearTrain.value) {
-    const rearProfile = dispatch.value.trainProfiles.find((profile) => profile.trainId === rearTrain.value?.id)
-    if (rearProfile) return rearProfile
+  if (selectedDemoTrain.value) {
+    const selectedProfile = dispatch.value.trainProfiles.find((profile) => profile.trainId === selectedDemoTrain.value?.id)
+    if (selectedProfile) return selectedProfile
   }
   return dispatch.value.trainProfiles.find((profile) => profile.frontTrainId) ?? dispatch.value.trainProfiles[0] ?? null
 })
@@ -99,14 +109,112 @@ const headwayViolation = computed(() => {
     hint: '实际间隔在允许容差内'
   }
 })
-const headwayControlledTrainId = computed(() => primaryHeadwayProfile.value?.trainId ?? rearTrain.value?.id ?? '-')
-const headwayFrontTrainId = computed(() => primaryHeadwayProfile.value?.frontTrainId ?? frontTrain.value?.id ?? '-')
+const headwayControlledTrainId = computed(() => primaryHeadwayProfile.value?.trainId ?? selectedDemoTrain.value?.id ?? '-')
+const headwayFrontTrainId = computed(() => primaryHeadwayProfile.value?.frontTrainId ?? selectedFrontTrain.value?.id ?? '-')
 const headwayRegulationAction = computed(() => primaryHeadwayProfile.value?.regulationAction ?? 'OBSERVE')
 const lineEndMeters = computed(() => {
   const ends = snapshot.value?.trackSegments.map((segment) => segment.endMeters) ?? []
   return ends.length > 0 ? Math.max(...ends) : null
 })
-const currentGapMeters = computed(() => spatialGapMeters(rearTrain.value, frontTrain.value))
+const currentGapMeters = computed(() => spatialGapMeters(selectedDemoTrain.value, selectedFrontTrain.value))
+const dwellStartTicks = ref<Record<string, { stationId: string; tick: number }>>({})
+const selectedTrainLimitSummary = computed(() => {
+  const train = selectedDemoTrain.value
+  return train ? effectiveLimitText(train) : '未选择列车'
+})
+const planTrainOptions = computed(() => {
+  const liveTrainIds = new Set(trains.value.map((train) => train.id))
+  return (plan.value?.services ?? []).filter((service) => !liveTrainIds.has(service.trainId))
+})
+const selectedTrainProfile = computed(() =>
+  selectedDemoTrain.value
+    ? dispatch.value.trainProfiles.find((profile) => profile.trainId === selectedDemoTrain.value?.id) ?? null
+    : null
+)
+const selectedTrainService = computed(() =>
+  selectedDemoTrain.value
+    ? plan.value?.services.find((service) => service.trainId === selectedDemoTrain.value?.id) ?? null
+    : null
+)
+const selectedTrainAuthority = computed(() =>
+  selectedDemoTrain.value ? authorityByTrain.value.get(selectedDemoTrain.value.id) ?? null : null
+)
+const selectedTrainReservation = computed(() =>
+  selectedDemoTrain.value ? routeReservationForTrain(selectedDemoTrain.value.id) : null
+)
+const selectedTrainRouteState = computed(() => {
+  const reservation = selectedTrainReservation.value
+  const train = selectedDemoTrain.value
+  return routes.value.find((route) => route.routeId === reservation?.routeId)
+    ?? routes.value.find((route) => route.establishedByTrainId === train?.id)
+    ?? null
+})
+const selectedTrainCommands = computed(() => {
+  const trainId = selectedDemoTrain.value?.id
+  if (!trainId) return []
+  return dispatch.value.activeCommands.filter((command) =>
+    command.trainId === trainId || command.regulatedTrainId === trainId
+  )
+})
+const selectedTrainOpenDisturbances = computed(() => {
+  const trainId = selectedDemoTrain.value?.id
+  if (!trainId) return []
+  return dispatch.value.openDisturbances.filter((disturbance) =>
+    disturbance.trainId === trainId || disturbance.regulatedTrainId === trainId
+  )
+})
+const selectedTrainSuggestion = computed(() => {
+  const profile = selectedTrainProfile.value
+  if (!selectedDemoTrain.value) return { label: '未选择列车', action: 'NONE', reason: '请先在列车运行总览中选择调度对象。' }
+  if (!profile) return { label: '继续观测', action: 'OBSERVE', reason: '当前没有稳定的实际发车间隔数据，调度不应提前下发追赶/放慢。' }
+  if (profile.regulationAction === 'SLOW_DOWN') {
+    return { label: '本车放慢', action: 'SLOW_DOWN', reason: `实际间隔 ${formatSeconds(profile.headwayActualSeconds)}，低于目标区间，需要拉开与前车距离。` }
+  }
+  if (profile.regulationAction === 'CATCH_UP') {
+    return { label: '本车追赶', action: 'CATCH_UP', reason: `实际间隔 ${formatSeconds(profile.headwayActualSeconds)}，高于目标区间，需要压缩运行间隔。` }
+  }
+  if (profile.headwayState === 'TOO_SHORT') {
+    return { label: '本车放慢', action: 'SLOW_DOWN', reason: '间隔状态为过短，建议延长停站或降低运行节奏。' }
+  }
+  if (profile.headwayState === 'TOO_LONG') {
+    return { label: '本车追赶', action: 'CATCH_UP', reason: '间隔状态为过长，建议缩短停站或请求追赶运行。' }
+  }
+  return { label: '继续观测', action: 'OBSERVE', reason: '当前间隔未触发明确调节动作。' }
+})
+const canApplySuggestion = computed(() =>
+  ['SLOW_DOWN', 'CATCH_UP'].includes(selectedTrainSuggestion.value.action)
+    && ['TOO_SHORT', 'TOO_LONG'].includes(selectedTrainProfile.value?.headwayState ?? '')
+)
+const suggestionDisabledReason = computed(() => {
+  if (!selectedDemoTrain.value) return '请先选择调度对象'
+  if (!selectedTrainProfile.value) return '没有实际发车间隔数据，暂不下发间隔调节'
+  if (!canApplySuggestion.value) return '当前建议为继续观察，不需要下发调度命令'
+  return ''
+})
+const trainOverviewRows = computed(() =>
+  orderedTrains.value.map((train) => {
+    const profile = dispatch.value.trainProfiles.find((item) => item.trainId === train.id) ?? null
+    const authority = authorityByTrain.value.get(train.id) ?? null
+    const reservation = routeReservationForTrain(train.id)
+    const routeState = routes.value.find((route) => route.routeId === reservation?.routeId)
+      ?? routes.value.find((route) => route.establishedByTrainId === train.id)
+      ?? null
+    const command = dispatch.value.activeCommands.find((item) =>
+      item.trainId === train.id || item.regulatedTrainId === train.id
+    )
+    return {
+      train,
+      profile,
+      authority,
+      reservation,
+      routeState,
+      command,
+      dispatchRouteId: dispatchRouteText(train, reservation, routeState),
+      dispatchRouteState: dispatchRouteStateText(reservation, routeState),
+      attention: trainAttentionState(train, profile, reservation, command)
+    }
+  })
+)
 const comparisonWarnings = computed(() => {
   const baseline = comparisonBaseline.value
   if (!baseline) return []
@@ -250,8 +358,8 @@ const commandStatusLabel = (statusText: string) => {
   const labels: Record<string, string> = {
     PENDING: '待下发',
     SENT: '已下发',
-    APPLIED: '已观测到执行',
-    EFFECT_CONFIRMED: '闭环已完成',
+    APPLIED: '约束已出现',
+    EFFECT_CONFIRMED: '效果已闭环',
     TIMEOUT: '执行超时',
     SKIPPED: '已跳过',
     CANCELLED: '已取消',
@@ -265,9 +373,9 @@ const commandStatusLabel = (statusText: string) => {
 const commandStatusHint = (statusText: string) => {
   const hints: Record<string, string> = {
     PENDING: '调度已生成指令，等待进入信号/车辆执行链路。',
-    SENT: '指令已发出，正在等待信号/车辆状态反馈。',
-    APPLIED: '已经从 MA、速度、停站释放等状态观察到指令开始起作用。',
-    EFFECT_CONFIRMED: '调度确认效果已闭环，指令不应继续施加约束。',
+    SENT: '指令已下发到后端，尚未看到可核对的 MA、速度、停站或进路状态变化。',
+    APPLIED: '已看到中间约束或车辆状态变化，但还不等于最终运行效果恢复。',
+    EFFECT_CONFIRMED: '调度确认目标效果已满足，指令可以退出持续约束。',
     TIMEOUT: '观察窗口内没有确认效果，需要检查信号、车辆或线路约束。',
     SKIPPED: '指令没有进入执行链路。',
     CANCELLED: '指令已取消。',
@@ -411,7 +519,7 @@ async function loadDispatchRoutes() {
 
 async function requestSelectedRoute() {
   const routeId = selectedRouteId.value
-  const trainId = selectedRouteTrainId.value || trains.value[0]?.id || ''
+  const trainId = selectedRouteTrainId.value || selectedDemoTrain.value?.id || ''
   if (!routeId || !trainId || routeRequestPending.value) return
 
   routeRequestPending.value = true
@@ -425,7 +533,7 @@ async function requestSelectedRoute() {
     const reservationId = textPayloadValue(command.payload?.reservationId)
     routeOperationMessage.value = `进路申请已入队：指令 ${command.id} / 决策 ${decisionId} / 预留 ${reservationId}`
 
-    await runSimulation('tick')
+    await refreshSimulationSnapshot()
     await loadDispatchRoutes()
 
     const currentCommand = dispatch.value.activeCommands.find((item) => item.id === command.id)
@@ -451,26 +559,80 @@ function textPayloadValue(value: unknown) {
 
 onMounted(loadDispatchRoutes)
 
+watch(
+  trains,
+  (currentTrains) => {
+    if (selectedTrainId.value && !currentTrains.some((train) => train.id === selectedTrainId.value)) {
+      selectedTrainId.value = ''
+      selectedRouteTrainId.value = ''
+    }
+  },
+  { immediate: true }
+)
+
+watch(
+  [trains, tick],
+  () => {
+    const next: Record<string, { stationId: string; tick: number }> = {}
+    for (const train of trains.value) {
+      if (!isDwellingForDisplay(train)) continue
+      const stationId = observedStationKey(train)
+      const previous = dwellStartTicks.value[train.id]
+      next[train.id] = previous && previous.stationId === stationId
+        ? previous
+        : { stationId, tick: tick.value }
+    }
+    dwellStartTicks.value = next
+  },
+  { immediate: true }
+)
+
 async function submitLoopDemoCommand() {
-  const targetTrain = rearTrain.value ?? trains.value[0]
-  if (!targetTrain) return
+  const targetTrain = selectedDemoTrain.value
+  if (!targetTrain) throw new Error('请先在上方列车运行表选择调度对象')
   captureBaseline('SPEED_LIMIT', targetTrain)
   await dispatchApi.submitCommand({
     trainId: targetTrain.id,
     commandType: 'SPEED_LIMIT',
     detail: String(normalizedSpeedLimit())
   })
-  await runSimulation('tick')
+  await refreshSimulationSnapshot()
 }
 
 async function cancelCommand(commandId: string) {
   await dispatchApi.cancelCommand(commandId)
-  await runSimulation('tick')
+  await refreshSimulationSnapshot()
+}
+
+function selectTrain(trainId: string) {
+  selectedTrainId.value = trainId
+  selectedRouteTrainId.value = trainId
+  manualActionMessage.value = ''
+}
+
+async function acceptSuggestedAction() {
+  const action = selectedTrainSuggestion.value.action
+  if (action === 'SLOW_DOWN') {
+    await runManualAction('采纳本车放慢建议', () => submitHeadwayDemo('tooShort'))
+    return
+  }
+  if (action === 'CATCH_UP') {
+    await runManualAction('采纳本车追赶建议', () => submitHeadwayDemo('tooLong'))
+    return
+  }
+  manualActionMessage.value = suggestionDisabledReason.value || '当前没有可下发的调度建议'
+}
+
+async function requestRouteForSelected() {
+  if (selectedDemoTrain.value) {
+    selectedRouteTrainId.value = selectedDemoTrain.value.id
+  }
+  await requestSelectedRoute()
 }
 
 async function submitHeadwayDemo(kind: 'tooShort' | 'tooLong') {
-  const targetTrain = rearTrain.value ?? trains.value[0]
-  if (!targetTrain) return
+  const targetTrain = selectedDemoTrain.value
+  if (!targetTrain) throw new Error('请先在上方列车运行表选择调度对象')
   const targetHeadwaySec = kind === 'tooShort'
     ? normalizedHeadway(demoLongHeadwaySec.value)
     : normalizedHeadway(demoShortHeadwaySec.value)
@@ -485,7 +647,42 @@ async function submitHeadwayDemo(kind: 'tooShort' | 'tooLong') {
       regulationSource: 'MANUAL_DEMO'
     }
   })
-  await runSimulation('tick')
+  await refreshSimulationSnapshot()
+}
+
+async function runManualAction(label: string, action: () => Promise<void>) {
+  if (manualActionPending.value) return
+  if (!selectedDemoTrain.value) {
+    manualActionMessage.value = '请先在上方列车运行表选择调度对象。'
+    return
+  }
+
+  manualActionPending.value = true
+  manualActionMessage.value = `${label}已提交，等待后端总循环处理。`
+  try {
+    await action()
+    manualActionMessage.value = `${label}已下发，请在运行表和闭环追踪中观察 MA、速度、停站或进路状态变化。`
+  } catch (error) {
+    manualActionMessage.value = error instanceof Error ? `${label}失败：${error.message}` : `${label}失败。`
+  } finally {
+    manualActionPending.value = false
+  }
+}
+
+async function submitManualHeadwayDemo(kind: 'tooShort' | 'tooLong') {
+  await runManualAction(kind === 'tooShort' ? '演示本车放慢' : '演示本车追赶', () => submitHeadwayDemo(kind))
+}
+
+async function submitManualSpeedLimit() {
+  await runManualAction('人工下发限速', submitLoopDemoCommand)
+}
+
+async function submitManualRouteRequest() {
+  if (!selectedRouteId.value) {
+    manualActionMessage.value = '请先选择要人工申请的进路。'
+    return
+  }
+  await runManualAction('人工申请进路', requestRouteForSelected)
 }
 
 function normalizedSpeedLimit() {
@@ -511,6 +708,189 @@ function stationObservation(trainId: string, currentStationId: string | null | u
   const authority = authorityByTrain.value.get(trainId)
   if (authority?.reason?.includes('站台停靠')) return '信号站停'
   return '-'
+}
+
+function observedStationKey(train: TrainState) {
+  const station = stationObservation(train.id, train.currentStationId)
+  return station === '-' ? '' : station
+}
+
+function isDwellingForDisplay(train: TrainState) {
+  const hasStation = observedStationKey(train).length > 0
+  return train.status === 'DWELLING'
+    || train.dynamicsState === 'STATION_STOPPED'
+    || (hasStation && train.speedMetersPerSecond <= 0.5)
+}
+
+function observedDwellSeconds(train: TrainState) {
+  if (!isDwellingForDisplay(train)) return '-'
+  if ((train.dwellElapsedSeconds ?? 0) > 0) return `${train.dwellElapsedSeconds}s`
+  const marker = dwellStartTicks.value[train.id]
+  if (!marker) return '0s'
+  return `${Math.max(0, tick.value - marker.tick)}s`
+}
+
+function commandSpeedLimit(command: { payload?: Record<string, unknown>; detail?: string | null }) {
+  const value = command.payload?.detail ?? command.payload?.targetSpeedMetersPerSecond ?? command.detail
+  if (typeof value === 'number' && Number.isFinite(value)) return value
+  if (typeof value === 'string' && value.trim().length > 0) {
+    const parsed = Number.parseFloat(value)
+    return Number.isFinite(parsed) ? parsed : null
+  }
+  return null
+}
+
+function commandEvidence(command: { commandType: string; trainId: string; status: string; reason: string; detail?: string | null; payload?: Record<string, unknown> }) {
+  const payload = command.payload ?? {}
+  const details = typeof payload.lastFeedbackDetails === 'object' && payload.lastFeedbackDetails !== null
+    ? payload.lastFeedbackDetails as Record<string, unknown>
+    : {}
+  const feedbackReason = textPayloadValue(payload.lastFeedbackReason)
+  const pieces: string[] = []
+  if (details.actualSpeed !== undefined) pieces.push(`实速 ${formatNumber(numberPayloadValue(details.actualSpeed))} m/s`)
+  if (details.zeroSpeed !== undefined) pieces.push(`零速 ${details.zeroSpeed ? '是' : '否'}`)
+  if (details.constraintReason !== undefined) pieces.push(`约束 ${dynamicsReasonLabel(String(details.constraintReason))}`)
+  if (feedbackReason !== '-') pieces.push(`反馈 ${feedbackReason}`)
+  if (pieces.length > 0) return pieces.join(' / ')
+
+  const targetTrain = trains.value.find((train) => train.id === command.trainId)
+  const authority = authorityByTrain.value.get(command.trainId)
+  if (['SPEED_LIMIT', 'TEMP_SPEED_LIMIT'].includes(command.commandType)) {
+    const targetLimit = commandSpeedLimit(command)
+    return [
+      `目标 ${formatMps(targetLimit)}`,
+      `MA ${formatMps(authority?.speedLimitMetersPerSecond ?? null)}`,
+      `车辆 ${formatMps(targetTrain?.speedLimitMetersPerSecond ?? null)}`
+    ].join(' / ')
+  }
+  if (authority) return `MA ${formatMps(authority.speedLimitMetersPerSecond)} / ${authority.reason}`
+  return command.reason || '-'
+}
+
+function numberPayloadValue(value: unknown) {
+  if (typeof value === 'number') return value
+  if (typeof value === 'string') {
+    const parsed = Number.parseFloat(value)
+    return Number.isFinite(parsed) ? parsed : null
+  }
+  return null
+}
+
+function effectiveLimitText(train: TrainState) {
+  const authority = authorityByTrain.value.get(train.id)
+  const effective = Math.min(
+    train.speedLimitMetersPerSecond,
+    authority?.speedLimitMetersPerSecond ?? train.speedLimitMetersPerSecond
+  )
+  return `${formatMps(effective)}（车辆 ${formatMps(train.speedLimitMetersPerSecond)} / MA ${formatMps(authority?.speedLimitMetersPerSecond ?? null)}）`
+}
+
+function conciseLimitText(train: TrainState) {
+  const authority = authorityByTrain.value.get(train.id)
+  const effective = Math.min(
+    train.speedLimitMetersPerSecond,
+    authority?.speedLimitMetersPerSecond ?? train.speedLimitMetersPerSecond
+  )
+  return formatMps(effective)
+}
+
+function rowClass(train: TrainState) {
+  return {
+    selected: train.id === selectedDemoTrain.value?.id,
+    dwelling: isDwellingForDisplay(train)
+  }
+}
+
+function routeReservationForTrain(trainId: string) {
+  const priority = ['REQUESTED', 'ACCEPTED', 'REJECTED', 'TIMEOUT', 'CANCELLED', 'RELEASED', 'EXPIRED']
+  return [...routeReservations.value]
+    .filter((reservation) => reservation.trainId === trainId)
+    .sort((first, second) => {
+      const firstRank = priority.indexOf(first.state)
+      const secondRank = priority.indexOf(second.state)
+      return (firstRank === -1 ? priority.length : firstRank) - (secondRank === -1 ? priority.length : secondRank)
+    })[0] ?? null
+}
+
+function trainAttentionState(
+  train: TrainState,
+  profile: { headwayState: string; regulationAction: string } | null,
+  reservation: { state: string; retryable: boolean; failureCode: string | null } | null,
+  command: { status: string } | undefined
+) {
+  if (reservation?.state === 'REJECTED' || reservation?.state === 'TIMEOUT') return 'ROUTE_BLOCKED'
+  if (command && ['PENDING', 'SENT', 'APPLIED'].includes(command.status)) return 'COMMAND_ACTIVE'
+  if (profile?.headwayState === 'TOO_SHORT' || profile?.headwayState === 'TOO_LONG') return profile.headwayState
+  if (train.speedMetersPerSecond <= 0.1 && train.status !== 'DWELLING' && !nearTerminal(train)) return 'STOPPED'
+  return 'NORMAL'
+}
+
+function attentionLabel(attention: string) {
+  const labels: Record<string, string> = {
+    NORMAL: '正常',
+    TOO_SHORT: '间隔过短',
+    TOO_LONG: '间隔过长',
+    COMMAND_ACTIVE: '干预中',
+    ROUTE_BLOCKED: '进路异常',
+    STOPPED: '停车确认',
+  }
+  return labels[attention] ?? attention
+}
+
+function nextStopText(train: TrainState) {
+  const service = plan.value?.services.find((item) => item.trainId === train.id)
+  if (!service) return '-'
+  if (train.currentStationId) {
+    const currentIndex = service.stops.findIndex((stop) => stop.stationId === train.currentStationId)
+    if (currentIndex >= 0) return service.stops[currentIndex + 1]?.stationId ?? '终点'
+  }
+  const routeStation = service.stops.find((stop) => stop.arrivalOffsetSec > 0 && stop.stationId !== service.stops[0]?.stationId)
+  return routeStation?.stationId ?? service.stops[1]?.stationId ?? '-'
+}
+
+function selectedCurrentStopPlanText() {
+  const train = selectedDemoTrain.value
+  const service = selectedTrainService.value
+  if (!train || !service) return '-'
+  const stationId = train.currentStationId ?? service.stops[0]?.stationId
+  const stop = service.stops.find((item) => item.stationId === stationId)
+  if (!stop) return stationId ?? '-'
+  return `${stop.stationId} / 到 ${formatSeconds(stop.arrivalOffsetSec)} / 发 ${formatSeconds(stop.departureOffsetSec)}`
+}
+
+function selectedNextStopPlanText() {
+  const train = selectedDemoTrain.value
+  const service = selectedTrainService.value
+  if (!train || !service) return '-'
+  const nextStationId = nextStopText(train)
+  const stop = service.stops.find((item) => item.stationId === nextStationId)
+  if (!stop) return nextStationId
+  return `${stop.stationId} / 到 ${formatSeconds(stop.arrivalOffsetSec)} / 发 ${formatSeconds(stop.departureOffsetSec)}`
+}
+
+function routeStateForDisplay(routeStatus: string | null | undefined, reservationState: string | null | undefined) {
+  if (routeStatus) return routeStatusLabel(routeStatus)
+  if (reservationState) return routeReservationStateLabel(reservationState)
+  return '未申请'
+}
+
+function dispatchRouteText(
+  train: TrainState,
+  reservation: { routeId: string } | null,
+  routeState: { routeId: string } | null
+) {
+  if (reservation?.routeId) return reservation.routeId
+  if (routeState?.routeId) return routeState.routeId
+  return train.routeId && train.routeId !== 'topology-demo' ? train.routeId : '未由调度申请'
+}
+
+function dispatchRouteStateText(
+  reservation: { state: string } | null,
+  routeState: { status: string } | null
+) {
+  if (routeState?.status) return routeStatusLabel(routeState.status)
+  if (reservation?.state) return routeReservationStateLabel(reservation.state)
+  return '未由调度申请'
 }
 
 function captureBaseline(commandType: string, targetTrain: TrainState, commandTargetHeadwaySeconds: number | null = null) {
@@ -574,17 +954,10 @@ function formatDelta(current: number | null | undefined, baseline: number | null
       <section>
         <p class="eyebrow">Dispatch Closed Loop</p>
         <h1>调度闭环调试台</h1>
-        <p>实时查看调度指令、扰动、列车状态、MA、信号、进路和道岔。</p>
+        <p>实时跟随后端总循环查看调度指令、列车、MA、信号、进路和道岔；页面自动接收后续变化，调度页不单独控制仿真时钟。</p>
       </section>
-      <section class="debug-actions" aria-label="仿真控制">
+      <section class="debug-actions" aria-label="调度页操作">
         <button type="button" class="ghost-button" @click="$emit('back')">返回大屏</button>
-        <button type="button" @click="runSimulation('start')">启动</button>
-        <button type="button" @click="runSimulation('pause')">暂停</button>
-        <button type="button" @click="runSimulation('reset')">重置</button>
-        <button type="button" @click="runSimulation('tick')">步进</button>
-        <button type="button" :class="{ active: autoRunning }" @click="toggleAutoRun">
-          {{ autoRunning ? '停止自动步进' : '自动步进' }}
-        </button>
       </section>
     </header>
 
@@ -614,11 +987,163 @@ function formatDelta(current: number | null | undefined, baseline: number | null
       </article>
     </section>
 
+    <section class="debug-panel train-overview-panel">
+      <div class="panel-title">
+        <h2>列车运行表</h2>
+        <span>车辆与信号实时状态；点击行后在下方进入调度处理</span>
+      </div>
+      <div class="table-wrap">
+        <table class="overview-table">
+          <thead>
+            <tr>
+              <th>列车</th>
+              <th>运行状态</th>
+              <th>位置(m)</th>
+              <th>当前站/区间</th>
+              <th>下一站</th>
+              <th>停站(s)</th>
+              <th>速度(m/s)</th>
+              <th>有效限速(m/s)</th>
+              <th>终点剩余(m)</th>
+              <th>MA距离(m)</th>
+              <th>车辆约束</th>
+              <th>牵引/制动</th>
+              <th>满载率</th>
+              <th>运行关注</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-if="trainOverviewRows.length === 0">
+              <td colspan="14">暂无上线列车。等待运行计划发车或后端总循环推进。</td>
+            </tr>
+            <tr
+              v-for="row in trainOverviewRows"
+              :key="row.train.id"
+              :class="rowClass(row.train)"
+              :data-attention="row.attention"
+              @click="selectTrain(row.train.id)"
+            >
+              <td><strong>{{ row.train.id }}</strong></td>
+              <td>{{ trainStatusLabel(row.train.status) }}</td>
+              <td>{{ formatNumber(row.train.positionMeters) }}</td>
+              <td>{{ stationObservation(row.train.id, row.train.currentStationId) }}</td>
+              <td>{{ nextStopText(row.train) }}</td>
+              <td>{{ observedDwellSeconds(row.train) }}</td>
+              <td>{{ formatNumber(row.train.speedMetersPerSecond) }}</td>
+              <td>{{ conciseLimitText(row.train) }}</td>
+              <td>{{ formatNumber(remainingToTerminal(row.train)) }}</td>
+              <td>{{ formatNumber(row.authority ? row.authority.authorityEndMeters - row.train.positionMeters : row.train.movementAuthorityDistanceMeters) }}</td>
+              <td>{{ dynamicsReasonLabel(row.train.dynamicsConstraintReason || '-') }}</td>
+              <td>{{ row.train.tractionState }} / {{ row.train.brakeState }}</td>
+              <td>{{ formatPercent(row.train.loadRate) }}</td>
+              <td><span :data-attention="row.attention">{{ attentionLabel(row.attention) }}</span></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="debug-panel selected-workbench">
+      <div class="panel-title">
+        <h2>调度处理表：{{ selectedDemoTrain?.id || '未选择对象' }}</h2>
+        <span>{{ selectedTrainSuggestion.label }} / {{ selectedTrainSuggestion.reason }}</span>
+      </div>
+      <div v-if="!selectedDemoTrain" class="empty">请先在上方列车运行总览中选择一列车。</div>
+      <div v-else class="selected-workbench-grid">
+        <article>
+          <span>运行计划</span>
+          <strong>{{ selectedTrainService?.serviceId || selectedDemoTrain.serviceNo || '-' }}</strong>
+          <small>当前 {{ selectedCurrentStopPlanText() }}</small>
+          <small>下一站 {{ selectedNextStopPlanText() }}</small>
+        </article>
+        <article>
+          <span>时间间隔</span>
+          <strong>{{ selectedTrainProfile ? headwayStateLabel(selectedTrainProfile.headwayState) : '等待数据' }}</strong>
+          <small>前车 {{ selectedTrainProfile?.frontTrainId || '-' }} / 实际 {{ formatSeconds(selectedTrainProfile?.headwayActualSeconds ?? null) }}</small>
+          <small>建议 {{ selectedTrainSuggestion.label }}</small>
+        </article>
+        <article>
+          <span>进路与信号</span>
+          <strong>{{ selectedTrainReservation?.routeId || selectedTrainRouteState?.routeId || '待申请' }}</strong>
+          <small>联锁 {{ routeStateForDisplay(selectedTrainRouteState?.status, selectedTrainReservation?.state) }}</small>
+          <small>反馈 {{ selectedTrainReservation?.failureCode || selectedTrainReservation?.rejectReason || '-' }}</small>
+        </article>
+        <article>
+          <span>车辆约束</span>
+          <strong>{{ selectedTrainLimitSummary }}</strong>
+          <small>MA {{ formatMeters(selectedTrainAuthority ? selectedTrainAuthority.authorityEndMeters - selectedDemoTrain.positionMeters : null) }}</small>
+          <small>{{ dynamicsReasonLabel(selectedDemoTrain.dynamicsConstraintReason || '-') }}</small>
+        </article>
+      </div>
+
+      <div v-if="selectedDemoTrain" class="object-action-panel">
+        <div class="action-summary">
+          <strong>系统建议：{{ selectedTrainSuggestion.label }}</strong>
+          <span>{{ selectedTrainSuggestion.reason }}</span>
+          <small v-if="suggestionDisabledReason">{{ suggestionDisabledReason }}</small>
+        </div>
+        <button
+          type="button"
+          class="demo-button"
+          :disabled="!canApplySuggestion || manualActionPending"
+          @click="acceptSuggestedAction"
+        >
+          {{ manualActionPending ? '提交中' : '采纳建议' }}
+        </button>
+        <button type="button" class="ghost-button" @click="manualToolsOpen = !manualToolsOpen">
+          {{ manualToolsOpen ? '收起人工干预' : '人工干预/联调演示' }}
+        </button>
+      </div>
+
+      <div v-if="selectedDemoTrain && manualToolsOpen" class="manual-tool-panel">
+        <div class="manual-tool-note">
+          <strong>人工干预/联调演示</strong>
+          <span>这些按钮用于异常处置或联调验证。正常运营中，进路应由调度策略按计划自动申请；间隔调节应在出现明确间隔偏差后由系统建议触发。</span>
+        </div>
+        <button type="button" :disabled="manualActionPending" @click="submitManualHeadwayDemo('tooShort')">演示：本车放慢</button>
+        <button type="button" :disabled="manualActionPending" @click="submitManualHeadwayDemo('tooLong')">演示：本车追赶</button>
+        <label>
+          <span>临时限速 m/s</span>
+          <input v-model.number="demoSpeedLimitMps" type="number" min="1" max="22.2" step="0.5" />
+        </label>
+        <button type="button" :disabled="manualActionPending" @click="submitManualSpeedLimit">人工下发限速</button>
+        <label>
+          <span>人工申请进路</span>
+          <select v-model="selectedRouteId" aria-label="选择进路">
+            <option value="">选择进路</option>
+            <option v-for="route in dispatchRouteList" :key="route.routeId" :value="route.routeId">
+              {{ route.routeId }} · {{ route.name }} · {{ routeStatusLabel(route.status) }}
+            </option>
+          </select>
+        </label>
+        <button type="button" :disabled="manualActionPending || routeRequestPending" @click="submitManualRouteRequest">
+          {{ manualActionPending || routeRequestPending ? '提交中' : '人工申请进路' }}
+        </button>
+        <p v-if="manualActionMessage" class="manual-action-message">{{ manualActionMessage }}</p>
+        <p v-if="routeOperationMessage" class="route-operation-message">{{ routeOperationMessage }}</p>
+      </div>
+
+      <div v-if="selectedTrainCommands.length > 0 || selectedTrainOpenDisturbances.length > 0" class="selected-traces">
+        <article v-for="command in selectedTrainCommands" :key="command.id">
+          <strong>{{ commandLabel(command.commandType) }}</strong>
+          <span :data-status="command.status">{{ commandStatusLabel(command.status) }}</span>
+          <small>{{ commandEvidence(command) }}</small>
+        </article>
+        <article v-for="disturbance in selectedTrainOpenDisturbances" :key="disturbance.id">
+          <strong>{{ disturbance.disturbanceType }}</strong>
+          <span>{{ disturbance.status }}</span>
+          <small>{{ disturbanceMetricText(disturbance) }}</small>
+        </article>
+      </div>
+    </section>
+
     <section class="closure-overview-grid">
       <RunPlanPanel
         :plan="plan"
         :run-mode="dispatch.runMode"
         :target-headway-seconds="dispatch.targetHeadwaySeconds"
+        :selected-train-id="selectedTrainId"
+        @select-train="selectedTrainId = $event"
       />
       <StationHeadwayPanel :observations="dispatch.stationHeadways" />
       <RouteClosurePanel
@@ -670,33 +1195,10 @@ function formatDelta(current: number | null | undefined, baseline: number | null
     <section class="debug-grid">
       <section class="debug-panel command-panel">
         <div class="panel-title">
-          <h2>调度指令闭环</h2>
-          <span>生成 -> 下发 -> 观测执行 -> 效果确认</span>
+          <h2>调度指令闭环追踪</h2>
+          <span>当前对象的操作在上方工作台执行，这里记录全局指令链路</span>
         </div>
-        <div class="demo-control-bar">
-          <label>
-            <span>临时限速 m/s</span>
-            <input v-model.number="demoSpeedLimitMps" type="number" min="1" max="22.2" step="0.5" />
-          </label>
-          <button type="button" class="demo-button" :disabled="trains.length === 0" @click="submitLoopDemoCommand">
-            发送限速闭环
-          </button>
-          <label>
-            <span>本车放慢目标间隔 s</span>
-            <input v-model.number="demoLongHeadwaySec" type="number" min="30" max="900" step="10" />
-          </label>
-          <button type="button" :disabled="trains.length === 0" @click="submitHeadwayDemo('tooShort')">
-            本车放慢
-          </button>
-          <label>
-            <span>本车追赶目标间隔 s</span>
-            <input v-model.number="demoShortHeadwaySec" type="number" min="30" max="900" step="10" />
-          </label>
-          <button type="button" :disabled="trains.length === 0" @click="submitHeadwayDemo('tooLong')">
-            本车追赶
-          </button>
-        </div>
-        <p v-if="dispatch.activeCommands.length === 0" class="empty">暂无调度指令。可以启动仿真并等待停站/间隔扰动触发。</p>
+        <p v-if="dispatch.activeCommands.length === 0" class="empty">暂无调度指令。等待后端总循环推进，或发送上方演示指令后观察闭环状态。</p>
         <div v-else class="command-list">
           <article v-for="command in dispatch.activeCommands" :key="command.id" class="command-card">
             <header>
@@ -718,6 +1220,7 @@ function formatDelta(current: number | null | undefined, baseline: number | null
               </div>
             </dl>
             <p>{{ commandStatusHint(command.status) }}</p>
+            <p class="command-evidence">观测依据：{{ commandEvidence(command) }}</p>
             <button
               v-if="canCancelCommand(command)"
               type="button"
@@ -791,52 +1294,6 @@ function formatDelta(current: number | null | undefined, baseline: number | null
       </div>
     </section>
 
-    <section class="debug-panel">
-      <div class="panel-title">
-        <h2>列车状态与调度观测点</h2>
-        <span>判断指令是否作用的主要依据</span>
-      </div>
-      <div class="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>列车</th>
-              <th>状态</th>
-              <th>位置(m)</th>
-              <th>速度(m/s)</th>
-              <th>站点</th>
-              <th>停站(s)</th>
-              <th>限速(m/s)</th>
-              <th>终点剩余(m)</th>
-              <th>MA距离(m)</th>
-              <th>车辆约束</th>
-              <th>牵引/制动</th>
-              <th>满载率</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-if="trains.length === 0">
-              <td colspan="12">暂无列车数据。</td>
-            </tr>
-            <tr v-for="train in trains" :key="train.id">
-              <td>{{ train.id }}</td>
-              <td>{{ trainStatusLabel(train.status) }}</td>
-              <td>{{ formatNumber(train.positionMeters) }}</td>
-              <td>{{ formatNumber(train.speedMetersPerSecond) }}</td>
-              <td>{{ stationObservation(train.id, train.currentStationId) }}</td>
-              <td>{{ train.dwellElapsedSeconds ?? 0 }}</td>
-              <td>{{ formatNumber(train.speedLimitMetersPerSecond) }}</td>
-              <td>{{ formatNumber(remainingToTerminal(train)) }}</td>
-              <td>{{ formatNumber(train.movementAuthorityDistanceMeters) }}</td>
-              <td>{{ dynamicsReasonLabel(train.dynamicsConstraintReason || '-') }}</td>
-              <td>{{ train.tractionState }} / {{ train.brakeState }}</td>
-              <td>{{ formatPercent(train.loadRate) }}</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-    </section>
-
     <section class="debug-grid three">
       <section class="debug-panel">
         <div class="panel-title">
@@ -856,30 +1313,9 @@ function formatDelta(current: number | null | undefined, baseline: number | null
 
       <section class="debug-panel">
         <div class="panel-title">
-          <h2>进路</h2>
-          <span>道岔调度相关状态</span>
+          <h2>进路状态</h2>
+          <span>调度申请、联锁接受、锁闭和释放追踪</span>
         </div>
-        <div class="route-control-bar">
-          <select v-model="selectedRouteId" aria-label="选择进路">
-            <option value="">选择进路</option>
-            <option v-for="route in dispatchRouteList" :key="route.routeId" :value="route.routeId">
-              {{ route.routeId }} · {{ route.name }} · {{ route.status }}
-            </option>
-          </select>
-          <select v-model="selectedRouteTrainId" aria-label="选择列车">
-            <option value="">默认首列车</option>
-            <option v-for="train in trains" :key="train.id" :value="train.id">{{ train.id }}</option>
-          </select>
-          <button
-            type="button"
-            :disabled="!selectedRouteId || trains.length === 0 || routeRequestPending"
-            @click="requestSelectedRoute"
-          >
-            {{ routeRequestPending ? '提交中' : '申请进路' }}
-          </button>
-          <button type="button" class="ghost-button" @click="loadDispatchRoutes">刷新</button>
-        </div>
-        <p v-if="routeOperationMessage" class="route-operation-message">{{ routeOperationMessage }}</p>
         <div v-if="dispatch.routeDecisions.length > 0" class="route-trace-list">
           <article v-for="decision in dispatch.routeDecisions" :key="decision.decisionId">
             <strong>决策 {{ decision.decisionId }}</strong>
@@ -1030,7 +1466,7 @@ button:disabled {
 
 .demo-control-bar {
   display: grid;
-  grid-template-columns: minmax(130px, 1fr) auto minmax(150px, 1fr) auto minmax(150px, 1fr) auto;
+  grid-template-columns: minmax(180px, 1.2fr) minmax(130px, 0.8fr) auto minmax(150px, 1fr) auto minmax(150px, 1fr) auto;
   align-items: end;
   gap: 8px;
   margin-bottom: 12px;
@@ -1052,13 +1488,23 @@ button:disabled {
   font-weight: 700;
 }
 
-.demo-control-bar input {
+.demo-control-bar input,
+.demo-control-bar select {
   width: 100%;
   min-height: 36px;
   border: 1px solid #cbd5e1;
   border-radius: 8px;
   padding: 6px 10px;
   font: inherit;
+}
+
+.selected-train-note {
+  margin: -4px 0 12px;
+  border-left: 3px solid #2563eb;
+  background: #eff6ff;
+  color: #1e3a8a;
+  padding: 8px 10px;
+  font-size: 13px;
 }
 
 .route-control-bar {
@@ -1099,6 +1545,173 @@ button:disabled {
 .route-trace-list p {
   color: #475569;
   font-size: 12px;
+}
+
+.train-overview-panel,
+.selected-workbench {
+  margin-bottom: 12px;
+}
+
+.overview-table tbody tr {
+  cursor: pointer;
+}
+
+.overview-table tbody tr:hover {
+  background: #f8fafc;
+}
+
+.overview-table td strong {
+  color: #172033;
+}
+
+.selected-workbench-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.selected-workbench-grid article {
+  display: grid;
+  align-content: start;
+  gap: 6px;
+  min-height: 118px;
+  min-width: 0;
+  border: 1px solid #dbeafe;
+  border-radius: 8px;
+  background: #f8fbff;
+  padding: 12px;
+}
+
+.selected-workbench-grid article span,
+.object-action-panel label span {
+  color: #475569;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.selected-workbench-grid article strong {
+  overflow-wrap: anywhere;
+  color: #172033;
+  font-size: 18px;
+  line-height: 1.3;
+}
+
+.object-action-panel {
+  display: grid;
+  grid-template-columns: minmax(280px, 1fr) auto auto;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #f8fafc;
+  padding: 10px;
+}
+
+.action-summary {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.action-summary span {
+  color: #475569;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.action-summary small {
+  color: #92400e;
+}
+
+.manual-tool-panel {
+  display: grid;
+  grid-template-columns: minmax(260px, 1.2fr) auto auto minmax(130px, 0.7fr) auto minmax(220px, 1fr) auto;
+  align-items: end;
+  gap: 8px;
+  margin-top: 10px;
+  border: 1px dashed #cbd5e1;
+  border-radius: 8px;
+  background: #fff;
+  padding: 10px;
+}
+
+.manual-tool-note {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.manual-tool-note span {
+  color: #64748b;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.object-action-panel label {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.object-action-panel input,
+.object-action-panel select,
+.manual-tool-panel input,
+.manual-tool-panel select {
+  width: 100%;
+  min-height: 36px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 6px 10px;
+  font: inherit;
+}
+
+.manual-tool-panel label {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.manual-tool-panel label span {
+  color: #475569;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.manual-tool-panel .route-operation-message,
+.manual-tool-panel .manual-action-message {
+  grid-column: 1 / -1;
+}
+
+.manual-action-message {
+  margin: 0;
+  border-left: 3px solid #2563eb;
+  background: #eff6ff;
+  color: #1e3a8a;
+  padding: 8px 10px;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.selected-traces {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.selected-traces article {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 4px 8px;
+  align-items: center;
+  border-left: 3px solid #2563eb;
+  background: #eff6ff;
+  padding: 8px 10px;
+}
+
+.selected-traces small {
+  grid-column: 1 / -1;
 }
 
 .debug-banner,
@@ -1334,6 +1947,15 @@ dd {
   line-height: 1.5;
 }
 
+.command-card .command-evidence {
+  margin-top: 6px;
+  border-radius: 8px;
+  background: #eef2ff;
+  color: #3730a3;
+  padding: 7px 8px;
+  font-size: 12px;
+}
+
 .profile-observation {
   display: grid;
   gap: 8px;
@@ -1461,6 +2083,33 @@ dd {
   color: #475569;
 }
 
+.overview-table span[data-attention] {
+  width: fit-content;
+  border-radius: 999px;
+  padding: 3px 8px;
+  background: #dcfce7;
+  color: #166534;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.overview-table span[data-attention='TOO_SHORT'],
+.overview-table span[data-attention='TOO_LONG'],
+.overview-table span[data-attention='STOPPED'] {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.overview-table span[data-attention='COMMAND_ACTIVE'] {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+
+.overview-table span[data-attention='ROUTE_BLOCKED'] {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
 [data-aspect='YELLOW'] {
   background: #fef3c7;
   color: #92400e;
@@ -1482,12 +2131,24 @@ table {
   font-size: 13px;
 }
 
+.overview-table {
+  min-width: 1420px;
+}
+
 th,
 td {
   border-bottom: 1px solid #eef2f7;
   padding: 8px 6px;
   text-align: left;
   white-space: nowrap;
+}
+
+tbody tr.selected {
+  background: #eff6ff;
+}
+
+tbody tr.dwelling td {
+  color: #0f766e;
 }
 
 th {
@@ -1531,14 +2192,18 @@ th {
   .closure-overview-grid,
   .debug-grid,
   .debug-grid.three,
-  .comparison-grid {
+  .comparison-grid,
+  .selected-workbench-grid,
+  .selected-traces {
     grid-template-columns: 1fr;
   }
 
   .command-card dl,
   .switch-signal-grid,
   .demo-control-bar,
-  .route-control-bar {
+  .route-control-bar,
+  .object-action-panel,
+  .manual-tool-panel {
     grid-template-columns: 1fr;
   }
 }

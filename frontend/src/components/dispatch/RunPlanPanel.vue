@@ -1,10 +1,16 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import type { RunPlanPeriod, RunPlanResponse } from '../../types/dispatch'
 
-defineProps<{
+const props = defineProps<{
   plan: RunPlanResponse | null
   runMode: string
   targetHeadwaySeconds: number
+  selectedTrainId?: string
+}>()
+
+const emit = defineEmits<{
+  selectTrain: [trainId: string]
 }>()
 
 function label(type: string) {
@@ -14,6 +20,21 @@ function label(type: string) {
     OFF_PEAK: '低谷'
   }
   return map[type] ?? type
+}
+
+const selectedService = computed(() =>
+  props.plan?.services?.find((service) => service.trainId === props.selectedTrainId) ?? null
+)
+
+const visibleServices = computed(() => {
+  const services = props.plan?.services ?? []
+  if (!props.selectedTrainId) return services
+  const selected = services.find((service) => service.trainId === props.selectedTrainId)
+  return selected ? [selected, ...services.filter((service) => service.trainId !== props.selectedTrainId)] : services
+})
+
+function handleTrainSelect(event: Event) {
+  emit('selectTrain', (event.target as HTMLSelectElement).value)
 }
 </script>
 
@@ -28,6 +49,23 @@ function label(type: string) {
       正式计划：<strong>{{ plan.services?.length ?? 0 }}</strong> 个车次，
       <strong>{{ plan.circulations?.length ?? 0 }}</strong> 个交路
     </p>
+    <div v-if="plan?.services?.length" class="plan-train-picker">
+      <label>
+        <span>计划车辆</span>
+        <select :value="selectedTrainId ?? ''" aria-label="选择计划车辆" @change="handleTrainSelect">
+          <option value="">全部车次</option>
+          <option v-for="service in plan.services" :key="service.serviceId" :value="service.trainId">
+            {{ service.trainId }} · {{ service.serviceId }} · {{ service.circulationId }}
+          </option>
+        </select>
+      </label>
+      <p>
+        当前 {{ selectedService?.trainId ?? '全部' }}
+        <span v-if="selectedService">
+          / {{ selectedService.serviceId }} / {{ selectedService.stops[0]?.stationId ?? '-' }} → {{ selectedService.stops.at(-1)?.stationId ?? '-' }}
+        </span>
+      </p>
+    </div>
     <table v-if="plan">
       <thead>
         <tr>
@@ -48,7 +86,11 @@ function label(type: string) {
     </table>
     <div v-if="plan?.services?.length" class="service-list">
       <h3>车次与交路</h3>
-      <article v-for="service in plan.services" :key="service.serviceId">
+      <article
+        v-for="service in visibleServices"
+        :key="service.serviceId"
+        :class="{ selected: service.trainId === selectedTrainId }"
+      >
         <strong>{{ service.serviceId }}</strong>
         <span>{{ service.trainId }} / {{ service.circulationId }}</span>
         <span>{{ service.stops[0]?.stationId ?? '-' }} → {{ service.stops.at(-1)?.stationId ?? '-' }}</span>
@@ -91,6 +133,41 @@ h2 {
   color: #64748b;
 }
 
+.plan-train-picker {
+  display: grid;
+  gap: 8px;
+  margin: 0 0 12px;
+  border: 1px solid #dbeafe;
+  border-radius: 8px;
+  background: #f8fbff;
+  padding: 10px;
+}
+
+.plan-train-picker label {
+  display: grid;
+  gap: 4px;
+}
+
+.plan-train-picker span {
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.plan-train-picker select {
+  min-height: 34px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 6px 10px;
+  font: inherit;
+}
+
+.plan-train-picker p {
+  margin: 0;
+  color: #1e3a8a;
+  font-size: 12px;
+}
+
 table {
   width: 100%;
   border-collapse: collapse;
@@ -123,6 +200,11 @@ td {
   border-radius: 8px;
   background: #f8fafc;
   font-size: 12px;
+}
+
+.service-list article.selected {
+  border: 1px solid #2563eb;
+  background: #eff6ff;
 }
 
 .service-list small {

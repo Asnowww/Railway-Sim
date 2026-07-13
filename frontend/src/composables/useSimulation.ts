@@ -71,8 +71,21 @@ export function useSimulation() {
       backendReady.value = false
       errorMessage.value =
         error instanceof Error
-          ? `${error.message}（请确认后端地址配置正确且服务已启动）`
+          ? `${error.message}（后端接口返回异常，请查看后端控制台对应堆栈；若无法连接，再检查后端地址配置）`
           : '操作失败'
+    }
+  }
+
+  async function refreshSimulationSnapshot() {
+    errorMessage.value = ''
+    try {
+      applySnapshot(await simulationApi.snapshot())
+    } catch (error) {
+      backendReady.value = false
+      errorMessage.value =
+        error instanceof Error
+          ? `${error.message}（后端接口返回异常，请查看后端控制台对应堆栈；若无法连接，再检查后端地址配置）`
+          : '刷新失败'
     }
   }
 
@@ -94,12 +107,21 @@ export function useSimulation() {
   onMounted(async () => {
     try {
       await loadPlan()
-      applySnapshot(await simulationApi.snapshot())
     } catch (error) {
       errorMessage.value =
         error instanceof Error
-          ? `${error.message}（请确认 VITE_API_BASE_URL 或 Vite 代理已指向可用后端）`
-          : '初始化失败'
+          ? `${error.message}（运行计划加载失败，快照仍会继续尝试加载）`
+          : '运行计划加载失败'
+    }
+
+    try {
+      applySnapshot(await simulationApi.snapshot())
+    } catch (error) {
+      backendReady.value = false
+      errorMessage.value =
+        error instanceof Error
+          ? `${error.message}（后端快照接口异常，请查看后端控制台对应堆栈；若无法连接，再检查 Vite 代理或 VITE_API_BASE_URL）`
+          : '后端快照加载失败'
     }
 
     simulationSocket.connect()
@@ -125,6 +147,7 @@ export function useSimulation() {
     backendReady,
     autoRunning,
     runSimulation,
+    refreshSimulationSnapshot,
     toggleAutoRun
   }
 }

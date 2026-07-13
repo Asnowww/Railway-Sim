@@ -12,7 +12,7 @@ import type { DispatchDisturbance } from '../types/dispatch'
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${apiBaseUrl}${path}`, init)
   if (!response.ok) {
-    throw new Error(`Request failed: ${response.status} ${response.statusText}`)
+    throw new Error(`${path} 请求失败：${response.status} ${response.statusText}`)
   }
   return response.json() as Promise<T>
 }
