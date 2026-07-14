@@ -16,6 +16,11 @@ import org.springframework.stereotype.Service;
 @Service
 public class OperationPlanningService {
 
+    private static final String GGZ_TERMINAL_ID = "S101";
+    private static final String LIB_TERMINAL_ID = "S113";
+    private static final double TERMINAL_POSITION_TOLERANCE_METERS = 150.0;
+    private static final List<String> M9_LOOP_ROUTE_IDS = List.of("R_UP", "R_TB_LIB", "R_DOWN", "R_TB_GGZ");
+
     private final RouteCatalog routeCatalog;
     private final Map<String, OperationPlan> plans = new LinkedHashMap<>();
     private final Map<String, TrainCirculationPlan> circulationPlans = new LinkedHashMap<>();
@@ -126,6 +131,25 @@ public class OperationPlanningService {
         Instant simulatedAt,
         CirculationPlanRequest request
     ) {
+        return assignCirculations(simulationRunId, trains, simulatedAt, request, false);
+    }
+
+    public synchronized List<TrainCirculationPlan> autoAssignNewTrainCirculations(
+        String simulationRunId,
+        List<TrainState> trains,
+        Instant simulatedAt,
+        CirculationPlanRequest request
+    ) {
+        return assignCirculations(simulationRunId, trains, simulatedAt, request, true);
+    }
+
+    private List<TrainCirculationPlan> assignCirculations(
+        String simulationRunId,
+        List<TrainState> trains,
+        Instant simulatedAt,
+        CirculationPlanRequest request,
+        boolean onlyNeverAssigned
+    ) {
         Instant now = simulatedAt == null ? Instant.now() : simulatedAt;
         int cycleTarget = clamp(request == null || request.cycleTarget() == null ? 2 : request.cycleTarget(), 1, 20);
         int headwaySeconds = clamp(request == null || request.headwaySeconds() == null ? 300 : request.headwaySeconds(), 30, 3600);
@@ -133,26 +157,34 @@ public class OperationPlanningService {
         List<TrainState> candidates = trains == null ? List.of() : trains.stream()
             .filter(train -> train.id() != null && !train.id().isBlank())
             .filter(train -> train.faultLevel() <= 1)
-            .filter(train -> activeCirculationForTrain(simulationRunId, train.id()) == null)
+            .filter(train -> onlyNeverAssigned
+                ? circulationForTrain(simulationRunId, train.id()) == null
+                : activeCirculationForTrain(simulationRunId, train.id()) == null)
             .toList();
         List<TrainState> upStart = candidates.stream()
-            .filter(train -> "S101".equalsIgnoreCase(train.currentStationId()))
+            .filter(train -> GGZ_TERMINAL_ID.equals(resolveInitialTerminal(train)))
             .sorted(Comparator.comparing(TrainState::id))
             .toList();
         List<TrainState> downStart = candidates.stream()
-            .filter(train -> "S113".equalsIgnoreCase(train.currentStationId()))
+            .filter(train -> LIB_TERMINAL_ID.equals(resolveInitialTerminal(train)))
             .sorted(Comparator.comparing(TrainState::id))
             .toList();
+        if (upStart.isEmpty() && downStart.isEmpty()) {
+            return List.of();
+        }
+        if (!hasM9LoopTemplates()) {
+            return List.of();
+        }
 
         List<TrainCirculationPlan> created = new ArrayList<>();
         for (int i = 0; i < upStart.size(); i++) {
             created.add(createCirculationPlan(
-                simulationRunId, upStart.get(i), "S101", 0, cycleTarget, headwaySeconds,
+                simulationRunId, upStart.get(i), GGZ_TERMINAL_ID, 0, cycleTarget, headwaySeconds,
                 now.plusSeconds((long) leadSeconds + (long) i * headwaySeconds), now));
         }
         for (int i = 0; i < downStart.size(); i++) {
             created.add(createCirculationPlan(
-                simulationRunId, downStart.get(i), "S113", 2, cycleTarget, headwaySeconds,
+                simulationRunId, downStart.get(i), LIB_TERMINAL_ID, 2, cycleTarget, headwaySeconds,
                 now.plusSeconds((long) leadSeconds + (long) i * headwaySeconds), now));
         }
         return created;
@@ -386,6 +418,48 @@ public class OperationPlanningService {
             .orElse(null);
     }
 
+    private TrainCirculationPlan circulationForTrain(String simulationRunId, String trainId) {
+        return circulationPlans(simulationRunId).stream()
+            .filter(plan -> trainId.equals(plan.trainId()))
+            .findFirst()
+            .orElse(null);
+    }
+
+    private String resolveInitialTerminal(TrainState train) {
+        if (train == null) {
+            return null;
+        }
+        String stationId = normalizeId(train.currentStationId());
+        if (GGZ_TERMINAL_ID.equals(stationId) || LIB_TERMINAL_ID.equals(stationId)) {
+            return stationId;
+        }
+        if (!Double.isFinite(train.positionMeters())) {
+            return null;
+        }
+        TerminalPositions terminals = terminalPositions();
+        double position = train.positionMeters();
+        if (Double.isFinite(terminals.ggzMeters())
+            && Math.abs(position - terminals.ggzMeters()) <= TERMINAL_POSITION_TOLERANCE_METERS) {
+            return GGZ_TERMINAL_ID;
+        }
+        if (Double.isFinite(terminals.libMeters())
+            && Math.abs(position - terminals.libMeters()) <= TERMINAL_POSITION_TOLERANCE_METERS) {
+            return LIB_TERMINAL_ID;
+        }
+        return null;
+    }
+
+    private TerminalPositions terminalPositions() {
+        DispatchRouteCandidate up = routeCatalog.route("R_UP").orElse(null);
+        DispatchRouteCandidate down = routeCatalog.route("R_DOWN").orElse(null);
+        double ggzMeters = up != null ? up.entryMeters() : down != null ? down.exitMeters() : 0.0;
+        double libMeters = up != null ? up.exitMeters() : down != null ? down.entryMeters() : Double.NaN;
+        return new TerminalPositions(ggzMeters, libMeters);
+    }
+
+    private record TerminalPositions(double ggzMeters, double libMeters) {
+    }
+
     private void updateCirculationLegFromPlan(
         OperationPlan plan,
         String legStatus,
@@ -459,9 +533,8 @@ public class OperationPlanningService {
         for (OperationRouteTemplate template : templates()) {
             byId.put(template.routeId(), template);
         }
-        List<String> required = List.of("R_UP", "R_TB_LIB", "R_DOWN", "R_TB_GGZ");
         List<OperationRouteTemplate> loop = new ArrayList<>();
-        for (String routeId : required) {
+        for (String routeId : M9_LOOP_ROUTE_IDS) {
             OperationRouteTemplate template = byId.get(routeId);
             if (template == null) {
                 throw new IllegalStateException("missing signal route template: " + routeId);
@@ -469,6 +542,11 @@ public class OperationPlanningService {
             loop.add(template);
         }
         return loop;
+    }
+
+    private boolean hasM9LoopTemplates() {
+        List<String> available = templates().stream().map(OperationRouteTemplate::routeId).toList();
+        return available.containsAll(M9_LOOP_ROUTE_IDS);
     }
 
     private static String directionForLoopRoute(String routeId) {

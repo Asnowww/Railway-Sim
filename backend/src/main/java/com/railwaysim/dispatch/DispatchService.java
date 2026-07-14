@@ -423,6 +423,7 @@ public class DispatchService {
         ));
         latestLineRegulationPlan = lineOptimization.plan();
         List<DispatchCommand> generated = suppressDuplicateDisturbanceCommands(lineOptimization.commands());
+        autoAssignCirculationPlansForNewTrains(context.simulatedTime(), trains);
         List<DispatchCommand> routeCommands = automaticRouteCommands(context.simulatedTime(), trains, authorities);
         List<DispatchCommand> routeCancellationCommands = automaticRouteCancellationCommands(context.simulatedTime());
         List<DispatchCommand> operationPlanRouteCommands = automaticOperationPlanRouteCommands(context.simulatedTime());
@@ -448,6 +449,21 @@ public class DispatchService {
         }
         activeCommands = mergeActiveCommands(tracked);
         refreshSnapshot();
+    }
+
+    private void autoAssignCirculationPlansForNewTrains(Instant simulatedAt, List<TrainState> trains) {
+        if (trains == null || trains.isEmpty() || currentPlan == null) {
+            return;
+        }
+        List<TrainCirculationPlan> created = operationPlanningService.autoAssignNewTrainCirculations(
+            simulationRunId,
+            trains,
+            simulatedAt,
+            new CirculationPlanRequest(2, currentPlan.departureIntervalSec(), 0)
+        );
+        if (!created.isEmpty()) {
+            log.info("[DispatchLoop] auto assigned {} circulation plan(s) for new terminal train(s)", created.size());
+        }
     }
 
     private List<DispatchCommand> automaticRouteCommands(
