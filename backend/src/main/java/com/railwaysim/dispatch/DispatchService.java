@@ -1357,6 +1357,10 @@ public class DispatchService {
         return latestSnapshot;
     }
 
+    public synchronized boolean requiresEvaluation(Instant simulatedTime) {
+        return shouldEvaluate(simulatedTime);
+    }
+
     public synchronized CurrentRunPlan currentPlan() {
         return currentPlan;
     }
