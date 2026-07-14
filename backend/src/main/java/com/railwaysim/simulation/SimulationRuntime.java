@@ -714,12 +714,16 @@ public class SimulationRuntime {
 
     private SimulationSnapshot buildSnapshot() {
         simulationRunContext.update(dispatchService.simulationRunId(), tick);
+        double lineLen = infrastructureCatalog.lineData().lineLengthMeters();
+        List<TrainState> trains = trainManager.states().stream()
+            .map(t -> t.forDisplay(lineLen))
+            .toList();
         return monitorService.buildSnapshot(
             dispatchService.simulationRunId(),
             tick,
             simulatedTime,
             status,
-            trainManager.states(),
+            trains,
             trackService.states(),
             signalService.authorities(),
             signalService.signalStates(),

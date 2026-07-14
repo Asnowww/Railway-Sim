@@ -582,4 +582,30 @@ public record TrainState(
             lastDepartureAt
         );
     }
+
+    /** 为快照创建显示用副本：DOWN列车位置镜像(L-pos)，UP不变。 */
+    public TrainState forDisplay(double lineLengthMeters) {
+        if (!"DOWN".equalsIgnoreCase(direction) || lineLengthMeters <= 0) return this;
+        double pos = Math.max(0, lineLengthMeters - positionMeters);
+        double tail = Math.max(0, pos - lengthMeters);
+        return new TrainState(id, routeId, serviceNo,
+            controlSessionState, signalNetworkStatus, powerNetworkStatus,
+            controlSessionReason, linkId, direction,
+            pos, speedMetersPerSecond, lengthMeters, pos, tail,
+            loadRate, loadMassKg, overloadStatus,
+            availableTractionCount, availableBrakeCount,
+            vehicleProtectionReason, status, operationMode, zeroSpeed,
+            doorState, tractionState, brakeState, currentCollectionStatus,
+            tractionAvailable, brakeAvailable, selfCheckStatus,
+            faultLevel, availableOperationMode, dataQuality,
+            dynamicsState, dynamicsConstraintReason,
+            speedLimitMetersPerSecond, vehicleFaultSpeedLimitMetersPerSecond,
+            movementAuthorityDistanceMeters, stationDistanceMeters, stoppingDistanceMeters,
+            accelerationMetersPerSecondSquared,
+            tractionForceNewtons, brakeForceNewtons, regenBrakeForceNewtons,
+            railCurrentAmps, tractionPowerWatts, regenPowerWatts,
+            energyConsumedKwh, energyRegeneratedKwh,
+            faultCode, currentStationId, dwellElapsedSeconds, lastDepartureAt,
+            driverCabState);
+    }
 }

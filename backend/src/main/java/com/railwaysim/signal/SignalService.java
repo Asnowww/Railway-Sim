@@ -535,15 +535,15 @@ public class SignalService {
         if (stations.isEmpty()) return result;
 
         double head = train.positionMeters();
+        boolean isDown = "DOWN".equalsIgnoreCase(train.direction());
         double lineLen = infrastructureCatalog.lineData().lineLengthMeters();
+        // DOWN列车: effectiveHead = L-head → 物理递增镜像为递减,匹配S113→S101站序
+        double searchHead = (isDown && lineLen > 0) ? lineLen - head : head;
 
-        // DOWN列车用有效km(镜像): 物理递增→有效递减，符合下行方向
-        double effectiveHead = "DOWN".equalsIgnoreCase(train.direction()) && lineLen > 0
-            ? lineLen - head : head;
-
+        // 找车头前方的下一站；允许车头在站中心后方 10m 内继续被视为站停窗口。
         OperationalLineData.StationDefinition nextStation = stations.stream()
-            .filter(s -> s.centerMeters() >= effectiveHead - STATION_STOP_WINDOW_METERS)
-            .min(Comparator.comparingDouble(s -> s.centerMeters() - effectiveHead))
+            .filter(s -> s.centerMeters() >= searchHead - STATION_STOP_WINDOW_METERS)
+            .min(Comparator.comparingDouble(s -> s.centerMeters() - searchHead))
             .orElse(null);
         if (nextStation == null) return result;
 
