@@ -160,7 +160,7 @@ public class TrainEntity {
             controlSession == null ? null : controlSession.powerNetworkStatus(),
             controlSession == null ? null : controlSession.reason(),
             controlSession == null ? 0 : controlSession.linkId(),
-            controlSession == null ? "DOWN" : controlSession.direction().name(),
+            controlSession == null ? "UP" : controlSession.direction().name(),
             positionMeters,
             speedMetersPerSecond,
             lengthMeters,
