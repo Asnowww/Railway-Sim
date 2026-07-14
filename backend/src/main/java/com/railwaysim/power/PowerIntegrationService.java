@@ -77,6 +77,7 @@ public class PowerIntegrationService {
             } else {
                 latestSnapshot = externalClient.queryState(new PowerNetworkStateQueryRequest(toExternalLoads(loads)));
             }
+            bootstrapped = latestSnapshot.bootstrapped();
             health = new ExternalPowerNetworkHealth(
                 properties.getMode(),
                 latestSnapshot.heartbeatStatus(),
@@ -99,12 +100,11 @@ public class PowerIntegrationService {
         }
         try {
             if (bootstrapped) {
-                latestSnapshot = externalClient.currentState();
-                if (latestSnapshot.bootstrapped()) {
-                    return;
-                }
-                bootstrapped = false;
-                log.warn("External power network lost bootstrap state; topology will be reapplied");
+                // A successful bootstrap POST is the readiness gate before
+                // 9300 queries constraints. refreshSnapshot() verifies the
+                // authoritative flag after the fleet step and clears this flag
+                // if a restarted 9200 reports itself unbootstrapped.
+                return;
             }
             var bootstrapRequest = powerTopologyService.buildBootstrapRequest();
             log.info(
@@ -123,6 +123,11 @@ public class PowerIntegrationService {
             health = ExternalPowerNetworkHealth.fallback(properties.getMode(), summarize(exception));
             throw exception;
         }
+    }
+
+    public boolean vehicleRuntimeOwnsPowerLoads() {
+        return properties.getMode() != ExternalPowerNetworkMode.LOCAL
+            && vehiclePowerLoadForwardingOwner.isConfiguredPowerLoadForwardingOwner();
     }
 
     private List<PowerNetworkSectionLoadRequest> toExternalLoads(List<PowerSectionLoadSnapshot> loads) {

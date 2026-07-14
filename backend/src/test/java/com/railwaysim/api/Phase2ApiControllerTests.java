@@ -34,7 +34,9 @@ import org.springframework.test.web.servlet.MvcResult;
     "spring.datasource.url=jdbc:h2:mem:phase2-api;MODE=MySQL;DB_CLOSE_DELAY=-1;DATABASE_TO_LOWER=TRUE",
     "spring.datasource.driver-class-name=org.h2.Driver",
     "spring.datasource.username=sa",
-    "spring.datasource.password="
+    "spring.datasource.password=",
+    "railway.simulation.vehicle-runtime.base-url=http://127.0.0.1:1",
+    "railway.simulation.vehicle-runtime.timeout-millis=50"
 })
 @AutoConfigureMockMvc
 class Phase2ApiControllerTests {

@@ -25,6 +25,7 @@ import com.railwaysim.vehicleruntime.model.VehicleRuntimeInstanceState;
 import com.railwaysim.vehicleruntime.model.VehicleParameterMetadata;
 import com.railwaysim.vehicleruntime.model.VehicleRuntimeStepRequest;
 import com.railwaysim.vehicleruntime.model.VehicleRuntimeStepResponse;
+import com.railwaysim.vehicleruntime.model.VehicleRuntimeTickTiming;
 import com.railwaysim.vehicleruntime.model.VehicleTelemetryModeRequest;
 import com.railwaysim.vehicleruntime.model.VehicleTelemetryModeState;
 import com.railwaysim.vehicleruntime.model.VehicleTelemetryRequest;
@@ -68,6 +69,7 @@ public class VehicleRuntimeManager {
     private final Map<String, PowerConstraintSnapshot> authoritativePowerByTrain = new ConcurrentHashMap<>();
     private final List<VehicleRuntimeEvent> events = new ArrayList<>();
     private volatile VehicleRuntimeHealth latestHealth;
+    private volatile VehicleRuntimeTickTiming latestTickTiming = VehicleRuntimeTickTiming.idle();
     private long totalFleetTickCount;
     private long missedDeadlineCount;
     private long fallbackEventCount;
@@ -139,6 +141,10 @@ public class VehicleRuntimeManager {
             stoppingProperties.getParameterVersion(),
             bootstrapped
         );
+    }
+
+    public VehicleRuntimeTickTiming latestTickTiming() {
+        return latestTickTiming;
     }
 
     public VehicleParameterMetadata parameterMetadata() {
@@ -322,6 +328,7 @@ public class VehicleRuntimeManager {
             throw new IllegalArgumentException("deltaSeconds must equal 0.1");
         }
         Instant startedAt = Instant.now();
+        long tickStartedAt = System.nanoTime();
         totalFleetTickCount++;
         rolloverRunIfRequired(request.simulationRunId(), request.tick());
 
@@ -364,7 +371,9 @@ public class VehicleRuntimeManager {
         Map<String, MovementAuthoritySnapshot> authorityByTrain = index(request.movementAuthorities(), MovementAuthoritySnapshot::trainId);
         Map<String, TrackConstraintSnapshot> trackByTrain = index(request.trackConstraints(), TrackConstraintSnapshot::trainId);
         Map<String, DispatchConstraintSnapshot> dispatchByTrain = index(request.dispatchConstraints(), DispatchConstraintSnapshot::trainId);
+        long powerQueryStartedAt = System.nanoTime();
         Map<String, PowerConstraintSnapshot> powerByTrain = powerConstraintsForStep(request, activeTrainIds);
+        long powerQueryCompletedAt = System.nanoTime();
         Map<String, VehicleRuntimeInstance.PreparedStep> preparedByTrain = new LinkedHashMap<>();
         Map<String, VehiclePhysicsOutputDto> outputByTrain = new LinkedHashMap<>();
         Map<String, String> fallbackReasonByTrain = new LinkedHashMap<>();
@@ -393,6 +402,7 @@ public class VehicleRuntimeManager {
                 instance.markSimulationRunning();
             }
         }
+        long controlPreparationCompletedAt = System.nanoTime();
 
         long fmuBatchLatencyMillis = 0;
         if (properties.getPhysicsMode() == VehiclePhysicsMode.FMU_HTTP && !preparedByTrain.isEmpty()) {
@@ -445,6 +455,7 @@ public class VehicleRuntimeManager {
                 ));
             applyFallback(request, localInputs, Map.of(), outputByTrain, false);
         }
+        long fmuFleetStepCompletedAt = System.nanoTime();
 
         // Apply: all outputs are committed only after the one fleet-level physics batch returns.
         // Collect pre-step snapshots for event detection
@@ -495,6 +506,8 @@ public class VehicleRuntimeManager {
             ? "GOOD" : "DEGRADED";
         String reason = dataQuality.equals("GOOD") ? "OK"
             : fallbackReasonByTrain.isEmpty() ? "PARTIAL_STEP" : "PHYSICS_FALLBACK_ACTIVE";
+        long stateApplyCompletedAt = System.nanoTime();
+        long powerNetworkStepStartedAt = System.nanoTime();
         try {
             // 车辆状态变化先汇总为同分区负荷，再由权威供电仿真返回下一控制周期的约束。
             List<PowerConstraintSnapshot> nextConstraints = powerNetworkLoadClient.stepPowerNetwork(
@@ -512,16 +525,31 @@ public class VehicleRuntimeManager {
             reason = "POWER_LOAD_FORWARD_FAILED";
             recordEvent("power-network", "POWER_LOAD_FORWARD_FAILED", summarize(exception));
         }
+        long powerNetworkStepCompletedAt = System.nanoTime();
         long latency = Duration.between(startedAt, Instant.now()).toMillis();
         if (latency > FLEET_DEADLINE_MILLIS) {
             missedDeadlineCount++;
         }
         currentRunId = request.simulationRunId();
         lastAcceptedTick = request.tick();
+        latestTickTiming = new VehicleRuntimeTickTiming(
+            request.tick(),
+            activeTrainIds.size(),
+            elapsedMillis(powerQueryStartedAt, powerQueryCompletedAt),
+            elapsedMillis(powerQueryCompletedAt, controlPreparationCompletedAt),
+            elapsedMillis(controlPreparationCompletedAt, fmuFleetStepCompletedAt),
+            elapsedMillis(fmuFleetStepCompletedAt, stateApplyCompletedAt),
+            elapsedMillis(powerNetworkStepStartedAt, powerNetworkStepCompletedAt),
+            elapsedMillis(tickStartedAt, powerNetworkStepCompletedAt)
+        );
         latestHealth = healthSnapshot("UP", latency, dataQuality, reason, fmuBatchLatencyMillis);
         return new VehicleRuntimeStepResponse(
             request.tick(), Instant.now(), dataQuality,
             outputs, reports, instanceStates, resultTrainStates, stepEvents);
+    }
+
+    private double elapsedMillis(long startedAt, long completedAt) {
+        return (completedAt - startedAt) / 1_000_000.0;
     }
 
     private void rolloverRunIfRequired(String incomingRunId, long incomingTick) {
@@ -844,7 +872,7 @@ public class VehicleRuntimeManager {
         Map<String, PowerConstraintSnapshot> powerByTrain
     ) {
         // 权威供电仿真按列车位置返回分区，车辆运行时只消费该结果并汇总同分区负荷。
-        Map<String, SectionLoadAccumulator> loads = new ConcurrentHashMap<>();
+        Map<String, SectionLoadAccumulator> loads = new LinkedHashMap<>();
         for (VehiclePhysicsOutputDto output : outputs) {
             PowerConstraintSnapshot power = powerByTrain.get(output.trainId());
             if (power == null || power.sectionId() == null || power.sectionId().isBlank()) {

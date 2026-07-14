@@ -447,6 +447,16 @@ public class DispatchService {
         refreshSnapshot();
     }
 
+    /**
+     * The dispatch optimizer runs on its configured cadence, while signal and
+     * track constraints still run every 100 ms.  The runtime uses this probe to
+     * avoid a preliminary signal pass on ticks where evaluate() will only reuse
+     * the previous dispatch result.
+     */
+    public synchronized boolean requiresEvaluation(Instant simulatedTime) {
+        return shouldEvaluate(simulatedTime);
+    }
+
     private List<DispatchCommand> automaticRouteCommands(
         Instant simulatedAt,
         List<TrainState> trains,

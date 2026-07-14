@@ -531,7 +531,7 @@ class VehicleRuntimeManagerTests {
     void stepFleetForwardsAggregatedLoadsToPowerNetworkWhenEnabled() throws Exception {
         AtomicReference<String> payload = new AtomicReference<>("");
         com.sun.net.httpserver.HttpServer server = com.sun.net.httpserver.HttpServer.create(new java.net.InetSocketAddress("127.0.0.1", 0), 0);
-        server.createContext("/power-network/constraints/query", exchange -> {
+        server.createContext("/power-network/constraints/query-compact", exchange -> {
             byte[] response = "{\"powerConstraints\":[{\"trainId\":\"TR-101\",\"sectionId\":\"P01\",\"railVoltage\":1500,\"powerAvailableWatts\":3200000,\"energized\":true,\"powerDeratingFactor\":1,\"currentCollectionAvailable\":true,\"regenAvailable\":true,\"constraintReason\":\"NORMAL\"}]}"
                 .getBytes(java.nio.charset.StandardCharsets.UTF_8);
             exchange.getResponseHeaders().add("Content-Type", "application/json");
@@ -539,7 +539,7 @@ class VehicleRuntimeManagerTests {
             exchange.getResponseBody().write(response);
             exchange.close();
         });
-        server.createContext("/power-network/step", exchange -> {
+        server.createContext("/power-network/step-compact", exchange -> {
             payload.set(new String(exchange.getRequestBody().readAllBytes(), java.nio.charset.StandardCharsets.UTF_8));
             byte[] response = "{\"powerConstraints\":[{\"trainId\":\"TR-101\",\"sectionId\":\"P01\",\"railVoltage\":1490,\"powerAvailableWatts\":3000000,\"energized\":true,\"powerDeratingFactor\":1,\"currentCollectionAvailable\":true,\"regenAvailable\":true,\"constraintReason\":\"NORMAL\"}]}"
                 .getBytes(java.nio.charset.StandardCharsets.UTF_8);

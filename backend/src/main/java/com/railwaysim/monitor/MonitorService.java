@@ -32,6 +32,7 @@ public class MonitorService {
 
     private final AlarmLifecycleService alarmLifecycleService;
     private final ServiceHealthService serviceHealthService;
+    private volatile MonitorBuildTiming latestBuildTiming = MonitorBuildTiming.idle();
 
     public MonitorService(
         AlarmLifecycleService alarmLifecycleService, ServiceHealthService serviceHealthService
@@ -58,8 +59,16 @@ public class MonitorService {
         List<DomainEvent> events,
         DispatchSnapshot dispatch
     ) {
+        long startedAt = System.nanoTime();
         observeServiceHealth(simulationRunId, tick, vehicleRuntime, powerNetwork, powerHealth);
-        return new SimulationSnapshot(
+        long serviceHealthCompletedAt = System.nanoTime();
+        List<Alarm> projectedAlarms = buildAlarms(
+            simulatedTime, trains, trackSegments, authorities, powerSections, events);
+        long alarmProjectionCompletedAt = System.nanoTime();
+        List<Alarm> reconciledAlarms = alarmLifecycleService.reconcile(
+            simulationRunId, projectedAlarms, simulatedTime);
+        long reconciliationCompletedAt = System.nanoTime();
+        SimulationSnapshot snapshot = new SimulationSnapshot(
             simulationRunId,
             tick,
             simulatedTime,
@@ -72,13 +81,24 @@ public class MonitorService {
             routeStates,
             powerSections,
             vehicleRuntime,
-            alarmLifecycleService.reconcile(
-                simulationRunId,
-                buildAlarms(simulatedTime, trains, trackSegments, authorities, powerSections, events),
-                simulatedTime
-            ),
+            reconciledAlarms,
             dispatch
         );
+        latestBuildTiming = new MonitorBuildTiming(
+            elapsedMillis(startedAt, serviceHealthCompletedAt),
+            elapsedMillis(serviceHealthCompletedAt, alarmProjectionCompletedAt),
+            elapsedMillis(alarmProjectionCompletedAt, reconciliationCompletedAt),
+            elapsedMillis(startedAt, reconciliationCompletedAt)
+        );
+        return snapshot;
+    }
+
+    public MonitorBuildTiming latestBuildTiming() {
+        return latestBuildTiming;
+    }
+
+    private double elapsedMillis(long startedAt, long completedAt) {
+        return (completedAt - startedAt) / 1_000_000.0;
     }
 
     private void observeServiceHealth(

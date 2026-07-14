@@ -68,6 +68,7 @@ public class SimulationRuntime {
     private Instant simulatedTime = Instant.now();
     private long lastPushAtMillis;
     private final Set<String> appliedFeedbackSent = new HashSet<>();
+    private volatile SimulationTickTiming latestTickTiming = SimulationTickTiming.idle();
 
     public SimulationRuntime(
         TrainManager trainManager,
@@ -114,6 +115,10 @@ public class SimulationRuntime {
 
     public synchronized SimulationSnapshot snapshot() {
         return buildSnapshot();
+    }
+
+    public SimulationTickTiming latestTickTiming() {
+        return latestTickTiming;
     }
 
     public synchronized SimulationSnapshot start() {
@@ -179,6 +184,7 @@ public class SimulationRuntime {
     }
 
     private SimulationSnapshot advanceOneTick() {
+        long tickStartedAt = System.nanoTime();
         tick++;
         simulatedTime = simulatedTime.plusMillis(simulationProperties.getTickMillis());
         TickContext context = new TickContext(
@@ -193,8 +199,15 @@ public class SimulationRuntime {
         List<TrainState> beforeTrainStates = trainManager.states();
         trackService.updateOccupancy(beforeTrainStates);
         List<TrackConstraint> trackConstraints = trackService.constraintsForTrains(beforeTrainStates);
-        signalService.calculateAuthorities(beforeTrainStates, trackConstraints, List.of());
+        long trackConstraintsCompletedAt = System.nanoTime();
+        if (dispatchService.requiresEvaluation(context.simulatedTime())) {
+            // Dispatch consumes current-tick MA only on its configured cadence.
+            // Other ticks retain the prior MA until the final authoritative
+            // signal pass below, avoiding duplicate 1000-train calculation.
+            signalService.calculateAuthorities(beforeTrainStates, trackConstraints, List.of());
+        }
         dispatchService.evaluate(context, beforeTrainStates, signalService.authorities());
+        long preliminarySignalAndDispatchCompletedAt = System.nanoTime();
 
         // 一次性进路指令在约束计算前交给联锁处理。
         List<DispatchCommand> routeCommands = new ArrayList<>(dispatchService.drainCommandsOfType("REROUTE"));
@@ -265,10 +278,14 @@ public class SimulationRuntime {
         if (!generatedCommands.isEmpty()) {
             dispatchCommandPublisher.publish(generatedCommands);
         }
+        long commandAndInterlockingCompletedAt = System.nanoTime();
 
         // 保存调度约束快照（消费前），供完成检查使用
-        List<DispatchConstraint> dispatchConstraintsPreview = dispatchService.previewConstraintsForTrains(beforeTrainStates);
         List<DispatchConstraint> dispatchConstraints = dispatchService.constraintsForTrains(beforeTrainStates);
+        // constraintsForTrains returns the pre-consumption values; preserve that
+        // same snapshot for completion checks instead of calculating all
+        // automatic headway regulations a second time.
+        List<DispatchConstraint> dispatchConstraintsPreview = List.copyOf(dispatchConstraints);
         signalService.calculateAuthorities(beforeTrainStates, trackConstraints, dispatchConstraints);
         dispatchService.syncRouteReservations(interlockingService.states(), context.simulatedTime());
         boolean externalPowerAuthority = vehicleRuntimeIntegrationService.usesExternalPowerAuthority();
@@ -279,6 +296,7 @@ public class SimulationRuntime {
         List<PowerConstraint> powerConstraints = externalPowerAuthority
             ? List.of()
             : powerService.constraintsForTrains(beforeTrainStates);
+        long constraintsCompletedAt = System.nanoTime();
 
         VehicleRuntimeStepResult trainSteps = trainManager.tickAll(
             context,
@@ -287,23 +305,54 @@ public class SimulationRuntime {
             dispatchConstraints,
             powerConstraints
         );
+        long vehicleRuntimeCompletedAt = System.nanoTime();
         List<VehiclePhysicsOutput> outputs = trainSteps.outputs();
         finalControlDecisionPersistenceService.persistFinalControlDecisions(context, trainSteps.trainSteps());
         trainStopEvaluationService.evaluate(context, trainManager.states());
+        long centralVehiclePostProcessingCompletedAt = System.nanoTime();
         powerService.updateFromVehicleOutputs(outputs);
+        long powerSnapshotCompletedAt = System.nanoTime();
         trackService.updateOccupancy(trainManager.states());
         signalService.recomputeSignalAspects(); // 基于最终区段占用刷新灯色
         checkDispatchCompletion(dispatchConstraintsPreview); // 信号→调度反馈：指令是否完成
         lastEvents = eventBus.drain();
         persistIfDue(context);
+        long centralPostProcessingCompletedAt = System.nanoTime();
 
         SimulationSnapshot snapshot = buildSnapshot();
+        long snapshotCompletedAt = System.nanoTime();
+        var monitorTiming = monitorService.latestBuildTiming();
         long nowMillis = System.currentTimeMillis();
         if (nowMillis - lastPushAtMillis >= simulationProperties.getPushIntervalMillis()) {
             webSocketHandler.broadcast(snapshot);
             lastPushAtMillis = nowMillis;
         }
+        long tickCompletedAt = System.nanoTime();
+        latestTickTiming = new SimulationTickTiming(
+            context.tick(),
+            beforeTrainStates.size(),
+            externalPowerAuthority,
+            elapsedMillis(tickStartedAt, trackConstraintsCompletedAt),
+            elapsedMillis(trackConstraintsCompletedAt, preliminarySignalAndDispatchCompletedAt),
+            elapsedMillis(preliminarySignalAndDispatchCompletedAt, commandAndInterlockingCompletedAt),
+            elapsedMillis(commandAndInterlockingCompletedAt, constraintsCompletedAt),
+            elapsedMillis(tickStartedAt, constraintsCompletedAt),
+            elapsedMillis(constraintsCompletedAt, vehicleRuntimeCompletedAt),
+            elapsedMillis(vehicleRuntimeCompletedAt, centralVehiclePostProcessingCompletedAt),
+            elapsedMillis(centralVehiclePostProcessingCompletedAt, powerSnapshotCompletedAt),
+            elapsedMillis(powerSnapshotCompletedAt, centralPostProcessingCompletedAt),
+            monitorTiming.serviceHealthMillis(),
+            monitorTiming.alarmProjectionMillis(),
+            monitorTiming.alarmReconciliationMillis(),
+            elapsedMillis(centralPostProcessingCompletedAt, snapshotCompletedAt),
+            elapsedMillis(snapshotCompletedAt, tickCompletedAt),
+            elapsedMillis(tickStartedAt, tickCompletedAt)
+        );
         return snapshot;
+    }
+
+    private double elapsedMillis(long startedAt, long completedAt) {
+        return (completedAt - startedAt) / 1_000_000.0;
     }
 
     private SimulationSnapshot advanceWithFailureTracking() {

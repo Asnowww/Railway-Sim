@@ -73,7 +73,12 @@ public class PowerService {
     }
 
     public synchronized void updateFromVehicleOutputs(List<VehiclePhysicsOutput> outputs) {
-        List<PowerSectionLoadSnapshot> loads = powerConstraintService.loadSnapshots(outputs);
+        // 9300 already sent the complete fleet load snapshot to 9200 in split
+        // mode. 8080 only reads the resulting authority state and does not
+        // rebuild a local request that it will never write.
+        List<PowerSectionLoadSnapshot> loads = powerIntegrationService.vehicleRuntimeOwnsPowerLoads()
+            ? List.of()
+            : powerConstraintService.loadSnapshots(outputs);
         sections = powerConstraintService.calculateStates(
             outputs,
             powerIntegrationService.refreshSnapshot(loads),
