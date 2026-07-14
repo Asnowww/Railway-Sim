@@ -580,7 +580,7 @@ public class DispatchService {
                 || activeTrainIds.contains(service.trainId())) {
                 continue;
             }
-            Instant plannedDeparture = simulationStart.plusSeconds(origin.departureOffsetSec());
+            Instant plannedDeparture = plannedDepartureAt(service);
             if (simulatedAt.isBefore(plannedDeparture)) {
                 continue;
             }
@@ -1323,15 +1323,14 @@ public class DispatchService {
         String resolvedRouteId = routeId == null || routeId.isBlank() ? "R_MAIN" : routeId;
         PlannedStop origin = service.origin();
         PlannedStop terminus = service.terminus();
-        List<String> stationIds = service.stops().stream()
+        List<PlannedStop> plannedStops = planLoader.plannedStops(service, currentPlan);
+        List<String> stationIds = plannedStops.stream()
             .map(PlannedStop::stationId)
             .toList();
         List<String> viaPointIds = stationIds.size() <= 2
             ? List.of()
             : List.copyOf(stationIds.subList(1, stationIds.size() - 1));
-        Instant plannedDeparture = origin == null
-            ? null
-            : simulationStart.plusSeconds(origin.departureOffsetSec());
+        Instant plannedDeparture = origin == null ? null : plannedDepartureAt(service);
         String rejectReason = null;
         if (route == null) {
             rejectReason = "routeId " + resolvedRouteId + " is not provided by signal route catalog";
@@ -1926,7 +1925,7 @@ public class DispatchService {
                     service.trainId(),
                     origin == null ? null : origin.stationId(),
                     terminus == null ? null : terminus.stationId(),
-                    origin == null ? null : simulationStart.plusSeconds(origin.departureOffsetSec()),
+                    origin == null ? null : plannedDepartureAt(service),
                     command == null ? "PLANNED" : command.status(),
                     commandId
                 );
@@ -1978,6 +1977,10 @@ public class DispatchService {
             operationPlanViews,
             lineRegulationPlanView(latestLineRegulationPlan)
         );
+    }
+
+    private Instant plannedDepartureAt(TrainServicePlan service) {
+        return simulationStart.plusSeconds(planLoader.plannedDepartureOffsetSec(service, currentPlan));
     }
 
     private DispatchSnapshot.LineRegulationPlanView lineRegulationPlanView(LineRegulationPlan plan) {

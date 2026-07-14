@@ -179,10 +179,10 @@ circulations:
     serviceIds: [SVC-001]
   - id: CIRC-002
     rollingStockId: STOCK-002
-    serviceIds: [SVC-002]
+    serviceIds: [SVC-003]
   - id: CIRC-003
     rollingStockId: STOCK-003
-    serviceIds: [SVC-003]
+    serviceIds: [SVC-002]
   - id: CIRC-004
     rollingStockId: STOCK-004
     serviceIds: [SVC-004]
@@ -210,8 +210,8 @@ services:
       - { stationId: S112, arrivalOffsetSec: 1090, departureOffsetSec: 1115 }
       - { stationId: S113, arrivalOffsetSec: 1177, departureOffsetSec: 1177 }
   - serviceId: SVC-002
-    circulationId: CIRC-002
-    trainId: TR-002
+    circulationId: CIRC-003
+    trainId: TR-003
     trainNo: 2
     linkId: 1
     offsetMeters: 0
@@ -231,8 +231,8 @@ services:
       - { stationId: S112, arrivalOffsetSec: 1390, departureOffsetSec: 1415 }
       - { stationId: S113, arrivalOffsetSec: 1477, departureOffsetSec: 1477 }
   - serviceId: SVC-003
-    circulationId: CIRC-003
-    trainId: TR-003
+    circulationId: CIRC-002
+    trainId: TR-002
     trainNo: 3
     linkId: 1
     offsetMeters: 0

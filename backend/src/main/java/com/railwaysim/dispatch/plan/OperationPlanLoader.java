@@ -134,6 +134,47 @@ public class OperationPlanLoader {
         return services;
     }
 
+    public int plannedDepartureOffsetSec(TrainServicePlan service, CurrentRunPlan plan) {
+        if (service == null || service.origin() == null || plan == null) {
+            return service == null || service.origin() == null ? 0 : service.origin().departureOffsetSec();
+        }
+        List<TrainServicePlan> sameDirection = services.stream()
+            .filter(candidate -> candidate.origin() != null)
+            .filter(candidate -> sameText(candidate.direction(), service.direction()))
+            .sorted(Comparator
+                .comparingInt((TrainServicePlan candidate) -> candidate.origin().departureOffsetSec())
+                .thenComparing(TrainServicePlan::serviceId))
+            .toList();
+        if (sameDirection.isEmpty()) {
+            return service.origin().departureOffsetSec();
+        }
+        int index = sameDirection.indexOf(service);
+        if (index < 0) {
+            return service.origin().departureOffsetSec();
+        }
+        int firstDepartureOffset = sameDirection.getFirst().origin().departureOffsetSec();
+        return firstDepartureOffset + index * plan.departureIntervalSec();
+    }
+
+    public List<PlannedStop> plannedStops(TrainServicePlan service, CurrentRunPlan plan) {
+        if (service == null || service.origin() == null) {
+            return List.of();
+        }
+        int dynamicDepartureOffset = plannedDepartureOffsetSec(service, plan);
+        int templateDepartureOffset = service.origin().departureOffsetSec();
+        int deltaSec = dynamicDepartureOffset - templateDepartureOffset;
+        if (deltaSec == 0) {
+            return service.stops();
+        }
+        return service.stops().stream()
+            .map(stop -> new PlannedStop(
+                stop.stationId(),
+                stop.arrivalOffsetSec() + deltaSec,
+                stop.departureOffsetSec() + deltaSec
+            ))
+            .toList();
+    }
+
     public TrainServicePlan serviceByTrainId(String trainId) {
         if (trainId == null) {
             return null;
@@ -149,6 +190,13 @@ public class OperationPlanLoader {
             .filter(period -> "FLAT".equals(period.periodType()))
             .findFirst()
             .orElse(periods.getFirst());
+    }
+
+    private boolean sameText(String left, String right) {
+        if (left == null || right == null) {
+            return left == right;
+        }
+        return left.trim().equalsIgnoreCase(right.trim());
     }
 
     private boolean contains(RunModePeriod period, LocalTime time) {

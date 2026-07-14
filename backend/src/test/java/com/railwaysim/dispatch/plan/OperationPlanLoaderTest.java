@@ -61,4 +61,30 @@ class OperationPlanLoaderTest {
         assertEquals("S113", firstDown.origin().stationId());
         assertEquals("S101", firstDown.terminus().stationId());
     }
+
+    @Test
+    void offsetsSecondTrainInEachDirectionByCurrentPeriodInterval() {
+        CurrentRunPlan peak = loader.resolve(
+            LocalDate.now().atTime(8, 0).atZone(ZoneId.systemDefault()).toInstant());
+        CurrentRunPlan flat = loader.resolve(
+            LocalDate.now().atTime(12, 0).atZone(ZoneId.systemDefault()).toInstant());
+        CurrentRunPlan offPeak = loader.resolve(
+            LocalDate.now().atTime(23, 0).atZone(ZoneId.systemDefault()).toInstant());
+        TrainServicePlan upFollower = service("SVC-002");
+        TrainServicePlan downFollower = service("SVC-004");
+
+        assertEquals(195, loader.plannedDepartureOffsetSec(upFollower, peak));
+        assertEquals(195, loader.plannedDepartureOffsetSec(downFollower, peak));
+        assertEquals(315, loader.plannedDepartureOffsetSec(upFollower, flat));
+        assertEquals(315, loader.plannedDepartureOffsetSec(downFollower, flat));
+        assertEquals(435, loader.plannedDepartureOffsetSec(upFollower, offPeak));
+        assertEquals(435, loader.plannedDepartureOffsetSec(downFollower, offPeak));
+    }
+
+    private TrainServicePlan service(String serviceId) {
+        return loader.services().stream()
+            .filter(service -> serviceId.equals(service.serviceId()))
+            .findFirst()
+            .orElseThrow();
+    }
 }

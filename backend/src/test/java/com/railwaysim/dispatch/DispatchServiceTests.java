@@ -34,6 +34,8 @@ import com.railwaysim.train.TrainEntity;
 import com.railwaysim.train.TrainState;
 import java.io.IOException;
 import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -299,7 +301,7 @@ class DispatchServiceTests {
     @Test
     void dispatchGeneratesDepartureCommandsFromFormalServicePlan() {
         DispatchService service = dispatchService();
-        Instant due = Instant.now().plusSeconds(1_400);
+        Instant due = peakTomorrowPlusSeconds(1_400);
 
         service.evaluate(tick(1, due), List.of(), List.of());
 
@@ -312,6 +314,24 @@ class DispatchServiceTests {
         assertThat(service.snapshot().services())
             .extracting(DispatchSnapshot.ServicePlanView::departureStatus)
             .containsOnly(CommandStatus.PENDING);
+    }
+
+    @Test
+    void formalFollowerDeparturesUseCurrentPeriodInterval() {
+        DispatchService service = dispatchService();
+        service.evaluate(tick(1, peakTomorrowPlusSeconds(1_400)), List.of(), List.of());
+
+        Map<String, Instant> departureByTrain = service.pendingCommands().stream()
+            .filter(command -> "DEPART".equals(command.commandType()))
+            .collect(java.util.stream.Collectors.toMap(
+                DispatchCommand::trainId,
+                command -> Instant.parse((String) command.payload().get("plannedDepartureAt"))
+            ));
+
+        assertThat(departureByTrain.get("TR-003").getEpochSecond()
+            - departureByTrain.get("TR-001").getEpochSecond()).isEqualTo(180);
+        assertThat(departureByTrain.get("TR-004").getEpochSecond()
+            - departureByTrain.get("TR-002").getEpochSecond()).isEqualTo(180);
     }
 
     @Test
@@ -1083,6 +1103,10 @@ class DispatchServiceTests {
 
     private static TickContext tick(long tick, Instant simulatedTime) {
         return new TickContext(tick, 1000, 1.0, simulatedTime);
+    }
+
+    private static Instant peakTomorrowPlusSeconds(long seconds) {
+        return LocalDate.now().plusDays(1).atTime(8, 0).atZone(ZoneId.systemDefault()).toInstant().plusSeconds(seconds);
     }
 
     private static int dispatchServiceTimeoutSec() {

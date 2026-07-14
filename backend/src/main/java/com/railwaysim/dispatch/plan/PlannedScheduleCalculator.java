@@ -35,7 +35,7 @@ public class PlannedScheduleCalculator {
         TrainServicePlan formalService = serviceFor(trainId, stations);
         if (formalService != null) {
             Map<String, Instant> formal = new HashMap<>();
-            for (PlannedStop stop : formalService.stops()) {
+            for (PlannedStop stop : planLoader.plannedStops(formalService, plan)) {
                 formal.put(stop.stationId(), simulationStart.plusSeconds(stop.arrivalOffsetSec()));
             }
             return formal;
@@ -67,7 +67,7 @@ public class PlannedScheduleCalculator {
         TrainServicePlan formalService = serviceFor(trainId, stations);
         if (formalService != null) {
             Map<String, Instant> formal = new HashMap<>();
-            for (PlannedStop stop : formalService.stops()) {
+            for (PlannedStop stop : planLoader.plannedStops(formalService, plan)) {
                 formal.put(stop.stationId(), simulationStart.plusSeconds(stop.departureOffsetSec()));
             }
             return formal;
