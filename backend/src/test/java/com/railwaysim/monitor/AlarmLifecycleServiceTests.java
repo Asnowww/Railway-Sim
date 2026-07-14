@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.stream.IntStream;
 import org.h2.jdbcx.JdbcDataSource;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -115,5 +116,33 @@ class AlarmLifecycleServiceTests {
                 .isEqualTo("STOP_BEFORE_FAULTED_SEGMENT_AND_SET_SIGNAL_RED");
             assertThat(record.impact().clearCondition()).isEqualTo("TRACK_SEGMENT_FAULT_CLEARED");
         });
+    }
+
+    @Test
+    void largeFleetAlarmReconciliationPersistsEveryRecordAsOneLogicalBatch() {
+        Instant now = Instant.parse("2026-07-11T00:00:00Z");
+        List<Alarm> candidates = IntStream.range(0, 1_000)
+            .mapToObj(index -> new Alarm(
+                "TRAIN_FAULT:TR-" + index + ":ATP_BRAKE",
+                "train",
+                "TR-" + index,
+                2,
+                "fault",
+                "ATP_BRAKE",
+                now,
+                false
+            ))
+            .toList();
+
+        assertThat(service.reconcile("run-large", candidates, now)).hasSize(1_000);
+        assertThat(service.reconcile("run-large", candidates, now.plusMillis(100))).hasSize(1_000);
+        assertThat(jdbc.queryForObject(
+            "SELECT COUNT(*) FROM alarm_record WHERE simulation_run_id = 'run-large'",
+            Integer.class
+        )).isEqualTo(1_000);
+        assertThat(jdbc.queryForObject(
+            "SELECT MAX(last_seen_at) FROM alarm_record WHERE simulation_run_id = 'run-large'",
+            java.sql.Timestamp.class
+        )).isEqualTo(java.sql.Timestamp.from(now.plusMillis(100)));
     }
 }

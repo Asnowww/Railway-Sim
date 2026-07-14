@@ -1,0 +1,854 @@
+{
+  "status": "PASS",
+  "simulationRunId": "wp8-100-scale-2c45020c-9cbc-4dc6-a2d1-c2937a591c57",
+  "criteria": {
+    "trainCount": 100,
+    "fmuPeriodMillis": 20,
+    "tcmsPeriodMillis": 100,
+    "fmuSubstepsPerTcmsTick": 5,
+    "warmupTicks": 2,
+    "sampleTicks": 100,
+    "runtimeP95LimitMillis": 80.0,
+    "fmuP95LimitMillis": 60.0
+  },
+  "errors": [],
+  "metrics": {
+    "httpRoundTripMillis": {
+      "mean": 31.972,
+      "median": 31.477,
+      "p95": 35.636,
+      "min": 28.719,
+      "max": 41.964
+    },
+    "vehicleRuntimeMillis": {
+      "mean": 23.54,
+      "median": 23.0,
+      "p95": 27.0,
+      "min": 21.0,
+      "max": 34.0
+    },
+    "fmuBatchMillis": {
+      "mean": 23.07,
+      "median": 23.0,
+      "p95": 27.0,
+      "min": 21.0,
+      "max": 34.0
+    },
+    "requestPayloadBytes": {
+      "mean": 171054.05,
+      "median": 171048.0,
+      "p95": 171324.0,
+      "min": 170619.0,
+      "max": 171450.0
+    },
+    "responsePayloadBytes": {
+      "mean": 382468.96,
+      "median": 382396.0,
+      "p95": 383860.0,
+      "min": 381401.0,
+      "max": 384428.0
+    }
+  },
+  "samples": [
+    {
+      "tick": 3,
+      "wallMillis": 34.114,
+      "runtimeMillis": 25.0,
+      "fmuBatchMillis": 24.0,
+      "requestPayloadBytes": 171324,
+      "responsePayloadBytes": 382915
+    },
+    {
+      "tick": 4,
+      "wallMillis": 33.854,
+      "runtimeMillis": 26.0,
+      "fmuBatchMillis": 25.0,
+      "requestPayloadBytes": 171450,
+      "responsePayloadBytes": 382543
+    },
+    {
+      "tick": 5,
+      "wallMillis": 32.034,
+      "runtimeMillis": 23.0,
+      "fmuBatchMillis": 22.0,
+      "requestPayloadBytes": 171190,
+      "responsePayloadBytes": 382847
+    },
+    {
+      "tick": 6,
+      "wallMillis": 31.4,
+      "runtimeMillis": 23.0,
+      "fmuBatchMillis": 23.0,
+      "requestPayloadBytes": 171264,
+      "responsePayloadBytes": 382659
+    },
+    {
+      "tick": 7,
+      "wallMillis": 39.048,
+      "runtimeMillis": 31.0,
+      "fmuBatchMillis": 30.0,
+      "requestPayloadBytes": 171202,
+      "responsePayloadBytes": 384211
+    },
+    {
+      "tick": 8,
+      "wallMillis": 37.657,
+      "runtimeMillis": 29.0,
+      "fmuBatchMillis": 29.0,
+      "requestPayloadBytes": 171418,
+      "responsePayloadBytes": 384354
+    },
+    {
+      "tick": 9,
+      "wallMillis": 35.127,
+      "runtimeMillis": 27.0,
+      "fmuBatchMillis": 26.0,
+      "requestPayloadBytes": 171380,
+      "responsePayloadBytes": 384243
+    },
+    {
+      "tick": 10,
+      "wallMillis": 33.679,
+      "runtimeMillis": 26.0,
+      "fmuBatchMillis": 26.0,
+      "requestPayloadBytes": 171381,
+      "responsePayloadBytes": 384428
+    },
+    {
+      "tick": 11,
+      "wallMillis": 32.826,
+      "runtimeMillis": 24.0,
+      "fmuBatchMillis": 23.0,
+      "requestPayloadBytes": 171163,
+      "responsePayloadBytes": 383860
+    },
+    {
+      "tick": 12,
+      "wallMillis": 31.679,
+      "runtimeMillis": 24.0,
+      "fmuBatchMillis": 23.0,
+      "requestPayloadBytes": 171073,
+      "responsePayloadBytes": 383828
+    },
+    {
+      "tick": 13,
+      "wallMillis": 32.69,
+      "runtimeMillis": 24.0,
+      "fmuBatchMillis": 24.0,
+      "requestPayloadBytes": 171125,
+      "responsePayloadBytes": 384104
+    },
+    {
+      "tick": 14,
+      "wallMillis": 29.891,
+      "runtimeMillis": 22.0,
+      "fmuBatchMillis": 22.0,
+      "requestPayloadBytes": 171281,
+      "responsePayloadBytes": 382324
+    },
+    {
+      "tick": 15,
+      "wallMillis": 30.969,
+      "runtimeMillis": 23.0,
+      "fmuBatchMillis": 23.0,
+      "requestPayloadBytes": 170941,
+      "responsePayloadBytes": 382904
+    },
+    {
+      "tick": 16,
+      "wallMillis": 38.618,
+      "runtimeMillis": 31.0,
+      "fmuBatchMillis": 31.0,
+      "requestPayloadBytes": 171207,
+      "responsePayloadBytes": 383234
+    },
+    {
+      "tick": 17,
+      "wallMillis": 41.964,
+      "runtimeMillis": 34.0,
+      "fmuBatchMillis": 34.0,
+      "requestPayloadBytes": 171363,
+      "responsePayloadBytes": 382848
+    },
+    {
+      "tick": 18,
+      "wallMillis": 36.646,
+      "runtimeMillis": 30.0,
+      "fmuBatchMillis": 29.0,
+      "requestPayloadBytes": 171285,
+      "responsePayloadBytes": 382940
+    },
+    {
+      "tick": 19,
+      "wallMillis": 33.602,
+      "runtimeMillis": 25.0,
+      "fmuBatchMillis": 24.0,
+      "requestPayloadBytes": 171203,
+      "responsePayloadBytes": 383000
+    },
+    {
+      "tick": 20,
+      "wallMillis": 34.203,
+      "runtimeMillis": 25.0,
+      "fmuBatchMillis": 25.0,
+      "requestPayloadBytes": 171303,
+      "responsePayloadBytes": 382664
+    },
+    {
+      "tick": 21,
+      "wallMillis": 31.394,
+      "runtimeMillis": 22.0,
+      "fmuBatchMillis": 21.0,
+      "requestPayloadBytes": 171151,
+      "responsePayloadBytes": 382584
+    },
+    {
+      "tick": 22,
+      "wallMillis": 30.387,
+      "runtimeMillis": 23.0,
+      "fmuBatchMillis": 22.0,
+      "requestPayloadBytes": 171022,
+      "responsePayloadBytes": 382400
+    },
+    {
+      "tick": 23,
+      "wallMillis": 30.958,
+      "runtimeMillis": 22.0,
+      "fmuBatchMillis": 22.0,
+      "requestPayloadBytes": 171118,
+      "responsePayloadBytes": 382357
+    },
+    {
+      "tick": 24,
+      "wallMillis": 31.712,
+      "runtimeMillis": 23.0,
+      "fmuBatchMillis": 23.0,
+      "requestPayloadBytes": 171118,
+      "responsePayloadBytes": 382440
+    },
+    {
+      "tick": 25,
+      "wallMillis": 32.089,
+      "runtimeMillis": 25.0,
+      "fmuBatchMillis": 24.0,
+      "requestPayloadBytes": 171178,
+      "responsePayloadBytes": 381980
+    },
+    {
+      "tick": 26,
+      "wallMillis": 31.164,
+      "runtimeMillis": 22.0,
+      "fmuBatchMillis": 22.0,
+      "requestPayloadBytes": 170818,
+      "responsePayloadBytes": 382818
+    },
+    {
+      "tick": 27,
+      "wallMillis": 30.985,
+      "runtimeMillis": 23.0,
+      "fmuBatchMillis": 22.0,
+      "requestPayloadBytes": 171224,
+      "responsePayloadBytes": 382284
+    },
+    {
+      "tick": 28,
+      "wallMillis": 31.251,
+      "runtimeMillis": 23.0,
+      "fmuBatchMillis": 23.0,
+      "requestPayloadBytes": 171267,
+      "responsePayloadBytes": 382038
+    },
+    {
+      "tick": 29,
+      "wallMillis": 32.13,
+      "runtimeMillis": 23.0,
+      "fmuBatchMillis": 22.0,
+      "requestPayloadBytes": 170864,
+      "responsePayloadBytes": 381965
+    },
+    {
+      "tick": 30,
+      "wallMillis": 29.624,
+      "runtimeMillis": 22.0,
+      "fmuBatchMillis": 21.0,
+      "requestPayloadBytes": 170708,
+      "responsePayloadBytes": 382518
+    },
+    {
+      "tick": 31,
+      "wallMillis": 31.568,
+      "runtimeMillis": 23.0,
+      "fmuBatchMillis": 23.0,
+      "requestPayloadBytes": 171117,
+      "responsePayloadBytes": 382264
+    },
+    {
+      "tick": 32,
+      "wallMillis": 30.626,
+      "runtimeMillis": 22.0,
+      "fmuBatchMillis": 21.0,
+      "requestPayloadBytes": 170957,
+      "responsePayloadBytes": 382082
+    },
+    {
+      "tick": 33,
+      "wallMillis": 33.542,
+      "runtimeMillis": 25.0,
+      "fmuBatchMillis": 25.0,
+      "requestPayloadBytes": 170991,
+      "responsePayloadBytes": 382222
+    },
+    {
+      "tick": 34,
+      "wallMillis": 29.151,
+      "runtimeMillis": 21.0,
+      "fmuBatchMillis": 21.0,
+      "requestPayloadBytes": 171091,
+      "responsePayloadBytes": 382100
+    },
+    {
+      "tick": 35,
+      "wallMillis": 32.037,
+      "runtimeMillis": 24.0,
+      "fmuBatchMillis": 24.0,
+      "requestPayloadBytes": 171023,
+      "responsePayloadBytes": 382240
+    },
+    {
+      "tick": 36,
+      "wallMillis": 33.559,
+      "runtimeMillis": 24.0,
+      "fmuBatchMillis": 24.0,
+      "requestPayloadBytes": 171079,
+      "responsePayloadBytes": 381628
+    },
+    {
+      "tick": 37,
+      "wallMillis": 30.733,
+      "runtimeMillis": 21.0,
+      "fmuBatchMillis": 21.0,
+      "requestPayloadBytes": 170619,
+      "responsePayloadBytes": 381840
+    },
+    {
+      "tick": 38,
+      "wallMillis": 31.602,
+      "runtimeMillis": 24.0,
+      "fmuBatchMillis": 24.0,
+      "requestPayloadBytes": 171051,
+      "responsePayloadBytes": 381401
+    },
+    {
+      "tick": 39,
+      "wallMillis": 33.547,
+      "runtimeMillis": 25.0,
+      "fmuBatchMillis": 24.0,
+      "requestPayloadBytes": 170656,
+      "responsePayloadBytes": 381752
+    },
+    {
+      "tick": 40,
+      "wallMillis": 31.604,
+      "runtimeMillis": 22.0,
+      "fmuBatchMillis": 21.0,
+      "requestPayloadBytes": 170747,
+      "responsePayloadBytes": 381990
+    },
+    {
+      "tick": 41,
+      "wallMillis": 33.618,
+      "runtimeMillis": 24.0,
+      "fmuBatchMillis": 24.0,
+      "requestPayloadBytes": 170896,
+      "responsePayloadBytes": 382460
+    },
+    {
+      "tick": 42,
+      "wallMillis": 31.877,
+      "runtimeMillis": 23.0,
+      "fmuBatchMillis": 23.0,
+      "requestPayloadBytes": 171133,
+      "responsePayloadBytes": 382150
+    },
+    {
+      "tick": 43,
+      "wallMillis": 30.099,
+      "runtimeMillis": 22.0,
+      "fmuBatchMillis": 22.0,
+      "requestPayloadBytes": 170991,
+      "responsePayloadBytes": 382189
+    },
+    {
+      "tick": 44,
+      "wallMillis": 33.131,
+      "runtimeMillis": 24.0,
+      "fmuBatchMillis": 24.0,
+      "requestPayloadBytes": 171190,
+      "responsePayloadBytes": 381461
+    },
+    {
+      "tick": 45,
+      "wallMillis": 30.563,
+      "runtimeMillis": 23.0,
+      "fmuBatchMillis": 22.0,
+      "requestPayloadBytes": 170951,
+      "responsePayloadBytes": 382310
+    },
+    {
+      "tick": 46,
+      "wallMillis": 30.813,
+      "runtimeMillis": 23.0,
+      "fmuBatchMillis": 22.0,
+      "requestPayloadBytes": 171111,
+      "responsePayloadBytes": 382123
+    },
+    {
+      "tick": 47,
+      "wallMillis": 30.826,
+      "runtimeMillis": 22.0,
+      "fmuBatchMillis": 21.0,
+      "requestPayloadBytes": 170969,
+      "responsePayloadBytes": 382288
+    },
+    {
+      "tick": 48,
+      "wallMillis": 31.766,
+      "runtimeMillis": 24.0,
+      "fmuBatchMillis": 23.0,
+      "requestPayloadBytes": 171041,
+      "responsePayloadBytes": 382567
+    },
+    {
+      "tick": 49,
+      "wallMillis": 31.092,
+      "runtimeMillis": 22.0,
+      "fmuBatchMillis": 21.0,
+      "requestPayloadBytes": 171010,
+      "responsePayloadBytes": 382594
+    },
+    {
+      "tick": 50,
+      "wallMillis": 30.413,
+      "runtimeMillis": 22.0,
+      "fmuBatchMillis": 21.0,
+      "requestPayloadBytes": 171179,
+      "responsePayloadBytes": 382282
+    },
+    {
+      "tick": 51,
+      "wallMillis": 33.174,
+      "runtimeMillis": 26.0,
+      "fmuBatchMillis": 24.0,
+      "requestPayloadBytes": 170975,
+      "responsePayloadBytes": 382410
+    },
+    {
+      "tick": 52,
+      "wallMillis": 30.595,
+      "runtimeMillis": 21.0,
+      "fmuBatchMillis": 21.0,
+      "requestPayloadBytes": 171132,
+      "responsePayloadBytes": 381741
+    },
+    {
+      "tick": 53,
+      "wallMillis": 29.906,
+      "runtimeMillis": 22.0,
+      "fmuBatchMillis": 21.0,
+      "requestPayloadBytes": 170790,
+      "responsePayloadBytes": 382356
+    },
+    {
+      "tick": 54,
+      "wallMillis": 34.948,
+      "runtimeMillis": 26.0,
+      "fmuBatchMillis": 25.0,
+      "requestPayloadBytes": 170965,
+      "responsePayloadBytes": 382318
+    },
+    {
+      "tick": 55,
+      "wallMillis": 30.904,
+      "runtimeMillis": 22.0,
+      "fmuBatchMillis": 21.0,
+      "requestPayloadBytes": 170962,
+      "responsePayloadBytes": 382399
+    },
+    {
+      "tick": 56,
+      "wallMillis": 31.027,
+      "runtimeMillis": 22.0,
+      "fmuBatchMillis": 21.0,
+      "requestPayloadBytes": 171003,
+      "responsePayloadBytes": 382398
+    },
+    {
+      "tick": 57,
+      "wallMillis": 31.104,
+      "runtimeMillis": 23.0,
+      "fmuBatchMillis": 22.0,
+      "requestPayloadBytes": 171030,
+      "responsePayloadBytes": 382394
+    },
+    {
+      "tick": 58,
+      "wallMillis": 31.261,
+      "runtimeMillis": 24.0,
+      "fmuBatchMillis": 23.0,
+      "requestPayloadBytes": 171006,
+      "responsePayloadBytes": 381899
+    },
+    {
+      "tick": 59,
+      "wallMillis": 33.758,
+      "runtimeMillis": 26.0,
+      "fmuBatchMillis": 26.0,
+      "requestPayloadBytes": 170809,
+      "responsePayloadBytes": 382182
+    },
+    {
+      "tick": 60,
+      "wallMillis": 31.427,
+      "runtimeMillis": 24.0,
+      "fmuBatchMillis": 24.0,
+      "requestPayloadBytes": 170905,
+      "responsePayloadBytes": 382097
+    },
+    {
+      "tick": 61,
+      "wallMillis": 29.6,
+      "runtimeMillis": 22.0,
+      "fmuBatchMillis": 21.0,
+      "requestPayloadBytes": 170941,
+      "responsePayloadBytes": 382229
+    },
+    {
+      "tick": 62,
+      "wallMillis": 29.529,
+      "runtimeMillis": 21.0,
+      "fmuBatchMillis": 21.0,
+      "requestPayloadBytes": 170952,
+      "responsePayloadBytes": 382683
+    },
+    {
+      "tick": 63,
+      "wallMillis": 31.728,
+      "runtimeMillis": 22.0,
+      "fmuBatchMillis": 22.0,
+      "requestPayloadBytes": 171166,
+      "responsePayloadBytes": 382247
+    },
+    {
+      "tick": 64,
+      "wallMillis": 33.635,
+      "runtimeMillis": 25.0,
+      "fmuBatchMillis": 25.0,
+      "requestPayloadBytes": 170910,
+      "responsePayloadBytes": 382582
+    },
+    {
+      "tick": 65,
+      "wallMillis": 29.836,
+      "runtimeMillis": 22.0,
+      "fmuBatchMillis": 21.0,
+      "requestPayloadBytes": 171085,
+      "responsePayloadBytes": 382472
+    },
+    {
+      "tick": 66,
+      "wallMillis": 31.547,
+      "runtimeMillis": 24.0,
+      "fmuBatchMillis": 23.0,
+      "requestPayloadBytes": 170997,
+      "responsePayloadBytes": 382477
+    },
+    {
+      "tick": 67,
+      "wallMillis": 30.915,
+      "runtimeMillis": 23.0,
+      "fmuBatchMillis": 23.0,
+      "requestPayloadBytes": 171011,
+      "responsePayloadBytes": 382140
+    },
+    {
+      "tick": 68,
+      "wallMillis": 29.96,
+      "runtimeMillis": 23.0,
+      "fmuBatchMillis": 22.0,
+      "requestPayloadBytes": 171034,
+      "responsePayloadBytes": 382242
+    },
+    {
+      "tick": 69,
+      "wallMillis": 32.664,
+      "runtimeMillis": 23.0,
+      "fmuBatchMillis": 22.0,
+      "requestPayloadBytes": 170945,
+      "responsePayloadBytes": 382216
+    },
+    {
+      "tick": 70,
+      "wallMillis": 32.251,
+      "runtimeMillis": 24.0,
+      "fmuBatchMillis": 24.0,
+      "requestPayloadBytes": 171000,
+      "responsePayloadBytes": 382419
+    },
+    {
+      "tick": 71,
+      "wallMillis": 30.351,
+      "runtimeMillis": 22.0,
+      "fmuBatchMillis": 22.0,
+      "requestPayloadBytes": 171103,
+      "responsePayloadBytes": 382555
+    },
+    {
+      "tick": 72,
+      "wallMillis": 28.719,
+      "runtimeMillis": 21.0,
+      "fmuBatchMillis": 21.0,
+      "requestPayloadBytes": 171120,
+      "responsePayloadBytes": 382447
+    },
+    {
+      "tick": 73,
+      "wallMillis": 31.007,
+      "runtimeMillis": 22.0,
+      "fmuBatchMillis": 21.0,
+      "requestPayloadBytes": 171170,
+      "responsePayloadBytes": 381983
+    },
+    {
+      "tick": 74,
+      "wallMillis": 31.204,
+      "runtimeMillis": 22.0,
+      "fmuBatchMillis": 21.0,
+      "requestPayloadBytes": 170707,
+      "responsePayloadBytes": 382279
+    },
+    {
+      "tick": 75,
+      "wallMillis": 30.993,
+      "runtimeMillis": 22.0,
+      "fmuBatchMillis": 22.0,
+      "requestPayloadBytes": 171063,
+      "responsePayloadBytes": 382440
+    },
+    {
+      "tick": 76,
+      "wallMillis": 29.524,
+      "runtimeMillis": 21.0,
+      "fmuBatchMillis": 21.0,
+      "requestPayloadBytes": 171003,
+      "responsePayloadBytes": 382236
+    },
+    {
+      "tick": 77,
+      "wallMillis": 31.881,
+      "runtimeMillis": 22.0,
+      "fmuBatchMillis": 21.0,
+      "requestPayloadBytes": 171031,
+      "responsePayloadBytes": 382281
+    },
+    {
+      "tick": 78,
+      "wallMillis": 31.505,
+      "runtimeMillis": 23.0,
+      "fmuBatchMillis": 23.0,
+      "requestPayloadBytes": 170964,
+      "responsePayloadBytes": 382168
+    },
+    {
+      "tick": 79,
+      "wallMillis": 29.725,
+      "runtimeMillis": 21.0,
+      "fmuBatchMillis": 21.0,
+      "requestPayloadBytes": 171081,
+      "responsePayloadBytes": 382473
+    },
+    {
+      "tick": 80,
+      "wallMillis": 29.849,
+      "runtimeMillis": 21.0,
+      "fmuBatchMillis": 21.0,
+      "requestPayloadBytes": 171158,
+      "responsePayloadBytes": 382402
+    },
+    {
+      "tick": 81,
+      "wallMillis": 32.361,
+      "runtimeMillis": 24.0,
+      "fmuBatchMillis": 24.0,
+      "requestPayloadBytes": 170905,
+      "responsePayloadBytes": 382601
+    },
+    {
+      "tick": 82,
+      "wallMillis": 29.472,
+      "runtimeMillis": 21.0,
+      "fmuBatchMillis": 21.0,
+      "requestPayloadBytes": 171106,
+      "responsePayloadBytes": 382800
+    },
+    {
+      "tick": 83,
+      "wallMillis": 31.248,
+      "runtimeMillis": 22.0,
+      "fmuBatchMillis": 21.0,
+      "requestPayloadBytes": 171184,
+      "responsePayloadBytes": 382782
+    },
+    {
+      "tick": 84,
+      "wallMillis": 30.641,
+      "runtimeMillis": 23.0,
+      "fmuBatchMillis": 23.0,
+      "requestPayloadBytes": 171045,
+      "responsePayloadBytes": 382784
+    },
+    {
+      "tick": 85,
+      "wallMillis": 29.774,
+      "runtimeMillis": 21.0,
+      "fmuBatchMillis": 21.0,
+      "requestPayloadBytes": 171268,
+      "responsePayloadBytes": 382462
+    },
+    {
+      "tick": 86,
+      "wallMillis": 31.098,
+      "runtimeMillis": 21.0,
+      "fmuBatchMillis": 21.0,
+      "requestPayloadBytes": 170945,
+      "responsePayloadBytes": 382781
+    },
+    {
+      "tick": 87,
+      "wallMillis": 30.263,
+      "runtimeMillis": 22.0,
+      "fmuBatchMillis": 22.0,
+      "requestPayloadBytes": 171264,
+      "responsePayloadBytes": 382476
+    },
+    {
+      "tick": 88,
+      "wallMillis": 31.245,
+      "runtimeMillis": 22.0,
+      "fmuBatchMillis": 21.0,
+      "requestPayloadBytes": 171160,
+      "responsePayloadBytes": 382297
+    },
+    {
+      "tick": 89,
+      "wallMillis": 34.13,
+      "runtimeMillis": 24.0,
+      "fmuBatchMillis": 23.0,
+      "requestPayloadBytes": 171001,
+      "responsePayloadBytes": 382336
+    },
+    {
+      "tick": 90,
+      "wallMillis": 31.802,
+      "runtimeMillis": 23.0,
+      "fmuBatchMillis": 23.0,
+      "requestPayloadBytes": 170981,
+      "responsePayloadBytes": 382233
+    },
+    {
+      "tick": 91,
+      "wallMillis": 28.842,
+      "runtimeMillis": 21.0,
+      "fmuBatchMillis": 21.0,
+      "requestPayloadBytes": 171031,
+      "responsePayloadBytes": 382588
+    },
+    {
+      "tick": 92,
+      "wallMillis": 31.449,
+      "runtimeMillis": 23.0,
+      "fmuBatchMillis": 23.0,
+      "requestPayloadBytes": 171071,
+      "responsePayloadBytes": 381901
+    },
+    {
+      "tick": 93,
+      "wallMillis": 31.742,
+      "runtimeMillis": 23.0,
+      "fmuBatchMillis": 23.0,
+      "requestPayloadBytes": 170824,
+      "responsePayloadBytes": 381968
+    },
+    {
+      "tick": 94,
+      "wallMillis": 35.636,
+      "runtimeMillis": 27.0,
+      "fmuBatchMillis": 27.0,
+      "requestPayloadBytes": 170791,
+      "responsePayloadBytes": 382584
+    },
+    {
+      "tick": 95,
+      "wallMillis": 34.208,
+      "runtimeMillis": 25.0,
+      "fmuBatchMillis": 24.0,
+      "requestPayloadBytes": 171068,
+      "responsePayloadBytes": 382506
+    },
+    {
+      "tick": 96,
+      "wallMillis": 32.602,
+      "runtimeMillis": 25.0,
+      "fmuBatchMillis": 24.0,
+      "requestPayloadBytes": 171070,
+      "responsePayloadBytes": 382116
+    },
+    {
+      "tick": 97,
+      "wallMillis": 33.303,
+      "runtimeMillis": 25.0,
+      "fmuBatchMillis": 25.0,
+      "requestPayloadBytes": 170941,
+      "responsePayloadBytes": 382294
+    },
+    {
+      "tick": 98,
+      "wallMillis": 32.036,
+      "runtimeMillis": 24.0,
+      "fmuBatchMillis": 24.0,
+      "requestPayloadBytes": 171067,
+      "responsePayloadBytes": 381527
+    },
+    {
+      "tick": 99,
+      "wallMillis": 32.498,
+      "runtimeMillis": 25.0,
+      "fmuBatchMillis": 25.0,
+      "requestPayloadBytes": 170750,
+      "responsePayloadBytes": 382176
+    },
+    {
+      "tick": 100,
+      "wallMillis": 33.051,
+      "runtimeMillis": 25.0,
+      "fmuBatchMillis": 25.0,
+      "requestPayloadBytes": 171002,
+      "responsePayloadBytes": 382759
+    },
+    {
+      "tick": 101,
+      "wallMillis": 30.381,
+      "runtimeMillis": 23.0,
+      "fmuBatchMillis": 22.0,
+      "requestPayloadBytes": 171123,
+      "responsePayloadBytes": 382424
+    },
+    {
+      "tick": 102,
+      "wallMillis": 31.072,
+      "runtimeMillis": 23.0,
+      "fmuBatchMillis": 22.0,
+      "requestPayloadBytes": 170967,
+      "responsePayloadBytes": 382103
+    }
+  ]
+}

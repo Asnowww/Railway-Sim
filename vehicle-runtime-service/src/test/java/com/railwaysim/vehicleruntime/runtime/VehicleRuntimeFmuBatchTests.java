@@ -25,12 +25,99 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.Test;
 import org.springframework.web.client.RestClient;
 
 class VehicleRuntimeFmuBatchTests {
 
     private static final ObjectMapper JSON = new ObjectMapper();
+
+    @Test
+    void lifecycleMutationWaitsForInFlightFleetStep() throws Exception {
+        CountDownLatch stepEntered = new CountDownLatch(1);
+        CountDownLatch releaseStep = new CountDownLatch(1);
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/step-fleet", exchange -> {
+            JsonNode request = read(exchange);
+            stepEntered.countDown();
+            try {
+                if (!releaseStep.await(2, TimeUnit.SECONDS)) {
+                    throw new IOException("test did not release FMU step");
+                }
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+                throw new IOException(interrupted);
+            }
+            write(exchange, 200, successResponse(request, null));
+        });
+        server.createContext("/instances/TR-SYNC", exchange -> {
+            exchange.sendResponseHeaders(200, -1);
+            exchange.close();
+        });
+        server.start();
+        try {
+            VehicleRuntimeManager manager = fmuManager(server, 2_000);
+            CompletableFuture<Void> step = CompletableFuture.runAsync(
+                () -> manager.stepFleet(request(1, List.of(train("TR-SYNC", 100, 0))))
+            );
+            assertThat(stepEntered.await(1, TimeUnit.SECONDS)).isTrue();
+
+            CompletableFuture<Void> removal = CompletableFuture.runAsync(() -> manager.remove("TR-SYNC"));
+            Thread.sleep(50);
+            assertThat(removal).isNotDone();
+
+            releaseStep.countDown();
+            step.get(2, TimeUnit.SECONDS);
+            removal.get(2, TimeUnit.SECONDS);
+            assertThat(manager.instances()).isEmpty();
+        } finally {
+            releaseStep.countDown();
+            server.stop(0);
+        }
+    }
+
+    @Test
+    void thousandTrainsAreStablePartitionedAcrossFmuShards() throws Exception {
+        List<HttpServer> servers = new ArrayList<>();
+        List<AtomicInteger> requestCounts = new ArrayList<>();
+        ConcurrentMap<String, java.util.Set<Integer>> shardByTrain = new ConcurrentHashMap<>();
+        try {
+            for (int shard = 0; shard < 4; shard++) {
+                int shardIndex = shard;
+                AtomicInteger requestCount = new AtomicInteger();
+                requestCounts.add(requestCount);
+                HttpServer server = fmuServer(exchange -> {
+                    requestCount.incrementAndGet();
+                    JsonNode request = read(exchange);
+                    request.path("trains").forEach(train -> shardByTrain
+                        .computeIfAbsent(train.path("trainId").asText(), ignored -> ConcurrentHashMap.newKeySet())
+                        .add(shardIndex));
+                    write(exchange, 200, successResponse(request, null));
+                });
+                servers.add(server);
+            }
+            VehicleRuntimeManager manager = fmuManager(servers, 80);
+            List<TrainStateSnapshot> trains = new ArrayList<>();
+            for (int index = 0; index < 1_000; index++) {
+                trains.add(train("SHARD-TR-" + index, 100 + index * 5, 0));
+            }
+
+            VehicleRuntimeStepResponse response = manager.stepFleet(request(1, trains));
+
+            assertThat(response.trainOutputs()).hasSize(1_000);
+            assertThat(response.dataQuality()).isEqualTo("GOOD");
+            assertThat(requestCounts).allSatisfy(count -> assertThat(count).hasValue(5));
+            assertThat(shardByTrain).hasSize(1_000);
+            assertThat(shardByTrain.values()).allSatisfy(shards -> assertThat(shards).hasSize(1));
+        } finally {
+            servers.forEach(server -> server.stop(0));
+        }
+    }
 
     @Test
     void twentyTrainsUseFiveTwentyMillisecondFmuExchangesPerTcmsTick() throws Exception {
@@ -178,9 +265,15 @@ class VehicleRuntimeFmuBatchTests {
     }
 
     private VehicleRuntimeManager fmuManager(HttpServer server, long timeoutMillis) {
+        return fmuManager(List.of(server), timeoutMillis);
+    }
+
+    private VehicleRuntimeManager fmuManager(List<HttpServer> servers, long timeoutMillis) {
         VehicleRuntimeProperties properties = new VehicleRuntimeProperties();
         properties.setPhysicsMode(VehiclePhysicsMode.FMU_HTTP);
-        properties.setFmuBaseUrl("http://127.0.0.1:" + server.getAddress().getPort());
+        properties.setFmuBaseUrls(servers.stream()
+            .map(server -> "http://127.0.0.1:" + server.getAddress().getPort())
+            .collect(java.util.stream.Collectors.joining(",")));
         properties.setFmuTimeoutMillis(timeoutMillis);
         VehicleParameters parameters = VehicleParametersLoader.load(properties.getTrainParamsPath());
         return new VehicleRuntimeManager(

@@ -28,7 +28,6 @@ import {
 } from '../../shared/labels'
 import type {
   IsolatorState,
-  PowerEnergyResponse,
   PowerExternalHealth,
   PowerMaintenanceLock,
   StrayCurrentRisk,
@@ -57,8 +56,27 @@ const isolators = ref<IsolatorState[]>([])
 const strayCurrent = ref<StrayCurrentRisk[]>([])
 const maintenanceLocks = ref<PowerMaintenanceLock[]>([])
 const externalHealth = ref<PowerExternalHealth | null>(null)
-const energy = ref<PowerEnergyResponse | null>(null)
 let pollTimer = 0
+
+// 与分区卡片和柱状图复用同一份 WebSocket 快照，避免 REST 轮询带来的时点错位。
+const energy = computed(() =>
+  powerSections.value.reduce(
+    (total, section) => ({
+      totalLoadWatts: total.totalLoadWatts + section.loadWatts,
+      totalRegenPowerWatts: total.totalRegenPowerWatts + section.regenPowerWatts,
+      totalAbsorbedRegenPowerWatts:
+        total.totalAbsorbedRegenPowerWatts + section.absorbedRegenPowerWatts,
+      totalUnabsorbedRegenPowerWatts:
+        total.totalUnabsorbedRegenPowerWatts + section.unabsorbedRegenPowerWatts
+    }),
+    {
+      totalLoadWatts: 0,
+      totalRegenPowerWatts: 0,
+      totalAbsorbedRegenPowerWatts: 0,
+      totalUnabsorbedRegenPowerWatts: 0
+    }
+  )
+)
 
 async function loadDetails(): Promise<void> {
   const results = await Promise.allSettled([
@@ -66,15 +84,13 @@ async function loadDetails(): Promise<void> {
     powerApi.isolators(),
     powerApi.strayCurrent(),
     powerApi.maintenanceLocks(),
-    powerApi.externalHealth(),
-    powerApi.energy()
+    powerApi.externalHealth()
   ])
   if (results[0].status === 'fulfilled') substations.value = results[0].value
   if (results[1].status === 'fulfilled') isolators.value = results[1].value
   if (results[2].status === 'fulfilled') strayCurrent.value = results[2].value
   if (results[3].status === 'fulfilled') maintenanceLocks.value = results[3].value
   if (results[4].status === 'fulfilled') externalHealth.value = results[4].value
-  if (results[5].status === 'fulfilled') energy.value = results[5].value
 }
 
 onMounted(() => {
@@ -321,7 +337,7 @@ const stale = computed(() => !connection.dataTrusted)
 
       <Panel title="分区负荷与再生（实时）">
         <div ref="chartRef" class="energy-chart" aria-label="分区负荷与再生功率柱状图"></div>
-        <div v-if="energy" class="energy-summary">
+        <div class="energy-summary">
           <span>总负荷 <strong class="num">{{ kw(energy.totalLoadWatts) }}</strong></span>
           <span>总再生 <strong class="num">{{ kw(energy.totalRegenPowerWatts) }}</strong></span>
           <span>已吸收 <strong class="num">{{ kw(energy.totalAbsorbedRegenPowerWatts) }}</strong></span>

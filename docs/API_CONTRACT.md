@@ -854,14 +854,23 @@ GET  /vehicle-runtime/events
 | 字段 | 含义 |
 |---|---|
 | `powerNetworkBaseUrl` | 中央配置的外部供电仿真地址，默认 `http://localhost:9200`。 |
-| `forwardPowerLoads` | 是否启用 9300 -> 9200 的权威供电闭环。启用时使用 `/constraints/query` 与 `/step`。 |
+| `forwardPowerLoads` | 是否启用 9300 -> 9200 的权威供电闭环。启用时内部高频链路使用 `/constraints/query-compact` 与 `/step-compact`；原 `/constraints/query` 与 `/step` 继续保留兼容。 |
 | `stations[]` | 8080 从当前线路 YAML/工作簿解析出的只读车站目标，包含 `id/name/positionMeters/platformIds`。9300 只消费该静态拓扑做停车和到站判断，不创建或修改车站。 |
 
 `stations[]` 只在 bootstrap/恢复时传输，不属于逐 tick 车辆状态同步。9300 的 `configHash` 包含车站 ID、里程和站台 ID；车站拓扑不一致时恢复门禁不得进入 `UP`。
 
-当 `vehicle-runtime-service` 处于 `EXTERNAL_HTTP` 模式且 `forwardPowerLoads=true` 时，闭环为：`9300 -> POST 9200/constraints/query -> 车辆控制/单次批量FMU动力学 -> POST 9200/step -> 下一周期供电约束`。中央 `PowerIntegrationService` 只调用 `GET 9200/power-network/state` 拉取镜像，绝不补写负荷；该写入权按部署配置固定，不因某车FMU降级而切回中央，从而避免双写。只有非拆分部署的`LOCAL`或`DUAL_SHADOW`模式保留兼容路径`PowerIntegrationService.refreshSnapshot(sectionLoads) -> POST /power-network/state/query`。
+当 `vehicle-runtime-service` 处于 `EXTERNAL_HTTP` 模式且 `forwardPowerLoads=true` 时，闭环为：`9300 -> POST 9200/constraints/query-compact -> 车辆控制/5次20 ms FMU子步 -> POST 9200/step-compact -> 下一周期供电约束`。9300 使用自身权威列车位置查询约束，并在 FMU 完成后把全部新位置和按分区汇总的负荷一次性提交。中央 `PowerIntegrationService` 只调用 `GET 9200/power-network/state` 拉取镜像，绝不补写负荷；该写入权按部署配置固定，不因某车FMU降级而切回中央，从而避免双写。公开的`/constraints/query`、`/step`和`/power-network/state/query`继续保留兼容，但不用于拆分模式每 tick 高频闭环。
 
 `POST 9200/power-network/step` 请求额外必须携带 `simulationRunId`。9200 在同一 run 内对重复 tick 幂等、对倒退 tick 返回 409；只允许在新 run 的首 tick 切换 runId，运行中途改变 runId 返回 `POWER_RUN_ID_MISMATCH`。
+
+内部性能诊断接口：
+
+```http
+GET /api/simulation/timing
+GET http://localhost:9300/vehicle-runtime/timing
+```
+
+前者返回最近一次完整中央 tick 的约束准备、车辆调用、供电快照、告警/快照和 WebSocket 推送耗时；后者返回最近一次9300 tick的供电约束查询、控制准备、FMU批次、状态应用和9200权威step耗时。两者仅用于压测与诊断，不替代业务快照接口。
 
 9300物理实例恢复接口：
 
@@ -881,7 +890,7 @@ GET /api/vehicle/runtime-health
 
 该接口返回外部车辆运行时健康状态和实例队列状态。`/api/simulation/snapshot` 与 WebSocket 快照同步携带 `vehicleRuntime` 字段。
 
-实现状态：WP5～WP6已完成9300到9000的单次批量调用、逐车/整批Java降级、9200再生预算及同段多车耦合；尚未执行WP7统一编排和WP8十分钟长稳、跨进程恢复及最终性能验收。
+实现状态：WP5～WP8、20 ms FMU子步、100/1000车容量测试及完整8080→9300→9000/9200链路验收已完成。最新完整链路结果见`docs/真实FMU集成实施计划/验收记录/07-完整车电Tick百车千车优化验收记录.md`。
 
 #### 查询到发记录
 

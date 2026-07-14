@@ -12,6 +12,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.railwaysim.infrastructure.StaticInfrastructureCatalog;
 import com.railwaysim.train.VehicleSpecificationCatalog;
+import com.railwaysim.train.TrainManager;
 import com.railwaysim.vehicle.external.ExternalTrainDirection;
 import com.railwaysim.vehicle.protocol.SignalTrainContentCodec;
 import com.railwaysim.vehicle.protocol.TrainOperationalTelemetry;
@@ -34,7 +35,10 @@ import org.springframework.test.web.servlet.MvcResult;
     "spring.datasource.url=jdbc:h2:mem:phase2-api;MODE=MySQL;DB_CLOSE_DELAY=-1;DATABASE_TO_LOWER=TRUE",
     "spring.datasource.driver-class-name=org.h2.Driver",
     "spring.datasource.username=sa",
-    "spring.datasource.password="
+    "spring.datasource.password=",
+    "railway.simulation.line-data-path=../config/line-demo.yaml",
+    "railway.simulation.vehicle-runtime.base-url=http://127.0.0.1:1",
+    "railway.simulation.vehicle-runtime.timeout-millis=50"
 })
 @AutoConfigureMockMvc
 class Phase2ApiControllerTests {
@@ -47,6 +51,9 @@ class Phase2ApiControllerTests {
 
     @Autowired
     private VehicleSpecificationCatalog vehicleSpecificationCatalog;
+
+    @Autowired
+    private TrainManager trainManager;
 
     @Autowired
     private StaticInfrastructureCatalog infrastructureCatalog;
@@ -74,6 +81,9 @@ class Phase2ApiControllerTests {
               error_text VARCHAR(1024), created_at TIMESTAMP NOT NULL
             )
             """);
+        trainManager.reset();
+        trainManager.registerRuntimeStartedTrain("TR-001", 1, 100.0, ExternalTrainDirection.DOWN);
+        trainManager.registerRuntimeStartedTrain("TR-002", 2, 900.0, ExternalTrainDirection.DOWN);
         jdbcTemplate.execute("""
             CREATE TABLE IF NOT EXISTS simulation_run (
               id BIGINT AUTO_INCREMENT PRIMARY KEY,
@@ -359,8 +369,8 @@ class Phase2ApiControllerTests {
             .andExpect(status().isOk())
             .andExpect(jsonPath("$", hasSize(1)))
             .andExpect(jsonPath("$[0].id").value("TR-001"))
-            .andExpect(jsonPath("$[0].controlSessionState").value("IN_SERVICE"))
-            .andExpect(jsonPath("$[0].signalNetworkStatus").value("ATTACHED"));
+            .andExpect(jsonPath("$[0].controlSessionState").value("CONNECTING"))
+            .andExpect(jsonPath("$[0].signalNetworkStatus").value("NOT_ATTACHED"));
     }
 
     @Test
@@ -405,6 +415,8 @@ class Phase2ApiControllerTests {
     void signalVehicleInterfaceAcceptsOperationalTelemetryAndProjectsCommands() throws Exception {
         mockMvc.perform(post("/api/simulation/reset"))
             .andExpect(status().isOk());
+        trainManager.registerRuntimeStartedTrain("TR-001", 1, 100.0, ExternalTrainDirection.DOWN);
+        trainManager.registerRuntimeStartedTrain("TR-002", 2, 900.0, ExternalTrainDirection.DOWN);
 
         mockMvc.perform(get("/api/signal/vehicles/statuses"))
             .andExpect(status().isOk())
@@ -456,8 +468,8 @@ class Phase2ApiControllerTests {
             .andExpect(jsonPath("$[0].trainId").value("TR-001"))
             .andExpect(jsonPath("$[0].tractionCutoff").value(true))
             .andExpect(jsonPath("$[0].serviceBrakeCommand").value(true))
-            .andExpect(jsonPath("$[0].emergencyBrakeCommand").value(true))
-            .andExpect(jsonPath("$[0].reason").value("NO_MOVEMENT_AUTHORITY"));
+            .andExpect(jsonPath("$[0].emergencyBrakeCommand").value(false))
+            .andExpect(jsonPath("$[0].reason").value("CONTROL_SESSION_CONNECTING"));
     }
 
     @Test

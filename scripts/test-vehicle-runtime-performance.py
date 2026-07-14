@@ -23,8 +23,14 @@ def main() -> None:
     parser.add_argument("--samples", type=int, default=100)
     parser.add_argument("--warmup", type=int, default=10)
     parser.add_argument("--endurance-ticks", type=int, default=6000)
+    parser.add_argument("--train-counts", default="1,2,10,20")
+    parser.add_argument("--endurance-train-count", type=int, default=20)
     parser.add_argument("--output", default=str(ROOT / "docs/真实FMU集成实施计划/验收记录/wp8-performance.json"))
     args = parser.parse_args()
+    benchmark_counts = tuple(sorted({int(value) for value in args.train_counts.split(",") if value.strip()}))
+    if not benchmark_counts or benchmark_counts[0] <= 0 or args.endurance_train_count <= 0:
+        raise SystemExit("train counts must be positive")
+    maximum_train_count = max(*benchmark_counts, args.endurance_train_count)
     run_id = f"wp8-performance-{uuid.uuid4()}"
 
     # Interleave trains across the five real YAML power sections. The endurance
@@ -36,7 +42,7 @@ def main() -> None:
             f"WP8-TR-{index:02d}",
             section_bases[(index - 1) % len(section_bases)] + ((index - 1) // len(section_bases)) * 180.0,
         )
-        for index in range(1, 21)
+        for index in range(1, maximum_train_count + 1)
     ]
     tick = 0
     errors: list[str] = []
@@ -50,6 +56,8 @@ def main() -> None:
         wall_latencies: list[float] = []
         runtime_latencies: list[float] = []
         fmu_latencies: list[float] = []
+        request_bytes: list[float] = []
+        response_bytes: list[float] = []
         degraded = 0
         fallback_ticks = 0
         _, before_health = request_json(f"{args.vehicle}/vehicle-runtime/health")
@@ -63,10 +71,11 @@ def main() -> None:
         for _ in range(samples):
             tick += 1
             step_started = time.perf_counter()
+            payload = fleet_request(tick, trains, run_id)
             _, response = request_json(
                 f"{args.vehicle}/vehicle-runtime/step-fleet",
                 method="POST",
-                payload=fleet_request(tick, trains, run_id),
+                payload=payload,
                 timeout=15.0,
             )
             wall_ms = (time.perf_counter() - step_started) * 1000.0
@@ -111,6 +120,8 @@ def main() -> None:
                 wall_latencies.append(wall_ms)
                 runtime_latencies.append(float(health.get("latencyMillis", 0)))
                 fmu_latencies.append(float(health.get("fmuBatchLatencyMillis", 0)))
+                request_bytes.append(float(len(json.dumps(payload, separators=(",", ":")).encode("utf-8"))))
+                response_bytes.append(float(len(json.dumps(response, separators=(",", ":")).encode("utf-8"))))
         return {
             "trainCount": count,
             "ticks": samples,
@@ -119,13 +130,15 @@ def main() -> None:
             "httpRoundTrip": latency_summary(wall_latencies),
             "vehicleAndPower": latency_summary(runtime_latencies),
             "fmuBatch": latency_summary(fmu_latencies),
+            "requestPayloadBytes": latency_summary(request_bytes),
+            "responsePayloadBytes": latency_summary(response_bytes),
             "degradedTicks": degraded,
             "fallbackTicks": fallback_ticks,
             "newFmiErrors": max(0, fmi_errors_after - fmi_errors_before),
             "newMissedDeadlines": max(0, deadline_misses_after - deadline_misses_before),
         }
 
-    for count in (1, 2, 10, 20):
+    for count in benchmark_counts:
         run_steps(count, args.warmup, collect=False)
         result = run_steps(count, args.samples, collect=True)
         benchmarks[str(count)] = result
@@ -136,15 +149,15 @@ def main() -> None:
         if result["vehicleAndPower"]["p95Millis"] > 80.0:
             errors.append(f"{count}-train vehicle+power p95 exceeds 80 ms")
 
-    endurance = run_steps(20, args.endurance_ticks, collect=True)
+    endurance = run_steps(args.endurance_train_count, args.endurance_ticks, collect=True)
     if endurance["fallbackTicks"] != 0 or endurance["newFmiErrors"] != 0:
-        errors.append("20-train endurance contains fallback or FMI errors")
+        errors.append(f"{args.endurance_train_count}-train endurance contains fallback or FMI errors")
     if endurance["newMissedDeadlines"] != 0:
-        errors.append("20-train endurance missed one or more 100 ms deadlines")
+        errors.append(f"{args.endurance_train_count}-train endurance missed one or more 100 ms deadlines")
     if endurance["fmuBatch"]["p95Millis"] > 50.0:
-        errors.append("20-train endurance FMU p95 exceeds 50 ms")
+        errors.append(f"{args.endurance_train_count}-train endurance FMU p95 exceeds 50 ms")
     if endurance["vehicleAndPower"]["p95Millis"] > 80.0:
-        errors.append("20-train endurance vehicle+power p95 exceeds 80 ms")
+        errors.append(f"{args.endurance_train_count}-train endurance vehicle+power p95 exceeds 80 ms")
 
     _, final_health = request_json(f"{args.vehicle}/vehicle-runtime/health")
     _, final_power_state = request_json(f"{args.power}/power-network/state")
@@ -165,7 +178,8 @@ def main() -> None:
             "fmuSubstepsPerTcmsTick": 5,
             "fmuBatchP95LimitMillis": 50,
             "vehicleAndPowerP95LimitMillis": 80,
-            "enduranceTrainCount": 20,
+            "benchmarkTrainCounts": benchmark_counts,
+            "enduranceTrainCount": args.endurance_train_count,
             "enduranceTicks": args.endurance_ticks,
             "enduranceSimulatedSeconds": args.endurance_ticks * 0.1,
         },
