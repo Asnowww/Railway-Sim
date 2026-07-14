@@ -945,7 +945,7 @@ async function publishSignalPlan() {
   padding: 16px 20px 20px;
   max-width: 1440px;
   margin: 0 auto;
-  color: #172033;
+  color: var(--text-primary);
 }
 
 .kpi-strip {
@@ -956,7 +956,7 @@ async function publishSignalPlan() {
 
 .kpi-strip article,
 .panel {
-  background: #fff;
+  background: var(--bg-panel);
   border: 1px solid #d8e1ea;
   border-radius: 8px;
 }
@@ -978,7 +978,7 @@ header p,
 .effect-list p,
 .signal-list small,
 .attention-list small {
-  color: #65758b;
+  color: var(--text-secondary);
 }
 
 .kpi-strip strong {
@@ -1028,8 +1028,8 @@ header p {
   flex: 0 0 auto;
   border-radius: 999px;
   padding: 4px 10px;
-  background: #e8f0ff;
-  color: #2452a6;
+  background: var(--status-info-bg);
+  color: var(--status-info);
   font-size: 12px;
   font-weight: 700;
 }
@@ -1052,7 +1052,7 @@ header p {
 }
 
 .demo-controls span {
-  color: #65758b;
+  color: var(--text-secondary);
   font-size: 12px;
   font-weight: 700;
 }
@@ -1061,9 +1061,9 @@ header p {
 .demo-controls input {
   width: 100%;
   min-height: 36px;
-  border: 1px solid #cbd5e1;
+  border: 1px solid var(--border-strong);
   border-radius: 8px;
-  background: #fff;
+  background: var(--bg-panel);
   padding: 6px 10px;
   font: inherit;
 }
@@ -1076,34 +1076,34 @@ header p {
 
 .demo-actions button {
   min-height: 38px;
-  border: 1px solid #2563eb;
+  border: 1px solid var(--accent);
   border-radius: 8px;
-  background: #2563eb;
-  color: #fff;
+  background: var(--accent);
+  color: #ffffff;
   font-weight: 700;
   cursor: pointer;
 }
 
 .demo-actions button:nth-child(3) {
-  border-color: #9a4f00;
+  border-color: var(--status-warn);
   background: #b85f00;
 }
 
 .demo-actions button:nth-child(4) {
-  border-color: #08704f;
+  border-color: var(--status-ok);
   background: #0f7d5d;
 }
 
 .demo-actions button:disabled {
-  border-color: #cbd5e1;
-  background: #e2e8f0;
-  color: #7a8a9d;
+  border-color: var(--border-strong);
+  background: var(--border);
+  color: var(--text-muted);
   cursor: not-allowed;
 }
 
 .demo-message {
   margin: 0;
-  color: #2452a6;
+  color: var(--status-info);
   font-size: 13px;
 }
 
@@ -1115,25 +1115,25 @@ header p {
 
 .signal-actions button {
   min-height: 32px;
-  border: 1px solid #2452a6;
+  border: 1px solid var(--status-info);
   border-radius: 8px;
-  background: #2452a6;
-  color: #fff;
+  background: var(--status-info);
+  color: #ffffff;
   padding: 5px 12px;
   font-weight: 700;
   cursor: pointer;
 }
 
 .signal-actions button:disabled {
-  border-color: #cbd5e1;
-  background: #e2e8f0;
-  color: #7a8a9d;
+  border-color: var(--border-strong);
+  background: var(--border);
+  color: var(--text-muted);
   cursor: not-allowed;
 }
 
 .publish-message {
   margin: -4px 0 12px;
-  color: #2452a6;
+  color: var(--status-info);
   font-size: 13px;
 }
 
@@ -1195,7 +1195,7 @@ header p {
   border: 1px solid #e5edf5;
   border-radius: 8px;
   padding: 10px;
-  background: #fbfcfe;
+  background: var(--bg-panel-raised);
 }
 
 .attention-list article {
@@ -1206,7 +1206,7 @@ header p {
 
 .attention-list span {
   font-size: 12px;
-  color: #9a4f00;
+  color: var(--status-warn);
   font-weight: 700;
 }
 
@@ -1299,7 +1299,7 @@ td {
 th {
   color: #526173;
   font-weight: 700;
-  background: #f7f9fc;
+  background: var(--bg-panel-raised);
 }
 
 .effect-main {
@@ -1312,20 +1312,20 @@ th {
 .effect-main span {
   border-radius: 999px;
   padding: 2px 8px;
-  background: #e8f0ff;
-  color: #2452a6;
+  background: var(--status-info-bg);
+  color: var(--status-info);
   font-size: 11px;
 }
 
 .effect-main span[data-state='TOO_SHORT'],
 .effect-main span[data-state='SCHEDULE_LATE'] {
   background: #fff0d8;
-  color: #9a4f00;
+  color: var(--status-warn);
 }
 
 .effect-main span[data-state='TOO_LONG'] {
-  background: #ecfdf5;
-  color: #08704f;
+  background: var(--status-ok-bg);
+  color: var(--status-ok);
 }
 
 dl {
@@ -1363,7 +1363,7 @@ dd {
 
 .empty,
 .empty-state {
-  color: #7a8a9d;
+  color: var(--text-muted);
   font-size: 13px;
 }
 

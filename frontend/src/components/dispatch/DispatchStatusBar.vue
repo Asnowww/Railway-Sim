@@ -56,8 +56,8 @@ function label(type: string) {
   justify-content: space-between;
   gap: 12px;
   padding: 16px 20px;
-  background: #fff;
-  border: 1px solid #e2e8f0;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
   border-radius: 12px;
   box-shadow: 0 1px 2px rgb(15 23 42 / 6%);
 }
@@ -75,25 +75,25 @@ h1 {
 }
 
 .chip {
-  background: #f1f5f9;
-  color: #475569;
+  background: var(--bg-hover);
+  color: var(--text-secondary);
   padding: 4px 10px;
   border-radius: 999px;
   font-size: 12px;
 }
 
 .chip.mode {
-  background: #dbeafe;
-  color: #1d4ed8;
+  background: var(--status-info-bg);
+  color: var(--status-info);
 }
 
 .chip.warn {
-  background: #fef3c7;
-  color: #92400e;
+  background: var(--status-warn-bg);
+  color: var(--status-warn);
 }
 
 .meta {
-  color: #64748b;
+  color: var(--text-secondary);
   font-size: 13px;
 }
 
@@ -104,9 +104,9 @@ h1 {
 }
 
 button {
-  border: 1px solid #cbd5e1;
-  background: #fff;
-  color: #334155;
+  border: 1px solid var(--border-strong);
+  background: var(--bg-panel);
+  color: var(--text-primary);
   border-radius: 8px;
   padding: 10px 16px;
   cursor: pointer;
@@ -116,9 +116,9 @@ button {
 
 button.primary,
 button.action-start {
-  background: #2563eb;
-  border-color: #2563eb;
-  color: #fff;
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #ffffff;
 }
 
 button:hover {
