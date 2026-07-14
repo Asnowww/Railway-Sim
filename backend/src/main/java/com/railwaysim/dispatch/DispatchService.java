@@ -1460,7 +1460,7 @@ public class DispatchService {
             rejectedCount,
             entries
         );
-        return signalDispatchPlanRegistry.accept(publication);
+        return signalDispatchPlanRegistry.acceptAndValidate(publication);
     }
 
     private SignalDispatchPlanPublication.Entry publicationEntryFromService(
