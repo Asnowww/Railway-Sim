@@ -1678,7 +1678,7 @@ function formatDelta(current: number | null | undefined, baseline: number | null
       <section>
         <p class="eyebrow">Dispatch Closed Loop</p>
         <h1>调度闭环调试台</h1>
-        <p>实时跟随后端总循环查看调度指令、列车、MA、信号、既有进路和道岔；调度页只申请信号端已有进路，不新增轨道拓扑。</p>
+        <p>默认聚焦闭环是否跑通和本车调度证据；路线、MA、进路、道岔信号等联调明细按需展开查看。</p>
       </section>
       <section class="debug-actions" aria-label="调度页操作">
         <button type="button" class="ghost-button" @click="$emit('back')">返回大屏</button>
@@ -1711,7 +1711,11 @@ function formatDelta(current: number | null | undefined, baseline: number | null
       </article>
     </section>
 
-    <section class="debug-panel dispatch-line-panel">
+    <details class="debug-panel debug-details dispatch-line-panel">
+      <summary>
+        <span>路线编排联调</span>
+        <small>信号模板、待发车计划和既有进路映射</small>
+      </summary>
       <div class="panel-title dispatch-line-title">
         <h2>既有路线编排</h2>
         <div class="dispatch-line-title-actions">
@@ -1820,21 +1824,61 @@ function formatDelta(current: number | null | undefined, baseline: number | null
           未映射 {{ dispatchLineUnmappedRoutes.join(' / ') }}
         </span>
       </div>
-    </section>
+    </details>
 
-    <section class="debug-panel train-overview-panel">
+    <section class="debug-panel train-overview-panel compact-train-panel">
       <div class="panel-title">
-        <h2>列车运行表</h2>
-        <span>车辆与信号实时状态；点击行后在下方进入调度处理</span>
+        <h2>闭环对象选择</h2>
+        <span>只保留进入调度诊断需要的列车字段；点击行后查看本车闭环</span>
       </div>
       <div class="table-wrap">
-        <table class="overview-table">
+        <table class="overview-table compact-overview-table">
           <thead>
             <tr>
               <th>列车</th>
               <th>运行状态</th>
-              <th>位置(m)</th>
-              <th>当前站/区间</th>
+              <th>位置/速度</th>
+              <th>当前/下一站</th>
+              <th>间隔观测</th>
+              <th>进路/MA</th>
+              <th>调度关注</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-if="trainOverviewRows.length === 0">
+              <td colspan="7">暂无上线列车。等待运行计划发车或后端总循环推进。</td>
+            </tr>
+            <tr
+              v-for="row in trainOverviewRows"
+              :key="row.train.id"
+              :class="rowClass(row.train)"
+              :data-attention="row.attention"
+              @click="selectTrain(row.train.id)"
+            >
+              <td><strong>{{ row.train.id }}</strong></td>
+              <td>{{ trainStatusLabel(row.train.status) }}</td>
+              <td>{{ formatNumber(row.train.positionMeters) }}m / {{ formatNumber(row.train.speedMetersPerSecond) }}m/s</td>
+              <td>{{ stationObservation(row.train.id, row.train.currentStationId) }} -> {{ nextStopText(row.train) }}</td>
+              <td>
+                {{ headwayStateLabel(row.profile?.headwayState ?? 'UNKNOWN') }}
+                / 偏差 {{ formatSeconds(row.profile?.headwayDeviationSeconds ?? null) }}
+              </td>
+              <td>{{ row.dispatchRouteState }} / MA {{ formatNumber(row.authority ? row.authority.authorityEndMeters - row.train.positionMeters : row.train.movementAuthorityDistanceMeters) }}m</td>
+              <td><span :data-attention="row.attention">{{ attentionLabel(row.attention) }}</span></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <details class="nested-details">
+        <summary>查看车辆实时明细</summary>
+        <div class="table-wrap">
+          <table class="overview-table">
+            <thead>
+              <tr>
+                <th>列车</th>
+                <th>运行状态</th>
+                <th>位置(m)</th>
+                <th>当前站/区间</th>
               <th>下一站</th>
               <th>停站(s)</th>
               <th>速度(m/s)</th>
@@ -1875,7 +1919,8 @@ function formatDelta(current: number | null | undefined, baseline: number | null
             </tr>
           </tbody>
         </table>
-      </div>
+        </div>
+      </details>
     </section>
 
     <section class="debug-panel selected-workbench">
@@ -1981,20 +2026,26 @@ function formatDelta(current: number | null | undefined, baseline: number | null
       </div>
     </section>
 
-    <section class="closure-overview-grid">
-      <RunPlanPanel
-        :plan="plan"
-        :run-mode="dispatch.runMode"
-        :target-headway-seconds="dispatch.targetHeadwaySeconds"
-        :selected-train-id="selectedTrainId"
-        @select-train="selectedTrainId = $event"
-      />
-      <StationHeadwayPanel :observations="dispatch.stationHeadways" />
-      <RouteClosurePanel
-        :decisions="dispatch.routeDecisions"
-        :reservations="dispatch.routeReservations"
-      />
-    </section>
+    <details class="debug-panel debug-details component-details">
+      <summary>
+        <span>计划、站间隔与路线闭环组件明细</span>
+        <small>这些内容主调度页已有摘要，这里仅作为联调证据</small>
+      </summary>
+      <section class="closure-overview-grid">
+        <RunPlanPanel
+          :plan="plan"
+          :run-mode="dispatch.runMode"
+          :target-headway-seconds="dispatch.targetHeadwaySeconds"
+          :selected-train-id="selectedTrainId"
+          @select-train="selectedTrainId = $event"
+        />
+        <StationHeadwayPanel :observations="dispatch.stationHeadways" />
+        <RouteClosurePanel
+          :decisions="dispatch.routeDecisions"
+          :reservations="dispatch.routeReservations"
+        />
+      </section>
+    </details>
 
     <section class="headway-focus" :data-state="headwayViolation.state">
       <div class="panel-title">
@@ -2138,7 +2189,11 @@ function formatDelta(current: number | null | undefined, baseline: number | null
         </div>
       </section>
 
-      <section class="debug-panel">
+      <details class="debug-panel debug-details">
+        <summary>
+          <span>扰动与间隔观测明细</span>
+          <small>调度策略输入，默认收起避免和主页面重复</small>
+        </summary>
         <div class="panel-title">
           <h2>运动扰动</h2>
           <span>调度策略输入</span>
@@ -2166,10 +2221,14 @@ function formatDelta(current: number | null | undefined, baseline: number | null
           </article>
           <p v-if="dispatch.trainProfiles.length === 0" class="empty">暂无调度观测数据。</p>
         </div>
-      </section>
+      </details>
     </section>
 
-    <section class="debug-panel comparison-panel">
+    <details class="debug-panel debug-details comparison-panel">
+      <summary>
+        <span>调度前后对比明细</span>
+        <small>演示指令触发后用于核对调度效果</small>
+      </summary>
       <div class="panel-title">
         <h2>调度前后对比</h2>
         <span v-if="comparisonBaseline">
@@ -2197,10 +2256,15 @@ function formatDelta(current: number | null | undefined, baseline: number | null
           <small>{{ row.delta }}</small>
         </article>
       </div>
-    </section>
+    </details>
 
-    <section class="debug-grid three">
-      <section class="debug-panel">
+    <details class="debug-panel debug-details signal-evidence-details">
+      <summary>
+        <span>信号侧全量证据</span>
+        <small>MA、进路状态、道岔与信号机，默认收起减少冗余</small>
+      </summary>
+      <section class="debug-grid three signal-evidence-grid">
+        <section class="debug-panel">
         <div class="panel-title">
           <h2>信号 MA</h2>
           <span>调度到车辆的中间约束</span>
@@ -2275,7 +2339,8 @@ function formatDelta(current: number | null | undefined, baseline: number | null
           </div>
         </div>
       </section>
-    </section>
+      </section>
+    </details>
   </main>
 </template>
 
