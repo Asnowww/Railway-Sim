@@ -102,8 +102,8 @@ function handleTrainSelect(event: Event) {
 
 <style scoped>
 .panel {
-  background: #fff;
-  border: 1px solid #e2e8f0;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
   border-radius: 12px;
   padding: 16px;
 }
@@ -121,8 +121,8 @@ h2 {
 }
 
 .badge {
-  background: #dbeafe;
-  color: #1d4ed8;
+  background: var(--status-info-bg);
+  color: var(--status-info);
   padding: 4px 10px;
   border-radius: 999px;
   font-size: 12px;
@@ -130,16 +130,16 @@ h2 {
 
 .summary {
   margin: 0 0 12px;
-  color: #64748b;
+  color: var(--text-secondary);
 }
 
 .plan-train-picker {
   display: grid;
   gap: 8px;
   margin: 0 0 12px;
-  border: 1px solid #dbeafe;
+  border: 1px solid var(--status-info-bg);
   border-radius: 8px;
-  background: #f8fbff;
+  background: var(--bg-inset);
   padding: 10px;
 }
 
@@ -149,14 +149,14 @@ h2 {
 }
 
 .plan-train-picker span {
-  color: #64748b;
+  color: var(--text-secondary);
   font-size: 12px;
   font-weight: 700;
 }
 
 .plan-train-picker select {
   min-height: 34px;
-  border: 1px solid #cbd5e1;
+  border: 1px solid var(--border-strong);
   border-radius: 8px;
   padding: 6px 10px;
   font: inherit;
@@ -164,7 +164,7 @@ h2 {
 
 .plan-train-picker p {
   margin: 0;
-  color: #1e3a8a;
+  color: var(--status-info);
   font-size: 12px;
 }
 
@@ -176,7 +176,7 @@ table {
 
 th,
 td {
-  border-bottom: 1px solid #f1f5f9;
+  border-bottom: 1px solid var(--bg-hover);
   padding: 8px 6px;
   text-align: left;
 }
@@ -198,16 +198,16 @@ td {
   gap: 8px;
   padding: 8px;
   border-radius: 8px;
-  background: #f8fafc;
+  background: var(--bg-panel-raised);
   font-size: 12px;
 }
 
 .service-list article.selected {
-  border: 1px solid #2563eb;
-  background: #eff6ff;
+  border: 1px solid var(--accent);
+  background: var(--status-info-bg);
 }
 
 .service-list small {
-  color: #64748b;
+  color: var(--text-secondary);
 }
 </style>

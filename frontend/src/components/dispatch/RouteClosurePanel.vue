@@ -40,16 +40,16 @@ defineProps<{
 </template>
 
 <style scoped>
-.panel { background:#fff; border:1px solid #e2e8f0; border-radius:12px; padding:16px; }
+.panel { background:var(--bg-panel); border:1px solid var(--border); border-radius:12px; padding:16px; }
 header,.title { display:flex; justify-content:space-between; gap:12px; align-items:baseline; }
 h2 { margin:0; font-size:16px; }
-header span,.empty,.meta,.waiting { color:#64748b; font-size:12px; }
+header span,.empty,.meta,.waiting { color:var(--text-secondary); font-size:12px; }
 .list { display:grid; gap:8px; margin-top:12px; }
-article { padding:10px; border:1px solid #e2e8f0; border-radius:8px; }
+article { padding:10px; border:1px solid var(--border); border-radius:8px; }
 .meta { display:flex; flex-wrap:wrap; gap:6px 12px; margin-top:6px; }
-article p { margin:6px 0 0; color:#b91c1c; font-size:12px; }
-b[data-state='ACCEPTED'] { color:#059669; }
-b[data-state='REJECTED'],b[data-state='TIMEOUT'] { color:#dc2626; }
-b[data-state='REQUESTED'] { color:#2563eb; }
+article p { margin:6px 0 0; color:var(--status-danger); font-size:12px; }
+b[data-state='ACCEPTED'] { color:var(--status-ok); }
+b[data-state='REJECTED'],b[data-state='TIMEOUT'] { color:var(--status-danger); }
+b[data-state='REQUESTED'] { color:var(--accent); }
 .waiting { display:grid; gap:4px; margin-top:10px; }
 </style>

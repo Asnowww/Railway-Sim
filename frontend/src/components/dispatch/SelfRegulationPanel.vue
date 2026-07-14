@@ -59,8 +59,8 @@ const errorText = (value: number | null) => {
 
 <style scoped>
 .panel {
-  background: #fff;
-  border: 1px solid #e2e8f0;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
   border-radius: 12px;
   padding: 16px;
 }
@@ -80,7 +80,7 @@ h2 {
 
 .heading > span,
 .empty {
-  color: #64748b;
+  color: var(--text-secondary);
   font-size: 12px;
 }
 
@@ -90,26 +90,26 @@ h2 {
 }
 
 article {
-  border: 1px solid #e2e8f0;
-  border-left: 4px solid #94a3b8;
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--text-muted);
   border-radius: 8px;
   padding: 10px 12px;
-  background: #f8fafc;
+  background: var(--bg-panel-raised);
 }
 
 article[data-action='CATCH_UP'] {
   border-left-color: #f59e0b;
-  background: #fffbeb;
+  background: var(--status-warn-bg);
 }
 
 article[data-action='SLOW_DOWN'] {
-  border-left-color: #ef4444;
-  background: #fef2f2;
+  border-left-color: var(--status-danger);
+  background: var(--status-danger-bg);
 }
 
 article[data-action='NORMAL'] {
-  border-left-color: #10b981;
-  background: #ecfdf5;
+  border-left-color: var(--status-ok);
+  background: var(--status-ok-bg);
 }
 
 .train {
@@ -128,13 +128,13 @@ article[data-action='NORMAL'] {
   flex-wrap: wrap;
   gap: 8px 14px;
   margin-top: 6px;
-  color: #475569;
+  color: var(--text-secondary);
   font-size: 12px;
 }
 
 p {
   margin: 6px 0 0;
-  color: #64748b;
+  color: var(--text-secondary);
   font-size: 12px;
 }
 </style>
