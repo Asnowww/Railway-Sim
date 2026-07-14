@@ -25,6 +25,7 @@ public class TrainStopEvaluationService {
     private static final Logger log = LoggerFactory.getLogger(TrainStopEvaluationService.class);
 
     private final List<OperationalLineData.StationDefinition> stations;
+    private final OperationalLineData lineData;
     private final JdbcTemplate jdbcTemplate;
     private final StoppingControlProperties properties;
     private final SimpleEventBus eventBus;
@@ -35,6 +36,7 @@ public class TrainStopEvaluationService {
     public TrainStopEvaluationService(StaticInfrastructureCatalog catalog, JdbcTemplate jdbcTemplate,
         StoppingControlProperties properties, SimpleEventBus eventBus) {
         this.stations = catalog.lineData().stations();
+        this.lineData = catalog.lineData();
         this.jdbcTemplate = jdbcTemplate;
         this.properties = properties;
         this.eventBus = eventBus;
@@ -97,8 +99,8 @@ public class TrainStopEvaluationService {
         OperationalLineData.StationDefinition station, StopTracker tracker) {
         String platformId = station.platformIds().isEmpty() ? null : station.platformIds().get(0);
         StoppingTarget target = tracker.target == null
-            ? new StoppingTarget("STATION", station.centerMeters(), station.id(), platformId,
-                tracker.arrivalStartedAtTick)
+            ? new StoppingTarget("STATION", nearestStopPointMeters(station, train.positionMeters()),
+                station.id(), platformId, tracker.arrivalStartedAtTick)
             : new StoppingTarget(
                 tracker.target.source(), tracker.target.positionMeters(), station.id(), platformId,
                 tracker.target.validFromTick());
@@ -123,6 +125,20 @@ public class TrainStopEvaluationService {
             tracker.brakeTransitions, tracker.emergencyBrake, overrun ? "OVERRUN" : "HOLD",
             List.copyOf(tracker.controlStages), train.operationMode(),
             properties.getParameterVersion(), context.simulatedTime());
+    }
+
+    /**
+     * 停准评估目标：该站各股道站台停车点(stop_right)中离实际停车位最近者。
+     * 列车按本股道停车点停靠，最近者即本股道目标；无站台数据回退站中心。
+     */
+    private double nearestStopPointMeters(OperationalLineData.StationDefinition station, double stoppedAtMeters) {
+        return lineData.platforms().stream()
+            .filter(platform -> station.platformIds().contains(platform.id()))
+            .filter(platform -> platform.stopRightMeters() > platform.stopLeftMeters())
+            .mapToDouble(OperationalLineData.PlatformDefinition::stopRightMeters)
+            .boxed()
+            .min(java.util.Comparator.comparingDouble(stop -> Math.abs(stop - stoppedAtMeters)))
+            .orElse(station.centerMeters());
     }
 
     private OperationalLineData.StationDefinition station(String stationId) {

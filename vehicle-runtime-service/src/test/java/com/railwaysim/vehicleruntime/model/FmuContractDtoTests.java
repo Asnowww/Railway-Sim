@@ -23,7 +23,7 @@ class FmuContractDtoTests {
         );
 
         assertThat(request.tick()).isEqualTo(12001);
-        assertThat(request.stepSizeSeconds()).isEqualTo(0.1);
+        assertThat(request.stepSizeSeconds()).isEqualTo(0.02);
         assertThat(request.trains()).singleElement().satisfies(train -> {
             assertThat(train.lifecycleCommand()).isEqualTo("STEP");
             assertThat(train.regenPowerAvailableWatts()).isZero();

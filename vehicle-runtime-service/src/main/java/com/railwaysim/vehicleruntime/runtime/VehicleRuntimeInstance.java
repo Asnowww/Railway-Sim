@@ -29,6 +29,7 @@ final class VehicleRuntimeInstance {
     private final VehicleControlQueue controlQueue;
     private final VehicleLoadPolicy loadPolicy;
     private final VehicleParameters vehicleParameters;
+    private final StoppingControlProperties stoppingProperties;
     private final TrainStateHolder trainState; // NEW: authoritative train state
     private final AtomicBoolean inFlight = new AtomicBoolean();
     private volatile long lastTick = -1;
@@ -50,6 +51,7 @@ final class VehicleRuntimeInstance {
     ) {
         this.trainId = trainId;
         this.vehicleParameters = vehicleParameters;
+        this.stoppingProperties = stoppingProperties;
         this.loadPolicy = new VehicleLoadPolicy(vehicleParameters);
         this.controlQueue = new VehicleControlQueue(
             properties, loadPolicy, vehicleParameters, driverCommandHolder, stoppingProperties);
@@ -150,6 +152,8 @@ final class VehicleRuntimeInstance {
     StepResult apply(PreparedStep prepared, VehiclePhysicsOutputDto output, String stepReason) {
         try {
             simulationQueueStatus = "DONE";
+            // 站台停车贴靠：低速进入贴靠窗口时把位置精确置为停车点（厘米级停准）
+            output = snapToStationStopPoint(prepared.input(), output);
             // 更新本地 TrainStateHolder
             trainState.applyPhysicsOutput(output);
             TrainStateReportDto report = buildReport(prepared.input(), output);
@@ -218,6 +222,62 @@ final class VehicleRuntimeInstance {
         simulationQueueStatus = "REJECTED";
         latencyMillis = Duration.between(startedAt, Instant.now()).toMillis();
         updatedAt = Instant.now();
+    }
+
+    /**
+     * 站台停车贴靠：控制层处于站停接近/站停保持态、且本 tick 积分落点已进入
+     * 停车点前的贴靠窗口并低速时，把位置精确置为停车点、速度归零。
+     * 停车点 = 本 tick 输入位置 + 中央下发的停站控制距离（对应股道站台 stop_right）。
+     * 在输出落地层做贴靠，对 JAVA_FALLBACK / FMU 物理模式一致生效。
+     */
+    private VehiclePhysicsOutputDto snapToStationStopPoint(
+        VehiclePhysicsInputDto input,
+        VehiclePhysicsOutputDto output
+    ) {
+        boolean stationControl = "STATION_BRAKE".equals(input.dynamicsState())
+            || "STATION_STOPPED".equals(input.dynamicsState());
+        if (!stationControl) {
+            return output;
+        }
+        double stationDistance = input.stationDistanceMeters();
+        if (!Double.isFinite(stationDistance) || stationDistance < 0 || stationDistance > 500) {
+            return output;
+        }
+        double target = input.positionMeters() + stationDistance;
+        double snapWindow = stoppingProperties.getSnapWindowMeters();
+        boolean inWindow = output.newPositionMeters() >= target - snapWindow
+            && output.newPositionMeters() <= target + snapWindow;
+        boolean slowEnough = output.newSpeedMetersPerSecond() <= stoppingProperties.getCreepSpeedMetersPerSecond();
+        if (!inWindow || !slowEnough) {
+            return output;
+        }
+        if (output.newPositionMeters() == target && output.newSpeedMetersPerSecond() == 0) {
+            return output;
+        }
+        return new VehiclePhysicsOutputDto(
+            output.trainId(),
+            target,
+            0,
+            Math.min(0, output.accelerationMetersPerSecondSquared()),
+            output.tractionForceNewtons(),
+            output.brakeForceNewtons(),
+            output.regenBrakeForceNewtons(),
+            0,
+            output.interpolatedTractionTorqueNmPerMotor(),
+            output.interpolatedBrakeTorqueNmPerMotor(),
+            output.airBrakeForceNewtons(),
+            output.mechanicalTractionPowerWatts(),
+            output.tractionPowerWatts(),
+            output.railCurrentAmps(),
+            output.mechanicalRegenPowerWatts(),
+            output.regenPowerWatts(),
+            output.energyConsumedKwh(),
+            output.energyRegeneratedKwh(),
+            output.faultCode(),
+            output.instanceState(),
+            output.dataQuality(),
+            output.fmiStatus()
+        );
     }
 
     private TrainStateReportDto buildReport(

@@ -4,6 +4,7 @@ import java.time.Instant;
 
 public record DriverCabStateSnapshot(
     DriverCabDoorModeSwitch doorModeSwitchState,
+    boolean atoModeActive,
     boolean atoStartFlag,
     boolean modeUpgradeConfirmFlag,
     boolean modeDowngradeConfirmFlag,

@@ -41,7 +41,7 @@ class CachedFleetResponse:
 
 class FmuManager:
     CACHE_LIMIT = 512
-    STEP_SIZE_SECONDS = 0.1
+    STEP_SIZE_SECONDS = 0.02
     TIME_TOLERANCE_SECONDS = 1e-9
 
     def __init__(

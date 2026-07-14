@@ -58,7 +58,7 @@ def test_tick_idempotency_conflict_and_out_of_order(manager: FmuManager) -> None
     step = fleet_request(
         manager,
         2,
-        0.1,
+        0.02,
         [train_input("TICK", "STEP")],
     )
     manager.step_fleet(step)
@@ -89,7 +89,7 @@ def test_batch_preflight_rejects_without_advancing_any_instance(
     mixed = fleet_request(
         manager,
         2,
-        0.1,
+        0.02,
         [train_input("KNOWN-A", "STEP"), train_input("UNKNOWN", "STEP")],
     )
     assert_protocol_error(
@@ -105,7 +105,7 @@ def test_batch_preflight_rejects_without_advancing_any_instance(
     duplicate = fleet_request(
         manager,
         2,
-        0.1,
+        0.02,
         [train_input("KNOWN-A", "STEP"), train_input("KNOWN-A", "STEP")],
     )
     assert_protocol_error(
@@ -177,7 +177,7 @@ def test_model_parameter_step_and_time_mismatch_are_rejected(
 def test_reset_resync_delete_and_reset_all(manager: FmuManager) -> None:
     manager.step_fleet(fleet_request(manager, 1, 0.0, [train_input("LIFE")]))
     manager.step_fleet(
-        fleet_request(manager, 2, 0.1, [train_input("LIFE", "STEP")])
+        fleet_request(manager, 2, 0.02, [train_input("LIFE", "STEP")])
     )
 
     reset = train_input(
@@ -253,7 +253,7 @@ def test_single_instance_failure_is_isolated_and_requires_resync(
     step = fleet_request(
         manager,
         2,
-        0.1,
+        0.02,
         [train_input("GOOD", "STEP"), train_input("FAIL", "STEP")],
     )
     with patch.object(
@@ -274,7 +274,7 @@ def test_single_instance_failure_is_isolated_and_requires_resync(
         409,
         "FMU_INSTANCE_FAILED",
         lambda: manager.step_fleet(
-            fleet_request(manager, 3, 0.2, [train_input("FAIL", "STEP")])
+            fleet_request(manager, 3, 0.04, [train_input("FAIL", "STEP")])
         ),
     )
 
@@ -282,7 +282,7 @@ def test_single_instance_failure_is_isolated_and_requires_resync(
         fleet_request(
             manager,
             3,
-            0.2,
+            0.04,
             [
                 train_input("GOOD", "STEP"),
                 train_input(
@@ -296,5 +296,5 @@ def test_single_instance_failure_is_isolated_and_requires_resync(
     )
     assert not recovery.train_errors
     assert manager._instances["FAIL"].state == "ACTIVE"
-    assert manager._instances["GOOD"].current_time_seconds == pytest.approx(0.3)
-    assert manager._instances["FAIL"].current_time_seconds == pytest.approx(0.3)
+    assert manager._instances["GOOD"].current_time_seconds == pytest.approx(0.06)
+    assert manager._instances["FAIL"].current_time_seconds == pytest.approx(0.06)

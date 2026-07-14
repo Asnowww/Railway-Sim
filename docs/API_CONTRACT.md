@@ -74,7 +74,7 @@ POST /api/service-health/{serviceId}/recovery/check
 
 9300 和 9200 状态统一为 `UP/DEGRADED/STALE/FALLBACK/RECOVERING`。异常后首次恢复健康不直接进入 UP；必须同时通过 runId、lastAcceptedTick、topology/config hash、model/parameter version 门槛。不匹配时保持 `RECOVERING` 并返回具体 `rejectionReasons`。最后健康记录和 last-good baseline 分别写入 `service_health_record/service_health_baseline`，重启后恢复。
 
-9200 进程重启后 `bootstrapped=false`，此时 `/power-network/constraints/query` 和 `/power-network/step` 返回 HTTP 409 `POWER_BOOTSTRAP_REQUIRED`；8080 重新下发拓扑后才允许恢复权威计算。9300 保留车辆实例跨中央重启，但 runId 改变只允许发生在新 run 的 tick 0/1；接管时清空旧司机命令、供电约束和物理缓存并触发重同步，运行中途换 run 返回 `VEHICLE_RUN_ID_MISMATCH`。
+9200 进程重启后默认从 `config/power_third_rail.yaml` 加载 1500 V、5 分区基线并置为 `bootstrapped=true`，`/power-network/constraints/query` 可立即使用；`POWER_NETWORK_CONFIG_PATH` 可显式覆盖该默认文件，8080 后续仍可重新下发权威拓扑。9300 保留车辆实例跨中央重启，但 runId 改变只允许发生在新 run 的 tick 0/1；接管时清空旧司机命令、供电约束和物理缓存并触发重同步，运行中途换 run 返回 `VEHICLE_RUN_ID_MISMATCH`。
 
 ### 获取列车状态
 
@@ -926,12 +926,14 @@ GET /api/dispatch/station-records
 POST http://localhost:9000/step-fleet
 ```
 
+9000接口固定采用20 ms通信步长。生产链路由9300在一个100 ms TCMS周期内连续调用5次；牵引、制动和安全约束在这5个子步内保持不变，第5次输出才更新9300权威状态并回传8080。该20 ms周期不改变PLC输入、信号/轨道、供电提交、中央快照和前端推送周期。
+
 请求：
 
 ```json
 {
   "simTime": "2026-07-07T10:00:00Z",
-  "deltaSeconds": 0.1,
+  "deltaSeconds": 0.02,
   "trains": [
     {
       "trainId": "TR-001",
@@ -951,7 +953,7 @@ POST http://localhost:9000/step-fleet
       "adhesionCoefficient": 0.9,
       "previousEnergyConsumedKwh": 0.0,
       "previousEnergyRegeneratedKwh": 0.0,
-      "deltaSeconds": 0.1,
+      "deltaSeconds": 0.02,
       "dynamicsState": "ACCELERATING",
       "dynamicsConstraintReason": "SPEED_MARGIN_AVAILABLE",
       "stationDistanceMeters": 420.0,

@@ -462,7 +462,8 @@ public class TrackService {
                 );
                 double stationControlDistance = lineData.stationControlDistanceMeters(
                     train.positionMeters(),
-                    STATION_STOP_WINDOW_METERS
+                    STATION_STOP_WINDOW_METERS,
+                    segment.track()
                 );
                 return new TrackConstraint(
                     train.id(),

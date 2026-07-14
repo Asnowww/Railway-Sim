@@ -277,6 +277,11 @@ package RailwaySimVehicle
       and accelerationMetersPerSecondSquared < 0
       then 0
       else accelerationMetersPerSecondSquared;
+    // 离散求解步可能从微小正速度跨过零点。在过零事件上重置状态，
+    // 避免将数值积分误差输出为物理倒车速度。
+    when speedMetersPerSecond < 0 then
+      reinit(speedMetersPerSecond, 0);
+    end when;
     // 位置：速度非负累积
     der(positionMeters) = max(0, speedMetersPerSecond);
 

@@ -170,6 +170,11 @@ final class VehicleControlQueue {
         if (!doorClosed || !state.isBrakeAvailable() || state.getAvailableBrakeCount() <= 0 || "FAIL".equals(state.getSelfCheckStatus())) {
             return brakeDecision(TrainDynamicsState.SELF_CHECK_BLOCKED, resolveSelfCheckBlockReason(doorClosed, state), speed, stoppingDistance, false);
         }
+        // 已停准保持：仅在停车点对位容差内锁存，宽窗口锁存会把欠走的车冻结在停车点前
+        if (stationDistance <= stoppingProperties.getAlignmentToleranceMeters()
+            && speed <= stoppingProperties.getZeroSpeedMetersPerSecond()) {
+            return new DynamicsDecision(TrainDynamicsState.STATION_STOPPED, "STATION_STOP_WINDOW", 0, 0.6, false, stoppingDistance);
+        }
         if (maDistance <= 0) {
             return brakeDecision(TrainDynamicsState.SAFETY_BRAKE, "MOVEMENT_AUTHORITY_EXHAUSTED", speed, stoppingDistance, true);
         }
@@ -180,6 +185,16 @@ final class VehicleControlQueue {
             return new DynamicsDecision(TrainDynamicsState.SELF_CHECK_BLOCKED, "TRACTION_UNAVAILABLE", 0, speed > 0.1 ? 0.4 : 0, false, stoppingDistance);
         }
 
+        // 站台精确停车：停车点在 MA 终点之前时优先于 MA 制动接管末段对位
+        if (stationDistance <= maDistance) {
+            DynamicsDecision stationDecision = decideStationStop(
+                speed, stationDistance, stoppingDistance,
+                track == null ? 0 : track.gradient(), brakingFactor
+            );
+            if (stationDecision != null) {
+                return stationDecision;
+            }
+        }
         double maBrakeTrigger = stoppingDistance + properties.getSafetyGapMeters() * 0.5;
         if (maDistance <= maBrakeTrigger) {
             return new DynamicsDecision(
@@ -190,14 +205,6 @@ final class VehicleControlQueue {
                 false,
                 stoppingDistance
             );
-        }
-        if (stationDistance <= stoppingProperties.getStationStopWindowMeters()
-            && speed <= stoppingProperties.getZeroSpeedMetersPerSecond()) {
-            return new DynamicsDecision(TrainDynamicsState.STATION_STOPPED, "STATION_STOP_WINDOW", 0, 0.6, false, stoppingDistance);
-        }
-        double stationBrakeBuffer = stationApproachBufferMeters(speed);
-        if (stationDistance <= stoppingDistance + stationBrakeBuffer) {
-            return new DynamicsDecision(TrainDynamicsState.STATION_BRAKE, "STATION_APPROACH", 0, brakeForDistance(stationDistance, stoppingDistance, stationBrakeBuffer), false, stoppingDistance);
         }
         double overspeed = speed - speedLimit;
         if (overspeed > 0) {
@@ -343,14 +350,56 @@ final class VehicleControlQueue {
         return clamp(shortfall / Math.max(bufferMeters, 1), 0.2, 1);
     }
 
-    private double stoppingDistanceMeters(double speedMetersPerSecond, double gradient, double brakingFactor) {
+    /**
+     * 站台精确停车决策（曲线终点=停车点，目标厘米级停准）：
+     * ① 已对位（容差内 + 零速）→ 保持制动；
+     * ② 低速对位区（停站窗口内、速度低于蠕行上限）→ 需求减速度高则按需制动，
+     *    欠走则小牵引蠕行推进到停车点；
+     * ③ 进站制动区 → 跟踪需求减速度曲线 a=v²/2d，落点即停车点。
+     * 不在任何站停区时返回 null，交回常规 MA/限速控制。
+     */
+    private DynamicsDecision decideStationStop(
+        double speed, double stationDistance, double stoppingDistance,
+        double gradient, double brakingFactor
+    ) {
+        double effectiveDeceleration = effectiveDecelerationMetersPerSecondSquared(gradient, brakingFactor);
+        if (stationDistance <= stoppingProperties.getAlignmentToleranceMeters()
+            && speed <= stoppingProperties.getZeroSpeedMetersPerSecond()) {
+            return new DynamicsDecision(TrainDynamicsState.STATION_STOPPED, "STATION_ALIGNED", 0, 0.6, false, stoppingDistance);
+        }
+        double creepSpeed = stoppingProperties.getCreepSpeedMetersPerSecond();
+        if (stationDistance <= stoppingProperties.getStationStopWindowMeters() && speed <= creepSpeed) {
+            double requiredDeceleration = speed * speed / (2 * Math.max(stationDistance, 0.01));
+            if (requiredDeceleration >= effectiveDeceleration * 0.8) {
+                return new DynamicsDecision(TrainDynamicsState.STATION_BRAKE, "STATION_PRECISION_BRAKE", 0,
+                    clamp(requiredDeceleration / effectiveDeceleration, 0.1, 1), false, stoppingDistance);
+            }
+            // 欠走：距停车点尚有余量而动能不足 → 蠕行推进（速度上来后惰行滑入贴靠窗口）
+            double creepTraction = speed < creepSpeed * 0.6 ? stoppingProperties.getCreepTractionCommand() : 0;
+            return new DynamicsDecision(TrainDynamicsState.STATION_BRAKE, "STATION_ALIGN_CREEP",
+                creepTraction, 0, false, stoppingDistance);
+        }
+        double stationBrakeBuffer = stationApproachBufferMeters(speed);
+        if (stationDistance <= stoppingDistance + stationBrakeBuffer) {
+            double requiredDeceleration = speed * speed / (2 * Math.max(stationDistance, 0.5));
+            double brake = clamp(requiredDeceleration / effectiveDeceleration, 0, 1);
+            return new DynamicsDecision(TrainDynamicsState.STATION_BRAKE, "STATION_APPROACH", 0, brake, false, stoppingDistance);
+        }
+        return null;
+    }
+
+    private double effectiveDecelerationMetersPerSecondSquared(double gradient, double brakingFactor) {
         double planningGradient = clamp(gradient, -0.04, 0.04);
-        double effectiveDeceleration = clamp(
+        return clamp(
             stoppingProperties.getServiceBrakeDecelerationMetersPerSecondSquared()
                 * clamp(brakingFactor, 0.2, 1.2) + planningGradient * GRAVITY,
             stoppingProperties.getMinimumEffectiveDecelerationMetersPerSecondSquared(),
             stoppingProperties.getMaximumEffectiveDecelerationMetersPerSecondSquared()
         );
+    }
+
+    private double stoppingDistanceMeters(double speedMetersPerSecond, double gradient, double brakingFactor) {
+        double effectiveDeceleration = effectiveDecelerationMetersPerSecondSquared(gradient, brakingFactor);
         return speedMetersPerSecond * speedMetersPerSecond / (2 * effectiveDeceleration);
     }
 

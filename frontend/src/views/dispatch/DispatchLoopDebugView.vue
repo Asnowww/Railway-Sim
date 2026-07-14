@@ -410,10 +410,6 @@ const headwayViolation = computed(() => {
 const headwayControlledTrainId = computed(() => primaryHeadwayProfile.value?.trainId ?? selectedDemoTrain.value?.id ?? '-')
 const headwayFrontTrainId = computed(() => primaryHeadwayProfile.value?.frontTrainId ?? selectedFrontTrain.value?.id ?? '-')
 const headwayRegulationAction = computed(() => primaryHeadwayProfile.value?.regulationAction ?? 'OBSERVE')
-const lineEndMeters = computed(() => {
-  const ends = snapshot.value?.trackSegments.map((segment) => segment.endMeters) ?? []
-  return ends.length > 0 ? Math.max(...ends) : null
-})
 const currentGapMeters = computed(() => spatialGapMeters(selectedDemoTrain.value, selectedFrontTrain.value))
 const dwellStartTicks = ref<Record<string, { stationId: string; tick: number }>>({})
 const selectedTrainLimitSummary = computed(() => {
@@ -532,7 +528,7 @@ const comparisonWarnings = computed(() => {
     warnings.push('目标车速度为 0 但车辆状态不是停站，优先查看 MA 距离和车辆约束原因。')
   }
   if (targetTrain && nearTerminal(targetTrain)) {
-    warnings.push('目标车已接近线路终点，终点安全限制会覆盖时间间隔调度效果。')
+    warnings.push('目标车已接近运营终点站，终点安全限制会覆盖时间间隔调度效果。')
   }
   return warnings
 })
@@ -603,18 +599,18 @@ const comparisonRows = computed(() => {
     {
       label: '目标车MA距离',
       before: formatMeters(baseline.maDistanceMeters),
-      after: formatMeters(targetAuthority ? targetAuthority.authorityEndMeters - (targetTrain?.positionMeters ?? 0) : null),
+      after: formatMeters(targetTrain ? movementAuthorityDistance(targetTrain, targetAuthority?.authorityEndMeters) : null),
       delta: formatDelta(
-        targetAuthority && targetTrain ? targetAuthority.authorityEndMeters - targetTrain.positionMeters : null,
+        targetTrain ? movementAuthorityDistance(targetTrain, targetAuthority?.authorityEndMeters) : null,
         baseline.maDistanceMeters,
         'm'
       )
     },
     {
-      label: '目标车到终点',
-      before: formatMeters(baseline.terminalRemainingMeters),
-      after: formatMeters(targetTrain ? remainingToTerminal(targetTrain) : null),
-      delta: formatDelta(targetTrain ? remainingToTerminal(targetTrain) : null, baseline.terminalRemainingMeters, 'm')
+      label: '目标车距运营终点',
+      before: formatMeters(baseline.terminusDistanceMeters),
+      after: formatMeters(targetTrain ? distanceToOperationalTerminus(targetTrain) : null),
+      delta: formatDelta(targetTrain ? distanceToOperationalTerminus(targetTrain) : null, baseline.terminusDistanceMeters, 'm')
     }
   ]
 })
@@ -634,7 +630,7 @@ interface ComparisonBaseline {
   speedMps: number | null
   speedLimitMps: number | null
   maDistanceMeters: number | null
-  terminalRemainingMeters: number | null
+  terminusDistanceMeters: number | null
   constraintReason: string
 }
 
@@ -1631,8 +1627,55 @@ function nextStopText(train: TrainState) {
     const currentIndex = service.stops.findIndex((stop) => stop.stationId === train.currentStationId)
     if (currentIndex >= 0) return service.stops[currentIndex + 1]?.stationId ?? '终点'
   }
-  const routeStation = service.stops.find((stop) => stop.arrivalOffsetSec > 0 && stop.stationId !== service.stops[0]?.stationId)
-  return routeStation?.stationId ?? service.stops[1]?.stationId ?? '-'
+  return targetStationForTrain(train)?.stationId ?? '-'
+}
+
+function serviceStopTargets(train: TrainState) {
+  const service = plan.value?.services.find((item) => item.trainId === train.id)
+  const stationPositions = new Map(
+    (plan.value?.stations ?? []).map((station) => [station.id, station.positionMeters])
+  )
+  return (service?.stops ?? []).flatMap((stop) => {
+    const positionMeters = stationPositions.get(stop.stationId)
+    return positionMeters === undefined ? [] : [{ stationId: stop.stationId, positionMeters }]
+  })
+}
+
+function targetStationForTrain(train: TrainState) {
+  const targets = serviceStopTargets(train)
+  if (targets.length === 0) return null
+
+  if (train.currentStationId && (train.status === 'DWELLING' || train.speedMetersPerSecond <= 0.2)) {
+    const current = targets.find((target) => target.stationId === train.currentStationId)
+    if (current) return current
+  }
+
+  const first = targets[0]
+  const last = targets[targets.length - 1]
+  const increasingMileage = last.positionMeters >= first.positionMeters
+  const stationWindowMeters = 25
+  return targets.find((target) => increasingMileage
+    ? target.positionMeters >= train.positionMeters - stationWindowMeters
+    : target.positionMeters <= train.positionMeters + stationWindowMeters
+  ) ?? last
+}
+
+function targetStationError(train: TrainState) {
+  const target = targetStationForTrain(train)
+  return target ? train.positionMeters - target.positionMeters : null
+}
+
+function distanceToOperationalTerminus(train: TrainState) {
+  const targets = serviceStopTargets(train)
+  const terminus = targets[targets.length - 1]
+  return terminus ? terminus.positionMeters - train.positionMeters : null
+}
+
+function movementAuthorityDistance(train: TrainState, authorityEndMeters?: number | null) {
+  if (authorityEndMeters !== null && authorityEndMeters !== undefined) {
+    return Math.max(0, authorityEndMeters - train.positionMeters)
+  }
+  return Math.max(0, train.movementAuthorityDistanceMeters)
 }
 
 function selectedCurrentStopPlanText() {
@@ -1702,18 +1745,15 @@ function captureBaseline(
     gapMeters: currentGapMeters.value,
     speedMps: targetTrain.speedMetersPerSecond,
     speedLimitMps: targetTrain.speedLimitMetersPerSecond,
-    maDistanceMeters: targetAuthority ? targetAuthority.authorityEndMeters - targetTrain.positionMeters : null,
-    terminalRemainingMeters: remainingToTerminal(targetTrain),
+    maDistanceMeters: movementAuthorityDistance(targetTrain, targetAuthority?.authorityEndMeters),
+    terminusDistanceMeters: distanceToOperationalTerminus(targetTrain),
     constraintReason: targetTrain.dynamicsConstraintReason || '-'
   }
 }
 
 function nearTerminal(train: TrainState) {
-  return lineEndMeters.value !== null && lineEndMeters.value - train.positionMeters <= 20
-}
-
-function remainingToTerminal(train: TrainState) {
-  return lineEndMeters.value === null ? null : Math.max(0, lineEndMeters.value - train.positionMeters)
+  const distance = distanceToOperationalTerminus(train)
+  return distance !== null && Math.abs(distance) <= 20
 }
 
 function spatialGapMeters(rear: TrainState | null, front: TrainState | null) {
@@ -1727,6 +1767,11 @@ function formatMps(value: number | null | undefined) {
 
 function formatMeters(value: number | null | undefined) {
   return value === null || value === undefined || Number.isNaN(value) ? '-' : `${value.toFixed(1)} m`
+}
+
+function formatSignedNumber(value: number | null | undefined) {
+  if (value === null || value === undefined || Number.isNaN(value)) return '-'
+  return `${value > 0 ? '+' : ''}${value.toFixed(1)}`
 }
 
 function formatSeconds(value: number | null | undefined) {
@@ -2024,7 +2069,8 @@ function formatDelta(current: number | null | undefined, baseline: number | null
               <th>停站(s)</th>
               <th>速度(m/s)</th>
               <th>有效限速(m/s)</th>
-              <th>终点剩余(m)</th>
+              <th>目标站偏差(m)</th>
+              <th>距运营终点(m)</th>
               <th>MA距离(m)</th>
               <th>车辆约束</th>
               <th>牵引/制动</th>
@@ -2034,7 +2080,7 @@ function formatDelta(current: number | null | undefined, baseline: number | null
           </thead>
           <tbody>
             <tr v-if="trainOverviewRows.length === 0">
-              <td colspan="14">暂无上线列车。等待运行计划发车或后端总循环推进。</td>
+              <td colspan="15">暂无上线列车。等待运行计划发车或后端总循环推进。</td>
             </tr>
             <tr
               v-for="row in trainOverviewRows"
@@ -2051,8 +2097,9 @@ function formatDelta(current: number | null | undefined, baseline: number | null
               <td>{{ observedDwellSeconds(row.train) }}</td>
               <td>{{ formatNumber(row.train.speedMetersPerSecond) }}</td>
               <td>{{ conciseLimitText(row.train) }}</td>
-              <td>{{ formatNumber(remainingToTerminal(row.train)) }}</td>
-              <td>{{ formatNumber(row.authority ? row.authority.authorityEndMeters - row.train.positionMeters : row.train.movementAuthorityDistanceMeters) }}</td>
+              <td>{{ formatSignedNumber(targetStationError(row.train)) }}</td>
+              <td>{{ formatSignedNumber(distanceToOperationalTerminus(row.train)) }}</td>
+              <td>{{ formatNumber(movementAuthorityDistance(row.train, row.authority?.authorityEndMeters)) }}</td>
               <td>{{ dynamicsReasonLabel(row.train.dynamicsConstraintReason || '-') }}</td>
               <td>{{ row.train.tractionState }} / {{ row.train.brakeState }}</td>
               <td>{{ formatPercent(row.train.loadRate) }}</td>

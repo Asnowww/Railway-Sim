@@ -8,7 +8,7 @@ def main() -> None:
         request = StepFleetRequest(
             tick=1,
             simulation_time_seconds=0.0,
-            step_size_seconds=0.1,
+            step_size_seconds=0.02,
             model_version=manager.model_version,
             parameter_set_id=manager.parameter_set_id,
             trace_id="self-test-1",
@@ -35,7 +35,7 @@ def main() -> None:
                     adhesion_coefficient=0.9,
                     previous_energy_consumed_kwh=0.0,
                     previous_energy_regenerated_kwh=0.0,
-                    delta_seconds=0.1,
+                    delta_seconds=0.02,
                 )
             ],
         )

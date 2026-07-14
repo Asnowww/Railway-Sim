@@ -111,6 +111,54 @@ public record OperationalLineData(
             .orElseGet(() -> nextStationDistanceMeters(positionMeters));
     }
 
+    /**
+     * 车头精确停车点：列车所在股道站台的 {@code stopRightMeters}（行车方向末端）。
+     * 车长 = 站台停车窗长度，车头停 stop_right 即整车对齐站台。
+     * 无站台/无停车窗数据时回退站中心。
+     */
+    public double stopPointMeters(StationDefinition station, String track) {
+        if (station == null) {
+            return Double.NaN;
+        }
+        List<PlatformDefinition> stationPlatforms = platforms.stream()
+            .filter(platform -> station.platformIds().contains(platform.id()))
+            .toList();
+        Optional<PlatformDefinition> matched = stationPlatforms.stream()
+            .filter(platform -> track != null && track.equalsIgnoreCase(platform.directionCode()))
+            .findFirst()
+            .or(() -> stationPlatforms.stream().findFirst());
+        return matched
+            .filter(platform -> platform.stopRightMeters() > platform.stopLeftMeters())
+            .map(PlatformDefinition::stopRightMeters)
+            .orElse(station.centerMeters());
+    }
+
+    /**
+     * 股道感知的停站控制距离：以停车点（{@link #stopPointMeters}）为参考。
+     * 停站窗口内返回<b>有符号</b>距离（越过停车点为负，供车辆层判定已对位），
+     * 窗口外返回前方最近停车点的距离。
+     */
+    public double stationControlDistanceMeters(double positionMeters, double stopWindowMeters, String track) {
+        double window = Math.max(0, stopWindowMeters);
+        double inWindow = Double.NaN;
+        double nextAhead = Double.POSITIVE_INFINITY;
+        for (StationDefinition station : stations) {
+            double stopPoint = stopPointMeters(station, track);
+            if (Double.isNaN(stopPoint)) {
+                continue;
+            }
+            double distance = stopPoint - positionMeters;
+            if (Math.abs(distance) <= window
+                && (Double.isNaN(inWindow) || Math.abs(distance) < Math.abs(inWindow))) {
+                inWindow = distance;
+            }
+            if (distance >= 0 && distance < nextAhead) {
+                nextAhead = distance;
+            }
+        }
+        return Double.isNaN(inWindow) ? nextAhead : inWindow;
+    }
+
     public Map<String, TrackSegmentDefinition> trackSegmentById() {
         return trackSegments.stream()
             .collect(Collectors.toMap(TrackSegmentDefinition::id, Function.identity(), (left, right) -> left));

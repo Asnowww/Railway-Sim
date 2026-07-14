@@ -16,7 +16,7 @@ public class DriverCabPlcGatewayEncoder {
     public DriverCabStateSnapshot toSnapshot(DriverCabPlcGatewayRequest input, DriverCabControlSource source) {
         if (input == null) throw new IllegalArgumentException("driver cab PLC input is required");
         return new DriverCabStateSnapshot(
-            input.doorModeSwitchState(), input.atoStartFlag(),
+            input.doorModeSwitchState(), input.atoModeActive(), input.atoStartFlag(),
             input.modeUpgradeConfirmFlag(), input.modeDowngradeConfirmFlag(),
             input.automaticTurnbackFlag(), input.directionHandleState(), input.masterHandleState(),
             input.keySwitchLocked(), input.tractionNotchPercent(), input.brakeNotchPercent(),
@@ -34,6 +34,7 @@ public class DriverCabPlcGatewayEncoder {
         int brake = clampPercent(Short.toUnsignedInt(buffer.getShort(42)));
         return new DriverCabStateSnapshot(
             DriverCabDoorModeSwitch.fromProtocolCode(Short.toUnsignedInt(buffer.getShort(32))),
+            bit(payload, 25, 2),
             bit(payload, 34, 7), bit(payload, 34, 2), bit(payload, 34, 3), bit(payload, 34, 5),
             DriverCabDirectionHandleState.fromProtocolCode(Short.toUnsignedInt(buffer.getShort(36))),
             DriverCabMasterHandleState.fromProtocolCode(Short.toUnsignedInt(buffer.getShort(38))),

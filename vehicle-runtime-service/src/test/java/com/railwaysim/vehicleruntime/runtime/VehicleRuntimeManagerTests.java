@@ -232,6 +232,33 @@ class VehicleRuntimeManagerTests {
     }
 
     @Test
+    void zeroSpeedInsideStationWindowIsStationStoppedEvenWhenMaIsExhausted() {
+        VehicleRuntimeManager manager = manager();
+        TrainStateSnapshot stopped = train("TR-101", 1_250, 0);
+        VehicleRuntimeStepRequest request = new VehicleRuntimeStepRequest(
+            1,
+            0.1,
+            Instant.parse("2026-07-09T00:00:00Z"),
+            List.of(stopped),
+            List.of(new MovementAuthoritySnapshot(stopped.id(), stopped.positionMeters(), 0, "STATION_DWELL")),
+            List.of(new TrackConstraintSnapshot(stopped.id(), "SEG-1", 22.2, 0, 1_000, 0)),
+            List.of(),
+            List.of(energized()),
+            "run-station-stop",
+            List.of()
+        );
+
+        VehicleRuntimeStepResponse response = manager.stepFleet(request);
+
+        assertThat(response.trainReports()).singleElement()
+            .satisfies(report -> {
+                assertThat(report.dynamicsState()).isEqualTo("STATION_STOPPED");
+                assertThat(report.selectedReasonCode()).isEqualTo("STATION_STOP_WINDOW");
+                assertThat(report.movementAuthorityDistanceMeters()).isZero();
+            });
+    }
+
+    @Test
     void parameterMetadataExposesCanonicalYamlCalibration() {
         var metadata = manager().parameterMetadata();
 
@@ -414,6 +441,43 @@ class VehicleRuntimeManagerTests {
         assertThat(clock.getCurrentRunId()).isEqualTo(runId);
         assertThat(clock.getCurrentTick()).isEqualTo(2);
         assertThat(manager.health().simulationRunId()).isEqualTo(runId);
+    }
+
+    @Test
+    void atoStopsWithinCentimetersOfStationStopPoint() {
+        DriverCommandHolder.getInstance().clear();
+        VehicleRuntimeManager manager = manager();
+        double target = 600;
+        double position = 100;
+        double speed = 0;
+        String dynamicsState = "";
+        for (long tick = 1; tick <= 3_000; tick++) {
+            // 闭环：中央语义——停站控制距离=停车点-车头（窗口内有符号），MA=停车点+25m
+            double stationDistance = target - position;
+            VehicleRuntimeStepRequest request = new VehicleRuntimeStepRequest(
+                tick,
+                0.1,
+                Instant.parse("2026-07-09T00:00:00Z").plusMillis(tick * 100),
+                List.of(train("TR-101", position, speed)),
+                List.of(new MovementAuthoritySnapshot("TR-101", target + 25, 22.2, "NORMAL")),
+                List.of(new TrackConstraintSnapshot("TR-101", "SEG-1", 22.2, 0, 1_000, stationDistance)),
+                List.of(),
+                List.of(energized()),
+                "run-test",
+                List.of()
+            );
+            VehicleRuntimeStepResponse response = manager.stepFleet(request);
+            TrainStateSnapshot state = response.trainStates().get(0);
+            position = state.positionMeters();
+            speed = state.speedMetersPerSecond();
+            dynamicsState = state.dynamicsState();
+            if ("STATION_STOPPED".equals(dynamicsState) && speed == 0) {
+                break;
+            }
+        }
+        assertThat(position).isCloseTo(target, within(0.01));
+        assertThat(speed).isZero();
+        assertThat(dynamicsState).isEqualTo("STATION_STOPPED");
     }
 
     @Test
