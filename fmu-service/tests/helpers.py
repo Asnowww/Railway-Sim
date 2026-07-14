@@ -33,7 +33,7 @@ def train_input(
         adhesion_coefficient=0.9,
         previous_energy_consumed_kwh=0.0,
         previous_energy_regenerated_kwh=0.0,
-        delta_seconds=0.1,
+        delta_seconds=0.02,
         dynamics_state="COASTING",
         dynamics_constraint_reason="NONE",
         station_distance_meters=2_000.0,
@@ -51,7 +51,7 @@ def fleet_request(
     trace_id: str | None = None,
     model_version: str | None = None,
     parameter_set_id: str | None = None,
-    step_size_seconds: float = 0.1,
+    step_size_seconds: float = 0.02,
 ) -> StepFleetRequest:
     return StepFleetRequest(
         tick=tick,

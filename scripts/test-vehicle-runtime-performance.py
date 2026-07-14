@@ -160,7 +160,9 @@ def main() -> None:
     report = {
         "status": "PASS" if not errors else "FAIL",
         "criteria": {
-            "stepSizeSeconds": 0.1,
+            "tcmsStepSizeSeconds": 0.1,
+            "fmuSubstepSizeSeconds": 0.02,
+            "fmuSubstepsPerTcmsTick": 5,
             "fmuBatchP95LimitMillis": 50,
             "vehicleAndPowerP95LimitMillis": 80,
             "enduranceTrainCount": 20,

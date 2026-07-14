@@ -926,12 +926,14 @@ GET /api/dispatch/station-records
 POST http://localhost:9000/step-fleet
 ```
 
+9000接口固定采用20 ms通信步长。生产链路由9300在一个100 ms TCMS周期内连续调用5次；牵引、制动和安全约束在这5个子步内保持不变，第5次输出才更新9300权威状态并回传8080。该20 ms周期不改变PLC输入、信号/轨道、供电提交、中央快照和前端推送周期。
+
 请求：
 
 ```json
 {
   "simTime": "2026-07-07T10:00:00Z",
-  "deltaSeconds": 0.1,
+  "deltaSeconds": 0.02,
   "trains": [
     {
       "trainId": "TR-001",
@@ -951,7 +953,7 @@ POST http://localhost:9000/step-fleet
       "adhesionCoefficient": 0.9,
       "previousEnergyConsumedKwh": 0.0,
       "previousEnergyRegeneratedKwh": 0.0,
-      "deltaSeconds": 0.1,
+      "deltaSeconds": 0.02,
       "dynamicsState": "ACCELERATING",
       "dynamicsConstraintReason": "SPEED_MARGIN_AVAILABLE",
       "stationDistanceMeters": 420.0,

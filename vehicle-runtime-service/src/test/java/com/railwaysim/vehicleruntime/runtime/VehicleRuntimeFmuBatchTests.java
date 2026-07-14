@@ -25,7 +25,6 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
 import org.springframework.web.client.RestClient;
 
@@ -34,13 +33,13 @@ class VehicleRuntimeFmuBatchTests {
     private static final ObjectMapper JSON = new ObjectMapper();
 
     @Test
-    void twentyTrainsUseOneFmuRequestAndPreserveFleetOutputs() throws Exception {
+    void twentyTrainsUseFiveTwentyMillisecondFmuExchangesPerTcmsTick() throws Exception {
         AtomicInteger requestCount = new AtomicInteger();
-        AtomicReference<JsonNode> requestBody = new AtomicReference<>();
+        List<JsonNode> requests = new ArrayList<>();
         HttpServer server = fmuServer(exchange -> {
             requestCount.incrementAndGet();
             JsonNode request = read(exchange);
-            requestBody.set(request);
+            requests.add(request);
             write(exchange, 200, successResponse(request, null));
         });
         try {
@@ -52,11 +51,18 @@ class VehicleRuntimeFmuBatchTests {
 
             VehicleRuntimeStepResponse response = manager.stepFleet(request(1, trains));
 
-            assertThat(requestCount).hasValue(1);
-            assertThat(requestBody.get().path("trains")).hasSize(20);
-            assertThat(requestBody.get().path("trains").get(0).path("lifecycleCommand").asText()).isEqualTo("INIT");
-            assertThat(requestBody.get().path("stepSizeSeconds").asDouble()).isEqualTo(0.1);
-            assertThat(requestBody.get().path("trains").get(0).has("deltaSeconds")).isFalse();
+            assertThat(requestCount).hasValue(5);
+            assertThat(requests).allSatisfy(requestBody -> {
+                assertThat(requestBody.path("trains")).hasSize(20);
+                assertThat(requestBody.path("stepSizeSeconds").asDouble()).isEqualTo(0.02);
+                assertThat(requestBody.path("trains").get(0).has("deltaSeconds")).isFalse();
+            });
+            assertThat(requests).extracting(requestBody -> requestBody.path("tick").asLong())
+                .containsExactly(1L, 2L, 3L, 4L, 5L);
+            assertThat(requests.get(0).path("simulationTimeSeconds").asDouble()).isZero();
+            assertThat(requests.get(4).path("simulationTimeSeconds").asDouble()).isEqualTo(0.08);
+            assertThat(requests.get(0).path("trains").get(0).path("lifecycleCommand").asText()).isEqualTo("INIT");
+            assertThat(requests.get(4).path("trains").get(0).path("lifecycleCommand").asText()).isEqualTo("STEP");
             assertThat(response.trainOutputs()).hasSize(20);
             assertThat(response.trainReports()).hasSize(20);
             assertThat(response.dataQuality()).isEqualTo("GOOD");
@@ -96,8 +102,8 @@ class VehicleRuntimeFmuBatchTests {
             manager.resyncPhysics("TR-BAD");
             VehicleRuntimeStepResponse third = manager.stepFleet(request(3, updateFrom(second, trains)));
 
-            assertThat(requests.get(2).path("trains")).hasSize(2);
-            JsonNode bad = findTrain(requests.get(2), "TR-BAD");
+            assertThat(requests.get(10).path("trains")).hasSize(2);
+            JsonNode bad = findTrain(requests.get(10), "TR-BAD");
             assertThat(bad.path("lifecycleCommand").asText()).isEqualTo("RESYNC");
             assertThat(third.trainOutputs()).allMatch(output -> output.faultCode().equals("OK"));
             assertThat(manager.health().fallbackTrainCount()).isZero();
@@ -262,8 +268,9 @@ class VehicleRuntimeFmuBatchTests {
             }
             ObjectNode output = outputs.addObject();
             double speed = train.path("speedMetersPerSecond").asDouble();
+            double stepSizeSeconds = request.path("stepSizeSeconds").asDouble();
             output.put("trainId", trainId);
-            output.put("newPositionMeters", train.path("positionMeters").asDouble() + Math.max(speed, 1) * 0.1);
+            output.put("newPositionMeters", train.path("positionMeters").asDouble() + Math.max(speed, 1) * stepSizeSeconds);
             output.put("newSpeedMetersPerSecond", speed + 0.05);
             output.put("accelerationMetersPerSecondSquared", 0.5);
             output.put("tractionForceNewtons", 100_000);
@@ -274,7 +281,7 @@ class VehicleRuntimeFmuBatchTests {
             output.put("railCurrentAmps", 75.76);
             output.put("mechanicalRegenPowerWatts", 0);
             output.put("regenPowerWatts", 0);
-            output.put("energyConsumedKwh", train.path("previousEnergyConsumedKwh").asDouble() + 0.003);
+            output.put("energyConsumedKwh", train.path("previousEnergyConsumedKwh").asDouble() + 0.03 * stepSizeSeconds);
             output.put("energyRegeneratedKwh", train.path("previousEnergyRegeneratedKwh").asDouble());
             output.put("faultCode", "OK");
             output.put("instanceState", "ACTIVE");
