@@ -1,0 +1,34 @@
+@startuml
+actor "车辆仿真系统" as Simulator
+participant "车辆运行时服务" as Runtime
+participant "车辆运行时管理器" as Manager
+participant "单车运行时实例" as Instance
+participant "车辆控制队列" as ControlQueue
+participant "中央列车管理" as TrainManager
+participant "中央状态镜像" as Mirror
+
+Simulator -> Runtime: 请求启动列车实例(列车标识、编组参数)
+activate Runtime
+Runtime -> Manager: 启动列车实例()
+activate Manager
+Manager -> Instance: 创建或获取实例
+activate Instance
+Instance -> ControlQueue: 唤醒控制队列()
+activate ControlQueue
+ControlQueue --> Instance: 控制实例就绪
+deactivate ControlQueue
+Instance --> Manager: 实例状态
+deactivate Instance
+Manager -> TrainManager: 注册中央列车镜像(列车标识、链路标识、初始位置)
+activate TrainManager
+TrainManager -> Mirror: 创建 TrainEntity 和 CONNECTING 会话
+activate Mirror
+Mirror --> TrainManager: 镜像状态
+deactivate Mirror
+TrainManager --> Manager: 注册结果
+deactivate TrainManager
+Manager --> Runtime: 启动完成
+deactivate Manager
+Runtime --> Simulator: 返回运行时实例状态
+deactivate Runtime
+@enduml
