@@ -23,7 +23,11 @@ public record OperationPlan(
     Instant createdAt,
     Instant updatedAt,
     String routeCommandId,
-    String rejectReason
+    String rejectReason,
+    String circulationPlanId,
+    String circulationLegId,
+    Integer cycleIndex,
+    Integer legIndex
 ) {
     public OperationPlan {
         viaPointIds = viaPointIds == null ? List.of() : List.copyOf(viaPointIds);
@@ -37,7 +41,8 @@ public record OperationPlan(
             planId, simulationRunId, routeId, routeName, direction, trainId,
             originPointId, destinationPointId, viaPointIds, pointIds, stationIds, segmentIds,
             plannedDepartureAt, OperationPlanStatus.ROUTE_REQUESTED, priority, version + 1,
-            createdAt, updatedAt, commandId, rejectReason
+            createdAt, updatedAt, commandId, rejectReason,
+            circulationPlanId, circulationLegId, cycleIndex, legIndex
         );
     }
 
@@ -46,7 +51,8 @@ public record OperationPlan(
             planId, simulationRunId, routeId, routeName, direction, trainId,
             originPointId, destinationPointId, viaPointIds, pointIds, stationIds, segmentIds,
             plannedDepartureAt, status, priority, version + 1,
-            createdAt, updatedAt, routeCommandId, rejectReason
+            createdAt, updatedAt, routeCommandId, rejectReason,
+            circulationPlanId, circulationLegId, cycleIndex, legIndex
         );
     }
 }

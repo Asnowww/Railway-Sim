@@ -19,6 +19,9 @@ import com.railwaysim.dispatch.operation.OperationPlanRequest;
 import com.railwaysim.dispatch.operation.OperationPlanningService;
 import com.railwaysim.dispatch.operation.OperationRouteCandidate;
 import com.railwaysim.dispatch.operation.OperationRouteTemplate;
+import com.railwaysim.dispatch.operation.CirculationLeg;
+import com.railwaysim.dispatch.operation.CirculationPlanRequest;
+import com.railwaysim.dispatch.operation.TrainCirculationPlan;
 import com.railwaysim.dispatch.optimization.LineHeadwayOptimizationResult;
 import com.railwaysim.dispatch.optimization.LineHeadwayOptimizer;
 import com.railwaysim.dispatch.optimization.LineRegulationContext;
@@ -483,6 +486,9 @@ public class DispatchService {
     }
 
     private List<DispatchCommand> automaticOperationPlanRouteCommands(Instant simulatedAt) {
+        for (TrainCirculationPlan circulation : operationPlanningService.circulationPlans(simulationRunId)) {
+            operationPlanningService.createPlanForCurrentCirculationLeg(circulation, simulatedAt);
+        }
         List<OperationPlan> duePlans = operationPlanningService.duePlans(simulationRunId, simulatedAt);
         if (duePlans.isEmpty()) {
             return List.of();
@@ -498,6 +504,13 @@ public class DispatchService {
             payload.put("source", "OPERATION_PLAN");
             payload.put("operationPlanId", plan.planId());
             payload.put("operationPlanVersion", plan.version());
+            if (plan.circulationPlanId() != null) {
+                payload.put("source", "CIRCULATION_PLAN");
+                payload.put("circulationId", plan.circulationPlanId());
+                payload.put("circulationLegId", plan.circulationLegId());
+                payload.put("cycleIndex", plan.cycleIndex());
+                payload.put("legIndex", plan.legIndex());
+            }
             payload.put("routeId", plan.routeId());
             payload.put("detail", plan.routeId());
             payload.put("direction", plan.direction());
@@ -1278,6 +1291,30 @@ public class DispatchService {
         return operationPlanningService.list(simulationRunId);
     }
 
+    public synchronized List<TrainCirculationPlan> circulationPlans() {
+        return operationPlanningService.circulationPlans(simulationRunId);
+    }
+
+    public synchronized List<TrainCirculationPlan> autoAssignCirculationPlans(CirculationPlanRequest request) {
+        List<TrainCirculationPlan> created = operationPlanningService.autoAssignCirculations(
+            simulationRunId,
+            latestTrains,
+            lastEvaluatedAt.equals(Instant.EPOCH) ? Instant.now() : lastEvaluatedAt,
+            request
+        );
+        refreshSnapshot();
+        return created;
+    }
+
+    public synchronized TrainCirculationPlan cancelCirculationPlan(String circulationId) {
+        TrainCirculationPlan plan = operationPlanningService.cancelCirculation(
+            circulationId,
+            lastEvaluatedAt.equals(Instant.EPOCH) ? Instant.now() : lastEvaluatedAt
+        );
+        refreshSnapshot();
+        return plan;
+    }
+
     public synchronized SignalDispatchPlanPublication publishPlanToSignal(String operator, Instant effectiveFrom) {
         Map<String, DispatchRouteCandidate> signalRoutes = new HashMap<>();
         for (DispatchRouteCandidate route : routeCatalog.routes()) {
@@ -1960,6 +1997,10 @@ public class DispatchService {
         List<DispatchSnapshot.OperationPlanView> operationPlanViews = operationPlanningService.list(simulationRunId).stream()
             .map(this::operationPlanView)
             .toList();
+        List<DispatchSnapshot.CirculationPlanView> circulationPlanViews =
+            operationPlanningService.circulationPlans(simulationRunId).stream()
+                .map(this::circulationPlanView)
+                .toList();
         return new DispatchSnapshot(
             plan.periodType(),
             plan.planId(),
@@ -1975,6 +2016,7 @@ public class DispatchService {
             routeDecisionViews,
             routeReservationViews,
             operationPlanViews,
+            circulationPlanViews,
             lineRegulationPlanView(latestLineRegulationPlan)
         );
     }
@@ -2035,7 +2077,49 @@ public class DispatchService {
             plan.priority(),
             plan.version(),
             plan.routeCommandId(),
-            plan.rejectReason()
+            plan.rejectReason(),
+            plan.circulationPlanId(),
+            plan.circulationLegId(),
+            plan.cycleIndex(),
+            plan.legIndex()
+        );
+    }
+
+    private DispatchSnapshot.CirculationPlanView circulationPlanView(TrainCirculationPlan plan) {
+        return new DispatchSnapshot.CirculationPlanView(
+            plan.circulationId(),
+            plan.templateId(),
+            plan.trainId(),
+            plan.startTerminalId(),
+            plan.cycleTarget(),
+            plan.cycleCompleted(),
+            plan.currentLegPointer(),
+            plan.status(),
+            plan.headwaySeconds(),
+            plan.plannedStartAt(),
+            plan.legs().stream().map(this::circulationLegView).toList()
+        );
+    }
+
+    private DispatchSnapshot.CirculationLegView circulationLegView(CirculationLeg leg) {
+        return new DispatchSnapshot.CirculationLegView(
+            leg.legId(),
+            leg.routeId(),
+            leg.routeName(),
+            leg.direction(),
+            leg.legType(),
+            leg.fromPointId(),
+            leg.toPointId(),
+            leg.pointIds(),
+            leg.stationIds(),
+            leg.segmentIds(),
+            leg.cycleIndex(),
+            leg.legIndex(),
+            leg.plannedDepartureAt(),
+            leg.status(),
+            leg.operationPlanId(),
+            leg.routeCommandId(),
+            leg.rejectReason()
         );
     }
 

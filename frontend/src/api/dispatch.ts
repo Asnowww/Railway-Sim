@@ -11,6 +11,7 @@ import type {
   OperationRouteTemplate,
   RunPlanResponse,
   SignalDispatchPlanPublication,
+  DispatchCirculationPlan,
   TrainStationEvent
 } from '../types/dispatch'
 
@@ -56,6 +57,13 @@ export const dispatchApi = {
   createOperationPlan: (body: OperationPlanRequest) => postJson<OperationPlanView>('/dispatch/operation-plans', body),
   cancelOperationPlan: (planId: string) =>
     request<OperationPlanView>(`/dispatch/operation-plans/${encodeURIComponent(planId)}/cancel`, { method: 'POST' }),
+  circulationPlans: () => request<DispatchCirculationPlan[]>('/dispatch/circulation-plans'),
+  autoAssignCirculationPlans: (body: { cycleTarget?: number; headwaySeconds?: number; leadSeconds?: number }) =>
+    postJson<DispatchCirculationPlan[]>('/dispatch/circulation-plans/auto', body),
+  cancelCirculationPlan: (circulationId: string) =>
+    request<DispatchCirculationPlan>(`/dispatch/circulation-plans/${encodeURIComponent(circulationId)}/cancel`, {
+      method: 'POST'
+    }),
   publishSignalPlan: (body?: { operator?: string; effectiveFrom?: string }) =>
     postJson<SignalDispatchPlanPublication>('/dispatch/signal-publications', body ?? {}),
   adjustHeadway: (body: {

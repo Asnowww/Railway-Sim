@@ -9,6 +9,8 @@ import com.railwaysim.dispatch.operation.OperationPlan;
 import com.railwaysim.dispatch.operation.OperationPlanRequest;
 import com.railwaysim.dispatch.operation.OperationRouteCandidate;
 import com.railwaysim.dispatch.operation.OperationRouteTemplate;
+import com.railwaysim.dispatch.operation.CirculationPlanRequest;
+import com.railwaysim.dispatch.operation.TrainCirculationPlan;
 import com.railwaysim.dispatch.plan.CurrentRunPlan;
 import com.railwaysim.dispatch.plan.DispatchPlanFile.SegmentEntry;
 import com.railwaysim.dispatch.plan.OperationPlanLoader;
@@ -190,6 +192,23 @@ public class DispatchController {
     @PostMapping("/operation-plans/{planId}/cancel")
     public OperationPlan cancelOperationPlan(@PathVariable String planId) {
         return dispatchService.cancelOperationPlan(planId);
+    }
+
+    @GetMapping("/circulation-plans")
+    public List<TrainCirculationPlan> circulationPlans() {
+        return dispatchService.circulationPlans();
+    }
+
+    @PostMapping("/circulation-plans/auto")
+    public List<TrainCirculationPlan> autoAssignCirculationPlans(
+        @RequestBody(required = false) CirculationPlanRequest request
+    ) {
+        return dispatchService.autoAssignCirculationPlans(request);
+    }
+
+    @PostMapping("/circulation-plans/{circulationId}/cancel")
+    public TrainCirculationPlan cancelCirculationPlan(@PathVariable String circulationId) {
+        return dispatchService.cancelCirculationPlan(circulationId);
     }
 
     @PostMapping("/signal-publications")

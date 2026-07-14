@@ -7,6 +7,7 @@ import StationHeadwayPanel from '../../components/dispatch/StationHeadwayPanel.v
 import RouteClosurePanel from '../../components/dispatch/RouteClosurePanel.vue'
 import type {
   DispatchDisturbance,
+  DispatchCirculationPlan,
   DispatchRouteInfo,
   OperationPlanView,
   OperationRouteTemplate
@@ -162,6 +163,10 @@ const routePlannerLeadSeconds = ref(60)
 const routePlannerHeadwaySeconds = ref(300)
 const routePlannerMessage = ref('')
 const selectedOperationPlanId = ref('')
+const circulationCycleTarget = ref(2)
+const circulationLeadSeconds = ref(30)
+const circulationMessage = ref('')
+const circulationPending = ref(false)
 
 const dispatchLineNodeById = computed(() => new Map(dispatchLineNodes.map((node) => [node.id, node])))
 const dispatchLineNodeByPointId = computed(() => {
@@ -248,6 +253,7 @@ const selectedOperationPlan = computed(() =>
   generatedOperationPlans.value.find((item) => item.planId === selectedOperationPlanId.value) ?? null
 )
 const generatedOperationPlans = computed<OperationPlanView[]>(() => dispatch.value.operationPlans ?? [])
+const circulationPlans = computed(() => dispatch.value.circulationPlans ?? [])
 const routePlannerCandidates = computed(() => {
   return operationRouteTemplates.value
     .flatMap((template) => routeTemplateDirections(template.routeId)
@@ -1083,6 +1089,37 @@ async function createOperationPlan() {
   }
 }
 
+async function autoAssignCirculationPlans() {
+  if (circulationPending.value) return
+  circulationPending.value = true
+  circulationMessage.value = '正在按车辆起点生成车队交路。'
+  try {
+    const plans = await dispatchApi.autoAssignCirculationPlans({
+      cycleTarget: normalizedPlannerSeconds(circulationCycleTarget.value, 1, 20),
+      headwaySeconds: normalizedPlannerSeconds(routePlannerHeadwaySeconds.value, 30, 3600),
+      leadSeconds: normalizedPlannerSeconds(circulationLeadSeconds.value, 0, 3600)
+    })
+    await refreshSimulationSnapshot()
+    circulationMessage.value = plans.length
+      ? `已生成 ${plans.length} 个车队交路，系统将按当前 leg 自动申请既有进路。`
+      : '没有可分配车辆：请确认车辆已由轨道侧创建，并停在郭公庄 S101 或国家图书馆 S113。'
+  } catch (error) {
+    circulationMessage.value = error instanceof Error ? `车队交路生成失败：${error.message}` : '车队交路生成失败'
+  } finally {
+    circulationPending.value = false
+  }
+}
+
+async function cancelCirculationPlan(circulationId: string) {
+  try {
+    const plan = await dispatchApi.cancelCirculationPlan(circulationId)
+    await refreshSimulationSnapshot()
+    circulationMessage.value = `${plan.trainId} 的交路 ${plan.circulationId} 已取消。`
+  } catch (error) {
+    circulationMessage.value = error instanceof Error ? `取消交路失败：${error.message}` : '取消交路失败'
+  }
+}
+
 function selectOperationPlan(planId: string) {
   const plan = generatedOperationPlans.value.find((item) => item.planId === planId)
   if (!plan) return
@@ -1141,6 +1178,38 @@ function operationPlanTitle(plan: OperationPlanView) {
 function operationPlanPathText(plan: OperationPlanView) {
   const via = plan.viaPointIds.length > 0 ? ` / 经由 ${plan.viaPointIds.map(pointLabel).join('、')}` : ''
   return `${pointLabel(plan.originPointId)} -> ${pointLabel(plan.destinationPointId)}${via} / ${formatPlannedTime(plan.plannedDepartureAt)}`
+}
+
+function circulationStatusLabel(statusText: string) {
+  const labels: Record<string, string> = {
+    ASSIGNED: '已分配',
+    IN_SERVICE: '运行中',
+    WAITING_ROUTE: '等进路',
+    BLOCKED: '受阻',
+    RESTING: '休息',
+    CANCELLED: '已取消'
+  }
+  return labels[statusText] ?? statusText
+}
+
+function circulationLegStatusLabel(statusText: string) {
+  const labels: Record<string, string> = {
+    PLANNED: '计划中',
+    ROUTE_REQUESTED: '已申请',
+    ROUTE_ACCEPTED: '已接受',
+    ROUTE_REJECTED: '已拒绝',
+    COMPLETED: '完成',
+    SKIPPED: '跳过'
+  }
+  return labels[statusText] ?? statusText
+}
+
+function currentCirculationLeg(plan: DispatchCirculationPlan) {
+  return plan.legs[plan.currentLegPointer] ?? plan.legs[plan.legs.length - 1] ?? null
+}
+
+function terminalLabel(pointId: string) {
+  return pointId === 'S101' ? '郭公庄' : pointId === 'S113' ? '国家图书馆' : pointLabel(pointId)
 }
 
 function normalizedPlannerSeconds(value: number, minimum: number, maximum: number) {
@@ -1727,10 +1796,82 @@ function formatDelta(current: number | null | undefined, baseline: number | null
       <p class="route-planner-source">
         运营路线只来自信号轨道端既有 route/template；调度端在这里选择模板、绑定列车和发车时间，不新增线路拓扑。
       </p>
+      <section class="route-planner-card circulation-planner-card">
+        <div class="route-planner-heading">
+          <h3>车队交路循环</h3>
+          <span>{{ circulationPlans.length }} 个交路</span>
+        </div>
+        <div class="route-planner-fields circulation-fields">
+          <label>
+            <span>循环次数</span>
+            <input v-model.number="circulationCycleTarget" type="number" min="1" max="20" step="1">
+          </label>
+          <label>
+            <span>发车间隔(s)</span>
+            <input v-model.number="routePlannerHeadwaySeconds" type="number" min="30" max="3600" step="30">
+          </label>
+          <label>
+            <span>首车等待(s)</span>
+            <input v-model.number="circulationLeadSeconds" type="number" min="0" max="3600" step="30">
+          </label>
+          <button type="button" class="demo-button" :disabled="circulationPending" @click="autoAssignCirculationPlans">
+            {{ circulationPending ? '生成中' : '按车辆起点生成交路' }}
+          </button>
+        </div>
+        <p v-if="circulationMessage" class="route-planner-message">{{ circulationMessage }}</p>
+        <div v-if="circulationPlans.length === 0" class="empty">暂无车队交路。车辆停在 S101/S113 后可自动分配循环计划。</div>
+        <div v-else class="circulation-plan-list">
+          <article v-for="plan in circulationPlans" :key="plan.circulationId" :data-status="plan.status">
+            <header>
+              <strong>{{ plan.trainId }} · {{ terminalLabel(plan.startTerminalId) }}</strong>
+              <span :data-status="plan.status">{{ circulationStatusLabel(plan.status) }}</span>
+            </header>
+            <dl>
+              <div>
+                <dt>当前路线</dt>
+                <dd>{{ currentCirculationLeg(plan)?.routeId ?? '-' }}</dd>
+              </div>
+              <div>
+                <dt>圈数</dt>
+                <dd>{{ plan.cycleCompleted }} / {{ plan.cycleTarget }}</dd>
+              </div>
+              <div>
+                <dt>下一发车</dt>
+                <dd>{{ formatPlannedTime(currentCirculationLeg(plan)?.plannedDepartureAt ?? plan.plannedStartAt) }}</dd>
+              </div>
+              <div>
+                <dt>间隔</dt>
+                <dd>{{ plan.headwaySeconds }}s</dd>
+              </div>
+            </dl>
+            <div class="circulation-leg-strip">
+              <span
+                v-for="leg in plan.legs"
+                :key="leg.legId"
+                :data-status="leg.status"
+                :class="{ active: leg.legIndex === plan.currentLegPointer }"
+              >
+                {{ leg.routeId }} · {{ circulationLegStatusLabel(leg.status) }}
+              </span>
+            </div>
+            <p v-if="currentCirculationLeg(plan)?.rejectReason" class="route-planner-message">
+              {{ currentCirculationLeg(plan)?.rejectReason }}
+            </p>
+            <button
+              v-if="!['RESTING', 'CANCELLED'].includes(plan.status)"
+              type="button"
+              class="release-button"
+              @click="cancelCirculationPlan(plan.circulationId)"
+            >
+              取消交路
+            </button>
+          </article>
+        </div>
+      </section>
       <div class="dispatch-line-workspace route-planner-panel" aria-label="既有路线编排">
         <section class="route-planner-card">
           <div class="route-planner-heading">
-            <h3>选择信号路线模板</h3>
+            <h3>单条路线计划</h3>
             <span>{{ routePlannerCandidates.length }} 个模板方向</span>
           </div>
           <label>
@@ -2690,6 +2831,76 @@ button:disabled {
   color: var(--status-info);
   font-size: 13px;
   line-height: 1.5;
+}
+
+.circulation-planner-card {
+  margin-bottom: 12px;
+}
+
+.circulation-fields {
+  grid-template-columns: repeat(3, minmax(120px, 1fr)) auto;
+  align-items: end;
+}
+
+.circulation-plan-list {
+  display: grid;
+  gap: 10px;
+}
+
+.circulation-plan-list article {
+  display: grid;
+  gap: 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-panel);
+  padding: 10px;
+}
+
+.circulation-plan-list article > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.circulation-plan-list dl {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+}
+
+.circulation-plan-list dt,
+.circulation-plan-list dd {
+  margin: 0;
+}
+
+.circulation-plan-list dd {
+  overflow-wrap: anywhere;
+  color: var(--text-primary);
+  font-weight: 800;
+}
+
+.circulation-leg-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.circulation-leg-strip span {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-panel-raised);
+  color: var(--text-secondary);
+  padding: 4px 8px;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.circulation-leg-strip span.active {
+  border-color: var(--accent);
+  background: var(--status-info-bg);
+  color: var(--status-info);
 }
 
 .operation-plan-list {
