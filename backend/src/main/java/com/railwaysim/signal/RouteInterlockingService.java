@@ -380,6 +380,23 @@ public class RouteInterlockingService {
             }
         }
 
+        // 正线多车追踪：被 hold 的列车若已在已建立的MAIN进路上→清除hold
+        for (TrainState train : sorted) {
+            if (!isRouteHoldActive(train.id())) continue;
+            TrackSegmentState trainSeg = trackService.segmentAt(train.positionMeters());
+            if (trainSeg == null) continue;
+            for (RouteState route : routeStates.values()) {
+                if (route.status() == RouteStatus.OCCUPIED
+                    && isMainTypeRoute(route.routeId())
+                    && resolvedSegmentIds(route).contains(trainSeg.id())) {
+                    clearRouteHold(train.id());
+                    log.info("[Interlocking] cleared route hold for train {} on shared MAIN route {}",
+                        train.id(), route.routeId());
+                    break;
+                }
+            }
+        }
+
         for (RouteState route : List.copyOf(routeStates.values())) {
             if (route.status() == RouteStatus.LOCKED && ownerTrainInRoute(trains, route)) {
                 transition(route, RouteStatus.OCCUPIED);

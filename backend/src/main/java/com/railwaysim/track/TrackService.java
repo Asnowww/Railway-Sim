@@ -210,7 +210,9 @@ public class TrackService {
             resolved = candidates.stream()
                 .min(Comparator
                     .comparingInt((TrackSegmentState s) -> prevTrack != null && prevTrack.equals(s.track()) ? 0 : 1)
-                    .thenComparingInt(s -> "main".equals(s.track()) ? 0 : 1)
+                    .thenComparingInt(s -> "main".equals(s.track()) ? 0
+                        : "up".equals(s.track()) ? 1
+                        : "down".equals(s.track()) ? 2 : 3)
                     .thenComparing(TrackSegmentState::id))
                 .orElseGet(this::fallbackSegment);
         }
