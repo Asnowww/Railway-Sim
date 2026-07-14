@@ -401,6 +401,22 @@ public class TrackService {
         return map;
     }
 
+    /** 同轨公里标递增前向邻居（不依赖 from→to 节点方向，上下行通用） */
+    public synchronized Map<String, List<String>> kmForwardMap() {
+        Map<String, List<String>> map = new HashMap<>();
+        for (TrackSegmentState seg : segments) {
+            String segTrack = seg.track() != null ? seg.track() : "main";
+            List<String> next = segments.stream()
+                .filter(o -> !o.id().equals(seg.id()))
+                .filter(o -> Math.abs(o.startMeters() - seg.endMeters()) < 0.1)
+                .filter(o -> segTrack.equals(o.track() != null ? o.track() : "main"))
+                .map(TrackSegmentState::id)
+                .toList();
+            map.put(seg.id(), next);
+        }
+        return map;
+    }
+
     // ==================== 道岔管理 ====================
 
     /**
