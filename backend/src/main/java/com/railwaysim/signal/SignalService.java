@@ -396,6 +396,8 @@ public class SignalService {
     private Set<String> collectReservedAlongActiveTopology(String startSegmentId, double maEndMeters) {
         Set<String> ids = new HashSet<>();
         Map<String, List<String>> forwardMap = trackService.forwardNeighborMap();
+        TrackSegmentState startSeg = findSegment(startSegmentId);
+        String track = startSeg != null ? startSeg.track() : "up";
         String current = startSegmentId;
         int steps = 0;
         while (current != null && steps < MAX_RESERVE_SEGMENTS) {
@@ -404,9 +406,14 @@ public class SignalService {
                 break;
             }
 
-            String next = forward.size() == 1 ? forward.get(0) : chooseActiveForwardNeighbor(current, forward);
+            String next = chooseActiveForwardNeighbor(current, forward, track);
             TrackSegmentState seg = findSegment(next);
             if (seg == null || seg.startMeters() >= maEndMeters) {
+                break;
+            }
+            String nextTrack = seg.track() != null ? seg.track() : "up";
+            // 渡线/异轨不预留——避免预留从 down 溢到 up
+            if (!nextTrack.equals(track) && !"up".equals(nextTrack)) {
                 break;
             }
             if (seg.occupancy() == TrackOccupancy.OCCUPIED || seg.occupancy() == TrackOccupancy.FAULT) {
@@ -421,6 +428,10 @@ public class SignalService {
     }
 
     private String chooseActiveForwardNeighbor(String currentSegmentId, List<String> forward) {
+        return chooseActiveForwardNeighbor(currentSegmentId, forward, null);
+    }
+
+    private String chooseActiveForwardNeighbor(String currentSegmentId, List<String> forward, String preferredTrack) {
         // 1. Prefer the LOCKED switch-activated branch.
         for (SwitchState sw : trackService.switchStates()) {
             if (sw.locked() && forward.contains(sw.activeSegmentId())) {
@@ -428,7 +439,17 @@ public class SignalService {
             }
         }
 
-        // 2. Fallback: pick the forward neighbor with higher speed limit (main track)
+        // 2. Prefer same-track neighbor (avoid skipping to crossover/other direction)
+        if (preferredTrack != null) {
+            for (String fwdId : forward) {
+                TrackSegmentState fwdSeg = findSegment(fwdId);
+                if (fwdSeg != null && preferredTrack.equals(fwdSeg.track())) {
+                    return fwdId;
+                }
+            }
+        }
+
+        // 3. Fallback: pick the forward neighbor with higher speed limit (main track)
         String best = forward.get(0);
         double bestSpeed = -1;
         for (String fwdId : forward) {
