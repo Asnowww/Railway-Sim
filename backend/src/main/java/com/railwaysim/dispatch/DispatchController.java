@@ -269,57 +269,6 @@ public class DispatchController {
         return stationRecordStore.list(dispatchService.simulationRunId());
     }
 
-    /** POST /api/dispatch/command-feedback — 信号/运行控制侧命令反馈（统一反馈接口） */
-    @PostMapping("/command-feedback")
-    public CommandFeedbackResponse submitFeedback(@RequestBody List<CommandFeedbackEntry> entries) {
-        List<DispatchCommandFeedback> feedbacks = new ArrayList<>();
-        Instant now = Instant.now();
-        for (CommandFeedbackEntry entry : entries) {
-            Map<String, Object> details = entry.details() != null
-                ? new HashMap<>(entry.details()) : new HashMap<>();
-            if (entry.requestedSpeedBiasRatio() != null) details.put("requestedSpeedBiasRatio", entry.requestedSpeedBiasRatio());
-            if (entry.effectiveSpeedLimitMps() != null) details.put("effectiveSpeedLimitMps", entry.effectiveSpeedLimitMps());
-            if (entry.baseSpeedLimitMps() != null) details.put("baseSpeedLimitMps", entry.baseSpeedLimitMps());
-            if (entry.dispatchSpeedLimitMps() != null) details.put("dispatchSpeedLimitMps", entry.dispatchSpeedLimitMps());
-            if (entry.signalSpeedLimitMps() != null) details.put("signalSpeedLimitMps", entry.signalSpeedLimitMps());
-            if (entry.finalLimitSource() != null) details.put("finalLimitSource", entry.finalLimitSource());
-            if (entry.constraintMeters() != null) details.put("constraintMeters", entry.constraintMeters());
-            if (entry.currentSegmentId() != null) details.put("currentSegmentId", entry.currentSegmentId());
-            feedbacks.add(new DispatchCommandFeedback(
-                entry.commandId(), entry.trainId(), entry.commandType(),
-                entry.feedbackSource() != null ? entry.feedbackSource() : "SIGNAL_RUNTIME",
-                entry.feedbackStatus(),
-                entry.reason(),
-                entry.observedAt() != null ? entry.observedAt() : now,
-                details
-            ));
-        }
-        dispatchService.acceptFeedback(feedbacks);
-        return new CommandFeedbackResponse(entries.size());
-    }
-
-    public record CommandFeedbackEntry(
-        @NotBlank String commandId,
-        @NotBlank String trainId,
-        String commandType,
-        String feedbackSource,
-        @NotBlank String feedbackStatus,
-        String reason,
-        Instant observedAt,
-        Map<String, Object> details,
-        // 便捷字段：直接填入 details
-        Double requestedSpeedBiasRatio,
-        Double effectiveSpeedLimitMps,
-        Double baseSpeedLimitMps,
-        Double dispatchSpeedLimitMps,
-        Double signalSpeedLimitMps,
-        String finalLimitSource,
-        Double constraintMeters,
-        String currentSegmentId
-    ) {}
-
-    public record CommandFeedbackResponse(int received) {}
-
     public record ManualCommandRequest(
         @NotBlank String trainId,
         @NotBlank String commandType,

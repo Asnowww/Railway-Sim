@@ -461,11 +461,17 @@ public class RouteInterlockingService {
     }
 
     public record RouteDispatchResult(boolean accepted, String rejectReason,
-                                     InterlockingFailureCode failureCode, boolean retryable) {
+                                     InterlockingFailureCode failureCode, boolean retryable,
+                                     String conflictRouteId, List<String> conflictSegmentIds) {
         public RouteDispatchResult(boolean accepted, String rejectReason) {
             this(accepted, rejectReason,
                 InterlockingFailureCode.fromRejectionReason(rejectReason),
-                InterlockingFailureCode.fromRejectionReason(rejectReason).isRetryable());
+                InterlockingFailureCode.fromRejectionReason(rejectReason).isRetryable(),
+                null, List.of());
+        }
+        public RouteDispatchResult(boolean accepted, String rejectReason,
+                                   InterlockingFailureCode failureCode, boolean retryable) {
+            this(accepted, rejectReason, failureCode, retryable, null, List.of());
         }
     }
 
@@ -509,10 +515,30 @@ public class RouteInterlockingService {
                 if (routeId == null) {
                     yield new RouteDispatchResult(false, "No matching route for detail=" + detail);
                 }
+                // 预检冲突来源（用于调度诊断）
+                var rs = this.routeStates.get(routeId);
+                String crid = null;
+                List<String> csegs = List.of();
+                if (rs != null) {
+                    Set<String> segs = resolvedSegmentIds(rs);
+                    for (RouteState ex : routeStates.values()) {
+                        if (!ex.routeId().equals(routeId)
+                            && ex.status().holdsInterlockingResources()
+                            && intersects(segs, resolvedSegmentIds(ex))) {
+                            crid = ex.routeId();
+                            csegs = new ArrayList<>(segs);
+                            csegs.retainAll(resolvedSegmentIds(ex));
+                            break;
+                        }
+                    }
+                }
                 String rejection = establishRoute(routeId, request.trainId());
                 yield rejection == null
                     ? new RouteDispatchResult(true, null)
-                    : new RouteDispatchResult(false, rejection);
+                    : new RouteDispatchResult(false, rejection,
+                        InterlockingFailureCode.fromRejectionReason(rejection),
+                        InterlockingFailureCode.fromRejectionReason(rejection).isRetryable(),
+                        crid, csegs);
             }
             case "CANCEL_ROUTE" -> {
                 String routeId = findBestRoute(detail);

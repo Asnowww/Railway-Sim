@@ -202,14 +202,9 @@ public class SimulationRuntime {
         trackService.updateOccupancy(beforeTrainStates);
         List<TrackConstraint> trackConstraints = trackService.constraintsForTrains(beforeTrainStates);
         long trackConstraintsCompletedAt = System.nanoTime();
-        if (dispatchService.requiresEvaluation(context.simulatedTime())) {
-            // Dispatch consumes current-tick MA only on its configured cadence.
-            // Other ticks retain the prior MA until the final authoritative
-            // signal pass below, avoiding duplicate 1000-train calculation.
-            signalService.calculateAuthorities(beforeTrainStates, trackConstraints, List.of());
-        }
-        dispatchService.evaluate(context, beforeTrainStates, signalService.authorities());
+        signalService.calculateAuthorities(beforeTrainStates, trackConstraints, List.of());
         long preliminarySignalAndDispatchCompletedAt = System.nanoTime();
+        dispatchService.evaluate(context, beforeTrainStates, signalService.authorities());
 
         // 一次性进路指令在约束计算前交给联锁处理。
         List<DispatchCommand> routeCommands = new ArrayList<>(dispatchService.drainCommandsOfType("REROUTE"));
