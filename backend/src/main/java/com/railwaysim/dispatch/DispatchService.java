@@ -592,7 +592,12 @@ public class DispatchService {
             payload.put("circulationId", service.circulationId());
             payload.put("trainNo", service.trainNo());
             payload.put("linkId", service.linkId());
-            payload.put("offsetMeters", service.offsetMeters());
+            // 下行列车从对应站台位置出发：offsetMeters=0在计划中代表"从线路末端出发"
+            double departOffset = service.offsetMeters();
+            if ("DOWN".equalsIgnoreCase(service.direction()) && departOffset <= 0) {
+                departOffset = stationPositionMeters(origin.stationId());
+            }
+            payload.put("offsetMeters", departOffset);
             payload.put("fromStation", origin.stationId());
             payload.put("toStation", terminus == null ? origin.stationId() : terminus.stationId());
             payload.put("direction", service.direction());
@@ -1754,6 +1759,14 @@ public class DispatchService {
             return command.commandType();
         }
         return command.commandType() + ":" + detail;
+    }
+
+    private double stationPositionMeters(String stationId) {
+        return stations().stream()
+            .filter(s -> s.id().equals(stationId))
+            .findFirst()
+            .map(StationInfo::positionMeters)
+            .orElse(0.0);
     }
 
     private double payloadDouble(DispatchCommand command, String key, double fallback) {

@@ -149,10 +149,21 @@ public class TrackService {
         }
 
         // Resolve each train onto one topology path before applying body occupancy.
+        double lineLength = infrastructureCatalog.lineData().lineLengthMeters();
+        List<OperationalLineData.StationDefinition> stationDefs = infrastructureCatalog.lineData().stations();
+        boolean hasStations = stationDefs != null && !stationDefs.isEmpty();
+        double firstStationPos = hasStations
+            ? stationDefs.stream().mapToDouble(s -> s.centerMeters()).min().orElse(0) : 0;
+        double lastStationPos = hasStations
+            ? stationDefs.stream().mapToDouble(s -> s.centerMeters()).max().orElse(lineLength) : lineLength;
         for (TrainState train : trains) {
-            // 终点站已停列车不再标记占用——后车可跟随进站
-            if (train.positionMeters() >= infrastructureCatalog.lineData().lineLengthMeters() - 10
-                && train.zeroSpeed()) {
+            // 终点站已停列车不再标记占用——后车可跟随进站/折返
+            boolean atTerminalStation = hasStations && train.zeroSpeed()
+                && (Math.abs(train.positionMeters() - firstStationPos) <= 120
+                    || Math.abs(train.positionMeters() - lastStationPos) <= 120);
+            boolean atLineEnd = !hasStations && train.zeroSpeed()
+                && train.positionMeters() >= lineLength - 10;
+            if (atTerminalStation || atLineEnd) {
                 continue;
             }
             double tail = train.positionMeters() - train.lengthMeters();
@@ -195,6 +206,16 @@ public class TrackService {
         }
         trainSegmentIds.put(trainId, segmentId);
         previousTrainSegmentIds.remove(trainId);
+    }
+
+    /** 根据位置和股道(up/down)显式绑定列车，避免并行股道里程重叠时 segmentAt 选错 */
+    public synchronized void assignTrainToTrack(String trainId, double positionMeters, String track) {
+        if (trainId == null || track == null) return;
+        segments.stream()
+            .filter(s -> positionMeters >= s.startMeters() && positionMeters < s.endMeters())
+            .filter(s -> track.equals(s.track()))
+            .findFirst()
+            .ifPresent(s -> assignTrainToSegment(trainId, s.id()));
     }
 
     public synchronized TrackSegmentState segmentForTrain(TrainState train) {
