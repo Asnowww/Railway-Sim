@@ -184,6 +184,11 @@ public class TrackService {
         return trainIds == null ? Set.of() : Set.copyOf(trainIds);
     }
 
+    /** 列车当前绑定的区段 ID（无绑定时返回 null）。 */
+    public synchronized String assignedSegmentId(String trainId) {
+        return trainSegmentIds.get(trainId);
+    }
+
     public synchronized void assignTrainToSegment(String trainId, String segmentId) {
         if (trainId == null || trainId.isBlank() || !segmentExists(segmentId)) {
             throw new IllegalArgumentException("trainId and an existing segmentId are required");

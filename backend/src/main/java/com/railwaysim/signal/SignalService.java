@@ -228,7 +228,8 @@ public class SignalService {
             );
             authorityEnd = Math.max(trainHead, Math.min(authorityEnd, lineLengthMeters));
 
-            TrackSegmentState currentSeg = trackService.segmentAt(trainHead);
+            // 与占用染色同源：前端车辆车道、进路匹配、预留起点全部跟随列车绑定的区段
+            TrackSegmentState currentSeg = trackService.segmentForTrain(train);
             allReserved.addAll(collectTopologyReserved(train.id(), currentSeg.id(), authorityEnd));
 
             TrackConstraint track = trackByTrain.get(train.id());
@@ -410,9 +411,9 @@ public class SignalService {
             if (seg == null || seg.startMeters() >= maEndMeters) {
                 break;
             }
-            String nextTrack = seg.track() != null ? seg.track() : "main";
-            // 渡线(crossover)/异轨(up↔down)不预留——避免预留溢到对向轨道
-            if (!nextTrack.equals(track) && !"main".equals(nextTrack) && !"main".equals(track)) {
+            String nextTrack = seg.track() != null ? seg.track() : "up";
+            // 渡线/异轨不预留——预留严格限制在本车股道内，任何跨轨即停
+            if (!nextTrack.equals(track)) {
                 break;
             }
             if (seg.occupancy() == TrackOccupancy.OCCUPIED || seg.occupancy() == TrackOccupancy.FAULT) {
@@ -466,7 +467,7 @@ public class SignalService {
      * 在分叉场景下沿当前激活的道岔方向搜索，不会跨越到平行支路。
      */
     private double resolveTopologyObstacle(TrainState self, double safetyGap) {
-        TrackSegmentState seg = trackService.segmentAt(self.positionMeters());
+        TrackSegmentState seg = trackService.segmentForTrain(self);
         if (seg == null) return Double.POSITIVE_INFINITY;
         Map<String, List<String>> forwardMap = trackService.forwardNeighborMap();
         String selfTrack = seg.track() != null ? seg.track() : "main";
