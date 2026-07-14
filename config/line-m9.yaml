@@ -251,6 +251,50 @@ nodes:
     name: 下行节点11
   - id: ND12
     name: 下行节点12
+  - id: ND06s2
+    name: ND06s2（站间划分点）
+  - id: ND06s3
+    name: ND06s3（站间划分点）
+  - id: ND06s4
+    name: ND06s4（站间划分点）
+  - id: ND07s6
+    name: ND07s6（站间划分点）
+  - id: ND07s7
+    name: ND07s7（站间划分点）
+  - id: ND09s10
+    name: ND09s10（站间划分点）
+  - id: ND09s11
+    name: ND09s11（站间划分点）
+  - id: ND09s8
+    name: ND09s8（站间划分点）
+  - id: ND09s9
+    name: ND09s9（站间划分点）
+  - id: ND10s12
+    name: ND10s12（站间划分点）
+  - id: ND10s13
+    name: ND10s13（站间划分点）
+  - id: NU05s2
+    name: NU05s2（站间划分点）
+  - id: NU05s3
+    name: NU05s3（站间划分点）
+  - id: NU05s4
+    name: NU05s4（站间划分点）
+  - id: NU06s6
+    name: NU06s6（站间划分点）
+  - id: NU06s7
+    name: NU06s7（站间划分点）
+  - id: NU08s10
+    name: NU08s10（站间划分点）
+  - id: NU08s11
+    name: NU08s11（站间划分点）
+  - id: NU08s8
+    name: NU08s8（站间划分点）
+  - id: NU08s9
+    name: NU08s9（站间划分点）
+  - id: NU10s12
+    name: NU10s12（站间划分点）
+  - id: NU10s13
+    name: NU10s13（站间划分点）
 
 segments:
   # ===== 上行（郭公庄→国家图书馆，里程递增） =====
@@ -294,22 +338,69 @@ segments:
     raw_segment_id: 19
     speed_limit_meters_per_second: 22.2
     track: up
-  - id: U20
+  - id: U20a
     from: NU05
-    to: NU06
+    to: NU05s2
     start_meters: 511.19
+    end_meters: 1724.14
+    raw_segment_id: 0
+    speed_limit_meters_per_second: 22.2
+    track: up
+
+  - id: U20b
+    from: NU05s2
+    to: NU05s3
+    start_meters: 1724.14
+    end_meters: 2512.677
+    raw_segment_id: 0
+    speed_limit_meters_per_second: 22.2
+    track: up
+
+  - id: U20c
+    from: NU05s3
+    to: NU05s4
+    start_meters: 2512.677
+    end_meters: 3491.832
+    raw_segment_id: 0
+    speed_limit_meters_per_second: 22.2
+    track: up
+
+  - id: U20d
+    from: NU05s4
+    to: NU06
+    start_meters: 3491.832
     end_meters: 5146.644
-    raw_segment_id: 20
+    raw_segment_id: 0
     speed_limit_meters_per_second: 22.2
     track: up
-  - id: U23
+
+  - id: U23a
     from: NU06
-    to: NU07
+    to: NU06s6
     start_meters: 5146.644
-    end_meters: 8352.184
-    raw_segment_id: 23
+    end_meters: 6405.27
+    raw_segment_id: 0
     speed_limit_meters_per_second: 22.2
     track: up
+
+  - id: U23b
+    from: NU06s6
+    to: NU06s7
+    start_meters: 6405.27
+    end_meters: 8199.103
+    raw_segment_id: 0
+    speed_limit_meters_per_second: 22.2
+    track: up
+
+  - id: U23c
+    from: NU06s7
+    to: NU07
+    start_meters: 8199.103
+    end_meters: 8352.184
+    raw_segment_id: 0
+    speed_limit_meters_per_second: 22.2
+    track: up
+
   - id: U27
     from: NU07
     to: NU08
@@ -318,14 +409,51 @@ segments:
     raw_segment_id: 27
     speed_limit_meters_per_second: 22.2
     track: up
-  - id: U34
+  - id: U34a
     from: NU08
-    to: NU09
+    to: NU08s8
     start_meters: 8632.564
-    end_meters: 14119.63
-    raw_segment_id: 34
+    end_meters: 9508.30248
+    raw_segment_id: 0
     speed_limit_meters_per_second: 22.2
     track: up
+
+  - id: U34b
+    from: NU08s8
+    to: NU08s9
+    start_meters: 9508.30248
+    end_meters: 10656.17848
+    raw_segment_id: 0
+    speed_limit_meters_per_second: 22.2
+    track: up
+
+  - id: U34c
+    from: NU08s9
+    to: NU08s10
+    start_meters: 10656.17848
+    end_meters: 12057.87933
+    raw_segment_id: 0
+    speed_limit_meters_per_second: 22.2
+    track: up
+
+  - id: U34d
+    from: NU08s10
+    to: NU08s11
+    start_meters: 12057.87933
+    end_meters: 13967.68649
+    raw_segment_id: 0
+    speed_limit_meters_per_second: 22.2
+    track: up
+
+  - id: U34e
+    from: NU08s11
+    to: NU09
+    start_meters: 13967.68649
+    end_meters: 14119.63
+    raw_segment_id: 0
+    speed_limit_meters_per_second: 22.2
+    track: up
+
   - id: U38
     from: NU09
     to: NU10
@@ -334,14 +462,33 @@ segments:
     raw_segment_id: 38
     speed_limit_meters_per_second: 22.2
     track: up
-  - id: U42
+  - id: U42a
     from: NU10
-    to: NU11
+    to: NU10s12
     start_meters: 14400.14
-    end_meters: 16207.82966
-    raw_segment_id: 42
+    end_meters: 15012.51349
+    raw_segment_id: 0
     speed_limit_meters_per_second: 22.2
     track: up
+
+  - id: U42b
+    from: NU10s12
+    to: NU10s13
+    start_meters: 15012.51349
+    end_meters: 16105.57149
+    raw_segment_id: 0
+    speed_limit_meters_per_second: 22.2
+    track: up
+
+  - id: U42c
+    from: NU10s13
+    to: NU11
+    start_meters: 16105.57149
+    end_meters: 16207.82966
+    raw_segment_id: 0
+    speed_limit_meters_per_second: 22.2
+    track: up
+
   - id: U46
     from: NU11
     to: NU12
@@ -401,22 +548,69 @@ segments:
     raw_segment_id: 14
     speed_limit_meters_per_second: 22.2
     track: down
-  - id: D17
+  - id: D17a
     from: ND06
-    to: ND05
+    to: ND06s2
     start_meters: 511.19
+    end_meters: 1719.52
+    raw_segment_id: 0
+    speed_limit_meters_per_second: 22.2
+    track: down
+
+  - id: D17b
+    from: ND06s2
+    to: ND06s3
+    start_meters: 1719.52
+    end_meters: 2507.61
+    raw_segment_id: 0
+    speed_limit_meters_per_second: 22.2
+    track: down
+
+  - id: D17c
+    from: ND06s3
+    to: ND06s4
+    start_meters: 2507.61
+    end_meters: 3488.32
+    raw_segment_id: 0
+    speed_limit_meters_per_second: 22.2
+    track: down
+
+  - id: D17d
+    from: ND06s4
+    to: ND05
+    start_meters: 3488.32
     end_meters: 5274.8396
-    raw_segment_id: 17
+    raw_segment_id: 0
     speed_limit_meters_per_second: 22.2
     track: down
-  - id: D21
+
+  - id: D21a
     from: ND07
-    to: ND06
+    to: ND07s6
     start_meters: 5274.8396
-    end_meters: 8346.083
-    raw_segment_id: 21
+    end_meters: 6400.274
+    raw_segment_id: 0
     speed_limit_meters_per_second: 22.2
     track: down
+
+  - id: D21b
+    from: ND07s6
+    to: ND07s7
+    start_meters: 6400.274
+    end_meters: 8179.204
+    raw_segment_id: 0
+    speed_limit_meters_per_second: 22.2
+    track: down
+
+  - id: D21c
+    from: ND07s7
+    to: ND06
+    start_meters: 8179.204
+    end_meters: 8346.083
+    raw_segment_id: 0
+    speed_limit_meters_per_second: 22.2
+    track: down
+
   - id: D24
     from: ND08
     to: ND07
@@ -425,22 +619,78 @@ segments:
     raw_segment_id: 24
     speed_limit_meters_per_second: 22.2
     track: down
-  - id: D28
+  - id: D28a
     from: ND09
-    to: ND08
+    to: ND09s8
     start_meters: 8687.02908
+    end_meters: 9488.344
+    raw_segment_id: 0
+    speed_limit_meters_per_second: 22.2
+    track: down
+
+  - id: D28b
+    from: ND09s8
+    to: ND09s9
+    start_meters: 9488.344
+    end_meters: 10659.11378
+    raw_segment_id: 0
+    speed_limit_meters_per_second: 22.2
+    track: down
+
+  - id: D28c
+    from: ND09s9
+    to: ND09s10
+    start_meters: 10659.11378
+    end_meters: 12058.07
+    raw_segment_id: 0
+    speed_limit_meters_per_second: 22.2
+    track: down
+
+  - id: D28d
+    from: ND09s10
+    to: ND09s11
+    start_meters: 12058.07
+    end_meters: 13970.28014
+    raw_segment_id: 0
+    speed_limit_meters_per_second: 22.2
+    track: down
+
+  - id: D28e
+    from: ND09s11
+    to: ND08
+    start_meters: 13970.28014
     end_meters: 14039.49649
-    raw_segment_id: 28
+    raw_segment_id: 0
     speed_limit_meters_per_second: 22.2
     track: down
-  - id: D36
+
+  - id: D36a
     from: ND10
-    to: ND09
+    to: ND10s12
     start_meters: 14039.49649
-    end_meters: 16203.38149
-    raw_segment_id: 36
+    end_meters: 15013.91
+    raw_segment_id: 0
     speed_limit_meters_per_second: 22.2
     track: down
+
+  - id: D36b
+    from: ND10s12
+    to: ND10s13
+    start_meters: 15013.91
+    end_meters: 16110.01966
+    raw_segment_id: 0
+    speed_limit_meters_per_second: 22.2
+    track: down
+
+  - id: D36c
+    from: ND10s13
+    to: ND09
+    start_meters: 16110.01966
+    end_meters: 16203.38149
+    raw_segment_id: 0
+    speed_limit_meters_per_second: 22.2
+    track: down
+
   - id: D43
     from: ND11
     to: ND10
@@ -516,12 +766,12 @@ signals:
     name: U20入口
     position_meters: 516.19
     direction: FORWARD
-    segment_id: U20
+    segment_id: U20a
   - id: SIG-U23
     name: U23入口
     position_meters: 5151.64
     direction: FORWARD
-    segment_id: U23
+    segment_id: U23a
   - id: SIG-U27
     name: U27入口
     position_meters: 8357.18
@@ -531,7 +781,7 @@ signals:
     name: U34入口
     position_meters: 8637.56
     direction: FORWARD
-    segment_id: U34
+    segment_id: U34a
   - id: SIG-U38
     name: U38入口
     position_meters: 14124.63
@@ -541,7 +791,7 @@ signals:
     name: U42入口
     position_meters: 14405.14
     direction: FORWARD
-    segment_id: U42
+    segment_id: U42a
   - id: SIG-U46
     name: U46入口
     position_meters: 16212.83
@@ -581,12 +831,12 @@ signals:
     name: D17入口
     position_meters: 516.19
     direction: FORWARD
-    segment_id: D17
+    segment_id: D17a
   - id: SIG-D21
     name: D21入口
     position_meters: 5279.84
     direction: FORWARD
-    segment_id: D21
+    segment_id: D21a
   - id: SIG-D24
     name: D24入口
     position_meters: 8351.08
@@ -596,12 +846,12 @@ signals:
     name: D28入口
     position_meters: 8692.03
     direction: FORWARD
-    segment_id: D28
+    segment_id: D28a
   - id: SIG-D36
     name: D36入口
     position_meters: 14044.50
     direction: FORWARD
-    segment_id: D36
+    segment_id: D36a
   - id: SIG-D43
     name: D43入口
     position_meters: 16208.38
@@ -629,13 +879,13 @@ routes:
     type: MAIN
     start_signal: SIG-U02
     end_signal: SIG-U48
-    axle_section_ids: [U02, U10, U13, U16, U19, U20, U23, U27, U34, U38, U42, U46, U48]
+    axle_section_ids: [U02, U10, U13, U16, U19, U20a, U20b, U20c, U20d, U23a, U23b, U23c, U27, U34a, U34b, U34c, U34d, U34e, U38, U42a, U42b, U42c, U46, U48]
   - id: R_DOWN
     name: 下行正线（国家图书馆→郭公庄）
     type: MAIN
     start_signal: SIG-D47
     end_signal: SIG-D03
-    axle_section_ids: [D47, D43, D36, D28, D24, D21, D17, D14, D11, D07, D04, D03]
+    axle_section_ids: [D47, D43, D36a, D36b, D36c, D28a, D28b, D28c, D28d, D28e, D24, D21a, D21b, D21c, D17a, D17b, D17c, D17d, D14, D11, D07, D04, D03]
   - id: R_TB_LIB
     name: 国家图书馆折返（上行→下行）
     type: BRANCH
