@@ -45,7 +45,8 @@ class SimulationRuntimeTests {
             new SimulationProperties(), mock(SimpleEventBus.class), mock(RealtimeStateCache.class),
             mock(SimulationPersistenceService.class), mock(RouteInterlockingService.class),
             mock(VehicleRuntimeIntegrationService.class), runService, runContext,
-            mock(TrainStopEvaluationService.class), mock(FinalControlDecisionPersistenceService.class)
+            mock(TrainStopEvaluationService.class), mock(FinalControlDecisionPersistenceService.class),
+            mock(com.railwaysim.infrastructure.StaticInfrastructureCatalog.class)
         );
         Field status = SimulationRuntime.class.getDeclaredField("status");
         status.setAccessible(true);

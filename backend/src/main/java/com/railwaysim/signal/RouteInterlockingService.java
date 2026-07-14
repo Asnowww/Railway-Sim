@@ -79,6 +79,15 @@ public class RouteInterlockingService {
     }
 
     public synchronized String establishRoute(String routeId, String trainId) {
+        return establishRoute(routeId, trainId, null);
+    }
+
+    /**
+     * 建立进路。{@code trainPositionMeters} 为列车当前公里标提示（可空）：
+     * 用于把列车绑定到进路中实际所在的区段，而不是笼统取里程最小段——
+     * M9 上下行里程重叠时错绑会把占用染色带到对向股道。
+     */
+    public synchronized String establishRoute(String routeId, String trainId, Double trainPositionMeters) {
         RouteState route = routeStates.get(routeId);
         if (route == null) {
             return "Route " + routeId + " does not exist";
@@ -209,18 +218,54 @@ public class RouteInterlockingService {
         }
 
         routeStates.put(routeId, route.withLocked(lockedIds, trainId));
-        routeSegments.stream()
-            .map(segmentId -> trackService.states().stream()
-                .filter(segment -> segment.id().equals(segmentId))
-                .findFirst()
-                .orElse(null))
-            .filter(java.util.Objects::nonNull)
-            .min(java.util.Comparator.comparingDouble(TrackSegmentState::startMeters)
-                .thenComparing(TrackSegmentState::id))
-            .ifPresent(segment -> trackService.assignTrainToSegment(trainId, segment.id()));
+        bindTrainToRouteSegment(trainId, routeSegments, trainPositionMeters);
         routeHoldsByTrain.remove(trainId);
         log.info("[Interlocking] route {} established by train {}; locked switches={}", routeId, trainId, lockedIds);
         return null;
+    }
+
+    /**
+     * 进路建立后的列车-区段绑定：
+     * ① 列车已绑定的区段属于本进路 → 保持不动；
+     * ② 有位置提示 → 选包含该公里标的进路区段（无包含则选里程最近的）；
+     * ③ 无提示（如发车前预建路）→ 回退进路里程最小段。
+     */
+    private void bindTrainToRouteSegment(String trainId, Set<String> routeSegments, Double trainPositionMeters) {
+        String currentAssigned = trackService.assignedSegmentId(trainId);
+        if (currentAssigned != null && routeSegments.contains(currentAssigned)) {
+            return;
+        }
+        List<TrackSegmentState> segments = routeSegments.stream()
+            .map(this::findSegmentById)
+            .flatMap(Optional::stream)
+            .toList();
+        if (segments.isEmpty()) {
+            return;
+        }
+        TrackSegmentState chosen = null;
+        if (trainPositionMeters != null) {
+            double position = trainPositionMeters;
+            chosen = segments.stream()
+                .filter(seg -> position >= seg.startMeters() && position < seg.endMeters())
+                .min(Comparator.comparingDouble(TrackSegmentState::startMeters)
+                    .thenComparing(TrackSegmentState::id))
+                .orElseGet(() -> segments.stream()
+                    .min(Comparator.comparingDouble((TrackSegmentState seg) ->
+                            position < seg.startMeters()
+                                ? seg.startMeters() - position
+                                : position - seg.endMeters())
+                        .thenComparing(TrackSegmentState::id))
+                    .orElse(null));
+        }
+        if (chosen == null) {
+            chosen = segments.stream()
+                .min(Comparator.comparingDouble(TrackSegmentState::startMeters)
+                    .thenComparing(TrackSegmentState::id))
+                .orElse(null);
+        }
+        if (chosen != null) {
+            trackService.assignTrainToSegment(trainId, chosen.id());
+        }
     }
 
     public synchronized void holdTrainUntilRouteEstablished(String trainId, String reason) {
@@ -371,7 +416,7 @@ public class RouteInterlockingService {
                     continue;
                 }
                 if (headInRoute(train, route)) {
-                    String rejection = establishRoute(route.routeId(), train.id());
+                    String rejection = establishRoute(route.routeId(), train.id(), train.positionMeters());
                     if (rejection == null) {
                         log.info("[Interlocking] auto-established route {} for train {}", route.routeId(), train.id());
                         break; // one route per train per tick
@@ -383,7 +428,7 @@ public class RouteInterlockingService {
         // 正线多车追踪：被 hold 的列车若已在已建立的MAIN进路上→清除hold
         for (TrainState train : sorted) {
             if (!isRouteHoldActive(train.id())) continue;
-            TrackSegmentState trainSeg = trackService.segmentAt(train.positionMeters());
+            TrackSegmentState trainSeg = trackService.segmentForTrain(train);
             if (trainSeg == null) continue;
             for (RouteState route : routeStates.values()) {
                 if (route.status() == RouteStatus.OCCUPIED
@@ -537,8 +582,9 @@ public class RouteInterlockingService {
     }
 
     private boolean headInRoute(TrainState train, RouteState route) {
-        // 用 segmentAt 确定列车实际在哪个段(主线优先),避免并行支线里程重叠误判
-        TrackSegmentState actualSeg = trackService.segmentAt(train.positionMeters());
+        // 用 segmentForTrain 确定列车实际绑定的段——与占用染色同源，
+        // 避免并行股道里程重叠时进路匹配与轨道染色分裂到两条股道
+        TrackSegmentState actualSeg = trackService.segmentForTrain(train);
         if (actualSeg == null) return false;
         Set<String> routeSegIds = resolvedSegmentIds(route);
         return routeSegIds.contains(actualSeg.id());
