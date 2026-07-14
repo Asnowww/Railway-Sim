@@ -77,6 +77,8 @@ python3 scripts/test-vehicle-runtime-performance.py \
   --power "${POWER_URL}" \
   --samples "${BENCHMARK_SAMPLES:-100}" \
   --warmup "${BENCHMARK_WARMUP:-10}" \
+  --train-counts "${BENCHMARK_TRAIN_COUNTS:-1,2,10,20}" \
+  --endurance-train-count "${ENDURANCE_TRAIN_COUNT:-20}" \
   --endurance-ticks "${ENDURANCE_TICKS:-6000}" \
   --output "${REPORT_DIR}/wp8-performance.json"
 

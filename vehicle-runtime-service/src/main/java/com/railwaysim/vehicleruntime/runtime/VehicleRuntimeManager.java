@@ -188,7 +188,7 @@ public class VehicleRuntimeManager {
         return health();
     }
 
-    public VehicleRuntimeInstanceState register(TrainStateSnapshot train) {
+    public synchronized VehicleRuntimeInstanceState register(TrainStateSnapshot train) {
         String trainId = train == null ? null : train.id();
         if (trainId == null || trainId.isBlank()) {
             throw new IllegalArgumentException("trainId is required");
@@ -241,7 +241,7 @@ public class VehicleRuntimeManager {
         return new VehicleRuntimeLaunchResponse(trainId, instance.state(), registrationStatus, reason);
     }
 
-    public void remove(String trainId) {
+    public synchronized void remove(String trainId) {
         if (trainId != null && instances.remove(trainId) != null) {
             telemetryCoordinator.remove(trainId);
             fmuSessions.remove(trainId);
@@ -257,7 +257,7 @@ public class VehicleRuntimeManager {
         }
     }
 
-    public void clear() {
+    public synchronized void clear() {
         instances.clear();
         telemetryCoordinator.clear();
         fmuSessions.clear();
@@ -274,21 +274,21 @@ public class VehicleRuntimeManager {
         recordEvent("runtime", "CLEAR", "all vehicle runtime instances cleared");
     }
 
-    public void resetPhysics(String trainId) {
+    public synchronized void resetPhysics(String trainId) {
         requireInstance(trainId);
         fmuSessions.put(trainId, FmuInstanceSessionState.RESET_PENDING);
         javaFallbackExecutor.deleteInstance(trainId);
         recordEvent(trainId, "FMU_RESET_PENDING", "FMU reset will use the next authoritative vehicle state");
     }
 
-    public void resyncPhysics(String trainId) {
+    public synchronized void resyncPhysics(String trainId) {
         requireInstance(trainId);
         fmuSessions.put(trainId, FmuInstanceSessionState.RESYNC_PENDING);
         javaFallbackExecutor.deleteInstance(trainId);
         recordEvent(trainId, "FMU_RESYNC_PENDING", "FMU resync will use the next authoritative vehicle state");
     }
 
-    public void resyncAllPhysics() {
+    public synchronized void resyncAllPhysics() {
         instances.keySet().forEach(trainId -> fmuSessions.put(trainId, FmuInstanceSessionState.RESYNC_PENDING));
         javaFallbackExecutor.resetAll();
         recordEvent("runtime", "FMU_RESYNC_ALL_PENDING", "all FMU instances will resync on the next tick");

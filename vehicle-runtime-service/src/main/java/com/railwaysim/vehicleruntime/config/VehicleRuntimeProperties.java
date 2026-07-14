@@ -16,8 +16,10 @@ public class VehicleRuntimeProperties {
     private long instanceLeaseMillis = 1000;
     private VehiclePhysicsMode physicsMode = VehiclePhysicsMode.JAVA_FALLBACK;
     private String fmuBaseUrl = "http://localhost:9000";
+    private String fmuBaseUrls = "";
     private long fmuTimeoutMillis = 80;
     private long fmuSubstepMillis = 20;
+    private boolean fmuBinaryProtocolEnabled;
     private String fmuModelVersion = "TrainTractionBrake/2.0.0";
     private boolean forwardPowerLoads;
     private String powerNetworkBaseUrl = "http://localhost:9200";
@@ -99,6 +101,26 @@ public class VehicleRuntimeProperties {
             : fmuBaseUrl;
     }
 
+    public java.util.List<String> getEffectiveFmuBaseUrls() {
+        if (fmuBaseUrls == null || fmuBaseUrls.isBlank()) {
+            return java.util.List.of(fmuBaseUrl);
+        }
+        java.util.List<String> values = java.util.Arrays.stream(fmuBaseUrls.split(","))
+            .map(String::trim)
+            .filter(value -> !value.isBlank())
+            .distinct()
+            .toList();
+        return values.isEmpty() ? java.util.List.of(fmuBaseUrl) : values;
+    }
+
+    public String getFmuBaseUrls() {
+        return fmuBaseUrls;
+    }
+
+    public void setFmuBaseUrls(String fmuBaseUrls) {
+        this.fmuBaseUrls = fmuBaseUrls == null ? "" : fmuBaseUrls.trim();
+    }
+
     public long getFmuTimeoutMillis() {
         return fmuTimeoutMillis;
     }
@@ -113,6 +135,14 @@ public class VehicleRuntimeProperties {
 
     public void setFmuSubstepMillis(long fmuSubstepMillis) {
         this.fmuSubstepMillis = Math.max(1, fmuSubstepMillis);
+    }
+
+    public boolean isFmuBinaryProtocolEnabled() {
+        return fmuBinaryProtocolEnabled;
+    }
+
+    public void setFmuBinaryProtocolEnabled(boolean fmuBinaryProtocolEnabled) {
+        this.fmuBinaryProtocolEnabled = fmuBinaryProtocolEnabled;
     }
 
     public String getFmuModelVersion() {

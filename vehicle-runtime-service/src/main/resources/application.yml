@@ -24,8 +24,10 @@ vehicle-runtime:
   instance-lease-millis: 1000
   physics-mode: JAVA_FALLBACK
   fmu-base-url: http://localhost:9000
+  fmu-base-urls: ${FMU_BASE_URLS:}
   fmu-timeout-millis: 80
   fmu-substep-millis: 20
+  fmu-binary-protocol-enabled: true
   fmu-model-version: TrainTractionBrake/2.0.0
   forward-power-loads: false
   power-network-base-url: http://localhost:9200

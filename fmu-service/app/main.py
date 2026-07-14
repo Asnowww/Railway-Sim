@@ -2,15 +2,16 @@ from __future__ import annotations
 
 from contextlib import asynccontextmanager
 import json
+import msgpack
 from typing import Any
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 
 from .api_models import StepFleetRequestPayload
 from .fmu_manager import FmuManager, FmuProtocolError
-from .schemas import step_fleet_response_to_dict
+from .schemas import step_fleet_request_from_dict, step_fleet_response_to_dict
 
 
 @asynccontextmanager
@@ -153,6 +154,88 @@ def step_fleet(
         exc.trace_id = payload.trace_id
         raise
     return step_fleet_response_to_dict(response)
+
+
+@app.post("/step-fleet-msgpack")
+async def step_fleet_msgpack(request: Request) -> Response:
+    trace_id = request.headers.get("X-Trace-Id", "")
+    try:
+        payload = msgpack.unpackb(await request.body(), raw=False, strict_map_key=True)
+        if not isinstance(payload, dict):
+            raise ValueError("MessagePack fleet payload must be a map")
+        trace_id = str(payload.get("traceId", trace_id))
+        domain_request = step_fleet_request_from_dict(payload)
+        response = _manager(request).step_fleet(domain_request)
+        body = msgpack.packb(step_fleet_response_to_dict(response), use_bin_type=True)
+        return Response(content=body, media_type="application/msgpack")
+    except FmuProtocolError as exc:
+        exc.trace_id = trace_id
+        raise
+    except (KeyError, TypeError, ValueError, msgpack.ExtraData, msgpack.FormatError) as exc:
+        error = FmuProtocolError(400, "INVALID_REQUEST", f"invalid MessagePack payload: {exc}")
+        error.trace_id = trace_id
+        raise error from exc
+
+
+@app.post("/step-fleet-compact")
+async def step_fleet_compact(request: Request) -> Response:
+    trace_id = request.headers.get("X-Trace-Id", "")
+    try:
+        payload = msgpack.unpackb(await request.body(), raw=False, strict_map_key=True)
+        if not isinstance(payload, dict):
+            raise ValueError("compact fleet payload must be a map")
+        trace_id = str(payload["r"])
+        response = _manager(request).step_fleet_compact(
+            tick=int(payload["t"]),
+            simulation_time_seconds=float(payload["s"]),
+            step_size_seconds=float(payload["d"]),
+            model_version=str(payload["m"]),
+            parameter_set_id=str(payload["p"]),
+            trace_id=trace_id,
+            updates=payload["u"],
+        )
+        full_response = bool(payload.get("f", False))
+        if full_response:
+            body_value: Any = step_fleet_response_to_dict(response)
+        else:
+            body_value = [
+                response.tick,
+                response.model_version,
+                response.parameter_set_id,
+                response.trace_id,
+                [
+                    [
+                        output.train_id,
+                        output.new_position_meters,
+                        output.new_speed_meters_per_second,
+                        output.energy_consumed_kwh,
+                        output.energy_regenerated_kwh,
+                    ]
+                    for output in response.train_outputs
+                ],
+                [
+                    [
+                        error.train_id,
+                        error.fault_code,
+                        error.message,
+                        error.instance_state,
+                        error.data_quality,
+                        error.fmi_status,
+                    ]
+                    for error in response.train_errors
+                ],
+            ]
+        return Response(
+            content=msgpack.packb(body_value, use_bin_type=True),
+            media_type="application/msgpack",
+        )
+    except FmuProtocolError as exc:
+        exc.trace_id = trace_id
+        raise
+    except (KeyError, TypeError, ValueError, msgpack.ExtraData, msgpack.FormatError) as exc:
+        error = FmuProtocolError(400, "INVALID_REQUEST", f"invalid compact payload: {exc}")
+        error.trace_id = trace_id
+        raise error from exc
 
 
 @app.delete("/instances/{trainId}")

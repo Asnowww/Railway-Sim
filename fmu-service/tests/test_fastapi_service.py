@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 import json
+import msgpack
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -59,6 +60,89 @@ def test_fastapi_health_metadata_validation_and_step_contract() -> None:
         Draft202012Validator(response_schema).validate(response.json())
         assert response.json()["trainOutputs"][0]["instanceState"] == "ACTIVE"
         assert response.json()["trainErrors"] == []
+
+
+def test_messagepack_step_contract_matches_json_contract() -> None:
+    payload = init_payload("MSGPACK-TRAIN")
+    with TestClient(app) as client:
+        response = client.post(
+            "/step-fleet-msgpack",
+            content=msgpack.packb(payload, use_bin_type=True),
+            headers={"Content-Type": "application/msgpack", "Accept": "application/msgpack"},
+        )
+
+        assert response.status_code == 200
+        assert response.headers["content-type"].startswith("application/msgpack")
+        decoded = msgpack.unpackb(response.content, raw=False)
+        assert decoded["tick"] == payload["tick"]
+        assert decoded["traceId"] == payload["traceId"]
+        assert decoded["trainOutputs"][0]["trainId"] == "MSGPACK-TRAIN"
+        assert decoded["trainErrors"] == []
+
+
+def test_compact_messagepack_substeps_reuse_static_input_and_return_full_final_output() -> None:
+    payload = init_payload("COMPACT-TRAIN")
+    with TestClient(app) as client:
+        initial = client.post(
+            "/step-fleet-msgpack",
+            content=msgpack.packb(payload, use_bin_type=True),
+            headers={"Content-Type": "application/msgpack", "Accept": "application/msgpack"},
+        )
+        assert initial.status_code == 200
+        initial_output = msgpack.unpackb(initial.content, raw=False)["trainOutputs"][0]
+
+        compact_payload = {
+            "t": 2,
+            "s": 0.02,
+            "d": 0.02,
+            "m": payload["modelVersion"],
+            "p": payload["parameterSetId"],
+            "r": "compact-step-2",
+            "f": False,
+            "u": [[
+                "COMPACT-TRAIN",
+                initial_output["newPositionMeters"],
+                initial_output["newSpeedMetersPerSecond"],
+                initial_output["energyConsumedKwh"],
+                initial_output["energyRegeneratedKwh"],
+            ]],
+        }
+        compact = client.post(
+            "/step-fleet-compact",
+            content=msgpack.packb(compact_payload, use_bin_type=True),
+            headers={"Content-Type": "application/msgpack", "Accept": "application/msgpack"},
+        )
+        assert compact.status_code == 200
+        compact_decoded = msgpack.unpackb(compact.content, raw=False)
+        assert compact_decoded[:4] == [
+            2,
+            payload["modelVersion"],
+            payload["parameterSetId"],
+            "compact-step-2",
+        ]
+        compact_output = compact_decoded[4][0]
+        assert len(compact_output) == 5
+        assert compact_output[0] == "COMPACT-TRAIN"
+
+        compact_payload["t"] = 3
+        compact_payload["s"] = 0.04
+        compact_payload["r"] = "compact-step-3"
+        compact_payload["f"] = True
+        compact_payload["u"][0][1:] = [
+            compact_output[1],
+            compact_output[2],
+            compact_output[3],
+            compact_output[4],
+        ]
+        final = client.post(
+            "/step-fleet-compact",
+            content=msgpack.packb(compact_payload, use_bin_type=True),
+            headers={"Content-Type": "application/msgpack", "Accept": "application/msgpack"},
+        )
+        assert final.status_code == 200
+        final_output = msgpack.unpackb(final.content, raw=False)["trainOutputs"][0]
+        assert "tractionPowerWatts" in final_output
+        assert final_output["trainId"] == "COMPACT-TRAIN"
 
 
 def test_fastapi_status_codes_and_management_endpoints() -> None:
