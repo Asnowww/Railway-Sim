@@ -587,7 +587,21 @@ public class SignalService {
 
         // 站停未完成 → MA 截到站台位置
         if (dwellTicks < targetDwellTicks) {
-            result.put("maEndAt", nextStation.centerMeters() + STATION_STOP_WINDOW_METERS);
+            double stationMaEnd = nextStation.centerMeters() + STATION_STOP_WINDOW_METERS;
+            // M9长段保护：列车距离站台超过安全制动距离时不截MA，避免过早刹车卡死在站窗外
+            double distanceToStation = nextStation.centerMeters() - head;
+            if (distanceToStation > 0) {
+                double curSpeed = Math.max(train.speedMetersPerSecond(), 5.0);
+                double safeBraking = (curSpeed * curSpeed) / (2 * DEFAULT_BRAKING_DECELERATION) + 40.0;
+                if (distanceToStation > safeBraking) {
+                    return result; // 还远，不截MA，等列车自然接近
+                }
+            }
+            // 兜底：MA至少给60m或2倍车长，避免零速卡死
+            if (stationMaEnd < head + Math.max(60.0, train.lengthMeters() * 2)) {
+                stationMaEnd = head + Math.max(60.0, train.lengthMeters() * 2);
+            }
+            result.put("maEndAt", stationMaEnd);
             if (dwellTicks > 0) {
                 result.put("isDwelling", 1.0);
                 result.put("dwellElapsedSec", (double) dwellElapsedSec);
