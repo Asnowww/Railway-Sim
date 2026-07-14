@@ -74,7 +74,7 @@ POST /api/service-health/{serviceId}/recovery/check
 
 9300 和 9200 状态统一为 `UP/DEGRADED/STALE/FALLBACK/RECOVERING`。异常后首次恢复健康不直接进入 UP；必须同时通过 runId、lastAcceptedTick、topology/config hash、model/parameter version 门槛。不匹配时保持 `RECOVERING` 并返回具体 `rejectionReasons`。最后健康记录和 last-good baseline 分别写入 `service_health_record/service_health_baseline`，重启后恢复。
 
-9200 进程重启后 `bootstrapped=false`，此时 `/power-network/constraints/query` 和 `/power-network/step` 返回 HTTP 409 `POWER_BOOTSTRAP_REQUIRED`；8080 重新下发拓扑后才允许恢复权威计算。9300 保留车辆实例跨中央重启，但 runId 改变只允许发生在新 run 的 tick 0/1；接管时清空旧司机命令、供电约束和物理缓存并触发重同步，运行中途换 run 返回 `VEHICLE_RUN_ID_MISMATCH`。
+9200 进程重启后默认从 `config/power_third_rail.yaml` 加载 1500 V、5 分区基线并置为 `bootstrapped=true`，`/power-network/constraints/query` 可立即使用；`POWER_NETWORK_CONFIG_PATH` 可显式覆盖该默认文件，8080 后续仍可重新下发权威拓扑。9300 保留车辆实例跨中央重启，但 runId 改变只允许发生在新 run 的 tick 0/1；接管时清空旧司机命令、供电约束和物理缓存并触发重同步，运行中途换 run 返回 `VEHICLE_RUN_ID_MISMATCH`。
 
 ### 获取列车状态
 

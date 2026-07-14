@@ -186,14 +186,17 @@ def main() -> None:
     power_outage_health = service_health(args.backend).get("power-network-9200", {})
     require(power_outage_health.get("state") == "FALLBACK", "9200 outage did not enter FALLBACK", errors)
     compose(args.env_file, "start", "power-network")
-    wait_json(f"{args.power}/health", lambda value: value.get("status") == "UP", 240.0)
-    _, prebootstrap = request_json(
+    fresh_power = wait_json(f"{args.power}/health", lambda value: value.get("status") == "UP", 240.0)
+    require(fresh_power.get("nominalVoltage") == 1500.0, "fresh 9200 did not load 1500 V default", errors)
+    require(fresh_power.get("powerSectionCount") == 5, "fresh 9200 did not load five-section default", errors)
+    _, startup_constraints = request_json(
         f"{args.power}/power-network/constraints/query",
         method="POST",
         payload={"trainPositions": []},
-        expected_status=409,
+        expected_status=200,
     )
-    require(prebootstrap.get("detail") == "POWER_BOOTSTRAP_REQUIRED", "9200 did not reject pre-bootstrap query", errors)
+    require(startup_constraints.get("bootstrapped") is True, "fresh 9200 default was not bootstrapped", errors)
+    require(len(startup_constraints.get("thirdRailSections", [])) == 5, "fresh 9200 query did not expose five sections", errors)
     power_recovered = tick(args.backend)
     power_health = service_health(args.backend).get("power-network-9200", {})
     _, final_power = request_json(f"{args.power}/power-network/state")
@@ -203,7 +206,8 @@ def main() -> None:
     require(final_power.get("lastAcceptedTick") == power_recovered.get("tick"), "9200 tick watermark drifted after restart", errors)
     evidence["powerNetworkRecovery"] = {
         "outageHealth": power_outage_health,
-        "prebootstrapResponse": prebootstrap,
+        "freshHealth": fresh_power,
+        "startupConstraints": startup_constraints,
         "recoveredHealth": power_health,
         "finalPowerState": final_power,
     }

@@ -163,7 +163,7 @@ YAML 存仿真静态配置：
 
 监控层将每个活动告警映射为结构化 `FaultImpact`，并维护稳定 occurrence 生命周期。9300/9200 的健康状态由 `ServiceHealthService` 归一化为 `UP/DEGRADED/STALE/FALLBACK/RECOVERING`。从异常恢复时不允许直接回 UP；`RecoveryGate` 必须同时验证 runId、tick 水位、topology/config hash 及 model/parameter version。告警活动索引、最后健康态和 last-good baseline 都持久化，8080 重启后回填。
 
-9200 重启会先回到未 bootstrap 状态，拒绝权威查询和 step；8080 探测到该状态后重下发拓扑。9300 可跨 8080 重启保留车辆实例，但仅在新 run 的 tick 0/1 执行 run rollover，同时清除旧 run 的命令、约束和物理缓存，避免旧 tick 或旧输入污染新运行。
+9200 重启时默认从 `config/power_third_rail.yaml` 加载 1500 V、5 分区基线，不再暴露 750 V、2 分区的过渡拓扑；部署可通过 `POWER_NETWORK_CONFIG_PATH` 显式覆盖，8080 后续 bootstrap 仍可重下发权威拓扑。9300 可跨 8080 重启保留车辆实例，但仅在新 run 的 tick 0/1 执行 run rollover，同时清除旧 run 的命令、约束和物理缓存，避免旧 tick 或旧输入污染新运行。
 
 新增 `vehicle-runtime-service` 作为外部车辆运行时，端口 `9300`。列车上线推荐先由车辆仿真系统调用 `POST /vehicle-runtime/trains/launch`，创建车辆仿真实例、唤醒本车控制队列，再向中央 `/api/trains/runtime-registrations` 注册状态镜像。现场四端口中只有 PLC 产生业务输入：8080 把 PLC 46 字节原始帧封装为 RSIM Version 1 聚合帧，通过 `POST /vehicle-runtime/peripherals/frame` 送入 9300；网络屏、信号屏和视景系统只接收 8080 的显示输出。8080 还提供信号系统需要的 `driverConsoleState/cabDisplay` 和 26 字节 PLC 显示输出。详细方向和帧格式见 `docs/司机台与显示系统端口聚合协议.md`。`split` 模式下中央每 tick 只同步列车状态、MA、轨道和调度约束；不再计算或下发供电约束。9300 在控制前向 9200 请求电压/可用功率约束，完成全车步进后每 tick 最多一次提交完整分区负荷；请求必须携带同一 `simulationRunId`。中央只镜像 9200 快照用于前端和告警，绝不补写车辆负荷。生产 `EXTERNAL_HTTP` 模式下 9300 失败会明确中止当前 tick，不由 8080 静默切换成另一套控制/物理结果；Java fallback 仅在 9300 内部按已定义的 FMU 降级策略执行。
 

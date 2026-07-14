@@ -256,6 +256,30 @@ def test_real_fmu_physics_scenarios(manager: FmuManager) -> None:
         assert item.mechanical_traction_power_watts <= 4_336_000.0 + 1.0
 
 
+def test_service_brake_zero_crossing_does_not_fail_fmu_instance(
+    manager: FmuManager,
+) -> None:
+    braking = train_input(
+        "ZERO-CROSSING",
+        speed_meters_per_second=0.01,
+        brake_command=1.0,
+        regen_power_available_watts=0.0,
+        dynamics_state="STATION_BRAKE",
+    )
+
+    first = manager.step_fleet(fleet_request(manager, 1, 0.0, [braking]))
+    assert not first.train_errors
+    assert first.train_outputs[0].new_speed_meters_per_second == pytest.approx(0.0, abs=1e-9)
+
+    second = manager.step_fleet(
+        fleet_request(manager, 2, 0.02, [replace(braking, lifecycle_command="STEP")])
+    )
+    assert not second.train_errors
+    assert second.train_outputs[0].new_speed_meters_per_second == pytest.approx(0.0, abs=1e-9)
+    assert manager.health()["failedInstanceCount"] == 0
+    assert manager.health()["fmiErrorCount"] == 0
+
+
 def test_two_persistent_instances_remain_independent_for_100_steps(
     manager: FmuManager,
 ) -> None:
