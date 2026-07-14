@@ -609,22 +609,6 @@ public class SimulationRuntime {
             String fromStation = stringFromPayload(payload, "fromStation", null);
             String toStation = stringFromPayload(payload, "toStation", null);
 
-            // 引擎能力门：当前物理引擎只支持里程递增运行。里程递减（如 M9 下行
-            // S113→S101）的服务发车后会反向沿上行方向跑，并把占用染色刷到对向
-            // 股道——在引擎支持递减行车前直接跳过，不产生幽灵列车。
-            Double fromPos = stationCenterMeters(fromStation);
-            Double toPos = stationCenterMeters(toStation);
-            if (fromPos != null && toPos != null && toPos < fromPos) {
-                log.warn("[Runtime] 跳过发车 {}: 引擎暂不支持里程递减(下行)运行 from={}({}m) to={}({}m)",
-                    trainId, fromStation, Math.round(fromPos), toStation, Math.round(toPos));
-                feedbacks.add(departureFeedback(cmd, CommandStatus.SKIPPED,
-                    "DOWN_DIRECTION_UNSUPPORTED",
-                    "engine only supports mileage-increasing runs; down-direction service skipped",
-                    Map.of("trainId", trainId,
-                        "fromStation", fromStation,
-                        "toStation", toStation)));
-                continue;
-            }
             boolean routeAccepted = true;
             String routeReason = null;
             if (fromStation != null && toStation != null
@@ -689,22 +673,6 @@ public class SimulationRuntime {
         );
     }
 
-    /** 按站 ID 或站名查询站中心公里标；未知站返回 null。 */
-    private Double stationCenterMeters(String stationIdOrName) {
-        if (stationIdOrName == null || stationIdOrName.isBlank()) {
-            return null;
-        }
-        List<OperationalLineData.StationDefinition> stations = infrastructureCatalog.lineData().stations();
-        if (stations == null) {
-            return null;
-        }
-        return stations.stream()
-            .filter(station -> stationIdOrName.equals(station.id())
-                || stationIdOrName.equals(station.name()))
-            .map(OperationalLineData.StationDefinition::centerMeters)
-            .findFirst()
-            .orElse(null);
-    }
 
     private static int intFromPayload(Map<String, Object> payload, String key, int fallback) {
         Object value = payload.get(key);

@@ -80,8 +80,7 @@ public class TrainManager {
         controlSessions.clear();
         vehicleMetadata.clear();
         vehicleRuntimeIntegrationService.clear();
-        addInitialTrain("TR-001", routeId, rearStartMeters, 0.42, 1, ExternalTrainDirection.DOWN);
-        addInitialTrain("TR-002", routeId, frontStartMeters, 0.55, 2, ExternalTrainDirection.DOWN);
+        // TR-001/002 由调度 DEPART 命令创建(SVC-001/SVC-002)
         faultRecords.clear();
     }
 
