@@ -96,6 +96,18 @@ class SignalServiceTests {
         MovementAuthority releasedMa = authorityFor(f.signalService.authorities(), "TR-1");
         assertThat(releasedMa.authorityEndMeters()).isGreaterThan(stoppedAtStation.positionMeters());
         assertThat(releasedMa.speedLimitMetersPerSecond()).isGreaterThan(0);
+
+        TrainState departedStation = train("TR-1", 1300);
+        f.trackService.updateOccupancy(List.of(departedStation));
+        var departedConstraints = f.trackService.constraintsForTrains(List.of(departedStation));
+        f.signalService.calculateAuthorities(
+            List.of(departedStation),
+            departedConstraints,
+            List.of()
+        );
+
+        assertThat(departedConstraints).singleElement()
+            .satisfies(constraint -> assertThat(constraint.stationDistanceMeters()).isEqualTo(1200));
     }
 
     @Test

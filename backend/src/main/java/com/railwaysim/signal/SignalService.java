@@ -529,7 +529,20 @@ public class SignalService {
 
         double head = train.positionMeters();
 
-        // 找车头前方的下一站；允许车头在站中心后方 10m 内继续被视为站停窗口。
+        // 释放标记只在列车驶离当前站台窗口前有效。先清理已经越过的站，
+        // 避免旧标记让后续所有站点的 stationDistance 都被屏蔽为 9999m。
+        String releasePrefix = train.id() + ":";
+        releasedStationStops.removeIf(key -> {
+            if (!key.startsWith(releasePrefix)) return false;
+            String stationId = key.substring(releasePrefix.length());
+            return stations.stream()
+                .filter(station -> station.id().equals(stationId))
+                .findFirst()
+                .map(station -> head > station.centerMeters() + STATION_STOP_WINDOW_METERS)
+                .orElse(true);
+        });
+
+        // 找车头前方的下一站；允许车头在站中心后方的站停窗口内继续被视为当前站。
         OperationalLineData.StationDefinition nextStation = stations.stream()
             .filter(s -> s.centerMeters() >= head - STATION_STOP_WINDOW_METERS)
             .min(Comparator.comparingDouble(s -> s.centerMeters() - head))
@@ -553,10 +566,7 @@ public class SignalService {
 
         boolean stopped = Math.abs(head - nextStation.centerMeters()) <= STATION_STOP_WINDOW_METERS && train.zeroSpeed();
         if (releasedStationStops.contains(dwellKey)) {
-            // 已释放的站: 列车离开窗口后清除标记, 否则保持释放不干扰
-            if (head > nextStation.centerMeters() + STATION_STOP_WINDOW_METERS) {
-                releasedStationStops.remove(dwellKey);
-            }
+            // 已释放的站在驶离窗口前保持放行；驶离后的标记已在方法入口清理。
             atStationStop.remove(train.id());
             return result; // 不截断MA, 让列车自由通过
         }

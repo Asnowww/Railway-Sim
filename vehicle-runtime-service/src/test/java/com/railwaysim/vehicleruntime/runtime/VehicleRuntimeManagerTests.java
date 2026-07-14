@@ -232,6 +232,33 @@ class VehicleRuntimeManagerTests {
     }
 
     @Test
+    void zeroSpeedInsideStationWindowIsStationStoppedEvenWhenMaIsExhausted() {
+        VehicleRuntimeManager manager = manager();
+        TrainStateSnapshot stopped = train("TR-101", 1_250, 0);
+        VehicleRuntimeStepRequest request = new VehicleRuntimeStepRequest(
+            1,
+            0.1,
+            Instant.parse("2026-07-09T00:00:00Z"),
+            List.of(stopped),
+            List.of(new MovementAuthoritySnapshot(stopped.id(), stopped.positionMeters(), 0, "STATION_DWELL")),
+            List.of(new TrackConstraintSnapshot(stopped.id(), "SEG-1", 22.2, 0, 1_000, 0)),
+            List.of(),
+            List.of(energized()),
+            "run-station-stop",
+            List.of()
+        );
+
+        VehicleRuntimeStepResponse response = manager.stepFleet(request);
+
+        assertThat(response.trainReports()).singleElement()
+            .satisfies(report -> {
+                assertThat(report.dynamicsState()).isEqualTo("STATION_STOPPED");
+                assertThat(report.selectedReasonCode()).isEqualTo("STATION_STOP_WINDOW");
+                assertThat(report.movementAuthorityDistanceMeters()).isZero();
+            });
+    }
+
+    @Test
     void parameterMetadataExposesCanonicalYamlCalibration() {
         var metadata = manager().parameterMetadata();
 

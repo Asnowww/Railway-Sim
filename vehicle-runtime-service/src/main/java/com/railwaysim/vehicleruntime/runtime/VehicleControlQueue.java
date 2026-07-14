@@ -170,6 +170,10 @@ final class VehicleControlQueue {
         if (!doorClosed || !state.isBrakeAvailable() || state.getAvailableBrakeCount() <= 0 || "FAIL".equals(state.getSelfCheckStatus())) {
             return brakeDecision(TrainDynamicsState.SELF_CHECK_BLOCKED, resolveSelfCheckBlockReason(doorClosed, state), speed, stoppingDistance, false);
         }
+        if (stationDistance <= stoppingProperties.getStationStopWindowMeters()
+            && speed <= stoppingProperties.getZeroSpeedMetersPerSecond()) {
+            return new DynamicsDecision(TrainDynamicsState.STATION_STOPPED, "STATION_STOP_WINDOW", 0, 0.6, false, stoppingDistance);
+        }
         if (maDistance <= 0) {
             return brakeDecision(TrainDynamicsState.SAFETY_BRAKE, "MOVEMENT_AUTHORITY_EXHAUSTED", speed, stoppingDistance, true);
         }
@@ -190,10 +194,6 @@ final class VehicleControlQueue {
                 false,
                 stoppingDistance
             );
-        }
-        if (stationDistance <= stoppingProperties.getStationStopWindowMeters()
-            && speed <= stoppingProperties.getZeroSpeedMetersPerSecond()) {
-            return new DynamicsDecision(TrainDynamicsState.STATION_STOPPED, "STATION_STOP_WINDOW", 0, 0.6, false, stoppingDistance);
         }
         double stationBrakeBuffer = stationApproachBufferMeters(speed);
         if (stationDistance <= stoppingDistance + stationBrakeBuffer) {
