@@ -12,6 +12,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -202,8 +203,14 @@ public class TrackService {
             .toList();
         TrackSegmentState resolved = resolveNextSegment(assigned, candidates);
         if (resolved == null) {
+            // 首选列车之前所在的轨道，避免M9上下行重叠时跳轨
+            String prevTrack = assigned != null ? assigned.track()
+                : Optional.ofNullable(previousTrainSegmentIds.get(train.id()))
+                    .map(this::stateById).map(TrackSegmentState::track).orElse(null);
             resolved = candidates.stream()
-                .min(Comparator.comparingInt((TrackSegmentState segment) -> "main".equals(segment.track()) ? 0 : 1)
+                .min(Comparator
+                    .comparingInt((TrackSegmentState s) -> prevTrack != null && prevTrack.equals(s.track()) ? 0 : 1)
+                    .thenComparingInt(s -> "main".equals(s.track()) ? 0 : 1)
                     .thenComparing(TrackSegmentState::id))
                 .orElseGet(this::fallbackSegment);
         }
@@ -467,10 +474,13 @@ public class TrackService {
      * 按公里标查询所在区段。
      */
     public synchronized TrackSegmentState segmentAt(double positionMeters) {
-        // 并行支线与正线里程重叠时，优先返回正线(main)，避免列车位置跳到侧线
+        // M9上下行里程重叠：避免随机跳到错误轨道。main > up > down > 其他
         return segments.stream()
             .filter(seg -> positionMeters >= seg.startMeters() && positionMeters < seg.endMeters())
-            .min(Comparator.comparingInt((TrackSegmentState s) -> "main".equals(s.track()) ? 0 : 1)
+            .min(Comparator
+                .comparingInt((TrackSegmentState s) -> "main".equals(s.track()) ? 0
+                    : "up".equals(s.track()) ? 1
+                    : "down".equals(s.track()) ? 2 : 3)
                 .thenComparingDouble(TrackSegmentState::startMeters))
             .orElseGet(() -> segments.isEmpty()
                 ? fallbackSegment()
