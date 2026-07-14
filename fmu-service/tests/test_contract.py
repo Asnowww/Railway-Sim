@@ -39,7 +39,7 @@ class FmuContractTests(unittest.TestCase):
         mapped = InputMapper().from_payload(request)
 
         self.assertEqual(12001, mapped.tick)
-        self.assertEqual(0.1, mapped.step_size_seconds)
+        self.assertEqual(0.02, mapped.step_size_seconds)
         self.assertEqual("STEP", mapped.trains[0].lifecycle_command)
         self.assertEqual(3_700_000.0, mapped.trains[0].power_available_watts)
         self.assertEqual(0.0, mapped.trains[0].regen_power_available_watts)

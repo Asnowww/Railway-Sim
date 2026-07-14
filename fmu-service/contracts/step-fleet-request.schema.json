@@ -16,7 +16,7 @@
   "properties": {
     "tick": {"type": "integer", "minimum": 0},
     "simulationTimeSeconds": {"type": "number", "minimum": 0},
-    "stepSizeSeconds": {"type": "number", "const": 0.1},
+    "stepSizeSeconds": {"type": "number", "const": 0.02},
     "modelVersion": {"type": "string", "minLength": 1},
     "parameterSetId": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
     "traceId": {"type": "string", "minLength": 1},

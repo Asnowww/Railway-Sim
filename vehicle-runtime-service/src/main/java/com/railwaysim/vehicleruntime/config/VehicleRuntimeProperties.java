@@ -17,6 +17,7 @@ public class VehicleRuntimeProperties {
     private VehiclePhysicsMode physicsMode = VehiclePhysicsMode.JAVA_FALLBACK;
     private String fmuBaseUrl = "http://localhost:9000";
     private long fmuTimeoutMillis = 80;
+    private long fmuSubstepMillis = 20;
     private String fmuModelVersion = "TrainTractionBrake/2.0.0";
     private boolean forwardPowerLoads;
     private String powerNetworkBaseUrl = "http://localhost:9200";
@@ -104,6 +105,14 @@ public class VehicleRuntimeProperties {
 
     public void setFmuTimeoutMillis(long fmuTimeoutMillis) {
         this.fmuTimeoutMillis = Math.max(1, fmuTimeoutMillis);
+    }
+
+    public long getFmuSubstepMillis() {
+        return fmuSubstepMillis;
+    }
+
+    public void setFmuSubstepMillis(long fmuSubstepMillis) {
+        this.fmuSubstepMillis = Math.max(1, fmuSubstepMillis);
     }
 
     public String getFmuModelVersion() {

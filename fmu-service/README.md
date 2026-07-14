@@ -10,7 +10,7 @@ loop yet. That integration belongs to WP5.
 
 ## Runtime invariants
 
-- FMI 2.0 Co-Simulation with a fixed `0.1 s` communication step.
+- FMI 2.0 Co-Simulation with a fixed `0.02 s` communication step.
 - Linux/amd64, Python 3.12, FMPy 0.3.30, FastAPI 0.139.0, Uvicorn 0.51.0.
 - One extracted FMU artifact per process and one persistent `FMU2Slave` per
   `trainId`.
@@ -21,8 +21,9 @@ loop yet. That integration belongs to WP5.
   production HTTP route invokes it.
 
 `simulationTimeSeconds` is the start time of the requested communication step.
-For example, an INIT at `0.0` advances the FMU to `0.1`; the next STEP must use
-`simulationTimeSeconds=0.1`.
+For example, an INIT at `0.0` advances the FMU to `0.02`; the next STEP must use
+`simulationTimeSeconds=0.02`. Port 9300 holds one TCMS decision for five such
+substeps and publishes only the fifth result on its 100 ms control boundary.
 
 ## Build and test
 

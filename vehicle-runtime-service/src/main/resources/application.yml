@@ -25,6 +25,7 @@ vehicle-runtime:
   physics-mode: JAVA_FALLBACK
   fmu-base-url: http://localhost:9000
   fmu-timeout-millis: 80
+  fmu-substep-millis: 20
   fmu-model-version: TrainTractionBrake/2.0.0
   forward-power-loads: false
   power-network-base-url: http://localhost:9200

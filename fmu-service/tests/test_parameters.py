@@ -50,8 +50,8 @@ class VehicleParameterTests(unittest.TestCase):
         try:
             request = StepFleetRequest(
                 tick=1,
-                simulation_time_seconds=0.1,
-                step_size_seconds=0.1,
+                simulation_time_seconds=0.02,
+                step_size_seconds=0.02,
                 model_version=MODEL_VERSION,
                 parameter_set_id="sha256:" + "0" * 64,
                 trace_id="mismatch-test",

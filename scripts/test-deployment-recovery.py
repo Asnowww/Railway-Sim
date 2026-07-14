@@ -126,7 +126,7 @@ def main() -> None:
     bad_request = {
         "tick": 999999,
         "simulationTimeSeconds": 99999.9,
-        "stepSizeSeconds": 0.1,
+        "stepSizeSeconds": 0.02,
         "modelVersion": metadata["modelVersion"],
         "parameterSetId": "sha256:intentional-mismatch",
         "traceId": "wp7-parameter-mismatch",
