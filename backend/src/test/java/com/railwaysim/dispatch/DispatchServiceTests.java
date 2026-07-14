@@ -8,11 +8,13 @@ import com.railwaysim.dispatch.command.CommandValidator;
 import com.railwaysim.dispatch.command.InMemoryCommandRecordStore;
 import com.railwaysim.dispatch.config.DispatchProperties;
 import com.railwaysim.dispatch.disturbance.DisturbanceDetector;
+import com.railwaysim.dispatch.disturbance.DisturbanceType;
 import com.railwaysim.dispatch.disturbance.InMemoryDisturbanceRecordStore;
 import com.railwaysim.dispatch.monitor.InMemoryStationRecordStore;
 import com.railwaysim.dispatch.monitor.TrainRunMonitor;
 import com.railwaysim.dispatch.operation.OperationPlanRequest;
 import com.railwaysim.dispatch.operation.OperationPlanningService;
+import com.railwaysim.dispatch.optimization.LineHeadwayOptimizer;
 import com.railwaysim.dispatch.plan.OperationPlanLoader;
 import com.railwaysim.dispatch.plan.PlannedScheduleCalculator;
 import com.railwaysim.dispatch.route.RouteDecisionStatus;
@@ -21,7 +23,6 @@ import com.railwaysim.dispatch.route.RouteDispatchRecordStore;
 import com.railwaysim.dispatch.route.RouteIntentResolver;
 import com.railwaysim.dispatch.route.RouteIntentArbiter;
 import com.railwaysim.dispatch.route.RouteReservationState;
-import com.railwaysim.dispatch.strategy.StrategySelector;
 import com.railwaysim.infrastructure.OperationalLineData;
 import com.railwaysim.signal.MovementAuthority;
 import com.railwaysim.signal.RouteState;
@@ -709,6 +710,106 @@ class DispatchServiceTests {
     }
 
     @Test
+    void injectedHeadwayScenarioGeneratesSelfRegulationCommandOnNextEvaluation() {
+        DispatchService service = dispatchService();
+        Instant now = Instant.parse("2026-07-09T00:00:00Z");
+
+        service.evaluate(tick(1, now), List.of(runningTrainAt("TR-1", 100, 14)), List.of(authority("TR-1")));
+
+        service.injectDemoDisturbance(
+            "TR-1",
+            DisturbanceType.TRAIN_REGULATION,
+            "TOO_SHORT",
+            300.0,
+            120.0,
+            90.0,
+            null
+        );
+        service.evaluate(tick(2, now.plusSeconds(21)), List.of(runningTrainAt("TR-1", 120, 14)), List.of(authority("TR-1")));
+
+        assertThat(service.snapshot().activeCommands())
+            .filteredOn(command -> "SPEED_BIAS".equals(command.commandType()))
+            .singleElement()
+            .satisfies(command -> {
+                assertThat(command.trainId()).isEqualTo("TR-1");
+                assertThat(command.regulatedTrainId()).isEqualTo("TR-1");
+                assertThat(command.status()).isEqualTo(CommandStatus.PENDING);
+                assertThat(command.regulationAction()).isEqualTo("SLOW_DOWN");
+                assertThat(command.payload())
+                    .containsEntry("headwayDirection", "TOO_SHORT")
+                    .containsEntry("speedBiasRatio", 0.65)
+                    .containsEntry("regulatedTrainId", "TR-1")
+                    .containsEntry("regulationSource", "LINE_HEADWAY_OPTIMIZATION")
+                    .containsKeys("lineRegulationPlanId", "lineRegulationDecisionId");
+            });
+        assertThat(service.snapshot().lineRegulationPlan()).satisfies(plan -> {
+            assertThat(plan.status()).isEqualTo("COMMANDS_PROPOSED");
+            assertThat(plan.commandCount()).isEqualTo(1);
+            assertThat(plan.currentMaxAbsHeadwayErrorSec()).isEqualTo(180.0);
+            assertThat(plan.predictedMaxAbsHeadwayErrorSec()).isLessThan(180.0);
+            assertThat(plan.decisions())
+                .singleElement()
+                .satisfies(decision -> {
+                    assertThat(decision.trainId()).isEqualTo("TR-1");
+                    assertThat(decision.regulatedTrainId()).isEqualTo("TR-1");
+                    assertThat(decision.frontTrainId()).isNull();
+                    assertThat(decision.action()).isEqualTo("SLOW_DOWN");
+                    assertThat(decision.commandType()).isEqualTo("SPEED_BIAS");
+                    assertThat(decision.status()).isEqualTo("COMMAND_PROPOSED");
+                    assertThat(decision.signalConstraint()).isEqualTo("NONE");
+                    assertThat(decision.commandId()).isNotBlank();
+                });
+        });
+    }
+
+    @Test
+    void activeSelfRegulationCommandSuppressesRepeatedLineCommand() {
+        DispatchService service = dispatchService();
+        Instant now = Instant.parse("2026-07-09T00:00:00Z");
+
+        service.markCommandsSent(List.of(new DispatchCommand(
+            "DC-active-speed-bias",
+            "TR-1",
+            "SPEED_BIAS",
+            Map.of(
+                "speedBiasRatio", 0.75,
+                "regulatedTrainId", "TR-1",
+                "headwayDirection", "TOO_SHORT",
+                "regulationAction", "SLOW_DOWN"
+            ),
+            "LINE_HEADWAY_OPTIMIZATION",
+            CommandStatus.APPLIED,
+            now,
+            now
+        )));
+        service.evaluate(tick(1, now), List.of(runningTrainAt("TR-1", 100, 25)), List.of(authority("TR-1")));
+        service.injectDemoDisturbance(
+            "TR-1",
+            DisturbanceType.TRAIN_REGULATION,
+            "TOO_SHORT",
+            300.0,
+            120.0,
+            90.0,
+            null
+        );
+
+        service.evaluate(tick(2, now.plusSeconds(21)), List.of(runningTrainAt("TR-1", 120, 25)), List.of(authority("TR-1")));
+
+        assertThat(service.snapshot().activeCommands())
+            .filteredOn(command -> "SPEED_BIAS".equals(command.commandType()))
+            .hasSize(1);
+        assertThat(service.snapshot().lineRegulationPlan().decisions())
+            .singleElement()
+            .satisfies(decision -> {
+                assertThat(decision.trainId()).isEqualTo("TR-1");
+                assertThat(decision.action()).isEqualTo("OBSERVE");
+                assertThat(decision.commandType()).isEqualTo("OBSERVE");
+                assertThat(decision.status()).isEqualTo("OBSERVE_ACTIVE_COMMAND");
+                assertThat(decision.commandId()).isNull();
+            });
+    }
+
+    @Test
     void runningTrainWithStaleDwellSecondsDoesNotTriggerDwellDisturbance() {
         Instant now = Instant.parse("2026-07-09T00:00:00Z");
 
@@ -1183,7 +1284,6 @@ class DispatchServiceTests {
                 properties,
                 new TrainRunMonitor(planLoader, new PlannedScheduleCalculator(properties), stationStore),
                 new DisturbanceDetector(properties),
-                new StrategySelector(),
                 new CommandValidator(),
                 new CommandQueue(),
                 new InMemoryDisturbanceRecordStore(),
@@ -1194,7 +1294,8 @@ class DispatchServiceTests {
                 new RouteIntentResolver(routeCatalog, properties),
                 new RouteIntentArbiter(routeCatalog),
                 new OperationPlanningService(routeCatalog),
-                new SignalDispatchPlanRegistry()
+                new SignalDispatchPlanRegistry(),
+                new LineHeadwayOptimizer()
             );
         } catch (IOException ex) {
             throw new IllegalStateException("failed to load dispatch test plan", ex);

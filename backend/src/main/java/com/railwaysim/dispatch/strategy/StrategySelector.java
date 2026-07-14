@@ -94,8 +94,28 @@ public class StrategySelector {
     ) {
         int adjustment = scaledDwellAdjustment(event);
         if ("TOO_SHORT".equals(event.headwayDirection())) {
-            return dwellCommand(
-                simulationRunId, simulatedAt, target, adjustment, TrainRegulationAction.SLOW_DOWN, event);
+            if (isDwellingLike(target)) {
+                return dwellCommand(
+                    simulationRunId, simulatedAt, target, adjustment, TrainRegulationAction.SLOW_DOWN, event);
+            }
+            return speedBiasCommand(
+                simulationRunId, simulatedAt, target, slowDownRatio(event), TrainRegulationAction.SLOW_DOWN, event);
+        }
+        if ("TOO_LONG".equals(event.headwayDirection())) {
+            if (isDwellingLike(target)) {
+                return dwellCommand(
+                    simulationRunId, simulatedAt, target, -adjustment, TrainRegulationAction.CATCH_UP, event);
+            }
+            return speedBiasCommand(
+                simulationRunId, simulatedAt, target, catchUpRatio(event), TrainRegulationAction.CATCH_UP, event);
+        }
+        if ("SCHEDULE_LATE".equals(event.headwayDirection())) {
+            if (isDwellingLike(target)) {
+                return dwellCommand(
+                    simulationRunId, simulatedAt, target, -adjustment, TrainRegulationAction.CATCH_UP, event);
+            }
+            return speedBiasCommand(
+                simulationRunId, simulatedAt, target, scheduleCatchUpRatio(event), TrainRegulationAction.CATCH_UP, event);
         }
         return dwellCommand(
             simulationRunId, simulatedAt, target, -adjustment, TrainRegulationAction.CATCH_UP, event);
@@ -146,6 +166,91 @@ public class StrategySelector {
             ? Math.abs(event.deviationValue())
             : Math.abs(event.violationSec());
         return Math.max(3, Math.min(10, (int) Math.ceil(violation / 30.0)));
+    }
+
+    private DispatchCommand speedBiasCommand(
+        String simulationRunId,
+        Instant simulatedAt,
+        TrainRunProfile target,
+        double ratio,
+        String regulationAction,
+        DisturbanceEvent event
+    ) {
+        String trainId = target.trainId();
+        Map<String, Object> payload = new HashMap<>();
+        payload.put("speedBiasRatio", ratio);
+        payload.put("simulationRunId", simulationRunId);
+        payload.put("disturbanceId", event.id());
+        payload.put("regulatedTrainId", trainId);
+        payload.put("regulationAction", regulationAction);
+        payload.put("regulationSource", event.disturbanceType().name());
+        payload.put("strategyLevel", strategyLevelFromRatio(ratio));
+        payload.put("effectConfirmationStandard", "HEADWAY_IMPROVED_OR_WITHIN_TOLERANCE_AND_SIGNAL_AUTHORITY_OBSERVED");
+        if (event.actualHeadwaySec() != null && event.targetHeadwaySec() != null) {
+            payload.put("baselineHeadwayErrorSec", event.actualHeadwaySec() - event.targetHeadwaySec());
+        }
+        payload.put("baselineDepartureDelaySec", target.departureDelaySec());
+        putHeadwayPayload(payload, event);
+        return new DispatchCommand(
+            "CMD-" + UUID.randomUUID().toString().substring(0, 8),
+            trainId,
+            "SPEED_BIAS",
+            payload,
+            event.disturbanceType().name(),
+            CommandStatus.PENDING,
+            simulatedAt,
+            null
+        );
+    }
+
+    private boolean isDwellingLike(TrainRunProfile profile) {
+        return "DWELLING".equals(profile.status())
+            || "STOPPED".equals(profile.status())
+            || "READY".equals(profile.status())
+            || profile.speedMps() <= 0.5;
+    }
+
+    private double slowDownRatio(DisturbanceEvent event) {
+        double violation = normalizedViolation(event);
+        if (violation >= 120) {
+            return 0.65;
+        }
+        if (violation >= 60) {
+            return 0.75;
+        }
+        return 0.85;
+    }
+
+    private double catchUpRatio(DisturbanceEvent event) {
+        double violation = normalizedViolation(event);
+        if (violation >= 120) {
+            return 1.18;
+        }
+        if (violation >= 60) {
+            return 1.12;
+        }
+        return 1.08;
+    }
+
+    private double scheduleCatchUpRatio(DisturbanceEvent event) {
+        return Math.min(1.10, catchUpRatio(event));
+    }
+
+    private double normalizedViolation(DisturbanceEvent event) {
+        return event.violationSec() == null
+            ? Math.abs(event.deviationValue())
+            : Math.abs(event.violationSec());
+    }
+
+    private String strategyLevelFromRatio(double ratio) {
+        double deviation = Math.abs(ratio - 1.0);
+        if (deviation >= 0.25) {
+            return "SEVERE";
+        }
+        if (deviation >= 0.12) {
+            return "MODERATE";
+        }
+        return "MINOR";
     }
 
     private String strategyLevel(int adjustmentSec) {

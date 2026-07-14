@@ -197,6 +197,35 @@ export interface DispatchStationHeadway {
   regulationAction: string
 }
 
+export interface DispatchLineRegulationDecision {
+  trainId: string
+  regulatedTrainId: string
+  frontTrainId: string | null
+  action: string
+  commandType: string
+  status: string
+  reason: string
+  currentHeadwaySec: number | null
+  targetHeadwaySec: number
+  currentHeadwayErrorSec: number | null
+  predictedHeadwayErrorSec: number | null
+  priorityScore: number
+  signalConstraint: string
+  commandId: string | null
+}
+
+export interface DispatchLineRegulationPlan {
+  planId: string
+  generatedAt: string | null
+  objective: string
+  status: string
+  targetHeadwaySec: number
+  currentMaxAbsHeadwayErrorSec: number | null
+  predictedMaxAbsHeadwayErrorSec: number | null
+  commandCount: number
+  decisions: DispatchLineRegulationDecision[]
+}
+
 export interface DispatchSnapshot {
   runMode: string
   planId: string
@@ -212,6 +241,7 @@ export interface DispatchSnapshot {
   routeDecisions: DispatchRouteDecision[]
   routeReservations: DispatchRouteReservation[]
   operationPlans: OperationPlanView[]
+  lineRegulationPlan: DispatchLineRegulationPlan
 }
 
 export interface RunPlanPeriod {

@@ -17,7 +17,18 @@ const emptyDispatch: DispatchSnapshot = {
   routeDispatchActive: false,
   routeDecisions: [],
   routeReservations: [],
-  operationPlans: []
+  operationPlans: [],
+  lineRegulationPlan: {
+    planId: '',
+    generatedAt: null,
+    objective: 'RESTORE_EVEN_HEADWAY',
+    status: 'NO_DATA',
+    targetHeadwaySec: 300,
+    currentMaxAbsHeadwayErrorSec: null,
+    predictedMaxAbsHeadwayErrorSec: null,
+    commandCount: 0,
+    decisions: []
+  }
 }
 
 /**
@@ -62,7 +73,12 @@ export const useSimulationStore = defineStore('simulation', () => {
       activeCommands: raw.activeCommands ?? [],
       routeDecisions: raw.routeDecisions ?? [],
       routeReservations: raw.routeReservations ?? [],
-      operationPlans: raw.operationPlans ?? []
+      operationPlans: raw.operationPlans ?? [],
+      lineRegulationPlan: {
+        ...emptyDispatch.lineRegulationPlan,
+        ...(raw.lineRegulationPlan ?? {}),
+        decisions: raw.lineRegulationPlan?.decisions ?? []
+      }
     }
   })
 

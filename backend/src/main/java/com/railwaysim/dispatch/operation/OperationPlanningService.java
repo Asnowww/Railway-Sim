@@ -43,13 +43,11 @@ public class OperationPlanningService {
             .filter(template -> routeFilter == null || routeFilter.equals(template.routeId()))
             .flatMap(template -> {
                 List<OperationRouteCandidate> matches = new ArrayList<>();
-                OperationRouteCandidate up = match(template, required, "UP");
-                OperationRouteCandidate down = match(template, required, "DOWN");
-                if (up != null) {
-                    matches.add(up);
-                }
-                if (down != null) {
-                    matches.add(down);
+                for (String direction : routeDirections(template)) {
+                    OperationRouteCandidate candidate = match(template, required, direction);
+                    if (candidate != null) {
+                        matches.add(candidate);
+                    }
                 }
                 return matches.stream();
             })
@@ -211,10 +209,11 @@ public class OperationPlanningService {
     }
 
     private OperationRouteCandidate match(OperationRouteTemplate template, List<String> required, String direction) {
-        List<String> points = "UP".equals(direction)
+        boolean directedTemplate = isDirectedSignalRoute(template.routeId());
+        List<String> points = "UP".equals(direction) || directedTemplate
             ? template.pointIds()
             : reverse(template.pointIds());
-        List<String> segments = "UP".equals(direction)
+        List<String> segments = "UP".equals(direction) || directedTemplate
             ? template.segmentIds()
             : reverse(template.segmentIds());
         List<Integer> indexes = new ArrayList<>();
@@ -239,7 +238,9 @@ public class OperationPlanningService {
             return null;
         }
         List<String> pathPoints = points.subList(start, end + 1);
-        List<String> pathSegments = segments.subList(start, end);
+        List<String> pathSegments = segments.size() == points.size() - 1
+            ? segments.subList(start, end)
+            : segments;
         return new OperationRouteCandidate(
             template.routeId() + ":" + direction,
             template.routeId(),
@@ -267,6 +268,42 @@ public class OperationPlanningService {
     }
 
     private List<OperationRouteTemplate> defaultTemplates() {
+        boolean hasM9Routes = routeCatalog.routes().stream()
+            .anyMatch(route -> "R_UP".equals(route.routeId()) || "R_DOWN".equals(route.routeId()));
+        if (hasM9Routes) {
+            return List.of(
+                new OperationRouteTemplate(
+                    "R_UP", "上行正线（郭公庄→国家图书馆）", "MAIN",
+                    List.of("S101", "S102", "S103", "S104", "S105", "S106", "S107",
+                        "S108", "S109", "S110", "S111", "S112", "S113"),
+                    List.of("S101", "S102", "S103", "S104", "S105", "S106", "S107",
+                        "S108", "S109", "S110", "S111", "S112", "S113"),
+                    List.of("U02", "U10", "U13", "U16", "U19", "U20", "U23",
+                        "U27", "U34", "U38", "U42", "U46", "U48")
+                ),
+                new OperationRouteTemplate(
+                    "R_DOWN", "下行正线（国家图书馆→郭公庄）", "MAIN",
+                    List.of("S113", "S112", "S111", "S110", "S109", "S108", "S107",
+                        "S106", "S105", "S104", "S103", "S102", "S101"),
+                    List.of("S113", "S112", "S111", "S110", "S109", "S108", "S107",
+                        "S106", "S105", "S104", "S103", "S102", "S101"),
+                    List.of("D47", "D43", "D36", "D28", "D24", "D21",
+                        "D17", "D14", "D11", "D07", "D04", "D03")
+                ),
+                new OperationRouteTemplate(
+                    "R_TB_LIB", "国家图书馆折返（上行→下行）", "BRANCH",
+                    List.of("S113", "D_START"),
+                    List.of("S113"),
+                    List.of("XLIB", "D47")
+                ),
+                new OperationRouteTemplate(
+                    "R_TB_GGZ", "郭公庄折返（下行→上行）", "BRANCH",
+                    List.of("S101", "U_START"),
+                    List.of("S101"),
+                    List.of("XGGZ", "U02")
+                )
+            );
+        }
         return List.of(
             new OperationRouteTemplate(
                 "R_MAIN", "主线", "MAIN",
@@ -299,6 +336,22 @@ public class OperationPlanningService {
                 List.of("T13", "T14", "T16")
             )
         );
+    }
+
+    private static List<String> routeDirections(OperationRouteTemplate template) {
+        return switch (template.routeId()) {
+            case "R_UP" -> List.of("UP");
+            case "R_DOWN" -> List.of("DOWN");
+            case "R_TB_LIB", "R_TB_GGZ" -> List.of("UP");
+            default -> List.of("UP", "DOWN");
+        };
+    }
+
+    private static boolean isDirectedSignalRoute(String routeId) {
+        return "R_UP".equals(routeId)
+            || "R_DOWN".equals(routeId)
+            || "R_TB_LIB".equals(routeId)
+            || "R_TB_GGZ".equals(routeId);
     }
 
     private static List<String> normalizeIds(List<String> ids) {

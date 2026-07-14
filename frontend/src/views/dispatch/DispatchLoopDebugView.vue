@@ -36,6 +36,7 @@ const switches = computed(() => snapshot.value?.switchStates ?? [])
 const signals = computed(() => snapshot.value?.signalStates ?? [])
 const routeDecisions = computed(() => dispatch.value.routeDecisions ?? [])
 const routeReservations = computed(() => dispatch.value.routeReservations ?? [])
+const lineRegulationPlan = computed(() => dispatch.value.lineRegulationPlan)
 
 const activeTrainCount = computed(() => trains.value.length)
 const dwellingTrainCount = computed(() => trains.value.filter((train) => train.status === 'DWELLING').length)
@@ -105,40 +106,53 @@ interface RoutePlannerCandidate {
 }
 
 const dispatchLineNodes: DispatchLineNode[] = [
-  { id: 'SHN', label: '上京南站', type: 'station', x: 8, y: 54, stationId: 'S01' },
-  { id: 'TECH', label: '科创园站', type: 'station', x: 24, y: 54, stationId: 'S02' },
-  { id: 'RENMIN', label: '中央公园站', type: 'station', x: 42, y: 54, stationId: 'S03' },
-  { id: 'FIN', label: '北城站', type: 'station', x: 58, y: 50, stationId: 'S04' },
-  { id: 'EXPO', label: '会展中心', type: 'station', x: 76, y: 54, stationId: 'S05' },
-  { id: 'AIR', label: '上京北站', type: 'station', x: 92, y: 54, stationId: 'S06' },
-  { id: 'DEPOT_A', label: '车辆段', type: 'depot', x: 12, y: 32 },
-  { id: 'DEPOT_B', label: '试车线', type: 'depot', x: 7, y: 22 },
-  { id: 'TECH_N', label: '科技园北岔', type: 'switch', x: 24, y: 32 },
-  { id: 'RENMIN_N', label: '广场北岔', type: 'switch', x: 42, y: 30 },
-  { id: 'FIN_N', label: '金融城北岔', type: 'switch', x: 58, y: 29 },
-  { id: 'EXPO_N', label: '会展北联络', type: 'junction', x: 76, y: 32 },
-  { id: 'LOOP_W', label: '折返线西', type: 'switch', x: 42, y: 78 },
-  { id: 'LOOP_E', label: '折返线东', type: 'switch', x: 58, y: 78 },
-  { id: 'BRANCH', label: '支线口', type: 'switch', x: 68, y: 70 },
+  { id: 'U_START', label: '上行起点', type: 'junction', x: 4, y: 58 },
+  { id: 'S101', label: '郭公庄站', type: 'station', x: 7, y: 58, stationId: 'S101' },
+  { id: 'S102', label: '丰台科技园站', type: 'station', x: 14, y: 58, stationId: 'S102' },
+  { id: 'S103', label: '科怡路站', type: 'station', x: 21, y: 58, stationId: 'S103' },
+  { id: 'S104', label: '丰台南路站', type: 'station', x: 28, y: 58, stationId: 'S104' },
+  { id: 'S105', label: '丰台东大街站', type: 'station', x: 35, y: 58, stationId: 'S105' },
+  { id: 'S106', label: '七里庄站', type: 'station', x: 42, y: 58, stationId: 'S106' },
+  { id: 'S107', label: '六里桥站', type: 'station', x: 49, y: 58, stationId: 'S107' },
+  { id: 'S108', label: '六里桥东站', type: 'station', x: 56, y: 58, stationId: 'S108' },
+  { id: 'S109', label: '北京西站', type: 'station', x: 63, y: 58, stationId: 'S109' },
+  { id: 'S110', label: '军事博物馆站', type: 'station', x: 70, y: 58, stationId: 'S110' },
+  { id: 'S111', label: '白堆子站', type: 'station', x: 77, y: 58, stationId: 'S111' },
+  { id: 'S112', label: '白石桥南站', type: 'station', x: 84, y: 58, stationId: 'S112' },
+  { id: 'S113', label: '国家图书馆站', type: 'station', x: 91, y: 58, stationId: 'S113' },
+  { id: 'D_START', label: '下行起点', type: 'junction', x: 96, y: 58 },
+  { id: 'TB_GGZ', label: '郭公庄折返', type: 'switch', x: 7, y: 74 },
+  { id: 'TB_LIB', label: '国图折返', type: 'switch', x: 91, y: 42 },
 ]
 
 const dispatchLineEdges: DispatchLineEdge[] = [
-  { id: 'E01', source: 'SHN', target: 'TECH', segmentId: 'T01', label: '20 Seg' },
-  { id: 'E02', source: 'TECH', target: 'RENMIN', segmentId: 'T02', label: '20 Seg' },
-  { id: 'E03', source: 'RENMIN', target: 'FIN', segmentId: 'T03', label: '20 Seg' },
-  { id: 'E04', source: 'FIN', target: 'EXPO', segmentId: 'T04', label: '20 Seg' },
-  { id: 'E05', source: 'EXPO', target: 'AIR', segmentId: 'T05', label: '20 Seg' },
-  { id: 'E06', source: 'DEPOT_B', target: 'DEPOT_A', segmentId: 'T11', label: '7 Seg' },
-  { id: 'E07', source: 'DEPOT_A', target: 'TECH', segmentId: 'T12', label: '13 Seg' },
-  { id: 'E08', source: 'TECH', target: 'TECH_N', segmentId: 'T06', label: '3 Seg' },
-  { id: 'E09', source: 'TECH_N', target: 'RENMIN_N', segmentId: 'T07', label: '16 Seg' },
-  { id: 'E10', source: 'RENMIN_N', target: 'FIN_N', segmentId: 'T08', label: '17 Seg' },
-  { id: 'E11', source: 'FIN_N', target: 'EXPO_N', segmentId: 'T09', label: '19 Seg' },
-  { id: 'E12', source: 'EXPO_N', target: 'EXPO', segmentId: 'T10', label: '6 Seg' },
-  { id: 'E13', source: 'RENMIN', target: 'LOOP_W', segmentId: 'T13', label: '8 Seg' },
-  { id: 'E14', source: 'LOOP_W', target: 'LOOP_E', segmentId: 'T14', label: '8 Seg' },
-  { id: 'E15', source: 'LOOP_E', target: 'FIN', segmentId: 'T15', label: '3 Seg' },
-  { id: 'E16', source: 'LOOP_E', target: 'BRANCH', segmentId: 'T16', label: '12 Seg' },
+  { id: 'EU02', source: 'U_START', target: 'S101', segmentId: 'U02', label: 'U02' },
+  { id: 'EU10', source: 'S101', target: 'S102', segmentId: 'U10', label: 'U10' },
+  { id: 'EU13', source: 'S102', target: 'S103', segmentId: 'U13', label: 'U13' },
+  { id: 'EU16', source: 'S103', target: 'S104', segmentId: 'U16', label: 'U16' },
+  { id: 'EU19', source: 'S104', target: 'S105', segmentId: 'U19', label: 'U19' },
+  { id: 'EU20', source: 'S105', target: 'S106', segmentId: 'U20', label: 'U20' },
+  { id: 'EU23', source: 'S106', target: 'S107', segmentId: 'U23', label: 'U23' },
+  { id: 'EU27', source: 'S107', target: 'S108', segmentId: 'U27', label: 'U27' },
+  { id: 'EU34', source: 'S108', target: 'S109', segmentId: 'U34', label: 'U34' },
+  { id: 'EU38', source: 'S109', target: 'S110', segmentId: 'U38', label: 'U38' },
+  { id: 'EU42', source: 'S110', target: 'S111', segmentId: 'U42', label: 'U42' },
+  { id: 'EU46', source: 'S111', target: 'S112', segmentId: 'U46', label: 'U46' },
+  { id: 'EU48', source: 'S112', target: 'S113', segmentId: 'U48', label: 'U48' },
+  { id: 'ED47', source: 'D_START', target: 'S113', segmentId: 'D47', label: 'D47' },
+  { id: 'ED43', source: 'S113', target: 'S112', segmentId: 'D43', label: 'D43' },
+  { id: 'ED36', source: 'S112', target: 'S111', segmentId: 'D36', label: 'D36' },
+  { id: 'ED28', source: 'S111', target: 'S110', segmentId: 'D28', label: 'D28' },
+  { id: 'ED24', source: 'S110', target: 'S109', segmentId: 'D24', label: 'D24' },
+  { id: 'ED21', source: 'S109', target: 'S108', segmentId: 'D21', label: 'D21' },
+  { id: 'ED17', source: 'S108', target: 'S107', segmentId: 'D17', label: 'D17' },
+  { id: 'ED14', source: 'S107', target: 'S106', segmentId: 'D14', label: 'D14' },
+  { id: 'ED11', source: 'S106', target: 'S105', segmentId: 'D11', label: 'D11' },
+  { id: 'ED07', source: 'S105', target: 'S104', segmentId: 'D07', label: 'D07' },
+  { id: 'ED04', source: 'S104', target: 'S103', segmentId: 'D04', label: 'D04' },
+  { id: 'ED03', source: 'S103', target: 'S102', segmentId: 'D03', label: 'D03' },
+  { id: 'EXGGZ', source: 'S101', target: 'U_START', segmentId: 'XGGZ', label: 'XGGZ' },
+  { id: 'EXLIB', source: 'S113', target: 'D_START', segmentId: 'XLIB', label: 'XLIB' },
 ]
 
 const routePlannerOpen = ref(false)
@@ -236,10 +250,8 @@ const selectedOperationPlan = computed(() =>
 const generatedOperationPlans = computed<OperationPlanView[]>(() => dispatch.value.operationPlans ?? [])
 const routePlannerCandidates = computed(() => {
   return operationRouteTemplates.value
-    .flatMap((template) => [
-      routeTemplateCandidate(template, 'UP'),
-      routeTemplateCandidate(template, 'DOWN')
-    ])
+    .flatMap((template) => routeTemplateDirections(template.routeId)
+      .map((direction) => routeTemplateCandidate(template, direction)))
     .filter((candidate): candidate is RoutePlannerCandidate => candidate !== null)
 })
 const selectedRoutePlannerCandidate = computed(() => {
@@ -559,10 +571,16 @@ const comparisonRows = computed(() => {
       delta: formatDelta(targetProfile?.headwayActualSeconds ?? null, baseline.headwayActualSeconds, 's')
     },
     {
-      label: '演示目标间隔',
+      label: '计划目标间隔',
       before: formatSeconds(baseline.targetHeadwaySeconds),
       after: formatSeconds(baseline.commandTargetHeadwaySeconds ?? dispatch.value.targetHeadwaySeconds),
       delta: formatDelta(baseline.commandTargetHeadwaySeconds ?? dispatch.value.targetHeadwaySeconds, baseline.targetHeadwaySeconds, 's')
+    },
+    {
+      label: '注入实际间隔',
+      before: formatSeconds(baseline.scenarioActualHeadwaySeconds),
+      after: formatSeconds(targetProfile?.headwayActualSeconds ?? null),
+      delta: baseline.scenarioActualHeadwaySeconds === null ? '-' : '扰动场景输入'
     },
     {
       label: '目标车速度',
@@ -604,6 +622,7 @@ interface ComparisonBaseline {
   headwayAction: string
   targetHeadwaySeconds: number
   commandTargetHeadwaySeconds: number | null
+  scenarioActualHeadwaySeconds: number | null
   headwayActualSeconds: number | null
   gapMeters: number | null
   speedMps: number | null
@@ -618,7 +637,7 @@ const commandLabel = (type: string) => {
     SHORTEN_DWELL: '本车追赶：缩短停站',
     EXTEND_DWELL: '本车放慢：延长停站',
     HEADWAY_ADJUST: '本车间隔调节',
-    SPEED_BIAS: '速度偏置',
+    SPEED_BIAS: '本车速度偏置',
     SPEED_LIMIT: '临时限速',
     TEMP_SPEED_LIMIT: '临时限速',
     SPEED_FACTOR: '速度系数',
@@ -630,6 +649,7 @@ const commandLabel = (type: string) => {
     REROUTE: '重排进路',
     HEADWAY_TOO_SHORT: '本车放慢',
     HEADWAY_TOO_LONG: '本车追赶',
+    SCHEDULE_LATE: '本车晚点恢复',
   }
   return labels[type] ?? type
 }
@@ -743,6 +763,37 @@ const routeDecisionStatusLabel = (statusText: string) => {
   return labels[statusText] ?? statusText
 }
 
+const lineRegulationStatusLabel = (statusText: string) => {
+  const labels: Record<string, string> = {
+    NO_DATA: '等待数据',
+    NO_ACTION_NEEDED: '无需调节',
+    OBSERVING: '观察中',
+    COMMANDS_PROPOSED: '已生成方案',
+  }
+  return labels[statusText] ?? statusText
+}
+
+const lineDecisionStatusLabel = (statusText: string) => {
+  const labels: Record<string, string> = {
+    COMMAND_PROPOSED: '已选中',
+    OBSERVE: '观察',
+    OBSERVE_ACTIVE_COMMAND: '已有命令',
+    OBSERVE_CONFLICT_SUPPRESSED: '冲突抑制',
+    OBSERVE_SIGNAL_CONSTRAINED: '信号约束',
+  }
+  return labels[statusText] ?? statusText
+}
+
+const signalConstraintLabel = (constraint: string) => {
+  const labels: Record<string, string> = {
+    NONE: '无',
+    MA_LIMITED: 'MA受限',
+    SPEED_LIMITED: '限速受限',
+    ROUTE_BLOCKED: '进路受阻',
+  }
+  return labels[constraint] ?? constraint
+}
+
 const headwayStateLabel = (state: string) => {
   const labels: Record<string, string> = {
     LEADING_TRAIN: '头车',
@@ -765,6 +816,24 @@ const headwayActionLabel = (action: string) => {
     CATCH_UP_REAR_TRAIN: '本车追赶（兼容旧状态）',
   }
   return labels[action] ?? action
+}
+
+const headwayDirectionLabel = (direction: string | null | undefined) => {
+  const labels: Record<string, string> = {
+    TOO_SHORT: '间隔过小',
+    TOO_LONG: '间隔过大',
+    SCHEDULE_LATE: '本车晚点',
+  }
+  return direction ? labels[direction] ?? direction : '-'
+}
+
+const disturbanceScenarioLabel = (kind: 'tooShort' | 'tooLong' | 'late') => {
+  const labels = {
+    tooShort: '间隔过小扰动',
+    tooLong: '间隔过大扰动',
+    late: '本车晚点扰动',
+  }
+  return labels[kind]
 }
 
 const formatNumber = (value: number | null | undefined, digits = 1) => {
@@ -924,12 +993,13 @@ function routeTemplateCandidate(
   template: OperationRouteTemplate,
   direction: 'UP' | 'DOWN'
 ): RoutePlannerCandidate | null {
-  const pointIds = direction === 'UP' ? template.pointIds : [...template.pointIds].reverse()
+  const directedTemplate = isDirectedSignalRoute(template.routeId)
+  const pointIds = direction === 'UP' || directedTemplate ? template.pointIds : [...template.pointIds].reverse()
   const nodeIds = pointIds
     .map(pointIdToNodeId)
     .filter((nodeId): nodeId is string => Boolean(nodeId))
   if (pointIds.length < 2 || nodeIds.length < 2) return null
-  const segmentIds = direction === 'UP' ? template.segmentIds : [...template.segmentIds].reverse()
+  const segmentIds = direction === 'UP' || directedTemplate ? template.segmentIds : [...template.segmentIds].reverse()
 
   return {
     key: `${template.routeId}:${direction}`,
@@ -943,6 +1013,19 @@ function routeTemplateCandidate(
       .filter((stationId): stationId is string => Boolean(stationId)),
     segmentIds
   }
+}
+
+function routeTemplateDirections(routeId: string): Array<'UP' | 'DOWN'> {
+  if (routeId === 'R_UP' || routeId === 'R_TB_LIB' || routeId === 'R_TB_GGZ') return ['UP']
+  if (routeId === 'R_DOWN') return ['DOWN']
+  return ['UP', 'DOWN']
+}
+
+function isDirectedSignalRoute(routeId: string) {
+  return routeId === 'R_UP'
+    || routeId === 'R_DOWN'
+    || routeId === 'R_TB_LIB'
+    || routeId === 'R_TB_GGZ'
 }
 
 function handleDispatchLineNodeClick(node: DispatchLineNode) {
@@ -1208,11 +1291,11 @@ function selectTrain(trainId: string) {
 async function acceptSuggestedAction() {
   const action = selectedTrainSuggestion.value.action
   if (action === 'SLOW_DOWN') {
-    await runManualAction('采纳本车放慢建议', () => submitHeadwayDemo('tooShort'))
+    await runManualAction('采纳本车放慢建议', () => submitHeadwayScenario('tooShort'))
     return
   }
   if (action === 'CATCH_UP') {
-    await runManualAction('采纳本车追赶建议', () => submitHeadwayDemo('tooLong'))
+    await runManualAction('采纳本车追赶建议', () => submitHeadwayScenario('tooLong'))
     return
   }
   manualActionMessage.value = suggestionDisabledReason.value || '当前没有可下发的调度建议'
@@ -1225,24 +1308,43 @@ async function requestRouteForSelected() {
   await requestSelectedRoute()
 }
 
-async function submitHeadwayDemo(kind: 'tooShort' | 'tooLong') {
+async function submitHeadwayScenario(kind: 'tooShort' | 'tooLong' | 'late') {
   const targetTrain = selectedDemoTrain.value
   if (!targetTrain) throw new Error('请先在上方列车运行表选择调度对象')
-  const targetHeadwaySec = kind === 'tooShort'
-    ? normalizedHeadway(demoLongHeadwaySec.value)
-    : normalizedHeadway(demoShortHeadwaySec.value)
-  captureBaseline(kind === 'tooShort' ? 'HEADWAY_TOO_SHORT' : 'HEADWAY_TOO_LONG', targetTrain, targetHeadwaySec)
-  await dispatchApi.submitCommand({
+  const targetHeadwaySec = dispatch.value.targetHeadwaySeconds
+  const actualHeadwaySec = kind === 'tooShort'
+    ? normalizedHeadway(demoShortHeadwaySec.value)
+    : kind === 'tooLong'
+      ? normalizedHeadway(demoLongHeadwaySec.value)
+      : 0
+  const headwayDirection = kind === 'tooShort'
+    ? 'TOO_SHORT'
+    : kind === 'tooLong'
+      ? 'TOO_LONG'
+      : 'SCHEDULE_LATE'
+  const violationSec = kind === 'tooShort'
+    ? Math.max(30, targetHeadwaySec * headwayShrinkRatio - actualHeadwaySec)
+    : kind === 'tooLong'
+      ? Math.max(30, actualHeadwaySec - targetHeadwaySec * headwayExpandRatio)
+      : Math.max(30, selectedTrainProfile.value?.departureDelaySeconds ?? 90)
+
+  captureBaseline(
+    kind === 'tooShort' ? 'HEADWAY_TOO_SHORT' : kind === 'tooLong' ? 'HEADWAY_TOO_LONG' : 'SCHEDULE_LATE',
+    targetTrain,
+    null,
+    actualHeadwaySec
+  )
+  const event = await dispatchApi.injectDemoDisturbance({
     trainId: targetTrain.id,
-    commandType: 'HEADWAY_ADJUST',
     targetHeadwaySec,
-    payload: {
-      regulatedTrainId: targetTrain.id,
-      regulationAction: kind === 'tooShort' ? 'SLOW_DOWN' : 'CATCH_UP',
-      regulationSource: 'MANUAL_DEMO'
-    }
+    actualHeadwaySec,
+    violationSec,
+    headwayDirection,
+    type: 'TRAIN_REGULATION',
+    stationId: targetTrain.currentStationId || undefined
   })
   await refreshSimulationSnapshot()
+  manualActionMessage.value = `已注入${disturbanceScenarioLabel(kind)}：${event.id}，等待后端策略在下一轮生成本车调度指令。`
 }
 
 async function runManualAction(label: string, action: () => Promise<void>) {
@@ -1256,7 +1358,9 @@ async function runManualAction(label: string, action: () => Promise<void>) {
   manualActionMessage.value = `${label}已提交，等待后端总循环处理。`
   try {
     await action()
-    manualActionMessage.value = `${label}已下发，请在运行表和闭环追踪中观察 MA、速度、停站或进路状态变化。`
+    if (!manualActionMessage.value.includes('已注入')) {
+      manualActionMessage.value = `${label}已下发，请在运行表和闭环追踪中观察 MA、速度、停站或进路状态变化。`
+    }
   } catch (error) {
     manualActionMessage.value = error instanceof Error ? `${label}失败：${error.message}` : `${label}失败。`
   } finally {
@@ -1265,7 +1369,11 @@ async function runManualAction(label: string, action: () => Promise<void>) {
 }
 
 async function submitManualHeadwayDemo(kind: 'tooShort' | 'tooLong') {
-  await runManualAction(kind === 'tooShort' ? '演示本车放慢' : '演示本车追赶', () => submitHeadwayDemo(kind))
+  await runManualAction(kind === 'tooShort' ? '演示间隔过小' : '演示间隔过大', () => submitHeadwayScenario(kind))
+}
+
+async function submitManualLateDemo() {
+  await runManualAction('演示本车晚点', () => submitHeadwayScenario('late'))
 }
 
 async function submitManualSpeedLimit() {
@@ -1342,6 +1450,21 @@ function commandEvidence(command: { commandType: string; trainId: string; status
     : {}
   const feedbackReason = textPayloadValue(payload.lastFeedbackReason)
   const pieces: string[] = []
+  const direction = textPayloadValue(payload.headwayDirection)
+  if (direction !== '-') pieces.push(headwayDirectionLabel(direction))
+  const action = textPayloadValue(payload.regulationAction)
+  if (action !== '-') pieces.push(headwayActionLabel(action))
+  const ratio = numberPayloadValue(payload.speedBiasRatio)
+  if (ratio !== null) pieces.push(`速度偏置 ${ratio.toFixed(2)}`)
+  const baselineError = numberPayloadValue(payload.baselineHeadwayErrorSec)
+  if (baselineError !== null) pieces.push(`基线偏差 ${formatSeconds(baselineError)}`)
+  const targetHeadway = numberPayloadValue(payload.targetHeadwaySec)
+  const actualHeadway = numberPayloadValue(payload.actualHeadwaySec)
+  if (targetHeadway !== null || actualHeadway !== null) {
+    pieces.push(`实际/目标 ${formatSeconds(actualHeadway)} / ${formatSeconds(targetHeadway)}`)
+  }
+  const deltaDwell = numberPayloadValue(payload.deltaDwellSec)
+  if (deltaDwell !== null) pieces.push(`停站调整 ${deltaDwell > 0 ? '+' : ''}${deltaDwell.toFixed(0)}s`)
   if (details.actualSpeed !== undefined) pieces.push(`实速 ${formatNumber(numberPayloadValue(details.actualSpeed))} m/s`)
   if (details.zeroSpeed !== undefined) pieces.push(`零速 ${details.zeroSpeed ? '是' : '否'}`)
   if (details.constraintReason !== undefined) pieces.push(`约束 ${dynamicsReasonLabel(String(details.constraintReason))}`)
@@ -1488,7 +1611,12 @@ function dispatchRouteStateText(
   return '未由调度申请'
 }
 
-function captureBaseline(commandType: string, targetTrain: TrainState, commandTargetHeadwaySeconds: number | null = null) {
+function captureBaseline(
+  commandType: string,
+  targetTrain: TrainState,
+  commandTargetHeadwaySeconds: number | null = null,
+  scenarioActualHeadwaySeconds: number | null = null
+) {
   const targetAuthority = authorityByTrain.value.get(targetTrain.id)
   const targetProfile = dispatch.value.trainProfiles.find((profile) => profile.trainId === targetTrain.id)
   comparisonBaseline.value = {
@@ -1500,6 +1628,7 @@ function captureBaseline(commandType: string, targetTrain: TrainState, commandTa
     headwayAction: targetProfile?.headwayAction ?? 'OBSERVE',
     targetHeadwaySeconds: dispatch.value.targetHeadwaySeconds,
     commandTargetHeadwaySeconds,
+    scenarioActualHeadwaySeconds,
     headwayActualSeconds: targetProfile?.headwayActualSeconds ?? null,
     gapMeters: currentGapMeters.value,
     speedMps: targetTrain.speedMetersPerSecond,
@@ -1806,8 +1935,17 @@ function formatDelta(current: number | null | undefined, baseline: number | null
           <strong>人工干预/联调演示</strong>
           <span>这些按钮用于异常处置或联调验证。正常运营中，进路应由调度策略按计划自动申请；间隔调节应在出现明确间隔偏差后由系统建议触发。</span>
         </div>
-        <button type="button" :disabled="manualActionPending" @click="submitManualHeadwayDemo('tooShort')">演示：本车放慢</button>
-        <button type="button" :disabled="manualActionPending" @click="submitManualHeadwayDemo('tooLong')">演示：本车追赶</button>
+        <label>
+          <span>间隔过小实际值 s</span>
+          <input v-model.number="demoShortHeadwaySec" type="number" min="30" max="900" step="30" />
+        </label>
+        <button type="button" :disabled="manualActionPending" @click="submitManualHeadwayDemo('tooShort')">注入：间隔过小</button>
+        <label>
+          <span>间隔过大实际值 s</span>
+          <input v-model.number="demoLongHeadwaySec" type="number" min="30" max="900" step="30" />
+        </label>
+        <button type="button" :disabled="manualActionPending" @click="submitManualHeadwayDemo('tooLong')">注入：间隔过大</button>
+        <button type="button" :disabled="manualActionPending" @click="submitManualLateDemo">注入：本车晚点</button>
         <label>
           <span>临时限速 m/s</span>
           <input v-model.number="demoSpeedLimitMps" type="number" min="1" max="22.2" step="0.5" />
@@ -1896,6 +2034,67 @@ function formatDelta(current: number | null | undefined, baseline: number | null
         </article>
       </div>
       <p class="headway-focus-hint">{{ headwayViolation.hint }}</p>
+    </section>
+
+    <section class="line-regulation-panel" :data-status="lineRegulationPlan.status">
+      <div class="panel-title">
+        <h2>线路级调节方案</h2>
+        <span>{{ lineRegulationStatusLabel(lineRegulationPlan.status) }} / {{ lineRegulationPlan.commandCount }} 条本车命令</span>
+      </div>
+      <div class="line-regulation-summary">
+        <article>
+          <span>目标间隔</span>
+          <strong>{{ formatSeconds(lineRegulationPlan.targetHeadwaySec) }}</strong>
+          <small>{{ lineRegulationPlan.objective }}</small>
+        </article>
+        <article>
+          <span>当前最大偏差</span>
+          <strong>{{ formatSeconds(lineRegulationPlan.currentMaxAbsHeadwayErrorSec) }}</strong>
+          <small>全线绝对偏差</small>
+        </article>
+        <article>
+          <span>预计最大偏差</span>
+          <strong>{{ formatSeconds(lineRegulationPlan.predictedMaxAbsHeadwayErrorSec) }}</strong>
+          <small>本轮动作后估计</small>
+        </article>
+        <article>
+          <span>方案编号</span>
+          <strong>{{ lineRegulationPlan.planId || '-' }}</strong>
+          <small>{{ lineRegulationPlan.generatedAt ? formatPlannedTime(lineRegulationPlan.generatedAt) : '等待生成' }}</small>
+        </article>
+      </div>
+      <p v-if="lineRegulationPlan.decisions.length === 0" class="empty">暂无线路级调节方案。等待列车形成有效间隔观测或注入扰动。</p>
+      <div v-else class="line-decision-list">
+        <article v-for="decision in lineRegulationPlan.decisions" :key="`${decision.trainId}-${decision.status}-${decision.commandId || decision.reason}`">
+          <header>
+            <strong>{{ decision.trainId }} · {{ headwayActionLabel(decision.action) }}</strong>
+            <span :data-status="decision.status">{{ lineDecisionStatusLabel(decision.status) }}</span>
+          </header>
+          <dl>
+            <div>
+              <dt>参考前车</dt>
+              <dd>{{ decision.frontTrainId || '-' }}</dd>
+            </div>
+            <div>
+              <dt>实际/目标</dt>
+              <dd>{{ formatSeconds(decision.currentHeadwaySec) }} / {{ formatSeconds(decision.targetHeadwaySec) }}</dd>
+            </div>
+            <div>
+              <dt>偏差预测</dt>
+              <dd>{{ formatSeconds(decision.currentHeadwayErrorSec) }} → {{ formatSeconds(decision.predictedHeadwayErrorSec) }}</dd>
+            </div>
+            <div>
+              <dt>命令</dt>
+              <dd>{{ commandLabel(decision.commandType) }}</dd>
+            </div>
+            <div>
+              <dt>信号约束</dt>
+              <dd>{{ signalConstraintLabel(decision.signalConstraint) }}</dd>
+            </div>
+          </dl>
+          <p>{{ decision.reason }}</p>
+        </article>
+      </div>
     </section>
 
     <section class="debug-grid">
@@ -2084,8 +2283,8 @@ function formatDelta(current: number | null | undefined, baseline: number | null
 .debug-shell {
   min-height: 100vh;
   padding: 20px;
-  background: #f6f8fb;
-  color: #172033;
+  background: var(--bg-app);
+  color: var(--text-primary);
 }
 
 .debug-header {
@@ -2099,7 +2298,7 @@ function formatDelta(current: number | null | undefined, baseline: number | null
 
 .eyebrow {
   margin: 0 0 4px;
-  color: #2563eb;
+  color: var(--accent);
   font-size: 12px;
   font-weight: 700;
   letter-spacing: 0;
@@ -2120,7 +2319,7 @@ p {
 
 .debug-header p:last-child {
   margin-top: 6px;
-  color: #64748b;
+  color: var(--text-secondary);
 }
 
 .debug-actions {
@@ -2131,9 +2330,9 @@ p {
 }
 
 button {
-  border: 1px solid #cbd5e1;
+  border: 1px solid var(--border-strong);
   border-radius: 8px;
-  background: #fff;
+  background: var(--bg-panel);
   color: #1e293b;
   min-height: 36px;
   padding: 8px 12px;
@@ -2142,9 +2341,9 @@ button {
 }
 
 button.active {
-  border-color: #059669;
-  background: #059669;
-  color: #fff;
+  border-color: var(--status-ok);
+  background: var(--status-ok);
+  color: #ffffff;
 }
 
 button:disabled {
@@ -2153,27 +2352,27 @@ button:disabled {
 }
 
 .ghost-button {
-  border-color: #2563eb;
-  color: #1d4ed8;
+  border-color: var(--accent);
+  color: var(--status-info);
 }
 
 .ghost-button.active {
-  border-color: #1d4ed8;
-  background: #eff6ff;
-  color: #1d4ed8;
+  border-color: var(--status-info);
+  background: var(--status-info-bg);
+  color: var(--status-info);
 }
 
 .demo-button {
   border-color: #7c3aed;
   background: #7c3aed;
-  color: #fff;
+  color: #ffffff;
 }
 
 .release-button {
   width: fit-content;
-  border-color: #dc2626;
-  background: #fff;
-  color: #b91c1c;
+  border-color: var(--status-danger);
+  background: var(--bg-panel);
+  color: var(--status-danger);
 }
 
 .demo-control-bar {
@@ -2189,15 +2388,15 @@ button:disabled {
   grid-template-rows: auto auto auto;
   gap: 10px;
   min-width: 0;
-  border: 1px solid #dbeafe;
+  border: 1px solid var(--status-info-bg);
   border-radius: 12px;
-  background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+  background: linear-gradient(180deg, var(--bg-panel) 0%, var(--bg-panel-raised) 100%);
   padding: 12px;
 }
 
 .demo-action-card.primary {
   border-color: #c4b5fd;
-  background: linear-gradient(180deg, #faf5ff 0%, #ffffff 100%);
+  background: linear-gradient(180deg, #faf5ff 0%, var(--bg-panel) 100%);
   box-shadow: inset 3px 0 0 #7c3aed;
 }
 
@@ -2207,13 +2406,13 @@ button:disabled {
 }
 
 .demo-action-card strong {
-  color: #172033;
+  color: var(--text-primary);
   font-size: 14px;
 }
 
 .demo-action-card > div span,
 .demo-action-card label span {
-  color: #64748b;
+  color: var(--text-secondary);
   font-size: 12px;
   font-weight: 700;
 }
@@ -2222,7 +2421,7 @@ button:disabled {
 .demo-control-bar select {
   width: 100%;
   min-height: 36px;
-  border: 1px solid #cbd5e1;
+  border: 1px solid var(--border-strong);
   border-radius: 8px;
   padding: 6px 10px;
   font: inherit;
@@ -2230,9 +2429,9 @@ button:disabled {
 
 .selected-train-note {
   margin: -4px 0 12px;
-  border-left: 3px solid #2563eb;
-  background: #eff6ff;
-  color: #1e3a8a;
+  border-left: 3px solid var(--accent);
+  background: var(--status-info-bg);
+  color: var(--status-info);
   padding: 8px 10px;
   font-size: 13px;
 }
@@ -2246,7 +2445,7 @@ button:disabled {
 
 .route-control-bar select {
   min-height: 36px;
-  border: 1px solid #cbd5e1;
+  border: 1px solid var(--border-strong);
   border-radius: 8px;
   padding: 6px 10px;
   font: inherit;
@@ -2254,7 +2453,7 @@ button:disabled {
 
 .route-operation-message {
   margin: 0 0 10px;
-  color: #1d4ed8;
+  color: var(--status-info);
   font-size: 13px;
 }
 
@@ -2267,13 +2466,13 @@ button:disabled {
 .route-trace-list article {
   display: grid;
   gap: 4px;
-  border-left: 3px solid #2563eb;
-  background: #eff6ff;
+  border-left: 3px solid var(--accent);
+  background: var(--status-info-bg);
   padding: 8px 10px;
 }
 
 .route-trace-list p {
-  color: #475569;
+  color: var(--text-secondary);
   font-size: 12px;
 }
 
@@ -2290,10 +2489,10 @@ button:disabled {
 
 .dispatch-line-route-chips span {
   width: fit-content;
-  border: 1px solid #dbeafe;
+  border: 1px solid var(--status-info-bg);
   border-radius: 999px;
-  background: #f8fafc;
-  color: #334155;
+  background: var(--bg-panel-raised);
+  color: var(--text-primary);
   padding: 4px 9px;
   font-size: 12px;
   font-weight: 800;
@@ -2309,15 +2508,15 @@ button:disabled {
 }
 
 .dispatch-line-route-chips span.active {
-  border-color: #2563eb;
-  background: #eff6ff;
-  color: #1d4ed8;
+  border-color: var(--accent);
+  background: var(--status-info-bg);
+  color: var(--status-info);
 }
 
 .dispatch-line-route-chips span.unmapped {
   border-color: #fecaca;
-  background: #fef2f2;
-  color: #b91c1c;
+  background: var(--status-danger-bg);
+  color: var(--status-danger);
 }
 
 .route-planner-panel {
@@ -2331,9 +2530,9 @@ button:disabled {
 .route-planner-card {
   display: grid;
   gap: 10px;
-  border: 1px solid #dbeafe;
+  border: 1px solid var(--status-info-bg);
   border-radius: 8px;
-  background: #f8fbff;
+  background: var(--bg-inset);
   padding: 12px;
 }
 
@@ -2351,7 +2550,7 @@ button:disabled {
 .route-planner-heading span {
   width: fit-content;
   border-radius: 999px;
-  background: #ede9fe;
+  background: rgba(167, 139, 250, 0.16);
   color: #6d28d9;
   padding: 3px 8px;
   font-size: 12px;
@@ -2360,7 +2559,7 @@ button:disabled {
 
 .route-planner-source {
   margin: 0;
-  color: #475569;
+  color: var(--text-secondary);
   font-size: 12px;
   line-height: 1.5;
 }
@@ -2376,16 +2575,16 @@ button:disabled {
   display: grid;
   gap: 3px;
   min-width: 0;
-  border: 1px solid #e2e8f0;
+  border: 1px solid var(--border);
   border-radius: 8px;
-  background: #fff;
+  background: var(--bg-panel);
   padding: 8px;
 }
 
 .route-stop-grid span,
 .route-plan-preview span,
 .route-planner-card label span {
-  color: #64748b;
+  color: var(--text-secondary);
   font-size: 12px;
   font-weight: 800;
 }
@@ -2393,7 +2592,7 @@ button:disabled {
 .route-stop-grid strong,
 .route-plan-preview strong {
   overflow-wrap: anywhere;
-  color: #172033;
+  color: var(--text-primary);
   font-size: 13px;
   line-height: 1.35;
 }
@@ -2415,15 +2614,15 @@ button:disabled {
 .route-planner-card input {
   width: 100%;
   min-height: 36px;
-  border: 1px solid #cbd5e1;
+  border: 1px solid var(--border-strong);
   border-radius: 8px;
-  background: #fff;
+  background: var(--bg-panel);
   padding: 6px 10px;
   font: inherit;
 }
 
 .route-planner-message {
-  color: #1d4ed8;
+  color: var(--status-info);
   font-size: 13px;
   line-height: 1.5;
 }
@@ -2440,15 +2639,15 @@ button:disabled {
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 6px;
   align-items: stretch;
-  border: 1px solid #e2e8f0;
+  border: 1px solid var(--border);
   border-radius: 8px;
-  background: #fff;
+  background: var(--bg-panel);
   padding: 6px;
 }
 
 .operation-plan-list article.selected {
   border-color: #7c3aed;
-  background: #f5f3ff;
+  background: rgba(167, 139, 250, 0.16);
 }
 
 .operation-plan-list article > button:first-child {
@@ -2471,7 +2670,7 @@ button:disabled {
 
 .operation-plan-list span,
 .operation-plan-list small {
-  color: #64748b;
+  color: var(--text-secondary);
   font-size: 12px;
 }
 
@@ -2485,11 +2684,11 @@ button:disabled {
 }
 
 .overview-table tbody tr:hover {
-  background: #f8fafc;
+  background: var(--bg-panel-raised);
 }
 
 .overview-table td strong {
-  color: #172033;
+  color: var(--text-primary);
 }
 
 .selected-workbench-grid {
@@ -2504,22 +2703,22 @@ button:disabled {
   gap: 6px;
   min-height: 118px;
   min-width: 0;
-  border: 1px solid #dbeafe;
+  border: 1px solid var(--status-info-bg);
   border-radius: 8px;
-  background: #f8fbff;
+  background: var(--bg-inset);
   padding: 12px;
 }
 
 .selected-workbench-grid article span,
 .object-action-panel label span {
-  color: #475569;
+  color: var(--text-secondary);
   font-size: 12px;
   font-weight: 700;
 }
 
 .selected-workbench-grid article strong {
   overflow-wrap: anywhere;
-  color: #172033;
+  color: var(--text-primary);
   font-size: 18px;
   line-height: 1.3;
 }
@@ -2530,9 +2729,9 @@ button:disabled {
   align-items: center;
   gap: 8px;
   margin-top: 12px;
-  border: 1px solid #e2e8f0;
+  border: 1px solid var(--border);
   border-radius: 8px;
-  background: #f8fafc;
+  background: var(--bg-panel-raised);
   padding: 10px;
 }
 
@@ -2543,13 +2742,13 @@ button:disabled {
 }
 
 .action-summary span {
-  color: #475569;
+  color: var(--text-secondary);
   font-size: 12px;
   line-height: 1.4;
 }
 
 .action-summary small {
-  color: #92400e;
+  color: var(--status-warn);
 }
 
 .manual-tool-panel {
@@ -2558,9 +2757,9 @@ button:disabled {
   align-items: end;
   gap: 8px;
   margin-top: 10px;
-  border: 1px dashed #cbd5e1;
+  border: 1px dashed var(--border-strong);
   border-radius: 8px;
-  background: #fff;
+  background: var(--bg-panel);
   padding: 10px;
 }
 
@@ -2571,7 +2770,7 @@ button:disabled {
 }
 
 .manual-tool-note span {
-  color: #64748b;
+  color: var(--text-secondary);
   font-size: 12px;
   line-height: 1.45;
 }
@@ -2588,7 +2787,7 @@ button:disabled {
 .manual-tool-panel select {
   width: 100%;
   min-height: 36px;
-  border: 1px solid #cbd5e1;
+  border: 1px solid var(--border-strong);
   border-radius: 8px;
   padding: 6px 10px;
   font: inherit;
@@ -2601,7 +2800,7 @@ button:disabled {
 }
 
 .manual-tool-panel label span {
-  color: #475569;
+  color: var(--text-secondary);
   font-size: 12px;
   font-weight: 700;
 }
@@ -2613,9 +2812,9 @@ button:disabled {
 
 .manual-action-message {
   margin: 0;
-  border-left: 3px solid #2563eb;
-  background: #eff6ff;
-  color: #1e3a8a;
+  border-left: 3px solid var(--accent);
+  background: var(--status-info-bg);
+  color: var(--status-info);
   padding: 8px 10px;
   font-size: 13px;
   line-height: 1.45;
@@ -2633,8 +2832,8 @@ button:disabled {
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 4px 8px;
   align-items: center;
-  border-left: 3px solid #2563eb;
-  background: #eff6ff;
+  border-left: 3px solid var(--accent);
+  background: var(--status-info-bg);
   padding: 8px 10px;
 }
 
@@ -2645,6 +2844,7 @@ button:disabled {
 .debug-banner,
 .metric-grid,
 .debug-grid,
+.line-regulation-panel,
 .debug-panel {
   max-width: 1500px;
   margin-left: auto;
@@ -2659,13 +2859,13 @@ button:disabled {
 }
 
 .debug-banner.error {
-  background: #fef2f2;
-  color: #b91c1c;
+  background: var(--status-danger-bg);
+  color: var(--status-danger);
 }
 
 .debug-banner.warn {
-  background: #fffbeb;
-  color: #92400e;
+  background: var(--status-warn-bg);
+  color: var(--status-warn);
 }
 
 .metric-grid {
@@ -2677,9 +2877,9 @@ button:disabled {
 
 .metric-grid article,
 .debug-panel {
-  border: 1px solid #d9e2ef;
+  border: 1px solid var(--border);
   border-radius: 8px;
-  background: #fff;
+  background: var(--bg-panel);
   box-shadow: 0 8px 24px rgba(15, 23, 42, 0.05);
 }
 
@@ -2696,7 +2896,7 @@ button:disabled {
 .empty,
 dt,
 small {
-  color: #64748b;
+  color: var(--text-secondary);
 }
 
 .metric-grid strong {
@@ -2706,9 +2906,9 @@ small {
 .headway-focus {
   max-width: 1500px;
   margin: 0 auto 12px;
-  border: 1px solid #bfdbfe;
+  border: 1px solid var(--status-info-bg);
   border-radius: 8px;
-  background: #f8fbff;
+  background: var(--bg-inset);
   padding: 14px;
   box-shadow: 0 8px 24px rgba(15, 23, 42, 0.05);
 }
@@ -2732,21 +2932,21 @@ small {
   gap: 6px;
   min-height: 96px;
   min-width: 0;
-  border: 1px solid #dbeafe;
+  border: 1px solid var(--status-info-bg);
   border-radius: 8px;
-  background: #fff;
+  background: var(--bg-panel);
   padding: 12px;
 }
 
 .headway-kpi span {
-  color: #475569;
+  color: var(--text-secondary);
   font-size: 12px;
   font-weight: 700;
 }
 
 .headway-kpi strong {
   overflow-wrap: anywhere;
-  color: #172033;
+  color: var(--text-primary);
   font-size: 20px;
   line-height: 1.25;
 }
@@ -2757,12 +2957,12 @@ small {
 
 .headway-kpi.controlled {
   border-color: #c7d2fe;
-  background: #eef2ff;
+  background: var(--status-info-bg);
 }
 
 .headway-kpi.highlight {
   border-color: #f59e0b;
-  background: #fffbeb;
+  background: var(--status-warn-bg);
 }
 
 .headway-kpi.highlight strong {
@@ -2771,29 +2971,129 @@ small {
 
 .headway-focus[data-state='TOO_SHORT'] .headway-kpi.highlight,
 .headway-focus[data-state='TOO_LONG'] .headway-kpi.highlight {
-  border-color: #ef4444;
-  background: #fef2f2;
+  border-color: var(--status-danger);
+  background: var(--status-danger-bg);
 }
 
 .headway-focus[data-state='TOO_SHORT'] .headway-kpi.highlight strong,
 .headway-focus[data-state='TOO_LONG'] .headway-kpi.highlight strong {
-  color: #b91c1c;
+  color: var(--status-danger);
 }
 
 .headway-focus[data-state='ON_TARGET'] .headway-kpi.highlight {
-  border-color: #10b981;
-  background: #ecfdf5;
+  border-color: var(--status-ok);
+  background: var(--status-ok-bg);
 }
 
 .headway-focus[data-state='ON_TARGET'] .headway-kpi.highlight strong {
-  color: #047857;
+  color: var(--status-ok);
 }
 
 .headway-focus-hint {
   margin-top: 10px;
-  color: #475569;
+  color: var(--text-secondary);
   font-size: 13px;
   line-height: 1.5;
+}
+
+.line-regulation-panel {
+  margin-bottom: 12px;
+  border: 1px solid #c7d2fe;
+  border-radius: 8px;
+  background: #fbfdff;
+  padding: 14px;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.05);
+}
+
+.line-regulation-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.line-regulation-summary article {
+  display: grid;
+  align-content: start;
+  gap: 5px;
+  min-width: 0;
+  min-height: 86px;
+  border: 1px solid #dbeafe;
+  border-radius: 8px;
+  background: #fff;
+  padding: 12px;
+}
+
+.line-regulation-summary span,
+.line-decision-list dt {
+  color: #475569;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.line-regulation-summary strong {
+  overflow-wrap: anywhere;
+  color: #172033;
+  font-size: 20px;
+  line-height: 1.25;
+}
+
+.line-decision-list {
+  display: grid;
+  gap: 10px;
+}
+
+.line-decision-list article {
+  display: grid;
+  gap: 10px;
+  border-left: 3px solid #4f46e5;
+  background: #eef2ff;
+  padding: 10px 12px;
+}
+
+.line-decision-list header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.line-decision-list header strong {
+  overflow-wrap: anywhere;
+}
+
+.line-decision-list header span {
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: #fff;
+  color: #3730a3;
+  padding: 4px 8px;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.line-decision-list dl {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.line-decision-list dl div {
+  min-width: 0;
+}
+
+.line-decision-list dd {
+  overflow-wrap: anywhere;
+  color: #172033;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.line-decision-list p {
+  margin: 0;
+  color: #475569;
+  font-size: 13px;
+  line-height: 1.45;
 }
 
 .debug-grid {
@@ -2854,9 +3154,9 @@ small {
 .command-card,
 .disturbance-list article,
 .compact-list article {
-  border: 1px solid #e2e8f0;
+  border: 1px solid var(--border);
   border-radius: 8px;
-  background: #f8fafc;
+  background: var(--bg-panel-raised);
   padding: 10px;
 }
 
@@ -2891,7 +3191,7 @@ dd {
 .command-card p,
 .disturbance-list p,
 .compact-list p {
-  color: #475569;
+  color: var(--text-secondary);
   font-size: 13px;
   line-height: 1.5;
 }
@@ -2899,7 +3199,7 @@ dd {
 .command-card .command-evidence {
   margin-top: 6px;
   border-radius: 8px;
-  background: #eef2ff;
+  background: var(--status-info-bg);
   color: #3730a3;
   padding: 7px 8px;
   font-size: 12px;
@@ -2909,7 +3209,7 @@ dd {
   display: grid;
   gap: 8px;
   margin-top: 14px;
-  border-top: 1px solid #e2e8f0;
+  border-top: 1px solid var(--border);
   padding-top: 12px;
 }
 
@@ -2920,9 +3220,9 @@ dd {
 .profile-observation article {
   display: grid;
   gap: 4px;
-  border: 1px solid #e2e8f0;
+  border: 1px solid var(--border);
   border-radius: 8px;
-  background: #f8fafc;
+  background: var(--bg-panel-raised);
   padding: 8px;
 }
 
@@ -2942,12 +3242,12 @@ dd {
   margin-bottom: 10px;
   border: 1px solid #fde68a;
   border-radius: 8px;
-  background: #fffbeb;
+  background: var(--status-warn-bg);
   padding: 10px 12px;
 }
 
 .comparison-warnings p {
-  color: #92400e;
+  color: var(--status-warn);
   font-size: 13px;
   line-height: 1.5;
 }
@@ -2956,21 +3256,21 @@ dd {
   display: grid;
   gap: 6px;
   min-height: 92px;
-  border: 1px solid #dbeafe;
+  border: 1px solid var(--status-info-bg);
   border-radius: 8px;
-  background: #f8fbff;
+  background: var(--bg-inset);
   padding: 12px;
 }
 
 .comparison-grid article span {
-  color: #475569;
+  color: var(--text-secondary);
   font-size: 12px;
   font-weight: 700;
 }
 
 .comparison-grid article strong {
   overflow-wrap: anywhere;
-  color: #172033;
+  color: var(--text-primary);
   font-size: 15px;
   line-height: 1.35;
 }
@@ -2991,53 +3291,53 @@ dd {
   width: fit-content;
   border-radius: 999px;
   padding: 3px 8px;
-  background: #e2e8f0;
-  color: #334155;
+  background: var(--border);
+  color: var(--text-primary);
   font-size: 12px;
   font-weight: 700;
 }
 
 [data-status='PENDING'] {
-  background: #fef3c7;
-  color: #92400e;
+  background: var(--status-warn-bg);
+  color: var(--status-warn);
 }
 
 [data-status='SENT'] {
-  background: #dbeafe;
-  color: #1d4ed8;
+  background: var(--status-info-bg);
+  color: var(--status-info);
 }
 
 [data-status='APPLIED'] {
-  background: #dcfce7;
-  color: #166534;
+  background: var(--status-ok-bg);
+  color: var(--status-ok);
 }
 
 [data-status='EFFECT_CONFIRMED'] {
-  background: #ccfbf1;
-  color: #0f766e;
+  background: var(--status-ok-bg);
+  color: var(--status-ok);
 }
 
 [data-status='TIMEOUT'],
 [data-status='REJECTED'],
 [data-status='SKIPPED'],
 [data-aspect='RED'] {
-  background: #fee2e2;
-  color: #b91c1c;
+  background: var(--status-danger-bg);
+  color: var(--status-danger);
 }
 
 [data-status='RELEASED'],
 [data-status='CANCELLED'],
 [data-status='EXPIRED'] {
-  background: #e2e8f0;
-  color: #475569;
+  background: var(--border);
+  color: var(--text-secondary);
 }
 
 .overview-table span[data-attention] {
   width: fit-content;
   border-radius: 999px;
   padding: 3px 8px;
-  background: #dcfce7;
-  color: #166534;
+  background: var(--status-ok-bg);
+  color: var(--status-ok);
   font-size: 12px;
   font-weight: 700;
 }
@@ -3045,28 +3345,28 @@ dd {
 .overview-table span[data-attention='TOO_SHORT'],
 .overview-table span[data-attention='TOO_LONG'],
 .overview-table span[data-attention='STOPPED'] {
-  background: #fef3c7;
-  color: #92400e;
+  background: var(--status-warn-bg);
+  color: var(--status-warn);
 }
 
 .overview-table span[data-attention='COMMAND_ACTIVE'] {
-  background: #dbeafe;
-  color: #1d4ed8;
+  background: var(--status-info-bg);
+  color: var(--status-info);
 }
 
 .overview-table span[data-attention='ROUTE_BLOCKED'] {
-  background: #fee2e2;
-  color: #b91c1c;
+  background: var(--status-danger-bg);
+  color: var(--status-danger);
 }
 
 [data-aspect='YELLOW'] {
-  background: #fef3c7;
-  color: #92400e;
+  background: var(--status-warn-bg);
+  color: var(--status-warn);
 }
 
 [data-aspect='GREEN'] {
-  background: #dcfce7;
-  color: #166534;
+  background: var(--status-ok-bg);
+  color: var(--status-ok);
 }
 
 .table-wrap {
@@ -3086,30 +3386,30 @@ table {
 
 th,
 td {
-  border-bottom: 1px solid #eef2f7;
+  border-bottom: 1px solid var(--bg-panel-raised);
   padding: 8px 6px;
   text-align: left;
   white-space: nowrap;
 }
 
 tbody tr.selected {
-  background: #eff6ff;
+  background: var(--status-info-bg);
 }
 
 tbody tr.dwelling td {
-  color: #0f766e;
+  color: var(--status-ok);
 }
 
 tbody tr.selected {
-  background: #eff6ff;
+  background: var(--status-info-bg);
 }
 
 tbody tr.dwelling td {
-  color: #0f766e;
+  color: var(--status-ok);
 }
 
 th {
-  color: #475569;
+  color: var(--text-secondary);
   font-weight: 700;
 }
 
@@ -3127,7 +3427,7 @@ th {
 .switch-signal-grid article {
   display: grid;
   gap: 4px;
-  border-bottom: 1px solid #eef2f7;
+  border-bottom: 1px solid var(--bg-panel-raised);
   padding: 7px 0;
 }
 

@@ -82,8 +82,8 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .panel {
-  background: #fff;
-  border: 1px solid #e2e8f0;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
   border-radius: 12px;
   padding: 16px;
 }

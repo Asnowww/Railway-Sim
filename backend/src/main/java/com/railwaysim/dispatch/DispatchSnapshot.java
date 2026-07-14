@@ -18,7 +18,8 @@ public record DispatchSnapshot(
     boolean routeDispatchActive,
     List<RouteDecisionView> routeDecisions,
     List<RouteReservationView> routeReservations,
-    List<OperationPlanView> operationPlans
+    List<OperationPlanView> operationPlans,
+    LineRegulationPlanView lineRegulationPlan
 ) {
     public DispatchSnapshot {
         services = services == null ? List.of() : List.copyOf(services);
@@ -26,6 +27,7 @@ public record DispatchSnapshot(
         routeDecisions = routeDecisions == null ? List.of() : List.copyOf(routeDecisions);
         routeReservations = routeReservations == null ? List.of() : List.copyOf(routeReservations);
         operationPlans = operationPlans == null ? List.of() : List.copyOf(operationPlans);
+        lineRegulationPlan = lineRegulationPlan == null ? LineRegulationPlanView.empty() : lineRegulationPlan;
     }
 
     public record TrainProfileView(
@@ -68,8 +70,14 @@ public record DispatchSnapshot(
         String commandType,
         String status,
         String reason,
-        String regulationAction
+        String regulationAction,
+        Map<String, Object> payload,
+        Instant createdAt,
+        Instant appliedAt
     ) {
+        public CommandView {
+            payload = payload == null ? Map.of() : Map.copyOf(payload);
+        }
     }
 
     public record ServicePlanView(
@@ -162,6 +170,54 @@ public record DispatchSnapshot(
         }
     }
 
+    public record LineRegulationPlanView(
+        String planId,
+        Instant generatedAt,
+        String objective,
+        String status,
+        int targetHeadwaySec,
+        Double currentMaxAbsHeadwayErrorSec,
+        Double predictedMaxAbsHeadwayErrorSec,
+        int commandCount,
+        List<LineRegulationDecisionView> decisions
+    ) {
+        public LineRegulationPlanView {
+            decisions = decisions == null ? List.of() : List.copyOf(decisions);
+        }
+
+        public static LineRegulationPlanView empty() {
+            return new LineRegulationPlanView(
+                "",
+                null,
+                "RESTORE_EVEN_HEADWAY",
+                "NO_DATA",
+                300,
+                null,
+                null,
+                0,
+                List.of()
+            );
+        }
+    }
+
+    public record LineRegulationDecisionView(
+        String trainId,
+        String regulatedTrainId,
+        String frontTrainId,
+        String action,
+        String commandType,
+        String status,
+        String reason,
+        Double currentHeadwaySec,
+        int targetHeadwaySec,
+        Double currentHeadwayErrorSec,
+        Double predictedHeadwayErrorSec,
+        double priorityScore,
+        String signalConstraint,
+        String commandId
+    ) {
+    }
+
     public static DispatchSnapshot empty() {
         return new DispatchSnapshot(
             "FLAT",
@@ -177,7 +233,8 @@ public record DispatchSnapshot(
             false,
             List.of(),
             List.of(),
-            List.of()
+            List.of(),
+            LineRegulationPlanView.empty()
         );
     }
 }

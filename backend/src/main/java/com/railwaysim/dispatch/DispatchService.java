@@ -19,6 +19,10 @@ import com.railwaysim.dispatch.operation.OperationPlanRequest;
 import com.railwaysim.dispatch.operation.OperationPlanningService;
 import com.railwaysim.dispatch.operation.OperationRouteCandidate;
 import com.railwaysim.dispatch.operation.OperationRouteTemplate;
+import com.railwaysim.dispatch.optimization.LineHeadwayOptimizationResult;
+import com.railwaysim.dispatch.optimization.LineHeadwayOptimizer;
+import com.railwaysim.dispatch.optimization.LineRegulationContext;
+import com.railwaysim.dispatch.optimization.LineRegulationPlan;
 import com.railwaysim.dispatch.plan.CurrentRunPlan;
 import com.railwaysim.dispatch.plan.OperationPlanLoader;
 import com.railwaysim.dispatch.plan.PlannedStop;
@@ -33,7 +37,6 @@ import com.railwaysim.dispatch.route.RouteIntentSelection;
 import com.railwaysim.dispatch.route.RouteReservation;
 import com.railwaysim.dispatch.route.RouteReservationState;
 import com.railwaysim.dispatch.route.TrainRouteIntent;
-import com.railwaysim.dispatch.strategy.StrategySelector;
 import com.railwaysim.dispatch.strategy.TrainRegulationAction;
 import com.railwaysim.signal.MovementAuthority;
 import com.railwaysim.signal.RouteState;
@@ -64,7 +67,6 @@ public class DispatchService {
     private final DispatchProperties properties;
     private final TrainRunMonitor trainRunMonitor;
     private final DisturbanceDetector disturbanceDetector;
-    private final StrategySelector strategySelector;
     private final CommandValidator commandValidator;
     private final CommandQueue commandQueue;
     private final DisturbanceRecordStore disturbanceRecordStore;
@@ -76,6 +78,7 @@ public class DispatchService {
     private final RouteIntentArbiter routeIntentArbiter;
     private final OperationPlanningService operationPlanningService;
     private final SignalDispatchPlanRegistry signalDispatchPlanRegistry;
+    private final LineHeadwayOptimizer lineHeadwayOptimizer;
     private final List<DispatchCommand> manualCommands = new CopyOnWriteArrayList<>();
 
     private String simulationRunId = UUID.randomUUID().toString();
@@ -86,6 +89,7 @@ public class DispatchService {
     private List<TrainState> latestTrains = List.of();
     private List<DispatchCommand> activeCommands = List.of();
     private DispatchSnapshot latestSnapshot = DispatchSnapshot.empty();
+    private LineRegulationPlan latestLineRegulationPlan;
     private final Map<String, String> lastConstraintLogByTrain = new HashMap<>();
     private final Set<String> issuedServiceIds = new HashSet<>();
     private final Map<String, String> departureCommandIdByService = new HashMap<>();
@@ -96,7 +100,6 @@ public class DispatchService {
         DispatchProperties properties,
         TrainRunMonitor trainRunMonitor,
         DisturbanceDetector disturbanceDetector,
-        StrategySelector strategySelector,
         CommandValidator commandValidator,
         CommandQueue commandQueue,
         DisturbanceRecordStore disturbanceRecordStore,
@@ -107,13 +110,13 @@ public class DispatchService {
         RouteIntentResolver routeIntentResolver,
         RouteIntentArbiter routeIntentArbiter,
         OperationPlanningService operationPlanningService,
-        SignalDispatchPlanRegistry signalDispatchPlanRegistry
+        SignalDispatchPlanRegistry signalDispatchPlanRegistry,
+        LineHeadwayOptimizer lineHeadwayOptimizer
     ) {
         this.planLoader = planLoader;
         this.properties = properties;
         this.trainRunMonitor = trainRunMonitor;
         this.disturbanceDetector = disturbanceDetector;
-        this.strategySelector = strategySelector;
         this.commandValidator = commandValidator;
         this.commandQueue = commandQueue;
         this.disturbanceRecordStore = disturbanceRecordStore;
@@ -125,7 +128,10 @@ public class DispatchService {
         this.routeIntentArbiter = routeIntentArbiter;
         this.operationPlanningService = operationPlanningService;
         this.signalDispatchPlanRegistry = signalDispatchPlanRegistry;
+        this.lineHeadwayOptimizer = lineHeadwayOptimizer;
         this.currentPlan = planLoader.resolve(Instant.now());
+        this.latestLineRegulationPlan = LineRegulationPlan.empty(
+            "LRP-INIT", simulationStart, this.currentPlan.departureIntervalSec());
         this.latestSnapshot = buildSnapshot(currentPlan, latestProfiles, List.of(), List.of());
     }
 
@@ -141,6 +147,8 @@ public class DispatchService {
         issuedServiceIds.clear();
         departureCommandIdByService.clear();
         routeWaitingSinceByKey.clear();
+        latestLineRegulationPlan = LineRegulationPlan.empty(
+            "LRP-RESET", simulationStart, currentPlan.departureIntervalSec());
         operationPlanningService.clear();
         manualCommands.clear();
         commandQueue.clear();
@@ -399,13 +407,19 @@ public class DispatchService {
         List<DisturbanceEvent> openEvents = disturbanceDetector.openEvents().stream()
             .filter(event -> "OPEN".equals(event.status()))
             .toList();
-        List<DispatchCommand> generated = suppressDuplicateDisturbanceCommands(strategySelector.select(
+        LineHeadwayOptimizationResult lineOptimization = lineHeadwayOptimizer.optimize(new LineRegulationContext(
             simulationRunId,
             context.simulatedTime(),
-            openEvents,
+            currentPlan,
             latestProfiles,
-            currentPlan
+            trains,
+            authorities,
+            openEvents,
+            activeCommands,
+            routeDispatchRecordStore.listReservations(simulationRunId)
         ));
+        latestLineRegulationPlan = lineOptimization.plan();
+        List<DispatchCommand> generated = suppressDuplicateDisturbanceCommands(lineOptimization.commands());
         List<DispatchCommand> routeCommands = automaticRouteCommands(context.simulatedTime(), trains, authorities);
         List<DispatchCommand> routeCancellationCommands = automaticRouteCancellationCommands(context.simulatedTime());
         List<DispatchCommand> operationPlanRouteCommands = automaticOperationPlanRouteCommands(context.simulatedTime());
@@ -862,7 +876,7 @@ public class DispatchService {
         }
         return switch (command.commandType()) {
             case "SHORTEN_DWELL" -> isTimeRegulationEffectConfirmed(command, profile);
-            case "SPEED_BIAS" -> hasDepartedOrMoving(train);
+            case "SPEED_BIAS" -> isSpeedBiasEffectConfirmed(command, train, profile);
             case "EXTEND_DWELL" -> isTimeRegulationEffectConfirmed(command, profile);
             case "HEADWAY_ADJUST" -> isHeadwayRecovered(command, profile);
             case "HOLD", "HOLD_TRAIN" -> isStopped(train) && !isTimedHoldStillRequired(command, train);
@@ -909,21 +923,24 @@ public class DispatchService {
     }
 
     private String commandProgressDetail(DispatchCommand command, TrainRunProfile profile, Instant simulatedAt) {
-        if (!"HEADWAY_ADJUST".equals(command.commandType())) {
+        if (!"HEADWAY_ADJUST".equals(command.commandType()) && !"SPEED_BIAS".equals(command.commandType())) {
             return "";
         }
         int targetHeadway = payloadInt(command, "targetHeadwaySec", currentPlan.departureIntervalSec());
-        int tolerance = Math.max(5, currentPlan.departureIntervalSec() / 10);
+        int tolerance = payloadInt(command, "headwayToleranceSec", Math.max(5, currentPlan.departureIntervalSec() / 10));
         Double actual = profile == null ? null : profile.headwayActualSec();
         String violation = actual == null
             ? "unknown"
             : Math.round(Math.max(0, Math.abs(actual - targetHeadway) - tolerance)) + "s";
+        double baselineError = payloadDouble(command, "baselineHeadwayErrorSec", Double.NaN);
+        String baseline = Double.isNaN(baselineError) ? "-" : Math.round(baselineError) + "s";
         long elapsedSec = simulatedAt.getEpochSecond() - (
             command.appliedAt() == null ? command.createdAt() : command.appliedAt()
         ).getEpochSecond();
         return "headway actual=" + (actual == null ? "-" : Math.round(actual) + "s")
             + " target=" + targetHeadway + "s"
             + " tolerance=" + tolerance + "s"
+            + " baselineError=" + baseline
             + " violation=" + violation
             + " observedFor=" + elapsedSec + "s";
     }
@@ -948,7 +965,9 @@ public class DispatchService {
     }
 
     private boolean isTimeRegulationCommand(DispatchCommand command) {
-        return ("SHORTEN_DWELL".equals(command.commandType()) || "EXTEND_DWELL".equals(command.commandType()))
+        return ("SHORTEN_DWELL".equals(command.commandType())
+            || "EXTEND_DWELL".equals(command.commandType())
+            || "SPEED_BIAS".equals(command.commandType()))
             && payloadString(command, "regulationAction") != null;
     }
 
@@ -975,6 +994,36 @@ public class DispatchService {
             return profile.lastDepartureAt() != null
                 && profile.lastDepartureAt().isAfter(command.createdAt())
                 && baselineDelay - profile.departureDelaySec() >= properties.getHeadwayEffectMinImprovementSec();
+        }
+        return false;
+    }
+
+    private boolean isSpeedBiasEffectConfirmed(
+        DispatchCommand command,
+        TrainState train,
+        TrainRunProfile profile
+    ) {
+        if (isTimeRegulationEffectConfirmed(command, profile)) {
+            return true;
+        }
+        String direction = payloadString(command, "headwayDirection");
+        double baselineError = payloadDouble(command, "baselineHeadwayErrorSec", Double.NaN);
+        if (profile != null && profile.headwayActualSec() != null && !Double.isNaN(baselineError)) {
+            double currentError = profile.headwayActualSec() - payloadDouble(command, "targetHeadwaySec", currentPlan.departureIntervalSec());
+            double requiredImprovement = Math.max(
+                properties.getHeadwayEffectMinImprovementSec(),
+                Math.abs(baselineError) * properties.getHeadwayEffectImprovementRatio()
+            );
+            if (Math.abs(baselineError) - Math.abs(currentError) >= requiredImprovement) {
+                return true;
+            }
+        }
+        double ratio = payloadDouble(command, "speedBiasRatio", 1.0);
+        if ("TOO_SHORT".equals(direction) && ratio < 1.0) {
+            return train.speedMetersPerSecond() <= properties.getBaseCruiseSpeedMps() * Math.min(0.95, ratio + 0.1);
+        }
+        if (("TOO_LONG".equals(direction) || "SCHEDULE_LATE".equals(direction)) && ratio > 1.0) {
+            return hasDepartedOrMoving(train);
         }
         return false;
     }
@@ -1237,7 +1286,8 @@ public class DispatchService {
 
         List<SignalDispatchPlanPublication.Entry> entries = new ArrayList<>();
         for (TrainServicePlan service : planLoader.services()) {
-            entries.add(publicationEntryFromService(service, signalRoutes.get("R_MAIN")));
+            String routeId = routeIdForService(service, signalRoutes);
+            entries.add(publicationEntryFromService(service, routeId, signalRoutes.get(routeId)));
         }
         for (OperationPlan plan : operationPlanningService.list(simulationRunId)) {
             if (!"CANCELLED".equals(plan.status())) {
@@ -1267,8 +1317,10 @@ public class DispatchService {
 
     private SignalDispatchPlanPublication.Entry publicationEntryFromService(
         TrainServicePlan service,
+        String routeId,
         DispatchRouteCandidate route
     ) {
+        String resolvedRouteId = routeId == null || routeId.isBlank() ? "R_MAIN" : routeId;
         PlannedStop origin = service.origin();
         PlannedStop terminus = service.terminus();
         List<String> stationIds = service.stops().stream()
@@ -1282,7 +1334,7 @@ public class DispatchService {
             : simulationStart.plusSeconds(origin.departureOffsetSec());
         String rejectReason = null;
         if (route == null) {
-            rejectReason = "routeId R_MAIN is not provided by signal route catalog";
+            rejectReason = "routeId " + resolvedRouteId + " is not provided by signal route catalog";
         } else if (origin == null) {
             rejectReason = "service has no origin stop";
         }
@@ -1291,7 +1343,7 @@ public class DispatchService {
             "SERVICE_PLAN",
             service.serviceId(),
             service.trainId(),
-            "R_MAIN",
+            resolvedRouteId,
             route == null ? "主线" : route.name(),
             service.direction(),
             origin == null ? null : origin.stationId(),
@@ -1303,6 +1355,29 @@ public class DispatchService {
             rejectReason == null ? "ACCEPTED" : "REJECTED",
             rejectReason
         );
+    }
+
+    private String routeIdForService(TrainServicePlan service, Map<String, DispatchRouteCandidate> signalRoutes) {
+        String direction = service == null || service.direction() == null
+            ? ""
+            : service.direction().trim().toUpperCase(java.util.Locale.ROOT);
+        if ("UP".equals(direction) && signalRoutes.containsKey("R_UP")) {
+            return "R_UP";
+        }
+        if ("DOWN".equals(direction) && signalRoutes.containsKey("R_DOWN")) {
+            return "R_DOWN";
+        }
+        if (signalRoutes.containsKey("R_UP")) {
+            return "R_UP";
+        }
+        if (signalRoutes.containsKey("R_MAIN")) {
+            return "R_MAIN";
+        }
+        return signalRoutes.values().stream()
+            .filter(DispatchRouteCandidate::mainline)
+            .map(DispatchRouteCandidate::routeId)
+            .findFirst()
+            .orElse("R_MAIN");
     }
 
     private SignalDispatchPlanPublication.Entry publicationEntryFromOperationPlan(
@@ -1829,7 +1904,10 @@ public class DispatchService {
                 command.commandType(),
                 command.status(),
                 command.reason(),
-                payloadString(command, "regulationAction")
+                payloadString(command, "regulationAction"),
+                command.payload(),
+                command.createdAt(),
+                command.appliedAt()
             ))
             .toList();
         Map<String, DispatchCommand> commandById = new HashMap<>();
@@ -1897,7 +1975,42 @@ public class DispatchService {
             routeDispatchActive,
             routeDecisionViews,
             routeReservationViews,
-            operationPlanViews
+            operationPlanViews,
+            lineRegulationPlanView(latestLineRegulationPlan)
+        );
+    }
+
+    private DispatchSnapshot.LineRegulationPlanView lineRegulationPlanView(LineRegulationPlan plan) {
+        if (plan == null) {
+            return DispatchSnapshot.LineRegulationPlanView.empty();
+        }
+        return new DispatchSnapshot.LineRegulationPlanView(
+            plan.planId(),
+            plan.generatedAt(),
+            plan.objective(),
+            plan.status(),
+            plan.targetHeadwaySec(),
+            plan.currentMaxAbsHeadwayErrorSec(),
+            plan.predictedMaxAbsHeadwayErrorSec(),
+            plan.commandCount(),
+            plan.decisions().stream()
+                .map(decision -> new DispatchSnapshot.LineRegulationDecisionView(
+                    decision.trainId(),
+                    decision.regulatedTrainId(),
+                    decision.frontTrainId(),
+                    decision.action(),
+                    decision.commandType(),
+                    decision.status(),
+                    decision.reason(),
+                    decision.currentHeadwaySec(),
+                    decision.targetHeadwaySec(),
+                    decision.currentHeadwayErrorSec(),
+                    decision.predictedHeadwayErrorSec(),
+                    decision.priorityScore(),
+                    decision.signalConstraint(),
+                    decision.commandId()
+                ))
+                .toList()
         );
     }
 

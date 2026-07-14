@@ -87,8 +87,8 @@ const statusDescription = (status: string) => {
 
 <style scoped>
 .panel {
-  background: #fff;
-  border: 1px solid #e2e8f0;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
   border-radius: 12px;
   padding: 16px;
 }
@@ -100,7 +100,7 @@ h2 {
 
 .empty {
   margin: 0;
-  color: #94a3b8;
+  color: var(--text-muted);
 }
 
 ul {
@@ -114,7 +114,7 @@ ul {
 li {
   border-left: 3px solid #3b82f6;
   padding: 8px 10px;
-  background: #f8fafc;
+  background: var(--bg-panel-raised);
   border-radius: 0 8px 8px 0;
 }
 
@@ -127,13 +127,13 @@ li {
 .meta {
   margin-top: 4px;
   font-size: 12px;
-  color: #64748b;
+  color: var(--text-secondary);
 }
 
 .description {
   margin-top: 4px;
   font-size: 12px;
-  color: #475569;
+  color: var(--text-secondary);
   line-height: 1.45;
 }
 
@@ -141,43 +141,43 @@ li {
   font-size: 11px;
   padding: 2px 8px;
   border-radius: 999px;
-  background: #e2e8f0;
+  background: var(--border);
 }
 
 .status[data-status='APPLIED'] {
-  background: #dcfce7;
-  color: #166534;
+  background: var(--status-ok-bg);
+  color: var(--status-ok);
 }
 
 .status[data-status='SENT'] {
-  background: #dbeafe;
-  color: #1d4ed8;
+  background: var(--status-info-bg);
+  color: var(--status-info);
 }
 
 .status[data-status='EFFECT_CONFIRMED'] {
-  background: #ccfbf1;
-  color: #0f766e;
+  background: var(--status-ok-bg);
+  color: var(--status-ok);
 }
 
 .status[data-status='PENDING'] {
-  background: #fef3c7;
-  color: #92400e;
+  background: var(--status-warn-bg);
+  color: var(--status-warn);
 }
 
 .status[data-status='TIMEOUT'] {
-  background: #fee2e2;
-  color: #b91c1c;
+  background: var(--status-danger-bg);
+  color: var(--status-danger);
 }
 
 .status[data-status='SKIPPED'] {
-  background: #fee2e2;
-  color: #b91c1c;
+  background: var(--status-danger-bg);
+  color: var(--status-danger);
 }
 
 .status[data-status='CANCELLED'],
 .status[data-status='EXPIRED'],
 .status[data-status='RELEASED'] {
-  background: #e2e8f0;
-  color: #475569;
+  background: var(--border);
+  color: var(--text-secondary);
 }
 </style>
