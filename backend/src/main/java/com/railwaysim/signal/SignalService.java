@@ -449,12 +449,18 @@ public class SignalService {
         TrackSegmentState seg = trackService.segmentAt(self.positionMeters());
         if (seg == null) return Double.POSITIVE_INFINITY;
         Map<String, List<String>> forwardMap = trackService.forwardNeighborMap();
+        String selfTrack = seg.track() != null ? seg.track() : "main";
         String current = seg.id();
         int steps = 0;
 
         while (current != null && steps < 20) { // 搜索上限：20段
             TrackSegmentState curSeg = findSegment(current);
             if (curSeg == null) break;
+            String curTrack = curSeg.track() != null ? curSeg.track() : "main";
+            // 不同轨道路径分叉：停止搜索，不沿渡线/异轨邻居继续（主线不被上行/支线阻挡）
+            if (!curTrack.equals(selfTrack) && !"main".equals(curTrack)) {
+                return Double.POSITIVE_INFINITY;
+            }
             // 发现此区段上有别的列车→取尾部减安全间隔
             if (curSeg.occupancy() == TrackOccupancy.OCCUPIED) {
                 // 检查是否是自己的区段
