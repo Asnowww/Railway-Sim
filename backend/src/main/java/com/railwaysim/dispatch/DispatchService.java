@@ -593,10 +593,10 @@ public class DispatchService {
             payload.put("circulationId", service.circulationId());
             payload.put("trainNo", service.trainNo());
             payload.put("linkId", service.linkId());
-            // 下行列车从对应站台位置出发：offsetMeters=0在计划中代表"从线路末端出发"
+            // 下行列车从km 0出发(引擎只支持递增里程，下行轨道同向映射)
             double departOffset = service.offsetMeters();
             if ("DOWN".equalsIgnoreCase(service.direction()) && departOffset <= 0) {
-                departOffset = stationPositionMeters(origin.stationId());
+                departOffset = 0; // start at km 0 on down track, run increasing
             }
             payload.put("offsetMeters", departOffset);
             payload.put("fromStation", origin.stationId());
