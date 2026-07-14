@@ -381,12 +381,11 @@ public class SignalService {
         int steps = 0;
         for (int i = currentIndex + 1; i < routePath.size() && steps < MAX_RESERVE_SEGMENTS; i++) {
             TrackSegmentState seg = findSegment(routePath.get(i));
-            if (seg == null || seg.startMeters() >= maEndMeters) {
-                break;
-            }
-            if (seg.occupancy() == TrackOccupancy.OCCUPIED || seg.occupancy() == TrackOccupancy.FAULT) {
-                break;
-            }
+            if (seg == null) break;
+            if (seg.occupancy() == TrackOccupancy.OCCUPIED || seg.occupancy() == TrackOccupancy.FAULT) break;
+            // 第一个前向段总是预留（不管MA覆盖多远，下一个段需要准备）
+            // 后续段只在MA范围内预留
+            if (steps > 0 && seg.startMeters() >= maEndMeters) break;
             ids.add(seg.id());
             steps++;
         }
@@ -411,9 +410,9 @@ public class SignalService {
             if (seg == null || seg.startMeters() >= maEndMeters) {
                 break;
             }
-            String nextTrack = seg.track() != null ? seg.track() : "up";
-            // 渡线/异轨不预留——避免预留从 down 溢到 up
-            if (!nextTrack.equals(track) && !"up".equals(nextTrack)) {
+            String nextTrack = seg.track() != null ? seg.track() : "main";
+            // 渡线(crossover)/异轨(up↔down)不预留——避免预留溢到对向轨道
+            if (!nextTrack.equals(track) && !"main".equals(nextTrack) && !"main".equals(track)) {
                 break;
             }
             if (seg.occupancy() == TrackOccupancy.OCCUPIED || seg.occupancy() == TrackOccupancy.FAULT) {

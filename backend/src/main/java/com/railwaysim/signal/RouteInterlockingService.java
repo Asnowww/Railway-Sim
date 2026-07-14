@@ -344,9 +344,16 @@ public class RouteInterlockingService {
     }
 
     public synchronized List<String> establishedSegmentPathForTrain(String trainId) {
+        // 优先：该列车直接建立的进路
+        for (RouteState route : routeStates.values()) {
+            if (route.status().holdsInterlockingResources()
+                && trainId.equals(route.establishedByTrainId())) {
+                return List.copyOf(resolvedSegmentIds(route));
+            }
+        }
+        // 回退：共享MAIN进路 — 任何OCCUPIED的MAIN进路为后续列车提供预留基础
         return routeStates.values().stream()
-            .filter(route -> route.status().holdsInterlockingResources())
-            .filter(route -> trainId.equals(route.establishedByTrainId()))
+            .filter(route -> route.status() == RouteStatus.OCCUPIED && isMainTypeRoute(route.routeId()))
             .findFirst()
             .map(route -> List.copyOf(resolvedSegmentIds(route)))
             .orElse(List.of());

@@ -227,8 +227,22 @@ public class TrackService {
         if (assigned == null || candidates.isEmpty()) {
             return null;
         }
+        String assignedTrack = assigned.track() != null ? assigned.track() : "main";
         List<String> forward = forwardNeighborMap().getOrDefault(assigned.id(), List.of());
-        List<TrackSegmentState> reachable = candidates.stream().filter(segment -> forward.contains(segment.id())).toList();
+        // 只取前向邻居中与当前轨道相同的(up/down/main)，排除crossover异轨邻居
+        List<TrackSegmentState> reachable = candidates.stream()
+            .filter(segment -> forward.contains(segment.id()))
+            .filter(segment -> {
+                String segTrack = segment.track() != null ? segment.track() : "main";
+                return segTrack.equals(assignedTrack) || "main".equals(segTrack) || "main".equals(assignedTrack);
+            })
+            .toList();
+        if (reachable.isEmpty()) {
+            // 无同轨候选：可能在道岔分叉，允许异轨（如进车辆段）
+            reachable = candidates.stream()
+                .filter(segment -> forward.contains(segment.id()))
+                .toList();
+        }
         if (reachable.isEmpty()) {
             return null;
         }
@@ -237,7 +251,7 @@ public class TrackService {
             .collect(java.util.stream.Collectors.toSet());
         return reachable.stream()
             .min(Comparator.comparingInt((TrackSegmentState segment) -> activeSwitchSegments.contains(segment.id()) ? 0 : 1)
-                .thenComparingInt(segment -> assigned.track().equals(segment.track()) ? 0 : 1)
+                .thenComparingInt(segment -> assignedTrack.equals(segment.track()) ? 0 : 1)
                 .thenComparing(TrackSegmentState::id))
             .orElse(null);
     }
@@ -510,7 +524,9 @@ public class TrackService {
      * 判断两个区间 [head, tail) 与 [segStart, segEnd) 是否有重叠。
      */
     private static boolean overlaps(double head, double tail, double segStart, double segEnd) {
-        return head > segStart && tail < segEnd;
+        // 列车车体 [tail, head] 与区段 [segStart, segEnd) 是否有重叠
+        // head=车头公里标, tail=车尾公里标(=head-length)
+        return tail < segEnd && head > segStart;
     }
 
     private TrackSegmentState fallbackSegment() {
