@@ -632,9 +632,8 @@ public class SimulationRuntime {
                 trainManager.applyLifecycleCommand(SignalTrainLifecycleCommand.add(List.of(spec)));
                 // 下行列车从线路末端出发：显式绑定到下行段，避免 segmentAt 回退选到上行段
                 double lineLen = infrastructureCatalog.lineData().lineLengthMeters();
-                if (ExternalTrainDirection.DOWN.equals(direction) && offsetMeters > lineLen * 0.5) {
-                    trackService.assignTrainToTrack(trainId, offsetMeters, "down");
-                }
+                String track = ExternalTrainDirection.DOWN.equals(direction) ? "down" : "up";
+                trackService.assignTrainToTrack(trainId, offsetMeters, track);
                 log.info("[Runtime] 发车 {} — trainNo={} linkId={} offset={}m direction={}",
                     trainId, trainNo, linkId, offsetMeters, direction);
                 Map<String, Object> details = new java.util.LinkedHashMap<>();
