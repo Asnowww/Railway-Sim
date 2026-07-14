@@ -152,9 +152,9 @@ const emit = defineEmits<{
 }
 
 .debug-panel {
-  border: 1px solid #d9e2ef;
+  border: 1px solid var(--border);
   border-radius: 8px;
-  background: #fff;
+  background: var(--bg-panel);
   box-shadow: 0 8px 24px rgba(15, 23, 42, 0.05);
 }
 
@@ -180,7 +180,7 @@ const emit = defineEmits<{
 .panel-title span,
 .empty,
 small {
-  color: #64748b;
+  color: var(--text-secondary);
 }
 
 .overview-list,
@@ -199,15 +199,15 @@ small {
   display: grid;
   gap: 6px;
   min-width: 0;
-  border: 1px solid #e2e8f0;
+  border: 1px solid var(--border);
   border-radius: 11px;
-  background: #f8fafc;
+  background: var(--bg-panel-raised);
   padding: 12px;
 }
 
 .ma-item {
-  border-color: #dbeafe;
-  background: linear-gradient(180deg, #f8fbff 0%, #ffffff 100%);
+  border-color: var(--status-info-bg);
+  background: linear-gradient(180deg, var(--bg-inset) 0%, var(--bg-panel) 100%);
 }
 
 .item-heading {
@@ -219,7 +219,7 @@ small {
 
 .item-heading strong {
   overflow-wrap: anywhere;
-  color: #172033;
+  color: var(--text-primary);
   font-size: 15px;
 }
 
@@ -227,8 +227,8 @@ small {
 [data-aspect] {
   width: fit-content;
   border-radius: 999px;
-  background: #e2e8f0;
-  color: #334155;
+  background: var(--border);
+  color: var(--text-primary);
   padding: 3px 8px;
   font-size: 12px;
   font-weight: 700;
@@ -236,7 +236,7 @@ small {
 
 .overview-item p {
   margin: 0;
-  color: #475569;
+  color: var(--text-secondary);
   font-size: 13px;
   line-height: 1.5;
 }
@@ -250,7 +250,7 @@ small {
 
 .route-control-bar select {
   min-height: 38px;
-  border: 1px solid #cbd5e1;
+  border: 1px solid var(--border-strong);
   border-radius: 8px;
   padding: 6px 10px;
   font: inherit;
@@ -261,10 +261,10 @@ small {
 }
 
 button {
-  border: 1px solid #2563eb;
+  border: 1px solid var(--accent);
   border-radius: 8px;
-  background: #2563eb;
-  color: #fff;
+  background: var(--accent);
+  color: #ffffff;
   padding: 7px 12px;
   font: inherit;
   font-weight: 700;
@@ -277,14 +277,14 @@ button:disabled {
 }
 
 .ghost-button {
-  border-color: #2563eb;
-  background: #fff;
-  color: #1d4ed8;
+  border-color: var(--accent);
+  background: var(--bg-panel);
+  color: var(--status-info);
 }
 
 .route-operation-message {
   margin: 0 0 10px;
-  color: #1d4ed8;
+  color: var(--status-info);
   font-size: 13px;
 }
 
@@ -306,32 +306,32 @@ button:disabled {
 
 .interlock-column h3 {
   margin: 0;
-  color: #172033;
+  color: var(--text-primary);
   font-size: 15px;
 }
 
 .overview-empty {
   margin: 0;
-  border: 1px dashed #cbd5e1;
+  border: 1px dashed var(--border-strong);
   border-radius: 10px;
-  background: #f8fafc;
+  background: var(--bg-panel-raised);
   padding: 12px;
   font-size: 13px;
 }
 
 [data-aspect='RED'] {
-  background: #fee2e2;
-  color: #b91c1c;
+  background: var(--status-danger-bg);
+  color: var(--status-danger);
 }
 
 [data-aspect='YELLOW'] {
-  background: #fef3c7;
-  color: #92400e;
+  background: var(--status-warn-bg);
+  color: var(--status-warn);
 }
 
 [data-aspect='GREEN'] {
-  background: #dcfce7;
-  color: #166534;
+  background: var(--status-ok-bg);
+  color: var(--status-ok);
 }
 
 @media (max-width: 1400px) {

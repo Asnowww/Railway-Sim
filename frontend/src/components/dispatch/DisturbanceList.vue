@@ -94,8 +94,8 @@ const deviationText = (item: DispatchDisturbance) => {
 
 <style scoped>
 .panel {
-  background: #fff;
-  border: 1px solid #e2e8f0;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
   border-radius: 12px;
   padding: 16px;
 }
@@ -107,7 +107,7 @@ h2 {
 
 .empty {
   margin: 0;
-  color: #94a3b8;
+  color: var(--text-muted);
 }
 
 ul {
@@ -119,7 +119,7 @@ ul {
 }
 
 li {
-  border: 1px solid #f1f5f9;
+  border: 1px solid var(--bg-hover);
   border-radius: 8px;
   padding: 10px;
 }
@@ -130,14 +130,14 @@ li {
 }
 
 .meta {
-  color: #64748b;
+  color: var(--text-secondary);
   font-size: 12px;
   margin-top: 4px;
 }
 
 .description {
   margin-top: 6px;
-  color: #475569;
+  color: var(--text-secondary);
   font-size: 12px;
   line-height: 1.45;
 }
@@ -146,24 +146,24 @@ li {
   display: inline-block;
   margin-top: 6px;
   font-size: 11px;
-  color: #b45309;
-  background: #fef3c7;
+  color: var(--status-warn);
+  background: var(--status-warn-bg);
   padding: 2px 8px;
   border-radius: 999px;
 }
 
 .status[data-status='OPEN'] {
-  color: #b45309;
-  background: #fef3c7;
+  color: var(--status-warn);
+  background: var(--status-warn-bg);
 }
 
 .status[data-status='HANDLED'] {
-  color: #1d4ed8;
-  background: #dbeafe;
+  color: var(--status-info);
+  background: var(--status-info-bg);
 }
 
 .status[data-status='RECOVERED'] {
-  color: #0f766e;
-  background: #ccfbf1;
+  color: var(--status-ok);
+  background: var(--status-ok-bg);
 }
 </style>

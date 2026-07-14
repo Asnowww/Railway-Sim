@@ -3,6 +3,7 @@ package com.railwaysim.vehicle.drivercab;
 import com.railwaysim.api.dto.DriverCabPlcGatewayRequest;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
+import java.time.Instant;
 import java.time.LocalDateTime;
 import org.springframework.stereotype.Component;
 
@@ -10,6 +11,43 @@ import org.springframework.stereotype.Component;
 @Component
 public class DriverCabPlcGatewayEncoder {
     public static final int PLC_INPUT_BYTES = 46;
+
+    /** Project a structured browser request to the display snapshot the front-end console reads back. */
+    public DriverCabStateSnapshot toSnapshot(DriverCabPlcGatewayRequest input, DriverCabControlSource source) {
+        if (input == null) throw new IllegalArgumentException("driver cab PLC input is required");
+        return new DriverCabStateSnapshot(
+            input.doorModeSwitchState(), input.atoStartFlag(),
+            input.modeUpgradeConfirmFlag(), input.modeDowngradeConfirmFlag(),
+            input.automaticTurnbackFlag(), input.directionHandleState(), input.masterHandleState(),
+            input.keySwitchLocked(), input.tractionNotchPercent(), input.brakeNotchPercent(),
+            source, Instant.now()
+        );
+    }
+
+    /** Decode a raw 46-byte PLC frame (as sent by the physical console) back to a display snapshot. */
+    public DriverCabStateSnapshot decodeSnapshot(byte[] payload, DriverCabControlSource source) {
+        if (payload == null || payload.length != PLC_INPUT_BYTES) {
+            throw new IllegalArgumentException("driver cab PLC input must be exactly 46 bytes");
+        }
+        ByteBuffer buffer = ByteBuffer.wrap(payload).order(ByteOrder.LITTLE_ENDIAN);
+        int traction = clampPercent(Short.toUnsignedInt(buffer.getShort(40)));
+        int brake = clampPercent(Short.toUnsignedInt(buffer.getShort(42)));
+        return new DriverCabStateSnapshot(
+            DriverCabDoorModeSwitch.fromProtocolCode(Short.toUnsignedInt(buffer.getShort(32))),
+            bit(payload, 34, 7), bit(payload, 34, 2), bit(payload, 34, 3), bit(payload, 34, 5),
+            DriverCabDirectionHandleState.fromProtocolCode(Short.toUnsignedInt(buffer.getShort(36))),
+            DriverCabMasterHandleState.fromProtocolCode(Short.toUnsignedInt(buffer.getShort(38))),
+            bit(payload, 35, 1), traction, brake, source, Instant.now()
+        );
+    }
+
+    private boolean bit(byte[] payload, int byteOffset, int bitOffset) {
+        return (payload[byteOffset] & (1 << bitOffset)) != 0;
+    }
+
+    private int clampPercent(int value) {
+        return Math.max(0, Math.min(100, value));
+    }
 
     public byte[] encode(DriverCabPlcGatewayRequest input) {
         if (input == null) throw new IllegalArgumentException("driver cab PLC input is required");

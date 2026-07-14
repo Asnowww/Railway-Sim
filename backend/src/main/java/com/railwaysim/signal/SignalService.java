@@ -228,7 +228,8 @@ public class SignalService {
             );
             authorityEnd = Math.max(trainHead, Math.min(authorityEnd, lineLengthMeters));
 
-            TrackSegmentState currentSeg = trackService.segmentAt(trainHead);
+            // 与占用染色同源：前端车辆车道、进路匹配、预留起点全部跟随列车绑定的区段
+            TrackSegmentState currentSeg = trackService.segmentForTrain(train);
             allReserved.addAll(collectTopologyReserved(train.id(), currentSeg.id(), authorityEnd));
 
             TrackConstraint track = trackByTrain.get(train.id());
@@ -396,6 +397,8 @@ public class SignalService {
     private Set<String> collectReservedAlongActiveTopology(String startSegmentId, double maEndMeters) {
         Set<String> ids = new HashSet<>();
         Map<String, List<String>> forwardMap = trackService.forwardNeighborMap();
+        TrackSegmentState startSeg = findSegment(startSegmentId);
+        String track = startSeg != null ? startSeg.track() : "up";
         String current = startSegmentId;
         int steps = 0;
         while (current != null && steps < MAX_RESERVE_SEGMENTS) {
@@ -404,9 +407,14 @@ public class SignalService {
                 break;
             }
 
-            String next = forward.size() == 1 ? forward.get(0) : chooseActiveForwardNeighbor(current, forward);
+            String next = chooseActiveForwardNeighbor(current, forward, track);
             TrackSegmentState seg = findSegment(next);
             if (seg == null || seg.startMeters() >= maEndMeters) {
+                break;
+            }
+            String nextTrack = seg.track() != null ? seg.track() : "up";
+            // 渡线/异轨不预留——预留严格限制在本车股道内，任何跨轨即停
+            if (!nextTrack.equals(track)) {
                 break;
             }
             if (seg.occupancy() == TrackOccupancy.OCCUPIED || seg.occupancy() == TrackOccupancy.FAULT) {
@@ -421,6 +429,10 @@ public class SignalService {
     }
 
     private String chooseActiveForwardNeighbor(String currentSegmentId, List<String> forward) {
+        return chooseActiveForwardNeighbor(currentSegmentId, forward, null);
+    }
+
+    private String chooseActiveForwardNeighbor(String currentSegmentId, List<String> forward, String preferredTrack) {
         // 1. Prefer the LOCKED switch-activated branch.
         for (SwitchState sw : trackService.switchStates()) {
             if (sw.locked() && forward.contains(sw.activeSegmentId())) {
@@ -428,7 +440,17 @@ public class SignalService {
             }
         }
 
-        // 2. Fallback: pick the forward neighbor with higher speed limit (main track)
+        // 2. Prefer same-track neighbor (avoid skipping to crossover/other direction)
+        if (preferredTrack != null) {
+            for (String fwdId : forward) {
+                TrackSegmentState fwdSeg = findSegment(fwdId);
+                if (fwdSeg != null && preferredTrack.equals(fwdSeg.track())) {
+                    return fwdId;
+                }
+            }
+        }
+
+        // 3. Fallback: pick the forward neighbor with higher speed limit (main track)
         String best = forward.get(0);
         double bestSpeed = -1;
         for (String fwdId : forward) {
@@ -446,15 +468,21 @@ public class SignalService {
      * 在分叉场景下沿当前激活的道岔方向搜索，不会跨越到平行支路。
      */
     private double resolveTopologyObstacle(TrainState self, double safetyGap) {
-        TrackSegmentState seg = trackService.segmentAt(self.positionMeters());
+        TrackSegmentState seg = trackService.segmentForTrain(self);
         if (seg == null) return Double.POSITIVE_INFINITY;
         Map<String, List<String>> forwardMap = trackService.forwardNeighborMap();
+        String selfTrack = seg.track() != null ? seg.track() : "main";
         String current = seg.id();
         int steps = 0;
 
         while (current != null && steps < 20) { // 搜索上限：20段
             TrackSegmentState curSeg = findSegment(current);
             if (curSeg == null) break;
+            String curTrack = curSeg.track() != null ? curSeg.track() : "main";
+            // 不同轨道路径分叉：停止搜索，不沿渡线/异轨邻居继续（主线不被上行/支线阻挡）
+            if (!curTrack.equals(selfTrack) && !"main".equals(curTrack)) {
+                return Double.POSITIVE_INFINITY;
+            }
             // 发现此区段上有别的列车→取尾部减安全间隔
             if (curSeg.occupancy() == TrackOccupancy.OCCUPIED) {
                 // 检查是否是自己的区段

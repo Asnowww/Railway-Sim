@@ -31,13 +31,13 @@ const actionText = (action: string) => ({
 </template>
 
 <style scoped>
-.panel { background:#fff; border:1px solid #e2e8f0; border-radius:12px; padding:16px; }
+.panel { background:var(--bg-panel); border:1px solid var(--border); border-radius:12px; padding:16px; }
 header { display:flex; justify-content:space-between; gap:12px; align-items:baseline; }
 h2 { margin:0; font-size:16px; }
-header span,.empty { color:#64748b; font-size:12px; }
+header span,.empty { color:var(--text-secondary); font-size:12px; }
 .list { display:grid; gap:8px; margin-top:12px; }
-article { display:grid; grid-template-columns:.8fr 1fr 1.4fr 1fr; gap:8px; padding:9px; background:#f8fafc; border-radius:8px; font-size:12px; }
-b[data-state='TOO_LONG'] { color:#d97706; }
-b[data-state='TOO_SHORT'] { color:#dc2626; }
-b[data-state='ON_TARGET'] { color:#059669; }
+article { display:grid; grid-template-columns:.8fr 1fr 1.4fr 1fr; gap:8px; padding:9px; background:var(--bg-panel-raised); border-radius:8px; font-size:12px; }
+b[data-state='TOO_LONG'] { color:var(--status-warn); }
+b[data-state='TOO_SHORT'] { color:var(--status-danger); }
+b[data-state='ON_TARGET'] { color:var(--status-ok); }
 </style>
