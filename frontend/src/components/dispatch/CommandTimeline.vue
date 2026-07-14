@@ -69,7 +69,7 @@ const statusDescription = (status: string) => {
   <section class="panel">
     <h2>调度指令</h2>
     <p v-if="commands.length === 0" class="empty">暂无调度指令记录</p>
-    <ul v-else>
+    <ul v-else class="command-list">
       <li v-for="item in commands" :key="item.id">
         <div class="row">
           <strong>{{ commandLabel(item.commandType) }}</strong>
@@ -91,6 +91,7 @@ const statusDescription = (status: string) => {
   border: 1px solid var(--border);
   border-radius: 12px;
   padding: 16px;
+  min-height: 0;
 }
 
 h2 {
@@ -103,12 +104,34 @@ h2 {
   color: var(--text-muted);
 }
 
-ul {
+.command-list {
+  --command-item-min-height: 82px;
+
   list-style: none;
   margin: 0;
   padding: 0;
   display: grid;
   gap: 10px;
+  max-height: calc(var(--command-item-min-height) * 5 + 10px * 4);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 6px;
+  scrollbar-color: var(--border-strong) var(--bg-inset);
+  scrollbar-width: thin;
+}
+
+.command-list::-webkit-scrollbar {
+  width: 8px;
+}
+
+.command-list::-webkit-scrollbar-track {
+  background: var(--bg-inset);
+  border-radius: 999px;
+}
+
+.command-list::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: 999px;
 }
 
 li {
@@ -116,6 +139,7 @@ li {
   padding: 8px 10px;
   background: var(--bg-panel-raised);
   border-radius: 0 8px 8px 0;
+  min-height: var(--command-item-min-height);
 }
 
 .row {

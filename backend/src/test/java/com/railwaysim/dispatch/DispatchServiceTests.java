@@ -307,31 +307,66 @@ class DispatchServiceTests {
 
         assertThat(service.pendingCommands())
             .filteredOn(command -> "DEPART".equals(command.commandType()))
-            .hasSize(4)
+            .hasSize(2)
             .allSatisfy(command -> assertThat(command.payload())
-                .containsKeys("serviceId", "circulationId", "plannedDepartureAt", "fromStation", "toStation")
+                .containsKeys(
+                    "serviceId",
+                    "circulationId",
+                    "plannedDepartureAt",
+                    "fromStation",
+                    "toStation",
+                    "requiredHeadwaySec"
+                )
                 .containsEntry("source", "FORMAL_SERVICE_PLAN"));
         assertThat(service.snapshot().services())
             .extracting(DispatchSnapshot.ServicePlanView::departureStatus)
-            .containsOnly(CommandStatus.PENDING);
+            .containsExactly(CommandStatus.PENDING, CommandStatus.PENDING, "PLANNED", "PLANNED");
     }
 
     @Test
-    void formalFollowerDeparturesUseCurrentPeriodInterval() {
+    void formalFollowerDeparturesWaitForHeadwayGate() {
         DispatchService service = dispatchService();
-        service.evaluate(tick(1, peakTomorrowPlusSeconds(1_400)), List.of(), List.of());
+        Instant firstEvaluation = peakTomorrowPlusSeconds(1_400);
+        service.evaluate(tick(1, firstEvaluation), List.of(), List.of());
+
+        assertThat(service.pendingCommands())
+            .filteredOn(command -> "DEPART".equals(command.commandType()))
+            .extracting(DispatchCommand::trainId)
+            .containsExactlyInAnyOrder("TR-001", "TR-002");
+
+        service.evaluate(tick(2, firstEvaluation.plusSeconds(179)), List.of(), List.of());
+
+        assertThat(service.pendingCommands())
+            .filteredOn(command -> "DEPART".equals(command.commandType()))
+            .extracting(DispatchCommand::trainId)
+            .containsExactlyInAnyOrder("TR-001", "TR-002");
+
+        service.evaluate(tick(3, firstEvaluation.plusSeconds(180)), List.of(), List.of());
 
         Map<String, Instant> departureByTrain = service.pendingCommands().stream()
             .filter(command -> "DEPART".equals(command.commandType()))
             .collect(java.util.stream.Collectors.toMap(
                 DispatchCommand::trainId,
-                command -> Instant.parse((String) command.payload().get("plannedDepartureAt"))
+                DispatchCommand::createdAt
             ));
 
         assertThat(departureByTrain.get("TR-003").getEpochSecond()
             - departureByTrain.get("TR-001").getEpochSecond()).isEqualTo(180);
         assertThat(departureByTrain.get("TR-004").getEpochSecond()
             - departureByTrain.get("TR-002").getEpochSecond()).isEqualTo(180);
+    }
+
+    @Test
+    void departureHeadwayGateCanBeDisabledForDemonstrationRuns() {
+        DispatchProperties properties = new DispatchProperties();
+        properties.setDepartureHeadwayGateEnabled(false);
+        DispatchService service = dispatchService(emptyLineData(), properties);
+
+        service.evaluate(tick(1, peakTomorrowPlusSeconds(1_400)), List.of(), List.of());
+
+        assertThat(service.pendingCommands())
+            .filteredOn(command -> "DEPART".equals(command.commandType()))
+            .hasSize(4);
     }
 
     @Test
@@ -1296,8 +1331,11 @@ class DispatchServiceTests {
     }
 
     private static DispatchService dispatchService(OperationalLineData lineData) {
+        return dispatchService(lineData, new DispatchProperties());
+    }
+
+    private static DispatchService dispatchService(OperationalLineData lineData, DispatchProperties properties) {
         try {
-            DispatchProperties properties = new DispatchProperties();
             OperationPlanLoader planLoader = new OperationPlanLoader(properties, new DefaultResourceLoader());
             planLoader.load();
             InMemoryStationRecordStore stationStore = new InMemoryStationRecordStore();

@@ -2235,7 +2235,11 @@ function formatDelta(current: number | null | undefined, baseline: number | null
       </section>
     </details>
 
-    <section class="headway-focus" :data-state="headwayViolation.state">
+    <details class="debug-panel debug-details headway-focus" :data-state="headwayViolation.state">
+      <summary>
+        <span>运行间隔关键指标</span>
+        <small>主调度页已有闭环摘要，这里用于展开排查本车间隔计算</small>
+      </summary>
       <div class="panel-title">
         <h2>运行间隔关键指标</h2>
         <span>本车相对前车 / 带符号间隔偏差</span>
@@ -2273,9 +2277,13 @@ function formatDelta(current: number | null | undefined, baseline: number | null
         </article>
       </div>
       <p class="headway-focus-hint">{{ headwayViolation.hint }}</p>
-    </section>
+    </details>
 
-    <section class="line-regulation-panel" :data-status="lineRegulationPlan.status">
+    <details class="debug-panel debug-details line-regulation-panel" :data-status="lineRegulationPlan.status">
+      <summary>
+        <span>线路级调节方案明细</span>
+        <small>展开查看每辆候选车的偏差预测、命令与信号约束</small>
+      </summary>
       <div class="panel-title">
         <h2>线路级调节方案</h2>
         <span>{{ lineRegulationStatusLabel(lineRegulationPlan.status) }} / {{ lineRegulationPlan.commandCount }} 条本车命令</span>
@@ -2334,7 +2342,7 @@ function formatDelta(current: number | null | undefined, baseline: number | null
           <p>{{ decision.reason }}</p>
         </article>
       </div>
-    </section>
+    </details>
 
     <section class="debug-grid">
       <section class="debug-panel command-panel">
@@ -2586,7 +2594,7 @@ button {
   border: 1px solid var(--border-strong);
   border-radius: 8px;
   background: var(--bg-panel);
-  color: #1e293b;
+  color: var(--text-primary);
   min-height: 36px;
   padding: 8px 12px;
   font-weight: 600;
@@ -2648,8 +2656,8 @@ button:disabled {
 }
 
 .demo-action-card.primary {
-  border-color: #c4b5fd;
-  background: linear-gradient(180deg, #faf5ff 0%, var(--bg-panel) 100%);
+  border-color: rgba(167, 139, 250, 0.58);
+  background: linear-gradient(180deg, rgba(167, 139, 250, 0.16) 0%, var(--bg-panel) 100%);
   box-shadow: inset 3px 0 0 #7c3aed;
 }
 
@@ -2804,7 +2812,7 @@ button:disabled {
   width: fit-content;
   border-radius: 999px;
   background: rgba(167, 139, 250, 0.16);
-  color: #6d28d9;
+  color: var(--status-info);
   padding: 3px 8px;
   font-size: 12px;
   font-weight: 800;
@@ -3279,7 +3287,7 @@ small {
 }
 
 .headway-kpi.controlled {
-  border-color: #c7d2fe;
+  border-color: rgba(88, 166, 255, 0.42);
   background: var(--status-info-bg);
 }
 
@@ -3321,11 +3329,11 @@ small {
 
 .line-regulation-panel {
   margin-bottom: 12px;
-  border: 1px solid #c7d2fe;
+  border: 1px solid rgba(88, 166, 255, 0.32);
   border-radius: 8px;
-  background: #fbfdff;
+  background: var(--bg-panel);
   padding: 14px;
-  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.05);
+  box-shadow: var(--shadow-panel);
 }
 
 .line-regulation-summary {
@@ -3341,22 +3349,22 @@ small {
   gap: 5px;
   min-width: 0;
   min-height: 86px;
-  border: 1px solid #dbeafe;
+  border: 1px solid var(--border-strong);
   border-radius: 8px;
-  background: #fff;
+  background: var(--bg-panel-raised);
   padding: 12px;
 }
 
 .line-regulation-summary span,
 .line-decision-list dt {
-  color: #475569;
+  color: var(--text-secondary);
   font-size: 12px;
   font-weight: 700;
 }
 
 .line-regulation-summary strong {
   overflow-wrap: anywhere;
-  color: #172033;
+  color: var(--text-primary);
   font-size: 20px;
   line-height: 1.25;
 }
@@ -3369,8 +3377,9 @@ small {
 .line-decision-list article {
   display: grid;
   gap: 10px;
-  border-left: 3px solid #4f46e5;
-  background: #eef2ff;
+  border: 1px solid rgba(88, 166, 255, 0.28);
+  border-left: 3px solid var(--status-info);
+  background: var(--status-info-bg);
   padding: 10px 12px;
 }
 
@@ -3388,8 +3397,8 @@ small {
 .line-decision-list header span {
   flex: 0 0 auto;
   border-radius: 999px;
-  background: #fff;
-  color: #3730a3;
+  background: var(--bg-panel);
+  color: var(--status-info);
   padding: 4px 8px;
   font-size: 12px;
   font-weight: 800;
@@ -3407,14 +3416,14 @@ small {
 
 .line-decision-list dd {
   overflow-wrap: anywhere;
-  color: #172033;
+  color: var(--text-primary);
   font-size: 13px;
   font-weight: 700;
 }
 
 .line-decision-list p {
   margin: 0;
-  color: #475569;
+  color: var(--text-secondary);
   font-size: 13px;
   line-height: 1.45;
 }
@@ -3483,6 +3492,33 @@ small {
   padding: 10px;
 }
 
+.debug-shell .command-list > article.command-card {
+  display: grid;
+  grid-template-columns: none;
+  align-items: stretch;
+  gap: 10px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-panel-raised);
+  color: var(--text-primary);
+}
+
+.debug-shell .command-card strong,
+.debug-shell .command-card dd {
+  color: var(--text-primary);
+}
+
+.debug-shell .command-card dt,
+.debug-shell .command-card p,
+.debug-shell .command-card small {
+  color: var(--text-secondary);
+}
+
+.debug-shell .command-card [data-status] {
+  color: var(--text-primary);
+}
+
 .command-card header,
 .disturbance-list article,
 .compact-list article {
@@ -3522,8 +3558,9 @@ dd {
 .command-card .command-evidence {
   margin-top: 6px;
   border-radius: 8px;
+  border: 1px solid rgba(88, 166, 255, 0.28);
   background: var(--status-info-bg);
-  color: #3730a3;
+  color: var(--status-info);
   padding: 7px 8px;
   font-size: 12px;
 }
@@ -3601,8 +3638,8 @@ dd {
 .comparison-grid article small {
   width: fit-content;
   border-radius: 999px;
-  background: #e0f2fe;
-  color: #0369a1;
+  background: var(--status-info-bg);
+  color: var(--status-info);
   padding: 3px 8px;
   font-weight: 700;
 }

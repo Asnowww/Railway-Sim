@@ -269,9 +269,9 @@ public class DispatchService {
         markCommandsSent(appliedCommands);
     }
 
-    public synchronized void acceptFeedback(List<DispatchCommandFeedback> feedbacks) {
+    public synchronized List<DispatchCommand> acceptFeedback(List<DispatchCommandFeedback> feedbacks) {
         if (feedbacks == null || feedbacks.isEmpty()) {
-            return;
+            return List.of();
         }
         Map<String, DispatchCommand> commandById = new HashMap<>();
         for (DispatchCommand command : commandRecordStore.list(simulationRunId)) {
@@ -320,6 +320,7 @@ public class DispatchService {
             activeCommands = mergeActiveCommands(updated);
             refreshSnapshot();
         }
+        return List.copyOf(updated);
     }
 
     public synchronized void syncRouteReservations(List<RouteState> routeStates, Instant simulatedAt) {
@@ -613,6 +614,16 @@ public class DispatchService {
             if (simulatedAt.isBefore(plannedDeparture)) {
                 continue;
             }
+            if (!departureHeadwayGateSatisfied(service, simulatedAt)) {
+                log.debug(
+                    "[DispatchLoop] departure gated service={} train={} direction={} plannedAt={}",
+                    service.serviceId(),
+                    service.trainId(),
+                    service.direction(),
+                    plannedDeparture
+                );
+                continue;
+            }
             PlannedStop terminus = service.terminus();
             Map<String, Object> payload = new HashMap<>();
             payload.put("simulationRunId", simulationRunId);
@@ -628,6 +639,8 @@ public class DispatchService {
             payload.put("plannedDepartureAt", plannedDeparture.toString());
             payload.put("dispatchDelaySec", Math.max(0,
                 simulatedAt.getEpochSecond() - plannedDeparture.getEpochSecond()));
+            payload.put("headwayGateEnabled", properties.isDepartureHeadwayGateEnabled());
+            payload.put("requiredHeadwaySec", requiredDepartureHeadwaySec());
             String commandId = "DC-depart-" + service.serviceId();
             commands.add(new DispatchCommand(
                 commandId,
@@ -643,6 +656,66 @@ public class DispatchService {
             departureCommandIdByService.put(service.serviceId(), commandId);
         }
         return List.copyOf(commands);
+    }
+
+    private boolean departureHeadwayGateSatisfied(TrainServicePlan service, Instant simulatedAt) {
+        if (!properties.isDepartureHeadwayGateEnabled() || currentPlan == null || service == null || service.origin() == null) {
+            return true;
+        }
+        TrainServicePlan previous = previousDepartureService(service);
+        if (previous == null) {
+            return true;
+        }
+        Instant previousDeparture = actualDepartureCommandTime(previous);
+        if (previousDeparture == null) {
+            return false;
+        }
+        long elapsedSec = simulatedAt.getEpochSecond() - previousDeparture.getEpochSecond();
+        return elapsedSec >= requiredDepartureHeadwaySec();
+    }
+
+    private TrainServicePlan previousDepartureService(TrainServicePlan service) {
+        PlannedStop origin = service.origin();
+        if (origin == null) {
+            return null;
+        }
+        List<TrainServicePlan> sameGroup = planLoader.services().stream()
+            .filter(candidate -> candidate.origin() != null)
+            .filter(candidate -> sameText(candidate.direction(), service.direction()))
+            .filter(candidate -> sameText(candidate.origin().stationId(), origin.stationId()))
+            .sorted(Comparator
+                .comparing((TrainServicePlan candidate) -> plannedDepartureAt(candidate))
+                .thenComparing(TrainServicePlan::serviceId))
+            .toList();
+        int index = sameGroup.indexOf(service);
+        return index <= 0 ? null : sameGroup.get(index - 1);
+    }
+
+    private Instant actualDepartureCommandTime(TrainServicePlan service) {
+        String commandId = departureCommandIdByService.get(service.serviceId());
+        if (commandId == null) {
+            return null;
+        }
+        return commandRecordStore.list(simulationRunId).stream()
+            .filter(command -> commandId.equals(command.id()))
+            .findFirst()
+            .map(DispatchCommand::createdAt)
+            .orElse(null);
+    }
+
+    private long requiredDepartureHeadwaySec() {
+        double ratio = properties.getDepartureHeadwayGateRatio();
+        if (!Double.isFinite(ratio) || ratio <= 0) {
+            ratio = 1.0;
+        }
+        return Math.max(0L, Math.round(currentPlan.departureIntervalSec() * ratio));
+    }
+
+    private static boolean sameText(String left, String right) {
+        if (left == null || right == null) {
+            return left == right;
+        }
+        return left.equalsIgnoreCase(right);
     }
 
     private DispatchCommand commandFromRouteSelection(RouteIntentSelection selection) {
@@ -1180,8 +1253,16 @@ public class DispatchService {
                 ? CommandStatus.APPLIED
                 : currentStatus;
         }
+        if ("PARTIALLY_APPLIED".equals(feedbackStatus)) {
+            return CommandStatus.PENDING.equals(currentStatus) || CommandStatus.SENT.equals(currentStatus)
+                ? CommandStatus.APPLIED
+                : currentStatus;
+        }
         if (CommandStatus.EFFECT_CONFIRMED.equals(feedbackStatus) || CommandStatus.COMPLETED.equals(feedbackStatus)) {
             return CommandStatus.EFFECT_CONFIRMED;
+        }
+        if ("REJECTED".equals(feedbackStatus)) {
+            return CommandStatus.SKIPPED;
         }
         if (CommandStatus.SKIPPED.equals(feedbackStatus) || CommandStatus.CANCELLED.equals(feedbackStatus)) {
             return feedbackStatus;
@@ -1195,6 +1276,11 @@ public class DispatchService {
             && !CommandStatus.APPLIED.equals(currentStatus)
             || CommandStatus.EFFECT_CONFIRMED.equals(feedbackStatus)
             || CommandStatus.COMPLETED.equals(feedbackStatus)
+            || "ACCEPTED".equals(feedbackStatus)
+            || "PARTIALLY_APPLIED".equals(feedbackStatus)
+            || "BLOCKED".equals(feedbackStatus)
+            || "REJECTED".equals(feedbackStatus)
+            || "EFFECT_NOT_CONFIRMED".equals(feedbackStatus)
             || CommandStatus.SKIPPED.equals(feedbackStatus)
             || CommandStatus.CANCELLED.equals(feedbackStatus));
     }

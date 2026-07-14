@@ -144,6 +144,24 @@ public class DispatchController {
         return Map.of("accepted", true, "commandId", commandId);
     }
 
+    @PostMapping("/command-feedback")
+    public CommandFeedbackResponse acceptCommandFeedback(
+        @RequestBody(required = false) List<CommandFeedbackRequest> requests
+    ) {
+        List<CommandFeedbackRequest> safeRequests = requests == null ? List.of() : requests;
+        List<DispatchCommandFeedback> feedbacks = safeRequests.stream()
+            .filter(request -> request.commandId() != null && !request.commandId().isBlank())
+            .map(CommandFeedbackRequest::toFeedback)
+            .toList();
+        List<DispatchCommand> updated = dispatchService.acceptFeedback(feedbacks);
+        return new CommandFeedbackResponse(
+            safeRequests.size(),
+            updated.size(),
+            Math.max(0, safeRequests.size() - updated.size()),
+            updated
+        );
+    }
+
     // ---- 调度进路查询 ----
 
     @GetMapping("/route/list")
@@ -268,6 +286,39 @@ public class DispatchController {
         String trainId,
         String rejectReason,
         String commandId
+    ) {
+    }
+
+    public record CommandFeedbackRequest(
+        @NotBlank String commandId,
+        String trainId,
+        String commandType,
+        String feedbackSource,
+        @NotBlank String feedbackStatus,
+        String reason,
+        Instant observedAt,
+        Instant feedbackAt,
+        Map<String, Object> details
+    ) {
+        DispatchCommandFeedback toFeedback() {
+            return new DispatchCommandFeedback(
+                commandId,
+                trainId,
+                commandType,
+                feedbackSource == null || feedbackSource.isBlank() ? "SIGNAL_RUNTIME" : feedbackSource,
+                feedbackStatus == null ? null : feedbackStatus.trim().toUpperCase(),
+                reason,
+                observedAt == null ? feedbackAt : observedAt,
+                details
+            );
+        }
+    }
+
+    public record CommandFeedbackResponse(
+        int receivedCount,
+        int updatedCount,
+        int ignoredCount,
+        List<DispatchCommand> commands
     ) {
     }
 

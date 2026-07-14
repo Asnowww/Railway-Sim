@@ -180,3 +180,5 @@ railway:
     route-max-retries: 3
     route-waiting-priority-per-second: 0.05
     route-waiting-priority-max-bonus: 20
+    departure-headway-gate-enabled: true
+    departure-headway-gate-ratio: 1.0

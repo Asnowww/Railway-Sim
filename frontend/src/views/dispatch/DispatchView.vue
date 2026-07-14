@@ -885,7 +885,7 @@ async function publishSignalPlan() {
 .kpi-strip article,
 .panel {
   background: var(--bg-panel);
-  border: 1px solid #d8e1ea;
+  border: 1px solid var(--border-strong);
   border-radius: 8px;
 }
 
@@ -1070,7 +1070,7 @@ header p {
 
 .attention-list article,
 .signal-list article {
-  border: 1px solid #e5edf5;
+  border: 1px solid var(--border-strong);
   border-radius: 8px;
   padding: 10px;
   background: var(--bg-panel-raised);
@@ -1111,13 +1111,14 @@ header p {
   display: grid;
   gap: 6px;
   min-height: 94px;
-  border: 1px solid #e5edf5;
+  border: 1px solid var(--border-strong);
   border-radius: 8px;
   padding: 10px;
-  background: #f7f9fc;
+  background: var(--bg-panel-raised);
 }
 
 .assessment-summary strong {
+  color: var(--text-primary);
   font-size: 22px;
   line-height: 1;
 }
@@ -1127,10 +1128,10 @@ header p {
 }
 
 .assessment-conclusion {
-  border: 1px solid #c9daf8;
+  border: 1px solid rgba(88, 166, 255, 0.38);
   border-radius: 8px;
-  background: #eef5ff;
-  color: #1c4e93;
+  background: var(--status-info-bg);
+  color: var(--status-info);
   padding: 10px 12px;
   font-size: 13px;
   font-weight: 700;
@@ -1145,12 +1146,12 @@ header p {
 }
 
 .assessment-table td[data-risk='true'] {
-  color: #b42318;
+  color: var(--status-danger);
   font-weight: 800;
 }
 
 .assessment-table td[data-risk='false'] {
-  color: #08704f;
+  color: var(--status-ok);
   font-weight: 700;
 }
 
@@ -1175,7 +1176,7 @@ table {
 
 th,
 td {
-  border-bottom: 1px solid #edf2f7;
+  border-bottom: 1px solid var(--border);
   padding: 9px 8px;
   text-align: left;
   vertical-align: top;
@@ -1183,7 +1184,7 @@ td {
 }
 
 th {
-  color: #526173;
+  color: var(--text-secondary);
   font-weight: 700;
   background: var(--bg-panel-raised);
 }
@@ -1213,20 +1214,20 @@ th {
   display: grid;
   gap: 5px;
   min-height: 86px;
-  border: 1px solid #e5edf5;
+  border: 1px solid var(--border-strong);
   border-radius: 8px;
   padding: 10px;
-  background: #f7f9fc;
+  background: var(--bg-panel-raised);
 }
 
 .loop-steps article[data-state='ok'] {
-  border-color: #bfe5d6;
-  background: #f1fbf6;
+  border-color: rgba(46, 160, 67, 0.55);
+  background: var(--status-ok-bg);
 }
 
 .loop-steps article[data-state='warn'] {
-  border-color: #f2d1a6;
-  background: #fff8ed;
+  border-color: rgba(210, 153, 34, 0.58);
+  background: var(--status-warn-bg);
 }
 
 .loop-steps article span,
@@ -1235,6 +1236,7 @@ th {
 }
 
 .loop-steps article strong {
+  color: var(--text-primary);
   font-size: 18px;
   line-height: 1.1;
 }
