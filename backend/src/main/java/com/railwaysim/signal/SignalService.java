@@ -537,9 +537,16 @@ public class SignalService {
         double head = train.positionMeters();
 
         // 找车头前方的下一站；允许车头在站中心后方 10m 内继续被视为站停窗口。
+        // 按列车所在轨道过滤：UP只匹配S1xx，DOWN只匹配S2xx(避免上下行站km重叠误判)
+        String preferredStationPrefix = "DOWN".equalsIgnoreCase(train.direction()) ? "S2" : "S1";
         OperationalLineData.StationDefinition nextStation = stations.stream()
             .filter(s -> s.centerMeters() >= head - STATION_STOP_WINDOW_METERS)
-            .min(Comparator.comparingDouble(s -> s.centerMeters() - head))
+            .sorted(Comparator.comparingDouble(s -> s.centerMeters() - head))
+            .filter(s -> s.id() != null && s.id().startsWith(preferredStationPrefix))
+            .findFirst()
+            .or(() -> stations.stream()
+                .filter(s -> s.centerMeters() >= head - STATION_STOP_WINDOW_METERS)
+                .min(Comparator.comparingDouble(s -> s.centerMeters() - head)))
             .orElse(null);
         if (nextStation == null) return result;
 

@@ -62,6 +62,46 @@ stations:
   - id: S113
     positionMeters: 16105.57149
     platformCapacity: 1400
+  # S201-S213: 下行站(km=16489.02-原位置)
+  - id: S201
+    positionMeters: 16117.02
+    platformCapacity: 1200
+  - id: S202
+    positionMeters: 14764.88
+    platformCapacity: 1000
+  - id: S203
+    positionMeters: 13976.34
+    platformCapacity: 1000
+  - id: S204
+    positionMeters: 12997.19
+    platformCapacity: 1000
+  - id: S205
+    positionMeters: 11409.51
+    platformCapacity: 1200
+  - id: S206
+    positionMeters: 10083.75
+    platformCapacity: 1200
+  - id: S207
+    positionMeters: 8289.92
+    platformCapacity: 1200
+  - id: S208
+    positionMeters: 6980.72
+    platformCapacity: 1000
+  - id: S209
+    positionMeters: 5832.84
+    platformCapacity: 1400
+  - id: S210
+    positionMeters: 4431.14
+    platformCapacity: 1200
+  - id: S211
+    positionMeters: 2521.33
+    platformCapacity: 1000
+  - id: S212
+    positionMeters: 1476.51
+    platformCapacity: 1000
+  - id: S213
+    positionMeters: 383.45
+    platformCapacity: 1400
 
 segments:
   - id: U02
@@ -238,19 +278,19 @@ services:
     offsetMeters: 0
     direction: DOWN
     stops:
-      - { stationId: S113, arrivalOffsetSec: 0, departureOffsetSec: 15 }
-      - { stationId: S112, arrivalOffsetSec: 91, departureOffsetSec: 116 }
-      - { stationId: S111, arrivalOffsetSec: 160, departureOffsetSec: 185 }
-      - { stationId: S110, arrivalOffsetSec: 240, departureOffsetSec: 265 }
-      - { stationId: S109, arrivalOffsetSec: 354, departureOffsetSec: 379 }
-      - { stationId: S108, arrivalOffsetSec: 454, departureOffsetSec: 479 }
-      - { stationId: S107, arrivalOffsetSec: 580, departureOffsetSec: 605 }
-      - { stationId: S106, arrivalOffsetSec: 679, departureOffsetSec: 704 }
-      - { stationId: S105, arrivalOffsetSec: 769, departureOffsetSec: 794 }
-      - { stationId: S104, arrivalOffsetSec: 873, departureOffsetSec: 898 }
-      - { stationId: S103, arrivalOffsetSec: 1006, departureOffsetSec: 1031 }
-      - { stationId: S102, arrivalOffsetSec: 1090, departureOffsetSec: 1115 }
-      - { stationId: S101, arrivalOffsetSec: 1177, departureOffsetSec: 1177 }
+      - { stationId: S213, arrivalOffsetSec: 0, departureOffsetSec: 15 }
+      - { stationId: S212, arrivalOffsetSec: 91, departureOffsetSec: 116 }
+      - { stationId: S211, arrivalOffsetSec: 160, departureOffsetSec: 185 }
+      - { stationId: S210, arrivalOffsetSec: 240, departureOffsetSec: 265 }
+      - { stationId: S209, arrivalOffsetSec: 354, departureOffsetSec: 379 }
+      - { stationId: S208, arrivalOffsetSec: 454, departureOffsetSec: 479 }
+      - { stationId: S207, arrivalOffsetSec: 580, departureOffsetSec: 605 }
+      - { stationId: S206, arrivalOffsetSec: 679, departureOffsetSec: 704 }
+      - { stationId: S205, arrivalOffsetSec: 769, departureOffsetSec: 794 }
+      - { stationId: S204, arrivalOffsetSec: 873, departureOffsetSec: 898 }
+      - { stationId: S203, arrivalOffsetSec: 1006, departureOffsetSec: 1031 }
+      - { stationId: S202, arrivalOffsetSec: 1090, departureOffsetSec: 1115 }
+      - { stationId: S201, arrivalOffsetSec: 1177, departureOffsetSec: 1177 }
   - serviceId: SVC-004
     circulationId: CIRC-004
     trainId: TR-004
@@ -259,16 +299,16 @@ services:
     offsetMeters: 0
     direction: DOWN
     stops:
-      - { stationId: S113, arrivalOffsetSec: 300, departureOffsetSec: 315 }
-      - { stationId: S112, arrivalOffsetSec: 391, departureOffsetSec: 416 }
-      - { stationId: S111, arrivalOffsetSec: 460, departureOffsetSec: 485 }
-      - { stationId: S110, arrivalOffsetSec: 540, departureOffsetSec: 565 }
-      - { stationId: S109, arrivalOffsetSec: 654, departureOffsetSec: 679 }
-      - { stationId: S108, arrivalOffsetSec: 754, departureOffsetSec: 779 }
-      - { stationId: S107, arrivalOffsetSec: 880, departureOffsetSec: 905 }
-      - { stationId: S106, arrivalOffsetSec: 979, departureOffsetSec: 1004 }
-      - { stationId: S105, arrivalOffsetSec: 1069, departureOffsetSec: 1094 }
-      - { stationId: S104, arrivalOffsetSec: 1173, departureOffsetSec: 1198 }
-      - { stationId: S103, arrivalOffsetSec: 1306, departureOffsetSec: 1331 }
-      - { stationId: S102, arrivalOffsetSec: 1390, departureOffsetSec: 1415 }
-      - { stationId: S101, arrivalOffsetSec: 1477, departureOffsetSec: 1477 }
+      - { stationId: S213, arrivalOffsetSec: 300, departureOffsetSec: 315 }
+      - { stationId: S212, arrivalOffsetSec: 391, departureOffsetSec: 416 }
+      - { stationId: S211, arrivalOffsetSec: 460, departureOffsetSec: 485 }
+      - { stationId: S210, arrivalOffsetSec: 540, departureOffsetSec: 565 }
+      - { stationId: S209, arrivalOffsetSec: 654, departureOffsetSec: 679 }
+      - { stationId: S208, arrivalOffsetSec: 754, departureOffsetSec: 779 }
+      - { stationId: S207, arrivalOffsetSec: 880, departureOffsetSec: 905 }
+      - { stationId: S206, arrivalOffsetSec: 979, departureOffsetSec: 1004 }
+      - { stationId: S205, arrivalOffsetSec: 1069, departureOffsetSec: 1094 }
+      - { stationId: S204, arrivalOffsetSec: 1173, departureOffsetSec: 1198 }
+      - { stationId: S203, arrivalOffsetSec: 1306, departureOffsetSec: 1331 }
+      - { stationId: S202, arrivalOffsetSec: 1390, departureOffsetSec: 1415 }
+      - { stationId: S201, arrivalOffsetSec: 1477, departureOffsetSec: 1477 }

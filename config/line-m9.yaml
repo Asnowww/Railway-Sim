@@ -196,6 +196,47 @@ stations:
         stop_right_meters: 16169.01966
         side: right
 
+  # S201-S213 下行站
+  - id: S201
+    name: S201
+    position_meters: 16117.020000
+  - id: S202
+    name: S202
+    position_meters: 14764.880000
+  - id: S203
+    name: S203
+    position_meters: 13976.343000
+  - id: S204
+    name: S204
+    position_meters: 12997.188000
+  - id: S205
+    name: S205
+    position_meters: 11409.505400
+  - id: S206
+    name: S206
+    position_meters: 10083.750000
+  - id: S207
+    name: S207
+    position_meters: 8289.917000
+  - id: S208
+    name: S208
+    position_meters: 6980.717520
+  - id: S209
+    name: S209
+    position_meters: 5832.841520
+  - id: S210
+    name: S210
+    position_meters: 4431.140670
+  - id: S211
+    name: S211
+    position_meters: 2521.333510
+  - id: S212
+    name: S212
+    position_meters: 1476.506510
+  - id: S213
+    name: S213
+    position_meters: 383.448510
+
 nodes:
   - id: NU00
     name: 上行节点00
@@ -509,48 +550,48 @@ segments:
   # from/to 按行车方向（高里程节点→低里程节点），保证进路 axle 链连通性校验通过；
   # start/end_meters 仍为升序数值（引擎 1D 投影约定 start<end）。
   - id: D03
-    from: ND01
-    to: ND00
+    to: ND01
+    from: ND00
     start_meters: 0.0
     end_meters: 215.49
     raw_segment_id: 3
     speed_limit_meters_per_second: 22.2
     track: down
   - id: D04
-    from: ND02
-    to: ND01
+    to: ND02
+    from: ND01
     start_meters: 215.49
     end_meters: 232.81
     raw_segment_id: 4
     speed_limit_meters_per_second: 22.2
     track: down
   - id: D07
-    from: ND03
-    to: ND02
+    to: ND03
+    from: ND02
     start_meters: 232.81
     end_meters: 300.19
     raw_segment_id: 7
     speed_limit_meters_per_second: 22.2
     track: down
   - id: D11
-    from: ND04
-    to: ND03
+    to: ND04
+    from: ND03
     start_meters: 300.19
     end_meters: 443.81
     raw_segment_id: 11
     speed_limit_meters_per_second: 22.2
     track: down
   - id: D14
-    from: ND05
-    to: ND04
+    to: ND05
+    from: ND04
     start_meters: 443.81
     end_meters: 511.19
     raw_segment_id: 14
     speed_limit_meters_per_second: 22.2
     track: down
   - id: D17a
-    from: ND06
-    to: ND06s2
+    to: ND06
+    from: ND06s2
     start_meters: 511.19
     end_meters: 1719.52
     raw_segment_id: 0
@@ -558,8 +599,8 @@ segments:
     track: down
 
   - id: D17b
-    from: ND06s2
-    to: ND06s3
+    to: ND06s2
+    from: ND06s3
     start_meters: 1719.52
     end_meters: 2507.61
     raw_segment_id: 0
@@ -567,8 +608,8 @@ segments:
     track: down
 
   - id: D17c
-    from: ND06s3
-    to: ND06s4
+    to: ND06s3
+    from: ND06s4
     start_meters: 2507.61
     end_meters: 3488.32
     raw_segment_id: 0
@@ -576,8 +617,8 @@ segments:
     track: down
 
   - id: D17d
-    from: ND06s4
-    to: ND05
+    to: ND06s4
+    from: ND05
     start_meters: 3488.32
     end_meters: 5274.8396
     raw_segment_id: 0
@@ -585,8 +626,8 @@ segments:
     track: down
 
   - id: D21a
-    from: ND07
-    to: ND07s6
+    to: ND07
+    from: ND07s6
     start_meters: 5274.8396
     end_meters: 6400.274
     raw_segment_id: 0
@@ -594,8 +635,8 @@ segments:
     track: down
 
   - id: D21b
-    from: ND07s6
-    to: ND07s7
+    to: ND07s6
+    from: ND07s7
     start_meters: 6400.274
     end_meters: 8179.204
     raw_segment_id: 0
@@ -603,8 +644,8 @@ segments:
     track: down
 
   - id: D21c
-    from: ND07s7
-    to: ND06
+    to: ND07s7
+    from: ND06
     start_meters: 8179.204
     end_meters: 8346.083
     raw_segment_id: 0
@@ -612,16 +653,16 @@ segments:
     track: down
 
   - id: D24
-    from: ND08
-    to: ND07
+    to: ND08
+    from: ND07
     start_meters: 8346.083
     end_meters: 8687.02908
     raw_segment_id: 24
     speed_limit_meters_per_second: 22.2
     track: down
   - id: D28a
-    from: ND09
-    to: ND09s8
+    to: ND09
+    from: ND09s8
     start_meters: 8687.02908
     end_meters: 9488.344
     raw_segment_id: 0
@@ -629,8 +670,8 @@ segments:
     track: down
 
   - id: D28b
-    from: ND09s8
-    to: ND09s9
+    to: ND09s8
+    from: ND09s9
     start_meters: 9488.344
     end_meters: 10659.11378
     raw_segment_id: 0
@@ -638,8 +679,8 @@ segments:
     track: down
 
   - id: D28c
-    from: ND09s9
-    to: ND09s10
+    to: ND09s9
+    from: ND09s10
     start_meters: 10659.11378
     end_meters: 12058.07
     raw_segment_id: 0
@@ -647,8 +688,8 @@ segments:
     track: down
 
   - id: D28d
-    from: ND09s10
-    to: ND09s11
+    to: ND09s10
+    from: ND09s11
     start_meters: 12058.07
     end_meters: 13970.28014
     raw_segment_id: 0
@@ -656,8 +697,8 @@ segments:
     track: down
 
   - id: D28e
-    from: ND09s11
-    to: ND08
+    to: ND09s11
+    from: ND08
     start_meters: 13970.28014
     end_meters: 14039.49649
     raw_segment_id: 0
@@ -665,8 +706,8 @@ segments:
     track: down
 
   - id: D36a
-    from: ND10
-    to: ND10s12
+    to: ND10
+    from: ND10s12
     start_meters: 14039.49649
     end_meters: 15013.91
     raw_segment_id: 0
@@ -674,8 +715,8 @@ segments:
     track: down
 
   - id: D36b
-    from: ND10s12
-    to: ND10s13
+    to: ND10s12
+    from: ND10s13
     start_meters: 15013.91
     end_meters: 16110.01966
     raw_segment_id: 0
@@ -683,8 +724,8 @@ segments:
     track: down
 
   - id: D36c
-    from: ND10s13
-    to: ND09
+    to: ND10s13
+    from: ND09
     start_meters: 16110.01966
     end_meters: 16203.38149
     raw_segment_id: 0
@@ -692,16 +733,16 @@ segments:
     track: down
 
   - id: D43
-    from: ND11
-    to: ND10
+    to: ND11
+    from: ND10
     start_meters: 16203.38149
     end_meters: 16270.76149
     raw_segment_id: 43
     speed_limit_meters_per_second: 22.2
     track: down
   - id: D47
-    from: ND12
-    to: ND11
+    to: ND12
+    from: ND11
     start_meters: 16270.76149
     end_meters: 16484.57149
     raw_segment_id: 47
@@ -881,11 +922,11 @@ routes:
     end_signal: SIG-U48
     axle_section_ids: [U02, U10, U13, U16, U19, U20a, U20b, U20c, U20d, U23a, U23b, U23c, U27, U34a, U34b, U34c, U34d, U34e, U38, U42a, U42b, U42c, U46, U48]
   - id: R_DOWN
-    name: 下行正线（国家图书馆→郭公庄）
+    name: 下行正线（郭公庄→国家图书馆）
     type: MAIN
-    start_signal: SIG-D47
-    end_signal: SIG-D03
-    axle_section_ids: [D47, D43, D36a, D36b, D36c, D28a, D28b, D28c, D28d, D28e, D24, D21a, D21b, D21c, D17a, D17b, D17c, D17d, D14, D11, D07, D04, D03]
+    start_signal: SIG-D03
+    end_signal: SIG-D47
+    axle_section_ids: [D03, D04, D07, D11, D14, D17d, D17c, D17b, D17a, D21c, D21b, D21a, D24, D28e, D28d, D28c, D28b, D28a, D36c, D36b, D36a, D43, D47]
   - id: R_TB_LIB
     name: 国家图书馆折返（上行→下行）
     type: BRANCH
