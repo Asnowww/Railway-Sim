@@ -12,6 +12,7 @@ import com.railwaysim.track.TrackSegmentState;
 import com.railwaysim.track.TrackService;
 import com.railwaysim.train.TrainEntity;
 import com.railwaysim.train.TrainState;
+import java.nio.file.Path;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 
@@ -231,6 +232,48 @@ class SignalServiceTests {
         assertThat(f.signalService.signalStates()).allMatch(s -> s.aspect() == SignalAspect.GREEN);
     }
 
+    @Test
+    void configuredSignals_useDeclaredIdsAndRealPositions() {
+        OperationalLineData base = straightLine(4000);
+        OperationalLineData line = new OperationalLineData(
+            base.lineId(), base.lineName(), base.points(), base.trackSegments(),
+            base.speedLimitZones(), base.gradientZones(), base.switches(), base.stations(), base.platforms(),
+            List.of(
+                signal("REAL-SIG-A", "SEG-0", 125.5),
+                signal("REAL-SIG-B", "SEG-2", 2345.75)
+            ),
+            base.balises(), base.routes()
+        );
+        Fixture f = fixture(line);
+
+        f.signalService.calculateAuthorities(List.of(), List.of(), List.of());
+
+        assertThat(f.signalService.signalStates())
+            .extracting(SignalState::signalId)
+            .containsExactly("REAL-SIG-A", "REAL-SIG-B");
+        assertThat(findSignal(f.signalService.signalStates(), "SEG-0").positionMeters()).isEqualTo(125.5);
+        assertThat(findSignal(f.signalService.signalStates(), "SEG-2").positionMeters()).isEqualTo(2345.75);
+    }
+
+    @Test
+    void m9RuntimeSignals_matchEveryConfiguredSignalPosition() throws Exception {
+        OperationalLineData line = new com.railwaysim.infrastructure.YamlLineDataLoader()
+            .load(Path.of("..", "config", "line-m9.yaml"));
+        Fixture f = fixture(line);
+
+        f.signalService.calculateAuthorities(List.of(), List.of(), List.of());
+
+        assertThat(f.signalService.signalStates()).hasSameSizeAs(line.signals());
+        for (OperationalLineData.SignalDefinition definition : line.signals()) {
+            SignalState runtime = f.signalService.signalStates().stream()
+                .filter(signal -> signal.signalId().equals(definition.id()))
+                .findFirst()
+                .orElseThrow();
+            assertThat(runtime.segmentId()).isEqualTo(definition.segmentId());
+            assertThat(runtime.positionMeters()).isEqualTo(definition.positionMeters());
+        }
+    }
+
     // ==================== 调度限速 ====================
 
     @Test
@@ -426,6 +469,12 @@ class SignalServiceTests {
 
     private static OperationalLineData.StationDefinition station(String id, String name, double positionMeters) {
         return new OperationalLineData.StationDefinition(id, name, positionMeters, List.of());
+    }
+
+    private static OperationalLineData.SignalDefinition signal(String id, String segmentId, double positionMeters) {
+        return new OperationalLineData.SignalDefinition(
+            id, id, null, null, segmentId, positionMeters, "FORWARD", null, null
+        );
     }
 
     private static OperationalPowerData emptyPowerData() {

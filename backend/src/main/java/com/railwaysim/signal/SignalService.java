@@ -314,8 +314,29 @@ public class SignalService {
         }
 
         Map<String, List<String>> forwardMap = trackService.forwardNeighborMap();
+        Map<String, TrackSegmentState> segmentById = trackSegments.stream()
+            .collect(Collectors.toMap(TrackSegmentState::id, Function.identity()));
+        List<OperationalLineData.SignalDefinition> configuredSignals = infrastructureCatalog.lineData().signals();
+
+        // 正式线路使用基础设施信号表中的真实 ID、所属区段和公里标。
+        // 仅为没有信号表的旧测试/兼容线路按区段入口合成信号，避免改变既有无配置场景。
+        record SignalPlacement(String id, String segmentId, double positionMeters) {}
+        List<SignalPlacement> placements = configuredSignals.isEmpty()
+            ? trackSegments.stream()
+                .map(segment -> new SignalPlacement("SIG-" + segment.id(), segment.id(), segment.startMeters()))
+                .toList()
+            : configuredSignals.stream()
+                .map(signal -> new SignalPlacement(signal.id(), signal.segmentId(), signal.positionMeters()))
+                .toList();
+
         List<SignalState> aspects = new ArrayList<>();
-        for (TrackSegmentState seg : trackSegments) {
+        for (SignalPlacement placement : placements) {
+            TrackSegmentState seg = segmentById.get(placement.segmentId());
+            if (seg == null) {
+                throw new IllegalStateException(
+                    "Signal " + placement.id() + " references unknown segment " + placement.segmentId()
+                );
+            }
             // 按"前方两区段"判断灯色：
             //   首区段 OCCUPIED/FAULT → RED
             //   首区段 FREE/RESERVED + 第二区段 OCCUPIED/FAULT/不存在 → YELLOW
@@ -355,9 +376,9 @@ public class SignalService {
             }
 
             aspects.add(new SignalState(
-                "SIG-" + seg.id(),
-                seg.id(),
-                seg.startMeters(),
+                placement.id(),
+                placement.segmentId(),
+                placement.positionMeters(),
                 aspect,
                 reasonTrainId
             ));
@@ -529,6 +550,9 @@ public class SignalService {
 
         double head = train.positionMeters();
 
+        // 停车目标 = 列车所在股道站台的精确停车点（stop_right，车头对齐站台末端）
+        String track = trackService.segmentForTrain(train).track();
+
         // 释放标记只在列车驶离当前站台窗口前有效。先清理已经越过的站，
         // 避免旧标记让后续所有站点的 stationDistance 都被屏蔽为 9999m。
         String releasePrefix = train.id() + ":";
@@ -538,16 +562,17 @@ public class SignalService {
             return stations.stream()
                 .filter(station -> station.id().equals(stationId))
                 .findFirst()
-                .map(station -> head > station.centerMeters() + STATION_STOP_WINDOW_METERS)
+                .map(station -> head > lineData.stopPointMeters(station, track) + STATION_STOP_WINDOW_METERS)
                 .orElse(true);
         });
 
-        // 找车头前方的下一站；允许车头在站中心后方的站停窗口内继续被视为当前站。
+        // 找车头前方的下一站（按停车点）；允许车头在停车点后方窗口内继续被视为站停窗口。
         OperationalLineData.StationDefinition nextStation = stations.stream()
-            .filter(s -> s.centerMeters() >= head - STATION_STOP_WINDOW_METERS)
-            .min(Comparator.comparingDouble(s -> s.centerMeters() - head))
+            .filter(s -> lineData.stopPointMeters(s, track) >= head - STATION_STOP_WINDOW_METERS)
+            .min(Comparator.comparingDouble(s -> lineData.stopPointMeters(s, track) - head))
             .orElse(null);
         if (nextStation == null) return result;
+        double stopPoint = lineData.stopPointMeters(nextStation, track);
 
         String dwellKey = train.id() + ":" + nextStation.id();
         if (dispatch != null && dispatch.releaseStationStop()) {
@@ -564,7 +589,7 @@ public class SignalService {
             return result;
         }
 
-        boolean stopped = Math.abs(head - nextStation.centerMeters()) <= STATION_STOP_WINDOW_METERS && train.zeroSpeed();
+        boolean stopped = Math.abs(head - stopPoint) <= STATION_STOP_WINDOW_METERS && train.zeroSpeed();
         if (releasedStationStops.contains(dwellKey)) {
             // 已释放的站在驶离窗口前保持放行；驶离后的标记已在方法入口清理。
             atStationStop.remove(train.id());
@@ -596,9 +621,9 @@ public class SignalService {
         }
         int dwellElapsedSec = (int) Math.floor(dwellTicks * simulationProperties.getTickMillis() / 1000.0);
 
-        // 站停未完成 → MA 截到站台位置
+        // 站停未完成 → MA 截到停车点后窗口边缘（余量供 ATO 精确对位，越过即越权）
         if (dwellTicks < targetDwellTicks) {
-            result.put("maEndAt", nextStation.centerMeters() + STATION_STOP_WINDOW_METERS);
+            result.put("maEndAt", stopPoint + STATION_STOP_WINDOW_METERS);
             if (dwellTicks > 0) {
                 result.put("isDwelling", 1.0);
                 result.put("dwellElapsedSec", (double) dwellElapsedSec);

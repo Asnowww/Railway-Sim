@@ -41,7 +41,8 @@ class TrackServiceTests {
 
         TrackConstraint constraint = trackService.constraintsForTrains(List.of(train)).get(0);
 
-        assertThat(constraint.stationDistanceMeters()).isEqualTo(4);
+        // 窗口内返回有符号距离：越过停车点 4m → -4（车辆层据此判定已对位/越过）
+        assertThat(constraint.stationDistanceMeters()).isEqualTo(-4);
     }
 
     @Test

@@ -559,7 +559,8 @@ public class TrainStateHolder {
                 nearest = station.id;
             }
         }
-        return nearestDistance <= 30 ? nearest : null;
+        // 车头停车点=站台末端(stop_right)，距站中心约半个站台长（M9 为 59m）——阈值需覆盖
+        return nearestDistance <= 75 ? nearest : null;
     }
 
     /** 由线路权威配置下发的只读车站目标；9300 不创建或修改基础设施。 */
