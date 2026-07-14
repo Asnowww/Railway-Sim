@@ -56,7 +56,7 @@ public class CommandValidator {
         }
         if ("SPEED_BIAS".equals(command.commandType())) {
             double ratio = numberPayload(command.payload(), "speedBiasRatio", 1.0);
-            if (ratio > 1.1 || ratio < 0.9) {
+            if (ratio > 1.2 || ratio < 0.6) {
                 return skip(command, "speed bias out of allowed range");
             }
             MovementAuthority authority = findAuthority(authorities, command.trainId());

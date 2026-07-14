@@ -12,17 +12,9 @@ import com.railwaysim.simulation.TickContext;
 import com.railwaysim.track.TrackConstraint;
 import com.railwaysim.train.TrainState;
 import com.railwaysim.vehicle.TrainStateReport;
-import com.railwaysim.vehicle.VehiclePhysicsClient;
-import com.railwaysim.vehicle.VehiclePhysicsInput;
 import com.railwaysim.vehicle.VehiclePhysicsOutput;
-import com.railwaysim.vehicle.control.DriverCommandHolder;
-import com.railwaysim.vehicle.control.DriverControlCommand;
-import com.railwaysim.vehicle.control.VehicleControlDecision;
-import com.railwaysim.vehicle.control.VehicleControlDecisionRepository;
-import com.railwaysim.vehicle.control.VehicleOperationMode;
-import com.railwaysim.vehicle.onboard.OnboardTrainControlInput;
-import com.railwaysim.vehicle.onboard.OnboardTrainControlOutput;
-import com.railwaysim.vehicle.onboard.OnboardTrainSubsystemManager;
+import com.railwaysim.vehicle.telemetry.VehicleTelemetryRequest;
+import com.railwaysim.vehicle.telemetry.VehicleTelemetryResponse;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
@@ -45,12 +37,10 @@ public class VehicleRuntimeIntegrationService implements VehiclePowerLoadForward
     private final SimulationProperties simulationProperties;
     private final StaticInfrastructureCatalog infrastructureCatalog;
     private final VehicleRuntimeClient client;
-    private final OnboardTrainSubsystemManager onboardTrainSubsystemManager;
-    private final VehiclePhysicsClient vehiclePhysicsClient;
-    private final DriverCommandHolder driverCommandHolder;
-    private final VehicleControlDecisionRepository decisionRepository;
     private final AtomicBoolean bootstrapped = new AtomicBoolean();
-    private volatile VehicleRuntimeHealth latestHealth = VehicleRuntimeHealth.local();
+    private volatile VehicleRuntimeHealth latestHealth = new VehicleRuntimeHealth(
+        VehicleRuntimeMode.EXTERNAL_HTTP, "INITIALIZING", Instant.EPOCH, 0L, "INITIALIZING", 0, "Initializing"
+    );
     private volatile List<VehicleRuntimeInstanceState> latestInstances = List.of();
 
     @Autowired
@@ -59,37 +49,13 @@ public class VehicleRuntimeIntegrationService implements VehiclePowerLoadForward
         ExternalPowerNetworkProperties externalPowerNetworkProperties,
         SimulationProperties simulationProperties,
         StaticInfrastructureCatalog infrastructureCatalog,
-        VehicleRuntimeClient client,
-        OnboardTrainSubsystemManager onboardTrainSubsystemManager,
-        VehiclePhysicsClient vehiclePhysicsClient,
-        DriverCommandHolder driverCommandHolder,
-        VehicleControlDecisionRepository decisionRepository
+        VehicleRuntimeClient client
     ) {
         this.properties = properties;
         this.externalPowerNetworkProperties = externalPowerNetworkProperties;
         this.simulationProperties = simulationProperties;
         this.infrastructureCatalog = infrastructureCatalog;
         this.client = client;
-        this.onboardTrainSubsystemManager = onboardTrainSubsystemManager;
-        this.vehiclePhysicsClient = vehiclePhysicsClient;
-        this.driverCommandHolder = driverCommandHolder;
-        this.decisionRepository = decisionRepository;
-    }
-
-    public VehicleRuntimeIntegrationService(
-        VehicleRuntimeProperties properties,
-        ExternalPowerNetworkProperties externalPowerNetworkProperties,
-        SimulationProperties simulationProperties,
-        StaticInfrastructureCatalog infrastructureCatalog,
-        VehicleRuntimeClient client,
-        OnboardTrainSubsystemManager onboardTrainSubsystemManager,
-        VehiclePhysicsClient vehiclePhysicsClient
-    ) {
-        this(
-            properties, externalPowerNetworkProperties, simulationProperties, infrastructureCatalog,
-            client, onboardTrainSubsystemManager, vehiclePhysicsClient,
-            new DriverCommandHolder(), new VehicleControlDecisionRepository()
-        );
     }
 
     public VehicleRuntimeStepResult stepFleet(
@@ -100,112 +66,10 @@ public class VehicleRuntimeIntegrationService implements VehiclePowerLoadForward
         List<DispatchConstraint> dispatchConstraints,
         List<PowerConstraint> powerConstraints
     ) {
-        return switch (properties.getMode()) {
-            case LOCAL -> localStep(context, trains, authorities, trackConstraints, dispatchConstraints, powerConstraints, null);
-            case EXTERNAL_HTTP -> externalStepRequired(context, trains, authorities, trackConstraints, dispatchConstraints, powerConstraints);
-            case DUAL_SHADOW -> shadowStep(context, trains, authorities, trackConstraints, dispatchConstraints, powerConstraints);
-        };
-    }
-
-    public void register(TrainState train) {
-        if (!usesExternalRuntime()) {
-            return;
-        }
         try {
-            bootstrapIfNeeded();
-            VehicleRuntimeInstanceState state = client.registerTrain(train);
-            latestInstances = mergeInstance(state);
-            latestHealth = client.health();
-        } catch (RuntimeException exception) {
-            // 保留注册失败状态，后续外部 tick 会明确失败；中央不得创建替代车辆物理状态。
-            latestHealth = fallbackHealth(summarize(exception));
-        }
-    }
-
-    public void remove(String trainId) {
-        if (!usesExternalRuntime()) {
-            return;
-        }
-        try {
-            client.removeTrain(trainId);
-            latestInstances = client.instances();
-        } catch (RuntimeException exception) {
-            latestHealth = fallbackHealth(summarize(exception));
-        }
-    }
-
-    public void clear() {
-        bootstrapped.set(false);
-        latestInstances = List.of();
-        driverCommandHolder.clear();
-        decisionRepository.clear();
-        if (!usesExternalRuntime()) {
-            latestHealth = VehicleRuntimeHealth.local();
-            return;
-        }
-        try {
-            client.clear();
-            latestHealth = client.health();
-        } catch (RuntimeException exception) {
-            latestHealth = fallbackHealth(summarize(exception));
-        }
-    }
-
-    public VehicleRuntimeStatusResponse status() {
-        if (!usesExternalRuntime()) {
-            return new VehicleRuntimeStatusResponse(VehicleRuntimeHealth.local(), List.of());
-        }
-        return new VehicleRuntimeStatusResponse(latestHealth, latestInstances);
-    }
-
-    public VehicleRuntimeHealth health() {
-        return status().health();
-    }
-
-    /** 转发司控台 PLC 输入到 9300（仅 EXTERNAL_HTTP 模式使用）。 */
-    public void forwardPlcInput(String trainId, byte[] payload) {
-        client.forwardPlcInput(trainId, payload);
-    }
-
-    public void forwardTractionCut(String trainId, byte[] payload) {
-        client.forwardTractionCut(trainId, payload);
-    }
-
-    @Override
-    public boolean ownsPowerLoadForwarding() {
-        // 只有外部车辆运行时真实在线时，中央才让出供电负荷写入权，避免启动初期误判。
-        return properties.getMode() == VehicleRuntimeMode.EXTERNAL_HTTP
-            && latestHealth.mode() == VehicleRuntimeMode.EXTERNAL_HTTP
-            && "UP".equals(latestHealth.heartbeatStatus())
-            && "GOOD".equals(latestHealth.dataQuality());
-    }
-
-    @Override
-    public boolean isConfiguredPowerLoadForwardingOwner() {
-        return properties.getMode() == VehicleRuntimeMode.EXTERNAL_HTTP
-            && externalPowerNetworkProperties.getMode() == ExternalPowerNetworkMode.EXTERNAL_HTTP;
-    }
-
-    /** 当前是否使用外部车辆运行时（EXTERNAL_HTTP 或 DUAL_SHADOW）。 */
-    public boolean isExternalMode() {
-        return properties.getMode() == VehicleRuntimeMode.EXTERNAL_HTTP || properties.getMode() == VehicleRuntimeMode.DUAL_SHADOW;
-    }
-
-    /** In split mode 8080 sends only signal/track/dispatch control; 9300 obtains power from 9200. */
-    public boolean usesExternalPowerAuthority() {
-        return isConfiguredPowerLoadForwardingOwner();
-    }
-
-    private VehicleRuntimeStepResult externalStepRequired(
-        TickContext context,
-        List<TrainState> trains,
-        List<MovementAuthority> authorities,
-        List<TrackConstraint> trackConstraints,
-        List<DispatchConstraint> dispatchConstraints,
-        List<PowerConstraint> powerConstraints
-    ) {
-        try {
-            VehicleRuntimeStepResult result = externalStep(context, trains, authorities, trackConstraints, dispatchConstraints, powerConstraints);
+            VehicleRuntimeStepResult result = externalStep(
+                context, trains, authorities, trackConstraints, dispatchConstraints, powerConstraints
+            );
             latestHealth = result.health();
             latestInstances = result.instanceStates();
             return result;
@@ -218,24 +82,72 @@ public class VehicleRuntimeIntegrationService implements VehiclePowerLoadForward
         }
     }
 
-    private VehicleRuntimeStepResult shadowStep(
-        TickContext context,
-        List<TrainState> trains,
-        List<MovementAuthority> authorities,
-        List<TrackConstraint> trackConstraints,
-        List<DispatchConstraint> dispatchConstraints,
-        List<PowerConstraint> powerConstraints
-    ) {
-        VehicleRuntimeStepResult local = localStep(context, trains, authorities, trackConstraints, dispatchConstraints, powerConstraints, null);
+    public void register(TrainState train) {
         try {
-            VehicleRuntimeStepResult shadow = externalStep(context, trains, authorities, trackConstraints, dispatchConstraints, powerConstraints);
-            latestHealth = shadow.health();
-            latestInstances = shadow.instanceStates();
+            bootstrapIfNeeded();
+            VehicleRuntimeInstanceState state = client.registerTrain(train);
+            latestInstances = mergeInstance(state);
+            latestHealth = client.health();
         } catch (RuntimeException exception) {
-            // 影子模式外部失败只影响监控，不改变中央权威车辆状态。
+            // 保留注册失败状态，后续外部 tick 会明确失败；中央不得创建替代车辆物理状态。
             latestHealth = fallbackHealth(summarize(exception));
         }
-        return local;
+    }
+
+    public void remove(String trainId) {
+        try {
+            client.removeTrain(trainId);
+            latestInstances = client.instances();
+        } catch (RuntimeException exception) {
+            latestHealth = fallbackHealth(summarize(exception));
+        }
+    }
+
+    public void clear() {
+        bootstrapped.set(false);
+        latestInstances = List.of();
+        try {
+            client.clear();
+            latestHealth = client.health();
+        } catch (RuntimeException exception) {
+            latestHealth = fallbackHealth(summarize(exception));
+        }
+    }
+
+    public VehicleRuntimeStatusResponse status() {
+        return new VehicleRuntimeStatusResponse(latestHealth, latestInstances);
+    }
+
+    public VehicleRuntimeHealth health() {
+        return status().health();
+    }
+
+    /** 转发司控台 PLC 输入到 9300（仅 EXTERNAL_HTTP 模式使用）。 */
+    public Map<String, Object> forwardPlcInput(String trainId, byte[] payload) {
+        return client.forwardPlcInput(trainId, payload);
+    }
+
+    public VehicleTelemetryResponse forwardTelemetry(VehicleTelemetryRequest request) {
+        return client.forwardTelemetry(request);
+    }
+
+    @Override
+    public boolean ownsPowerLoadForwarding() {
+        // 只有外部车辆运行时真实在线时，中央才让出供电负荷写入权，避免启动初期误判。
+        return properties.getMode() == VehicleRuntimeMode.EXTERNAL_HTTP
+            && "UP".equals(latestHealth.heartbeatStatus())
+            && "GOOD".equals(latestHealth.dataQuality());
+    }
+
+    @Override
+    public boolean isConfiguredPowerLoadForwardingOwner() {
+        return properties.getMode() == VehicleRuntimeMode.EXTERNAL_HTTP
+            && externalPowerNetworkProperties.getMode() == ExternalPowerNetworkMode.EXTERNAL_HTTP;
+    }
+
+    /** In split mode 8080 sends only signal/track/dispatch control; 9300 obtains power from 9200. */
+    public boolean usesExternalPowerAuthority() {
+        return isConfiguredPowerLoadForwardingOwner();
     }
 
     private VehicleRuntimeStepResult externalStep(
@@ -297,34 +209,6 @@ public class VehicleRuntimeIntegrationService implements VehiclePowerLoadForward
                 throw new IllegalStateException("vehicle runtime result missing train output");
             }
         }
-        for (VehicleRuntimeTrainStep step : steps) {
-            TrainStateReport report = step.report();
-            if (report == null) continue;
-            boolean driverSelected = "DRIVER".equals(report.decisionSource());
-            decisionRepository.store(new VehicleControlDecision(
-                null,
-                context.simulationRunId(),
-                context.tick(),
-                step.trainId(),
-                driverSelected ? VehicleOperationMode.MANUAL : VehicleOperationMode.AUTO,
-                driverSelected ? "DRIVER" : controlSource(report),
-                report.tractionCommand(),
-                report.brakeCommand(),
-                report.emergencyBrakeCommand(),
-                0.0,
-                report.doorClosed(),
-                !"LOST".equals(report.currentCollectionStatus()),
-                report.tractionAvailable(),
-                report.brakeAvailable(),
-                List.of(),
-                report.dynamicsConstraintReason(),
-                response.sourceTimestamp(),
-                Instant.now(),
-                report.inputTraceId() == null ? "runtime-" + context.tick() : report.inputTraceId(),
-                1
-            ));
-        }
-
         List<VehicleRuntimeEvent> responseEvents = response.events() == null ? List.of() : response.events();
 
         VehicleRuntimeHealth health = new VehicleRuntimeHealth(
@@ -350,17 +234,6 @@ public class VehicleRuntimeIntegrationService implements VehiclePowerLoadForward
             resultTrainStates, responseEvents);
     }
 
-    private String controlSource(TrainStateReport report) {
-        if (report.emergencyBrakeCommand()
-            || "MA_BRAKE".equals(report.dynamicsState())
-            || "SAFETY_BRAKE".equals(report.dynamicsState())
-            || "POWER_LOSS".equals(report.dynamicsState())
-            || "SELF_CHECK_BLOCKED".equals(report.dynamicsState())) {
-            return "SAFETY_LAYER";
-        }
-        return "RULE_ENGINE";
-    }
-
     private VehicleRuntimeHealth fallbackHealth(String reason) {
         return new VehicleRuntimeHealth(
             properties.getMode(), "FALLBACK", Instant.now(), latestHealth.latencyMillis(),
@@ -369,54 +242,6 @@ public class VehicleRuntimeIntegrationService implements VehiclePowerLoadForward
             latestHealth.simulationRunId(), latestHealth.lastAcceptedTick(),
             latestHealth.topologyHash(), latestHealth.configHash(),
             latestHealth.stoppingParameterVersion(), latestHealth.bootstrapped());
-    }
-
-    private VehicleRuntimeStepResult localStep(
-        TickContext context,
-        List<TrainState> trains,
-        List<MovementAuthority> authorities,
-        List<TrackConstraint> trackConstraints,
-        List<DispatchConstraint> dispatchConstraints,
-        List<PowerConstraint> powerConstraints,
-        String faultCodeOverride
-    ) {
-        Map<String, MovementAuthority> authorityByTrain = index(authorities, MovementAuthority::trainId);
-        Map<String, TrackConstraint> trackByTrain = index(trackConstraints, TrackConstraint::trainId);
-        Map<String, DispatchConstraint> dispatchByTrain = index(dispatchConstraints, DispatchConstraint::trainId);
-        Map<String, PowerConstraint> powerByTrain = index(powerConstraints, PowerConstraint::trainId);
-        List<VehiclePhysicsInput> inputs = trains.stream()
-            .map(train -> {
-                OnboardTrainControlOutput controlOutput = onboardTrainSubsystemManager.control(
-                    new OnboardTrainControlInput(
-                        train,
-                        context,
-                        authorityByTrain.get(train.id()),
-                        trackByTrain.get(train.id()),
-                        dispatchByTrain.get(train.id()),
-                        powerByTrain.get(train.id()),
-                        driverCommandHolder.latest(train.id())
-                    )
-                );
-                if (controlOutput.controlDecision() != null) {
-                    decisionRepository.store(controlOutput.controlDecision());
-                }
-                return controlOutput.physicsInput();
-            })
-            .toList();
-        Map<String, VehiclePhysicsInput> inputByTrain = index(inputs, VehiclePhysicsInput::trainId);
-        Map<String, VehiclePhysicsOutput> outputByTrain = vehiclePhysicsClient.stepFleet(inputs).stream()
-            .map(output -> faultCodeOverride == null ? output : withFaultCode(output, faultCodeOverride))
-            .collect(Collectors.toMap(VehiclePhysicsOutput::trainId, Function.identity(), (left, right) -> right));
-        List<VehicleRuntimeTrainStep> steps = trains.stream()
-            .map(train -> {
-                VehiclePhysicsInput input = inputByTrain.get(train.id());
-                VehiclePhysicsOutput output = outputByTrain.get(train.id());
-                TrainStateReport report = onboardTrainSubsystemManager.buildTrainStateReport(train, input, output);
-                return new VehicleRuntimeTrainStep(train.id(), output, report);
-            })
-            .toList();
-        VehicleRuntimeHealth health = faultCodeOverride == null ? VehicleRuntimeHealth.local() : VehicleRuntimeHealth.fallback(properties.getMode(), faultCodeOverride);
-        return new VehicleRuntimeStepResult(steps, health, latestInstances);
     }
 
     private synchronized void bootstrapIfNeeded() {
@@ -460,10 +285,6 @@ public class VehicleRuntimeIntegrationService implements VehiclePowerLoadForward
                 latestInstances = mergeInstance(recovered);
             }
         }
-    }
-
-    private boolean usesExternalRuntime() {
-        return properties.getMode() == VehicleRuntimeMode.EXTERNAL_HTTP || properties.getMode() == VehicleRuntimeMode.DUAL_SHADOW;
     }
 
     private <T> Map<String, T> index(List<T> values, Function<T, String> keyFn) {

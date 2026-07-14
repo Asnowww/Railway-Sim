@@ -17,23 +17,23 @@ public record TrainOperationalTelemetry(
         if (trainNo < 1) {
             throw new IllegalArgumentException("trainNo must be positive");
         }
-        speedMetersPerSecond = finiteNonNegative(speedMetersPerSecond);
-        cumulativeDistanceMeters = finiteNonNegative(cumulativeDistanceMeters);
+        requireFiniteNonNegative(speedMetersPerSecond, "speedMetersPerSecond");
+        requireFiniteNonNegative(cumulativeDistanceMeters, "cumulativeDistanceMeters");
         direction = direction == null ? ExternalTrainDirection.UNKNOWN : direction;
-        loadMassKg = finiteNonNegative(loadMassKg);
-        faultSpeedLimitMetersPerSecond = finiteNonNegative(faultSpeedLimitMetersPerSecond);
-        availableTractionCount = Math.max(0, availableTractionCount);
-        availableBrakeCount = Math.max(0, availableBrakeCount);
+        requireFiniteNonNegative(loadMassKg, "loadMassKg");
+        requireFiniteNonNegative(faultSpeedLimitMetersPerSecond, "faultSpeedLimitMetersPerSecond");
+        if (availableTractionCount < 0 || availableBrakeCount < 0) {
+            throw new IllegalArgumentException("available unit counts must be non-negative");
+        }
     }
 
     public String trainId() {
         return "TR-%03d".formatted(trainNo);
     }
 
-    private static double finiteNonNegative(double value) {
-        if (!Double.isFinite(value)) {
-            return 0;
+    private static void requireFiniteNonNegative(double value, String field) {
+        if (!Double.isFinite(value) || value < 0) {
+            throw new IllegalArgumentException(field + " must be finite and non-negative");
         }
-        return Math.max(0, value);
     }
 }

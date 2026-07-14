@@ -51,7 +51,7 @@ class StrategySelectorTests {
     }
 
     @Test
-    void headwayViolationTooShortExtendsDwellOnTheRearTrainThatTriggeredIt() {
+    void headwayViolationTooShortExtendsDwellOnTheRegulatedTrainWhenDwelling() {
         DisturbanceEvent event = new DisturbanceEvent(
             "DIST-2",
             "RUN-1",
@@ -88,6 +88,87 @@ class StrategySelectorTests {
             .containsEntry("headwayViolationSec", 90.0)
             .containsEntry("regulatedTrainId", "TR-001")
             .containsEntry("regulationAction", "SLOW_DOWN");
+    }
+
+    @Test
+    void headwayViolationTooShortSlowsTheRegulatedTrainWhenRunning() {
+        DisturbanceEvent event = new DisturbanceEvent(
+            "DIST-2B",
+            "RUN-1",
+            "TR-001",
+            null,
+            DisturbanceType.TRAIN_REGULATION,
+            90,
+            "OPEN",
+            Instant.now(),
+            null,
+            null,
+            "TOO_SHORT",
+            300.0,
+            120.0,
+            90.0,
+            90.0
+        );
+
+        List<DispatchCommand> commands = selector.select(
+            "RUN-1",
+            Instant.parse("2026-07-09T00:00:00Z"),
+            List.of(event),
+            List.of(
+                runningProfile("TR-001", 400),
+                runningProfile("TR-002", 900)
+            ),
+            new CurrentRunPlan("PLAN-1", "LINE-1", "FLAT", 300, 25, Instant.now())
+        );
+
+        assertThat(commands).singleElement().satisfies(command -> {
+            assertThat(command.trainId()).isEqualTo("TR-001");
+            assertThat(command.commandType()).isEqualTo("SPEED_BIAS");
+            assertThat(command.payload())
+                .containsEntry("regulatedTrainId", "TR-001")
+                .containsEntry("regulationAction", "SLOW_DOWN")
+                .containsEntry("speedBiasRatio", 0.75)
+                .containsEntry("headwayDirection", "TOO_SHORT");
+        });
+    }
+
+    @Test
+    void headwayViolationTooLongCatchesUpTheRegulatedTrainWhenRunning() {
+        DisturbanceEvent event = new DisturbanceEvent(
+            "DIST-2C",
+            "RUN-1",
+            "TR-001",
+            null,
+            DisturbanceType.TRAIN_REGULATION,
+            120,
+            "OPEN",
+            Instant.now(),
+            null,
+            null,
+            "TOO_LONG",
+            300.0,
+            600.0,
+            150.0,
+            150.0
+        );
+
+        List<DispatchCommand> commands = selector.select(
+            "RUN-1",
+            Instant.parse("2026-07-09T00:00:00Z"),
+            List.of(event),
+            List.of(runningProfile("TR-001", 400)),
+            new CurrentRunPlan("PLAN-1", "LINE-1", "FLAT", 300, 25, Instant.now())
+        );
+
+        assertThat(commands).singleElement().satisfies(command -> {
+            assertThat(command.trainId()).isEqualTo("TR-001");
+            assertThat(command.commandType()).isEqualTo("SPEED_BIAS");
+            assertThat(command.payload())
+                .containsEntry("regulatedTrainId", "TR-001")
+                .containsEntry("regulationAction", "CATCH_UP")
+                .containsEntry("speedBiasRatio", 1.18)
+                .containsEntry("headwayDirection", "TOO_LONG");
+        });
     }
 
     @Test
@@ -145,6 +226,27 @@ class StrategySelectorTests {
             null,
             0,
             "WAITING_DEPARTURE_DATA",
+            "OBSERVE",
+            0,
+            null
+        );
+    }
+
+    private static TrainRunProfile runningProfile(String trainId, double positionMeters) {
+        return new TrainRunProfile(
+            trainId,
+            null,
+            positionMeters,
+            8,
+            0.4,
+            "RUNNING",
+            null,
+            0,
+            25,
+            0,
+            null,
+            0,
+            "UNKNOWN",
             "OBSERVE",
             0,
             null

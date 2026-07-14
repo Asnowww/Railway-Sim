@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
 import { simulationApi } from '../../api/rest'
+import { vehicleApi } from '../../api/vehicle'
 import { simulationSocket } from '../../api/ws'
 import type { PowerSectionState, SimulationSnapshot, TrackSegmentState, TrainState } from '../../types/simulation'
 
@@ -258,7 +259,8 @@ const history = ref<HistoryPoint[]>([])
 // Driver cab state for PLC input
 const driverCabInput = reactive({
   selectedTrainId: 'TR-001',
-  keySwitchLocked: false,
+  // 9300 语义：keySwitchLocked=true 表示钥匙插入锁定（激活）；false 触发 DRIVER_CAB_KEY_OFF 防护
+  keySwitchLocked: true,
   directionHandleState: 'FORWARD' as 'FORWARD' | 'ZERO' | 'BACKWARD',
   masterHandleState: 'ZERO' as 'TRACTION' | 'ZERO' | 'BRAKE' | 'FAST_BRAKE',
   tractionNotchPercent: 0,
@@ -366,8 +368,8 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
+  // 只退订，不断开——WebSocket 是全局共享连接，由 connection store 统一管理
   unsubscribeSocket?.()
-  simulationSocket.disconnect()
   if (snapshotPollTimer !== undefined) {
     window.clearInterval(snapshotPollTimer)
   }
@@ -448,19 +450,10 @@ async function sendPlcInput() {
       tractionNotchPercent: driverCabInput.tractionNotchPercent,
       brakeNotchPercent: driverCabInput.brakeNotchPercent
     }
-    const resp = await fetch(`/api/vehicle/driver-cabs/${trainId}/plc-input`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body)
-    })
-    if (resp.ok) {
-      const result = await resp.json()
-      driverCabInput.sendResult = result.accepted ? '✅ 已接受' : '❌ 拒绝: ' + (result.reasonCode || 'UNKNOWN')
-    } else {
-      driverCabInput.sendResult = `❌ HTTP ${resp.status}`
-    }
-  } catch (e: any) {
-    driverCabInput.sendResult = '❌ ' + (e.message || '网络错误')
+    const result = await vehicleApi.driverCabPlcInput(trainId, body)
+    driverCabInput.sendResult = result.accepted ? '✅ 已接受' : '❌ 拒绝: ' + (result.reasonCode || 'UNKNOWN')
+  } catch (e) {
+    driverCabInput.sendResult = '❌ ' + (e instanceof Error ? e.message : '网络错误')
   } finally {
     driverCabInput.atoStartFlag = false
     driverCabInput.sendPending = false
@@ -1321,27 +1314,27 @@ function stateLabel(state: string) {
           </span>
         </div>
         <div style="display:flex;gap:6px;margin-bottom:12px;align-items:center">
-          <select v-model="driverCabInput.selectedTrainId" style="flex:1;padding:4px 8px;border:1px solid #d9e2ec;border-radius:6px;font-size:13px;background:#fff">
+          <select v-model="driverCabInput.selectedTrainId" style="flex:1;padding:4px 8px;border:1px solid var(--border);border-radius:6px;font-size:13px;background:var(--bg-panel)">
             <option v-for="id in trainIds" :key="id" :value="id">{{ id }}</option>
           </select>
         </div>
         <div style="margin-bottom:14px">
-          <div style="font-size:12px;font-weight:700;color:#475569;margin-bottom:6px">🎛️ 主手柄</div>
+          <div style="font-size:12px;font-weight:700;color:var(--text-secondary);margin-bottom:6px">🎛️ 主手柄</div>
           <div style="display:flex;align-items:center;gap:10px">
             <div style="text-align:center;min-width:44px">
-              <div style="font-size:10px;color:#627084">牵引</div>
-              <div style="font-size:16px;font-weight:700;color:#3e8e6a">{{ driverCabInput.masterHandleState === 'TRACTION' ? driverCabInput.tractionNotchPercent : 0 }}%</div>
+              <div style="font-size:10px;color:var(--text-secondary)">牵引</div>
+              <div style="font-size:16px;font-weight:700;color:var(--status-ok)">{{ driverCabInput.masterHandleState === 'TRACTION' ? driverCabInput.tractionNotchPercent : 0 }}%</div>
             </div>
             <input type="range" min="-100" max="100" value="0" step="1" style="flex:1;accent-color:#1f78b4;height:6px" @input="(e) => updateMasterHandle(parseInt((e.target as HTMLInputElement).value))" />
             <div style="text-align:center;min-width:44px">
-              <div style="font-size:10px;color:#627084">制动</div>
-              <div style="font-size:16px;font-weight:700;color:#c24132">{{ driverCabInput.masterHandleState === 'BRAKE' || driverCabInput.masterHandleState === 'FAST_BRAKE' ? driverCabInput.brakeNotchPercent : 0 }}%</div>
+              <div style="font-size:10px;color:var(--text-secondary)">制动</div>
+              <div style="font-size:16px;font-weight:700;color:var(--status-danger)">{{ driverCabInput.masterHandleState === 'BRAKE' || driverCabInput.masterHandleState === 'FAST_BRAKE' ? driverCabInput.brakeNotchPercent : 0 }}%</div>
             </div>
           </div>
-          <div style="display:flex;justify-content:space-between;font-size:9px;color:#94a3b8;padding:0 4px"><span>快速</span><span>制动</span><span>零位</span><span>牵引</span></div>
+          <div style="display:flex;justify-content:space-between;font-size:9px;color:var(--text-muted);padding:0 4px"><span>快速</span><span>制动</span><span>零位</span><span>牵引</span></div>
         </div>
         <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:10px">
-          <button type="button" class="cab-btn" :class="{ active: !driverCabInput.keySwitchLocked }" @click="driverCabInput.keySwitchLocked = !driverCabInput.keySwitchLocked">🔑 {{ driverCabInput.keySwitchLocked ? '关闭' : '激活' }}</button>
+          <button type="button" class="cab-btn" :class="{ active: driverCabInput.keySwitchLocked }" @click="driverCabInput.keySwitchLocked = !driverCabInput.keySwitchLocked">🔑 {{ driverCabInput.keySwitchLocked ? '激活' : '关闭' }}</button>
           <button type="button" class="cab-btn dir" :class="{ active: true }" @click="cycleDirection()">{{ driverCabInput.directionHandleState === 'FORWARD' ? '⬆️前进' : driverCabInput.directionHandleState === 'BACKWARD' ? '⬇️后退' : '⏸️零位' }}</button>
           <button type="button" class="cab-btn eb" :class="{ active: driverCabInput.emergencyBrakeButtonLocked }" @click="driverCabInput.emergencyBrakeButtonLocked = !driverCabInput.emergencyBrakeButtonLocked">🛑 {{ driverCabInput.emergencyBrakeButtonLocked ? '⚠紧急' : '紧急' }}</button>
           <button type="button" class="cab-btn" :class="{ active: !driverCabInput.doorsClosedLockedIndicator }" @click="driverCabInput.doorsClosedLockedIndicator = !driverCabInput.doorsClosedLockedIndicator">🚪 {{ driverCabInput.doorsClosedLockedIndicator ? '关门' : '开门' }}</button>
@@ -1352,22 +1345,22 @@ function stateLabel(state: string) {
           <button type="button" class="cab-btn ato" @click="atoStart()">▶️ ATO发车</button>
         </div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
-          <button type="button" style="background:#1f6feb;color:#fff;border:1px solid #58a6ff;border-radius:6px;padding:8px;font-weight:700;font-size:13px;cursor:pointer" :disabled="driverCabInput.sendPending" @click="sendPlcInput">{{ driverCabInput.sendPending ? '⏳ 发送中…' : '📤 发送 PLC 指令' }}</button>
-          <div style="display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600;color:#475569;background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;padding:4px">{{ driverCabInput.sendResult || '就绪' }}</div>
+          <button type="button" style="background:#1f6feb;color: #ffffff;border:1px solid #58a6ff;border-radius:6px;padding:8px;font-weight:700;font-size:13px;cursor:pointer" :disabled="driverCabInput.sendPending" @click="sendPlcInput">{{ driverCabInput.sendPending ? '⏳ 发送中…' : '📤 发送 PLC 指令' }}</button>
+          <div style="display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600;color:var(--text-secondary);background:var(--bg-panel-raised);border:1px solid var(--border);border-radius:6px;padding:4px">{{ driverCabInput.sendResult || '就绪' }}</div>
         </div>
-        <div v-if="selectedLiveTrain" style="margin-top:14px;padding:10px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px">
-          <div style="font-size:11px;font-weight:700;color:#475569;margin-bottom:6px">📋 实时车辆状态</div>
+        <div v-if="selectedLiveTrain" style="margin-top:14px;padding:10px;background:var(--bg-panel-raised);border:1px solid var(--border);border-radius:8px">
+          <div style="font-size:11px;font-weight:700;color:var(--text-secondary);margin-bottom:6px">📋 实时车辆状态</div>
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px 12px;font-size:11px">
-            <span style="color:#627084">速度</span><span style="font-weight:600;text-align:right">{{ (selectedLiveTrain.speedMetersPerSecond * 3.6).toFixed(1) }} km/h</span>
-            <span style="color:#627084">加速度</span><span style="font-weight:600;text-align:right">{{ (selectedLiveTrain.accelerationMetersPerSecondSquared || 0).toFixed(2) }} m/s²</span>
-            <span style="color:#627084">运行模式</span><span style="font-weight:600;text-align:right">{{ selectedLiveTrain.operationMode || '—' }}</span>
-            <span style="color:#627084">动力学状态</span><span style="font-weight:600;text-align:right">{{ selectedLiveTrain.dynamicsState || '—' }}</span>
-            <span style="color:#627084">牵引力</span><span style="font-weight:600;text-align:right;color:#3e8e6a">{{ formatForce(selectedLiveTrain.tractionForceNewtons) }}</span>
-            <span style="color:#627084">制动力</span><span style="font-weight:600;text-align:right;color:#c24132">{{ formatForce(selectedLiveTrain.brakeForceNewtons) }}</span>
-            <span style="color:#627084">车门</span><span style="font-weight:600;text-align:right">{{ selectedLiveTrain.doorState || '—' }}</span>
-            <span style="color:#627084">数据质量</span><span style="font-weight:600;text-align:right">{{ selectedLiveTrain.dataQuality || '—' }}</span>
-            <span style="color:#627084">网压</span><span style="font-weight:600;text-align:right">{{ Math.round((selectedLiveTrain as any).railVoltage || 0) }} V</span>
-            <span style="color:#627084">能耗</span><span style="font-weight:600;text-align:right">{{ (selectedLiveTrain.energyConsumedKwh || 0).toFixed(1) }} kWh</span>
+            <span style="color:var(--text-secondary)">速度</span><span style="font-weight:600;text-align:right">{{ (selectedLiveTrain.speedMetersPerSecond * 3.6).toFixed(1) }} km/h</span>
+            <span style="color:var(--text-secondary)">加速度</span><span style="font-weight:600;text-align:right">{{ (selectedLiveTrain.accelerationMetersPerSecondSquared || 0).toFixed(2) }} m/s²</span>
+            <span style="color:var(--text-secondary)">运行模式</span><span style="font-weight:600;text-align:right">{{ selectedLiveTrain.operationMode || '—' }}</span>
+            <span style="color:var(--text-secondary)">动力学状态</span><span style="font-weight:600;text-align:right">{{ selectedLiveTrain.dynamicsState || '—' }}</span>
+            <span style="color:var(--text-secondary)">牵引力</span><span style="font-weight:600;text-align:right;color:var(--status-ok)">{{ formatForce(selectedLiveTrain.tractionForceNewtons) }}</span>
+            <span style="color:var(--text-secondary)">制动力</span><span style="font-weight:600;text-align:right;color:var(--status-danger)">{{ formatForce(selectedLiveTrain.brakeForceNewtons) }}</span>
+            <span style="color:var(--text-secondary)">车门</span><span style="font-weight:600;text-align:right">{{ selectedLiveTrain.doorState || '—' }}</span>
+            <span style="color:var(--text-secondary)">数据质量</span><span style="font-weight:600;text-align:right">{{ selectedLiveTrain.dataQuality || '—' }}</span>
+            <span style="color:var(--text-secondary)">网侧电流</span><span style="font-weight:600;text-align:right">{{ Math.round(selectedLiveTrain.railCurrentAmps || 0) }} A</span>
+            <span style="color:var(--text-secondary)">能耗</span><span style="font-weight:600;text-align:right">{{ (selectedLiveTrain.energyConsumedKwh || 0).toFixed(1) }} kWh</span>
           </div>
         </div>
       </aside>
@@ -1380,8 +1373,8 @@ function stateLabel(state: string) {
   min-height: 100vh;
   padding: 28px;
   background:
-    linear-gradient(180deg, #f8fafc 0%, #eef3f8 48%, #e8eef5 100%);
-  color: #172033;
+    linear-gradient(180deg, var(--bg-panel-raised) 0%, var(--bg-panel-raised) 48%, #e8eef5 100%);
+  color: var(--text-primary);
 }
 
 .topbar,
@@ -1406,7 +1399,7 @@ function stateLabel(state: string) {
 .live-copy span,
 .live-metrics span {
   display: block;
-  color: #627084;
+  color: var(--text-secondary);
   font-size: 12px;
   font-weight: 700;
   letter-spacing: 0;
@@ -1440,11 +1433,11 @@ h3 {
 
 button {
   min-height: 38px;
-  border: 1px solid #cbd5e1;
+  border: 1px solid var(--border-strong);
   border-radius: 7px;
   padding: 0 14px;
-  background: #ffffff;
-  color: #172033;
+  background: var(--bg-panel);
+  color: var(--text-primary);
   font: inherit;
   font-weight: 700;
   cursor: pointer;
@@ -1486,21 +1479,21 @@ button:disabled {
 }
 
 .connection-pill {
-  border: 1px solid #d8dee8;
-  background: #ffffff;
-  color: #4b5565;
+  border: 1px solid var(--border);
+  background: var(--bg-panel);
+  color: var(--text-secondary);
 }
 
 .connection-pill.live {
   border-color: #92d4aa;
-  background: #eaf8ef;
-  color: #126237;
+  background: var(--status-ok-bg);
+  color: var(--status-ok);
 }
 
 .connection-pill.offline {
-  border-color: #f3b8b8;
-  background: #fff0f0;
-  color: #9c2626;
+  border-color: var(--status-danger);
+  background: var(--status-danger-bg);
+  color: var(--status-danger);
 }
 
 .live-strip {
@@ -1515,9 +1508,9 @@ button:disabled {
 .train-board,
 .control-board,
 .driver-cab-panel {
-  border: 1px solid #d9e2ec;
+  border: 1px solid var(--border);
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.92);
+  background: var(--bg-panel);
   box-shadow: 0 18px 40px rgba(15, 23, 42, 0.08);
 }
 
@@ -1536,21 +1529,21 @@ button:disabled {
   justify-content: center;
   gap: 3px;
   min-height: 34px;
-  border: 1px solid #cbd5e1;
+  border: 1px solid var(--border-strong);
   border-radius: 6px;
   padding: 4px 6px;
-  background: #ffffff;
-  color: #475569;
+  background: var(--bg-panel);
+  color: var(--text-secondary);
   font-size: 11px;
   font-weight: 700;
   cursor: pointer;
   transition: all 0.12s;
 }
 .cab-btn:hover { border-color: #1f78b4; background: #f0f7ff; }
-.cab-btn.active { border-color: #1f78b4; background: #e0f0ff; color: #145f91; }
-.cab-btn.dir.active { border-color: #3e8e6a; background: #eaf8ef; color: #126237; }
-.cab-btn.eb.active { border-color: #c24132; background: #fff0f0; color: #9c2626; }
-.cab-btn.ato.active { border-color: #1f78b4; background: #edf7ff; color: #145f91; }
+.cab-btn.active { border-color: #1f78b4; background: var(--accent-muted); color: var(--status-info); }
+.cab-btn.dir.active { border-color: var(--status-ok); background: var(--status-ok-bg); color: var(--status-ok); }
+.cab-btn.eb.active { border-color: var(--status-danger); background: var(--status-danger-bg); color: var(--status-danger); }
+.cab-btn.ato.active { border-color: #1f78b4; background: var(--status-info-bg); color: var(--status-info); }
 .cab-btn:disabled { opacity: 0.5; cursor: wait; }
 
 .live-copy {
@@ -1572,7 +1565,7 @@ button:disabled {
 
 .live-metrics > div {
   padding: 15px 16px;
-  border-left: 1px solid #e2e8f0;
+  border-left: 1px solid var(--border);
 }
 
 .live-metrics > div:first-child {
@@ -1588,12 +1581,12 @@ button:disabled {
 
 .power-linkage {
   margin-bottom: 16px;
-  border: 1px solid #d9e2ec;
+  border: 1px solid var(--border);
   border-radius: 10px;
   padding: 20px;
   background:
-    linear-gradient(135deg, rgba(234, 248, 239, 0.86), rgba(255, 255, 255, 0.92) 38%),
-    #ffffff;
+    linear-gradient(135deg, rgba(234, 248, 239, 0.86), var(--bg-panel) 38%),
+    var(--bg-panel);
   box-shadow: 0 18px 40px rgba(15, 23, 42, 0.08);
 }
 
@@ -1611,8 +1604,8 @@ button:disabled {
   border: 1px solid #9ccdb0;
   border-radius: 999px;
   padding: 0 10px;
-  background: #eaf8ef;
-  color: #126237;
+  background: var(--status-ok-bg);
+  color: var(--status-ok);
   font-size: 12px;
   font-weight: 900;
 }
@@ -1620,20 +1613,20 @@ button:disabled {
 .power-diagram {
   display: grid;
   gap: 12px;
-  border: 1px solid #d9e2ec;
+  border: 1px solid var(--border);
   border-radius: 10px;
   padding: 14px;
   background:
-    linear-gradient(#eef3f8 1px, transparent 1px),
+    linear-gradient(var(--bg-panel-raised) 1px, transparent 1px),
     linear-gradient(90deg, rgba(31, 120, 180, 0.1) 1px, transparent 1px),
-    rgba(255, 255, 255, 0.8);
+    var(--bg-panel);
   background-size: 100% 44px, 72px 100%, auto;
 }
 
 .diagram-axis {
   display: flex;
   justify-content: space-between;
-  color: #627084;
+  color: var(--text-secondary);
   font-size: 12px;
   font-weight: 800;
 }
@@ -1646,7 +1639,7 @@ button:disabled {
 }
 
 .diagram-label {
-  color: #273448;
+  color: var(--text-primary);
   font-size: 13px;
   font-weight: 900;
 }
@@ -1661,7 +1654,7 @@ button:disabled {
 .track-lane {
   background:
     repeating-linear-gradient(90deg, rgba(96, 112, 134, 0.32) 0 2px, transparent 2px 42px),
-    linear-gradient(180deg, #f8fafc, #eef3f8);
+    linear-gradient(180deg, var(--bg-panel-raised), var(--bg-panel-raised));
 }
 
 .track-lane::before,
@@ -1671,7 +1664,7 @@ button:disabled {
   left: 0;
   height: 3px;
   border-radius: 999px;
-  background: #607086;
+  background: var(--text-secondary);
   content: '';
 }
 
@@ -1687,7 +1680,7 @@ button:disabled {
   min-height: 104px;
   background:
     linear-gradient(90deg, rgba(31, 120, 180, 0.11), rgba(62, 142, 106, 0.12)),
-    #f8fafc;
+    var(--bg-panel-raised);
 }
 
 .track-segment-band,
@@ -1702,8 +1695,8 @@ button:disabled {
   border-radius: 8px;
   padding: 6px 9px;
   overflow: hidden;
-  background: rgba(255, 255, 255, 0.72);
-  color: #172033;
+  background: var(--bg-panel);
+  color: var(--text-primary);
   font-size: 12px;
   box-shadow: inset 0 -3px 0 rgba(96, 112, 134, 0.16);
 }
@@ -1718,18 +1711,18 @@ button:disabled {
 .track-segment-band small,
 .power-section-band small {
   overflow: hidden;
-  color: #627084;
+  color: var(--text-secondary);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .track-segment-band.occupied {
   border-color: #e0a54c;
-  background: rgba(255, 248, 223, 0.86);
+  background: var(--status-warn-bg);
 }
 
 .track-segment-band.fault {
-  border-color: #e89a9a;
+  border-color: var(--status-danger);
   background: rgba(255, 240, 240, 0.88);
 }
 
@@ -1737,13 +1730,13 @@ button:disabled {
   top: 14px;
   bottom: 34px;
   border-color: #96c9e9;
-  background: rgba(237, 247, 255, 0.88);
+  background: var(--status-info-bg);
   box-shadow: inset 0 -4px 0 #1f78b4;
 }
 
 .power-section-band.status-undervoltage,
 .power-section-card.status-undervoltage {
-  border-color: #e7c56f;
+  border-color: var(--status-warn);
 }
 
 .power-section-band.status-deenergized,
@@ -1752,7 +1745,7 @@ button:disabled {
 .power-section-card.status-deenergized,
 .power-section-card.status-isolated,
 .power-section-card.status-tripped {
-  border-color: #e89a9a;
+  border-color: var(--status-danger);
 }
 
 .power-train-marker {
@@ -1763,7 +1756,7 @@ button:disabled {
   display: grid;
   justify-items: center;
   min-width: 132px;
-  color: #172033;
+  color: var(--text-primary);
   font-size: 12px;
   font-weight: 900;
 }
@@ -1771,10 +1764,10 @@ button:disabled {
 .power-train-marker i {
   width: 58px;
   height: 30px;
-  border: 2px solid #172033;
+  border: 2px solid var(--text-primary);
   border-radius: 8px 8px 5px 5px;
-  background: #ffffff;
-  box-shadow: inset 0 -8px 0 #c24132;
+  background: var(--bg-panel);
+  box-shadow: inset 0 -8px 0 var(--status-danger);
 }
 
 .power-empty {
@@ -1782,7 +1775,7 @@ button:disabled {
   border: 1px dashed #b7c4d2;
   border-radius: 8px;
   padding: 14px;
-  color: #627084;
+  color: var(--text-secondary);
   font-weight: 800;
 }
 
@@ -1794,10 +1787,10 @@ button:disabled {
 }
 
 .power-section-card {
-  border: 1px solid #d9e2ec;
+  border: 1px solid var(--border);
   border-radius: 10px;
   padding: 16px;
-  background: #ffffff;
+  background: var(--bg-panel);
 }
 
 .power-section-card header {
@@ -1811,7 +1804,7 @@ button:disabled {
 .power-detail-grid span,
 .voltage-row span {
   display: block;
-  color: #627084;
+  color: var(--text-secondary);
   font-size: 12px;
   font-weight: 800;
 }
@@ -1820,25 +1813,25 @@ button:disabled {
   align-self: start;
   border-radius: 999px;
   padding: 6px 10px;
-  background: #f1f5f9;
-  color: #273448;
+  background: var(--bg-hover);
+  color: var(--text-primary);
   font-size: 12px;
   white-space: nowrap;
 }
 
 .power-section-card.comparison-matched header > strong {
-  background: #eaf8ef;
-  color: #126237;
+  background: var(--status-ok-bg);
+  color: var(--status-ok);
 }
 
 .power-section-card.comparison-deviated header > strong {
-  background: #fff8df;
-  color: #855b12;
+  background: var(--status-warn-bg);
+  color: var(--status-warn);
 }
 
 .power-section-card.comparison-diverged header > strong {
-  background: #fff0f0;
-  color: #9c2626;
+  background: var(--status-danger-bg);
+  color: var(--status-danger);
 }
 
 .voltage-bars {
@@ -1856,7 +1849,7 @@ button:disabled {
 .voltage-row i {
   height: 10px;
   border-radius: 999px;
-  background: #e2e8f0;
+  background: var(--border);
   overflow: hidden;
 }
 
@@ -1871,7 +1864,7 @@ button:disabled {
 }
 
 .voltage-row.external b {
-  background: #3e8e6a;
+  background: var(--status-ok);
 }
 
 .voltage-row strong {
@@ -1891,10 +1884,10 @@ button:disabled {
   display: grid;
   align-content: center;
   gap: 3px;
-  border: 1px solid #e2e8f0;
+  border: 1px solid var(--border);
   border-radius: 8px;
   padding: 9px;
-  background: #f8fafc;
+  background: var(--bg-panel-raised);
 }
 
 .power-detail-grid strong,
@@ -1903,12 +1896,12 @@ button:disabled {
 }
 
 .power-detail-grid strong {
-  color: #172033;
+  color: var(--text-primary);
   font-size: 14px;
 }
 
 .power-detail-grid small {
-  color: #627084;
+  color: var(--text-secondary);
   font-size: 11px;
   font-weight: 700;
 }
@@ -1939,34 +1932,34 @@ button:disabled {
 .state-badge {
   max-width: 46%;
   justify-content: center;
-  border: 1px solid #d8dee8;
-  background: #f8fafc;
-  color: #475569;
+  border: 1px solid var(--border);
+  background: var(--bg-panel-raised);
+  color: var(--text-secondary);
   text-align: center;
 }
 
 .state-badge.success {
   border-color: #86d29e;
-  background: #eaf8ef;
-  color: #126237;
+  background: var(--status-ok-bg);
+  color: var(--status-ok);
 }
 
 .state-badge.warning {
-  border-color: #e7c56f;
-  background: #fff8df;
-  color: #855b12;
+  border-color: var(--status-warn);
+  background: var(--status-warn-bg);
+  color: var(--status-warn);
 }
 
 .state-badge.danger {
-  border-color: #f3b8b8;
-  background: #fff0f0;
-  color: #9c2626;
+  border-color: var(--status-danger);
+  background: var(--status-danger-bg);
+  color: var(--status-danger);
 }
 
 .state-badge.info {
   border-color: #95c7ec;
-  background: #edf7ff;
-  color: #145f91;
+  background: var(--status-info-bg);
+  color: var(--status-info);
 }
 
 .track-map {
@@ -1978,7 +1971,7 @@ button:disabled {
   display: flex;
   justify-content: space-between;
   margin-bottom: 12px;
-  color: #627084;
+  color: var(--text-secondary);
   font-size: 12px;
   font-weight: 700;
 }
@@ -1989,7 +1982,7 @@ button:disabled {
   border-radius: 8px;
   background:
     linear-gradient(90deg, rgba(31, 120, 180, 0.16), rgba(31, 120, 180, 0.05)),
-    repeating-linear-gradient(90deg, #d9e2ec 0 2px, transparent 2px 48px);
+    repeating-linear-gradient(90deg, var(--border) 0 2px, transparent 2px 48px);
   overflow: hidden;
 }
 
@@ -2000,7 +1993,7 @@ button:disabled {
   left: 0;
   height: 3px;
   border-radius: 999px;
-  background: #607086;
+  background: var(--text-secondary);
   content: '';
 }
 
@@ -2041,25 +2034,25 @@ button:disabled {
 }
 
 .station-marker {
-  color: #8a5a0d;
+  color: var(--status-warn);
 }
 
 .authority-marker {
-  color: #126237;
+  color: var(--status-ok);
 }
 
 .train-marker {
   top: 15px;
   min-width: 106px;
-  color: #172033;
+  color: var(--text-primary);
 }
 
 .train-marker i {
   width: 52px;
   height: 30px;
-  border: 2px solid #172033;
+  border: 2px solid var(--text-primary);
   border-radius: 7px 7px 5px 5px;
-  background: #ffffff;
+  background: var(--bg-panel);
   box-shadow: inset 0 -8px 0 #1f78b4;
 }
 
@@ -2074,15 +2067,15 @@ button:disabled {
 .speed-readout {
   display: grid;
   align-content: center;
-  border: 1px solid #d9e2ec;
+  border: 1px solid var(--border);
   border-radius: 8px;
   padding: 14px;
-  background: #f8fafc;
+  background: var(--bg-panel-raised);
 }
 
 .speed-readout span,
 .speed-readout small {
-  color: #627084;
+  color: var(--text-secondary);
   font-size: 12px;
   font-weight: 800;
 }
@@ -2095,12 +2088,12 @@ button:disabled {
 .speed-chart {
   width: 100%;
   min-height: 168px;
-  border: 1px solid #d9e2ec;
+  border: 1px solid var(--border);
   border-radius: 8px;
   background:
-    linear-gradient(#eef3f8 1px, transparent 1px),
-    linear-gradient(90deg, #eef3f8 1px, transparent 1px),
-    #ffffff;
+    linear-gradient(var(--bg-panel-raised) 1px, transparent 1px),
+    linear-gradient(90deg, var(--bg-panel-raised) 1px, transparent 1px),
+    var(--bg-panel);
   background-size: 100% 40px, 64px 100%, auto;
 }
 
@@ -2122,7 +2115,7 @@ button:disabled {
 }
 
 .limit-line {
-  stroke: #c24132;
+  stroke: var(--status-danger);
   stroke-dasharray: 8 8;
   stroke-width: 3;
 }
@@ -2132,7 +2125,7 @@ button:disabled {
   display: flex;
   flex-wrap: wrap;
   gap: 12px;
-  color: #4b5565;
+  color: var(--text-secondary);
   font-size: 12px;
   font-weight: 800;
 }
@@ -2154,7 +2147,7 @@ button:disabled {
 }
 
 .legend-limit {
-  background: #c24132;
+  background: var(--status-danger);
 }
 
 .telemetry-grid {
@@ -2169,10 +2162,10 @@ button:disabled {
   display: grid;
   align-content: center;
   gap: 6px;
-  border: 1px solid #d9e2ec;
+  border: 1px solid var(--border);
   border-radius: 8px;
   padding: 12px;
-  background: #ffffff;
+  background: var(--bg-panel);
 }
 
 .telemetry-grid strong {
@@ -2189,7 +2182,7 @@ button:disabled {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  color: #243044;
+  color: var(--text-primary);
   font-weight: 800;
 }
 
@@ -2215,7 +2208,7 @@ button:disabled {
 .scenario-tabs button.active {
   border-color: #1f78b4;
   background: #eaf5fc;
-  color: #145f91;
+  color: var(--status-info);
 }
 
 .state-chain {
@@ -2230,44 +2223,44 @@ button:disabled {
   display: flex;
   align-items: center;
   justify-content: center;
-  border: 1px solid #cbd5e1;
+  border: 1px solid var(--border-strong);
   border-radius: 7px;
   padding: 0 8px;
-  background: #ffffff;
-  color: #475569;
+  background: var(--bg-panel);
+  color: var(--text-secondary);
   font-size: 12px;
   font-weight: 700;
   text-align: center;
 }
 
 .state-node.success.active {
-  border-color: #3e8e6a;
-  background: #eaf8ef;
-  color: #126237;
+  border-color: var(--status-ok);
+  background: var(--status-ok-bg);
+  color: var(--status-ok);
 }
 
 .state-node.warning.active {
   border-color: #c4911f;
-  background: #fff8df;
-  color: #855b12;
+  background: var(--status-warn-bg);
+  color: var(--status-warn);
 }
 
 .state-node.danger.active {
   border-color: #cc4c4c;
-  background: #fff0f0;
-  color: #9c2626;
+  background: var(--status-danger-bg);
+  color: var(--status-danger);
 }
 
 .state-node.info.active {
   border-color: #1f78b4;
-  background: #edf7ff;
-  color: #145f91;
+  background: var(--status-info-bg);
+  color: var(--status-info);
 }
 
 .state-node.neutral.active {
-  border-color: #607086;
-  background: #f1f5f9;
-  color: #273448;
+  border-color: var(--text-secondary);
+  background: var(--bg-hover);
+  color: var(--text-primary);
 }
 
 .constraint-grid {
@@ -2276,9 +2269,9 @@ button:disabled {
   gap: 10px 12px;
   margin-top: 18px;
   padding: 14px;
-  border: 1px solid #d9e2ec;
+  border: 1px solid var(--border);
   border-radius: 8px;
-  background: #f8fafc;
+  background: var(--bg-panel-raised);
 }
 
 .slider-stack {
@@ -2290,7 +2283,7 @@ button:disabled {
 .slider-stack label {
   display: grid;
   gap: 7px;
-  color: #273448;
+  color: var(--text-primary);
   font-size: 13px;
   font-weight: 800;
 }
@@ -2389,7 +2382,7 @@ button:disabled {
 
   .live-metrics > div {
     border-left: 0;
-    border-top: 1px solid #e2e8f0;
+    border-top: 1px solid var(--border);
   }
 
   .live-metrics > div:first-child {

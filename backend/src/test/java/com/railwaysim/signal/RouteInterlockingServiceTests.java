@@ -283,6 +283,45 @@ class RouteInterlockingServiceTests {
     }
 
     @Test
+    void establishingRouteBindsTrainToContainingSegmentInsteadOfRouteStart() {
+        Fixture fixture = fixture(lineDataWithDualTrack());
+        fixture.interlocking.init();
+
+        String rejection = fixture.interlocking.establishRoute("R_UP", "TR-1", 150.0);
+
+        assertThat(rejection).isNull();
+        // 有位置提示时绑定包含列车位置的区段，而不是进路里程最小段
+        assertThat(fixture.trackService.assignedSegmentId("TR-1")).isEqualTo("U2");
+    }
+
+    @Test
+    void establishingRouteKeepsExistingBindingAlreadyOnRoute() {
+        Fixture fixture = fixture(lineDataWithDualTrack());
+        fixture.interlocking.init();
+        fixture.trackService.assignTrainToSegment("TR-1", "U2");
+
+        assertThat(fixture.interlocking.establishRoute("R_UP", "TR-1", 150.0)).isNull();
+
+        assertThat(fixture.trackService.assignedSegmentId("TR-1")).isEqualTo("U2");
+    }
+
+    @Test
+    void occupancyStaysOnBoundTrackWhenUpAndDownMileagesOverlap() {
+        Fixture fixture = fixture(lineDataWithDualTrack());
+        fixture.interlocking.init();
+        TrainState train = train("TR-1", 150);
+
+        fixture.interlocking.touchRoutes(List.of(train));
+        fixture.trackService.updateOccupancy(List.of(train));
+
+        // 里程重叠时占用只落在列车绑定的上行股道，不溢到对向下行股道
+        assertThat(fixture.trackService.assignedSegmentId("TR-1")).isEqualTo("U2");
+        assertThat(occupancy(fixture.trackService, "U2")).isEqualTo(TrackOccupancy.OCCUPIED);
+        assertThat(occupancy(fixture.trackService, "D2")).isEqualTo(TrackOccupancy.FREE);
+        assertThat(occupancy(fixture.trackService, "D1")).isEqualTo(TrackOccupancy.FREE);
+    }
+
+    @Test
     void movementAuthorityConflictUsesNearestReservedConflict() {
         Fixture fixture = fixture(lineDataWithIndependentRoutes());
         fixture.interlocking.init();
@@ -363,6 +402,32 @@ class RouteInterlockingServiceTests {
             List.of(
                 route("R_FAR", "Far", List.of("SEG-4")),
                 route("R_NEAR", "Near", List.of("SEG-2"))
+            )
+        );
+    }
+
+    /** 模拟 M9：上下行股道公里标完全重叠，仅 track 字段区分。 */
+    private static OperationalLineData lineDataWithDualTrack() {
+        return new OperationalLineData(
+            "test-line",
+            "Test Line",
+            List.of(),
+            List.of(
+                segment("U1", 1, 0, 100, List.of("U2"), "NU1", "NU2", "up", 20),
+                segment("U2", 2, 100, 200, List.of(), "NU2", "NU3", "up", 20),
+                segment("D1", 3, 0, 100, List.of(), "ND2", "ND1", "down", 20),
+                segment("D2", 4, 100, 200, List.of("D1"), "ND3", "ND2", "down", 20)
+            ),
+            List.of(),
+            List.of(),
+            List.of(),
+            List.of(),
+            List.of(),
+            List.of(),
+            List.of(),
+            List.of(
+                route("R_UP", "Up main", List.of("U1", "U2")),
+                route("R_DOWN", "Down main", List.of("D2", "D1"))
             )
         );
     }

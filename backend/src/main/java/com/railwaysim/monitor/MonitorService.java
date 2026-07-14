@@ -86,19 +86,15 @@ public class MonitorService {
         PowerNetworkStateSnapshot powerNetwork, ExternalPowerNetworkHealth powerHealth
     ) {
         Instant now = Instant.now();
-        boolean externalVehicle = vehicleRuntime.mode()
-            != com.railwaysim.vehicle.runtime.VehicleRuntimeMode.LOCAL;
         ServiceHealthRecord vehicleHealthRecord = serviceHealthService.observe(new ServiceHealthObservation(
-            "vehicle-runtime-9300", externalVehicle, vehicleRuntime.heartbeatStatus(),
+            "vehicle-runtime-9300", true, vehicleRuntime.heartbeatStatus(),
             vehicleRuntime.dataQuality(), vehicleRuntime.sourceTimestamp(),
-            externalVehicle ? vehicleRuntime.simulationRunId() : simulationRunId,
-            externalVehicle ? vehicleRuntime.lastAcceptedTick() : tick,
-            externalVehicle ? vehicleRuntime.topologyHash() : "NOT_APPLICABLE",
-            externalVehicle ? vehicleRuntime.configHash() : "LOCAL",
-            externalVehicle ? vehicleRuntime.fmuModelVersion() : "LOCAL_JAVA",
-            externalVehicle
-                ? vehicleRuntime.parameterSetId() + "/" + vehicleRuntime.stoppingParameterVersion()
-                : "LOCAL",
+            vehicleRuntime.simulationRunId(),
+            vehicleRuntime.lastAcceptedTick(),
+            vehicleRuntime.topologyHash(),
+            vehicleRuntime.configHash(),
+            vehicleRuntime.fmuModelVersion(),
+            vehicleRuntime.parameterSetId() + "/" + vehicleRuntime.stoppingParameterVersion(),
             vehicleRuntime.reason()), now);
         autoCheckRecovery(vehicleHealthRecord, simulationRunId, tick, now);
 

@@ -69,6 +69,22 @@ public record OperationalLineData(
             .orElse(fallbackMetersPerSecond);
     }
 
+    public double speedLimitAt(double positionMeters, String segmentId, double fallbackMetersPerSecond) {
+        return speedLimitZones.stream()
+            .filter(zone -> zoneAppliesToSegment(zone, segmentId))
+            .filter(zone -> positionMeters >= zone.startMeters() && positionMeters < zone.endMeters())
+            .mapToDouble(SpeedLimitZone::speedLimitMetersPerSecond)
+            .min()
+            .orElse(fallbackMetersPerSecond);
+    }
+
+    private static boolean zoneAppliesToSegment(SpeedLimitZone zone, String segmentId) {
+        if (segmentId == null || segmentId.isBlank()) {
+            return true;
+        }
+        return zone.segmentId() == null || zone.segmentId().isBlank() || zone.segmentId().equals(segmentId);
+    }
+
     public double gradientAt(double positionMeters) {
         return gradientZones.stream()
             .filter(zone -> positionMeters >= zone.startMeters() && positionMeters < zone.endMeters())
@@ -93,6 +109,54 @@ public record OperationalLineData(
             .map(Math::abs)
             .min()
             .orElseGet(() -> nextStationDistanceMeters(positionMeters));
+    }
+
+    /**
+     * 车头精确停车点：列车所在股道站台的 {@code stopRightMeters}（行车方向末端）。
+     * 车长 = 站台停车窗长度，车头停 stop_right 即整车对齐站台。
+     * 无站台/无停车窗数据时回退站中心。
+     */
+    public double stopPointMeters(StationDefinition station, String track) {
+        if (station == null) {
+            return Double.NaN;
+        }
+        List<PlatformDefinition> stationPlatforms = platforms.stream()
+            .filter(platform -> station.platformIds().contains(platform.id()))
+            .toList();
+        Optional<PlatformDefinition> matched = stationPlatforms.stream()
+            .filter(platform -> track != null && track.equalsIgnoreCase(platform.directionCode()))
+            .findFirst()
+            .or(() -> stationPlatforms.stream().findFirst());
+        return matched
+            .filter(platform -> platform.stopRightMeters() > platform.stopLeftMeters())
+            .map(PlatformDefinition::stopRightMeters)
+            .orElse(station.centerMeters());
+    }
+
+    /**
+     * 股道感知的停站控制距离：以停车点（{@link #stopPointMeters}）为参考。
+     * 停站窗口内返回<b>有符号</b>距离（越过停车点为负，供车辆层判定已对位），
+     * 窗口外返回前方最近停车点的距离。
+     */
+    public double stationControlDistanceMeters(double positionMeters, double stopWindowMeters, String track) {
+        double window = Math.max(0, stopWindowMeters);
+        double inWindow = Double.NaN;
+        double nextAhead = Double.POSITIVE_INFINITY;
+        for (StationDefinition station : stations) {
+            double stopPoint = stopPointMeters(station, track);
+            if (Double.isNaN(stopPoint)) {
+                continue;
+            }
+            double distance = stopPoint - positionMeters;
+            if (Math.abs(distance) <= window
+                && (Double.isNaN(inWindow) || Math.abs(distance) < Math.abs(inWindow))) {
+                inWindow = distance;
+            }
+            if (distance >= 0 && distance < nextAhead) {
+                nextAhead = distance;
+            }
+        }
+        return Double.isNaN(inWindow) ? nextAhead : inWindow;
     }
 
     public Map<String, TrackSegmentDefinition> trackSegmentById() {
@@ -189,8 +253,22 @@ public record OperationalLineData(
         String anchorSegmentId,
         String directionCode,
         String rawCenterMark,
-        String interoperabilityId
+        String interoperabilityId,
+        double stopLeftMeters,
+        double stopRightMeters,
+        String platformSide
     ) {
+        /** 兼容旧调用（xls 工作簿路径）：无停车窗口/站台侧信息。 */
+        public PlatformDefinition(
+            String id,
+            double centerMeters,
+            String anchorSegmentId,
+            String directionCode,
+            String rawCenterMark,
+            String interoperabilityId
+        ) {
+            this(id, centerMeters, anchorSegmentId, directionCode, rawCenterMark, interoperabilityId, 0, 0, null);
+        }
     }
 
     public record SignalDefinition(

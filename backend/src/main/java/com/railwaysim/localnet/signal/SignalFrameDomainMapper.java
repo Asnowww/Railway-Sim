@@ -8,6 +8,7 @@ import com.railwaysim.train.TrainState;
 import com.railwaysim.vehicle.external.ExternalTrainDirection;
 import com.railwaysim.vehicle.protocol.SignalTrainContentCodec;
 import com.railwaysim.vehicle.protocol.TrainOperationalTelemetry;
+import com.railwaysim.vehicle.telemetry.VehicleTelemetryGatewayService;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.util.List;
@@ -17,12 +18,17 @@ import org.springframework.stereotype.Service;
 public class SignalFrameDomainMapper {
 
     private final TrainManager trainManager;
+    private final VehicleTelemetryGatewayService telemetryGatewayService;
     private final SignalDatabaseNodeFrameCodec frameCodec = new SignalDatabaseNodeFrameCodec();
     private final SignalTrainLifecycleCommandCodec lifecycleCodec = new SignalTrainLifecycleCommandCodec();
     private final SignalTrainContentCodec trainContentCodec = new SignalTrainContentCodec();
 
-    public SignalFrameDomainMapper(TrainManager trainManager) {
+    public SignalFrameDomainMapper(
+        TrainManager trainManager,
+        VehicleTelemetryGatewayService telemetryGatewayService
+    ) {
         this.trainManager = trainManager;
+        this.telemetryGatewayService = telemetryGatewayService;
     }
 
     public SignalInboundResult applyInbound(byte[] payload) {
@@ -131,8 +137,9 @@ public class SignalFrameDomainMapper {
                 content,
                 content.length / SignalTrainContentCodec.BYTES_PER_TRAIN
             );
-            trainManager.applyOperationalTelemetry(telemetries);
-            return "signal operational telemetry trains=" + telemetries.size();
+            var acceptance = telemetryGatewayService.forward("SIGNAL_LOCALNET", telemetries);
+            return "signal operational telemetry forwarded to 9300 trains=" + telemetries.size()
+                + " accepted=" + acceptance.accepted();
         }
         return summarizeSignalToCentralTrainContent(content);
     }

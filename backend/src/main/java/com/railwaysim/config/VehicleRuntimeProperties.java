@@ -9,7 +9,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 @ConfigurationProperties(prefix = "railway.simulation.vehicle-runtime")
 public class VehicleRuntimeProperties {
 
-    private VehicleRuntimeMode mode = VehicleRuntimeMode.LOCAL;
+    private VehicleRuntimeMode mode = VehicleRuntimeMode.EXTERNAL_HTTP;
     private String baseUrl = "http://localhost:9300";
     private long timeoutMillis = 150;
     private boolean autoBootstrap = true;
@@ -19,7 +19,7 @@ public class VehicleRuntimeProperties {
     }
 
     public void setMode(VehicleRuntimeMode mode) {
-        this.mode = mode == null ? VehicleRuntimeMode.LOCAL : mode;
+        this.mode = mode == null ? VehicleRuntimeMode.EXTERNAL_HTTP : mode;
     }
 
     public String getBaseUrl() {

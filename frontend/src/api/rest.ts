@@ -1,14 +1,7 @@
-import { apiBaseUrl } from './config'
+import { request } from '../shared/api/client'
 import type { SimulationSnapshot } from '../types/simulation'
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${apiBaseUrl}${path}`, init)
-  if (!response.ok) {
-    throw new Error(`Request failed: ${response.status} ${response.statusText}`)
-  }
-  return response.json() as Promise<T>
-}
-
+/** 仿真控制。start 后由后端 100ms 时钟自走推进，前端不驱动循环 tick；tick 仅用于单步。 */
 export const simulationApi = {
   snapshot: () => request<SimulationSnapshot>('/simulation/snapshot'),
   start: () => request<SimulationSnapshot>('/simulation/start', { method: 'POST' }),
@@ -16,11 +9,9 @@ export const simulationApi = {
   stop: () => request<SimulationSnapshot>('/simulation/stop', { method: 'POST' }),
   reset: () => request<SimulationSnapshot>('/simulation/reset', { method: 'POST' }),
   tick: () => request<SimulationSnapshot>('/simulation/tick', { method: 'POST' }),
-  alarms: (runId?: string) => request<unknown[]>(runId ? `/alarms?runId=${encodeURIComponent(runId)}` : '/alarms'),
-  acknowledgeAlarm: (alarmId: string) => request<unknown>(`/alarms/${encodeURIComponent(alarmId)}/acknowledge`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ operator: 'monitor-console' })
-  })
+  /** 后端要求仿真非 RUNNING 时才允许注入/清除区段故障 */
+  injectTrackFault: (segmentId: string) =>
+    request<SimulationSnapshot>(`/simulation/fault/inject?segmentId=${encodeURIComponent(segmentId)}`, { method: 'POST' }),
+  clearTrackFault: (segmentId: string) =>
+    request<SimulationSnapshot>(`/simulation/fault/clear?segmentId=${encodeURIComponent(segmentId)}`, { method: 'POST' })
 }
-

@@ -16,7 +16,10 @@ public class VehicleRuntimeProperties {
     private long instanceLeaseMillis = 1000;
     private VehiclePhysicsMode physicsMode = VehiclePhysicsMode.JAVA_FALLBACK;
     private String fmuBaseUrl = "http://localhost:9000";
+    private String fmuBaseUrls = "";
     private long fmuTimeoutMillis = 80;
+    private long fmuSubstepMillis = 20;
+    private boolean fmuBinaryProtocolEnabled;
     private String fmuModelVersion = "TrainTractionBrake/2.0.0";
     private boolean forwardPowerLoads;
     private String powerNetworkBaseUrl = "http://localhost:9200";
@@ -25,6 +28,8 @@ public class VehicleRuntimeProperties {
     private long centralTimeoutMillis = 300;
     private boolean autonomousTickEnabled;
     private long autonomousTickIntervalMillis = 100;
+    private long telemetryTimeoutMillis = 500;
+    private long telemetryMaximumAgeMillis = 500;
 
     public String getTrainParamsPath() {
         return trainParamsPath;
@@ -96,12 +101,48 @@ public class VehicleRuntimeProperties {
             : fmuBaseUrl;
     }
 
+    public java.util.List<String> getEffectiveFmuBaseUrls() {
+        if (fmuBaseUrls == null || fmuBaseUrls.isBlank()) {
+            return java.util.List.of(fmuBaseUrl);
+        }
+        java.util.List<String> values = java.util.Arrays.stream(fmuBaseUrls.split(","))
+            .map(String::trim)
+            .filter(value -> !value.isBlank())
+            .distinct()
+            .toList();
+        return values.isEmpty() ? java.util.List.of(fmuBaseUrl) : values;
+    }
+
+    public String getFmuBaseUrls() {
+        return fmuBaseUrls;
+    }
+
+    public void setFmuBaseUrls(String fmuBaseUrls) {
+        this.fmuBaseUrls = fmuBaseUrls == null ? "" : fmuBaseUrls.trim();
+    }
+
     public long getFmuTimeoutMillis() {
         return fmuTimeoutMillis;
     }
 
     public void setFmuTimeoutMillis(long fmuTimeoutMillis) {
         this.fmuTimeoutMillis = Math.max(1, fmuTimeoutMillis);
+    }
+
+    public long getFmuSubstepMillis() {
+        return fmuSubstepMillis;
+    }
+
+    public void setFmuSubstepMillis(long fmuSubstepMillis) {
+        this.fmuSubstepMillis = Math.max(1, fmuSubstepMillis);
+    }
+
+    public boolean isFmuBinaryProtocolEnabled() {
+        return fmuBinaryProtocolEnabled;
+    }
+
+    public void setFmuBinaryProtocolEnabled(boolean fmuBinaryProtocolEnabled) {
+        this.fmuBinaryProtocolEnabled = fmuBinaryProtocolEnabled;
     }
 
     public String getFmuModelVersion() {
@@ -172,5 +213,21 @@ public class VehicleRuntimeProperties {
 
     public void setAutonomousTickIntervalMillis(long autonomousTickIntervalMillis) {
         this.autonomousTickIntervalMillis = Math.max(10, autonomousTickIntervalMillis);
+    }
+
+    public long getTelemetryTimeoutMillis() {
+        return telemetryTimeoutMillis;
+    }
+
+    public void setTelemetryTimeoutMillis(long telemetryTimeoutMillis) {
+        this.telemetryTimeoutMillis = Math.max(1, telemetryTimeoutMillis);
+    }
+
+    public long getTelemetryMaximumAgeMillis() {
+        return telemetryMaximumAgeMillis;
+    }
+
+    public void setTelemetryMaximumAgeMillis(long telemetryMaximumAgeMillis) {
+        this.telemetryMaximumAgeMillis = Math.max(1, telemetryMaximumAgeMillis);
     }
 }

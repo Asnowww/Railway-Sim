@@ -98,17 +98,10 @@ public class RouteIntentResolver {
     }
 
     private boolean directionCompatible(TrainState train, DispatchRouteCandidate route) {
-        String direction = train.direction();
-        if (direction == null || direction.isBlank() || "UNKNOWN".equalsIgnoreCase(direction)) {
-            return true;
-        }
-        boolean reverse = direction.equalsIgnoreCase("REVERSE")
-            || direction.equalsIgnoreCase("BACKWARD")
-            || direction.equalsIgnoreCase("DOWN")
-            || direction.equalsIgnoreCase("NEGATIVE");
-        if (!reverse) {
-            return route.exitMeters() >= route.entryMeters();
-        }
-        return route.exitMeters() <= route.entryMeters();
+        // 引擎当前仅支持里程递增运行（TrainState.direction 的 UP/DOWN 是车辆协议
+        // 标签，初始车即为 DOWN 但实际里程递增；见 line-m9.yaml 约定）。
+        // 若按标签把 DOWN 当反向，会给上行运行的车自动请求 R_DOWN/折返进路，
+        // 导致列车被绑定到对向股道、占用染色跨轨。故只接受前向（exit>=entry）进路。
+        return route.exitMeters() >= route.entryMeters();
     }
 }

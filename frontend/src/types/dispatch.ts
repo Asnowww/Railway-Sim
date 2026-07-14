@@ -57,6 +57,89 @@ export interface DispatchRouteEstablishResponse {
   routeId: string
   trainId: string
   rejectReason?: string | null
+  commandId?: string | null
+}
+
+export interface OperationRouteTemplate {
+  routeId: string
+  name: string
+  typeCode: string
+  pointIds: string[]
+  stationIds: string[]
+  segmentIds: string[]
+}
+
+export interface OperationRouteCandidate {
+  key: string
+  routeId: string
+  routeName: string
+  direction: 'UP' | 'DOWN' | string
+  pointIds: string[]
+  stationIds: string[]
+  segmentIds: string[]
+}
+
+export interface OperationPlanRequest {
+  pointIds: string[]
+  routeId?: string
+  candidateKey?: string
+  trainId?: string
+  plannedDepartureAt?: string
+  leadSeconds?: number
+  headwaySeconds?: number
+  priority?: number
+}
+
+export interface OperationPlanView {
+  planId: string
+  routeId: string
+  routeName: string
+  direction: 'UP' | 'DOWN' | string
+  trainId: string
+  originPointId: string
+  destinationPointId: string
+  viaPointIds: string[]
+  pointIds: string[]
+  stationIds: string[]
+  segmentIds: string[]
+  plannedDepartureAt: string
+  status: string
+  priority: number
+  version: number
+  routeCommandId?: string | null
+  rejectReason?: string | null
+}
+
+export interface SignalDispatchPlanPublicationEntry {
+  entryId: string
+  sourceType: 'SERVICE_PLAN' | 'OPERATION_PLAN' | string
+  sourceId: string
+  trainId: string
+  routeId: string
+  routeName: string
+  direction: 'UP' | 'DOWN' | string
+  originPointId: string | null
+  destinationPointId: string | null
+  viaPointIds: string[]
+  stationIds: string[]
+  segmentIds: string[]
+  plannedDepartureAt: string | null
+  status: 'ACCEPTED' | 'REJECTED' | string
+  rejectReason: string | null
+}
+
+export interface SignalDispatchPlanPublication {
+  publicationId: string
+  simulationRunId: string
+  dispatchPlanId: string
+  lineId: string
+  effectiveFrom: string
+  publishedAt: string
+  operator: string
+  status: 'ACCEPTED' | 'PARTIAL_ACCEPTED' | 'REJECTED' | string
+  acceptedCount: number
+  rejectedCount: number
+  entries: SignalDispatchPlanPublicationEntry[]
 }
 
 export interface DispatchRouteDecision {
@@ -114,6 +197,35 @@ export interface DispatchStationHeadway {
   regulationAction: string
 }
 
+export interface DispatchLineRegulationDecision {
+  trainId: string
+  regulatedTrainId: string
+  frontTrainId: string | null
+  action: string
+  commandType: string
+  status: string
+  reason: string
+  currentHeadwaySec: number | null
+  targetHeadwaySec: number
+  currentHeadwayErrorSec: number | null
+  predictedHeadwayErrorSec: number | null
+  priorityScore: number
+  signalConstraint: string
+  commandId: string | null
+}
+
+export interface DispatchLineRegulationPlan {
+  planId: string
+  generatedAt: string | null
+  objective: string
+  status: string
+  targetHeadwaySec: number
+  currentMaxAbsHeadwayErrorSec: number | null
+  predictedMaxAbsHeadwayErrorSec: number | null
+  commandCount: number
+  decisions: DispatchLineRegulationDecision[]
+}
+
 export interface DispatchSnapshot {
   runMode: string
   planId: string
@@ -128,6 +240,8 @@ export interface DispatchSnapshot {
   routeDispatchActive: boolean
   routeDecisions: DispatchRouteDecision[]
   routeReservations: DispatchRouteReservation[]
+  operationPlans: OperationPlanView[]
+  lineRegulationPlan: DispatchLineRegulationPlan
 }
 
 export interface RunPlanPeriod {
@@ -142,8 +256,23 @@ export interface RunPlanResponse {
   planId: string
   lineId: string
   periods: RunPlanPeriod[]
+  stations: DispatchPlanStation[]
+  segments: DispatchPlanSegment[]
   circulations: CirculationPlan[]
   services: TrainServicePlan[]
+}
+
+export interface DispatchPlanStation {
+  id: string
+  positionMeters: number
+  platformCapacity: number
+}
+
+export interface DispatchPlanSegment {
+  id: string
+  startMeters: number
+  endMeters: number
+  speedLimitMps: number
 }
 
 export interface CirculationPlan {

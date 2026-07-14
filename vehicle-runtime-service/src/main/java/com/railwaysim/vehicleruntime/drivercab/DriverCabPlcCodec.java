@@ -6,6 +6,7 @@ import java.nio.ByteOrder;
 public class DriverCabPlcCodec {
 
     public static final int PLC_TO_UPPER_BYTES = 46;
+    public static final int UPPER_TO_PLC_BYTES = 26;
     public static final int HEADER_BYTES = 24;
     private static final byte[] IDENTIFY = {0x55, (byte) 0xaa, 0x55, (byte) 0xaa};
 
@@ -67,6 +68,36 @@ public class DriverCabPlcCodec {
         buffer.putShort(38, (short) input.masterHandleState().protocolCode());
         buffer.putShort(40, (short) clampPercent(input.tractionNotchPercent()));
         buffer.putShort(42, (short) clampPercent(input.brakeNotchPercent()));
+        return payload;
+    }
+
+    public DriverCabPlcOutputPacket decodeOutput(byte[] payload) {
+        requireExactLength(payload, UPPER_TO_PLC_BYTES, "driver cab PLC output");
+        validateHeader(payload, UPPER_TO_PLC_BYTES, UPPER_TO_PLC_BYTES - HEADER_BYTES,
+            "driver cab PLC output");
+        return new DriverCabPlcOutputPacket(
+            bit(payload, 24, 1), bit(payload, 24, 2), bit(payload, 24, 4), bit(payload, 24, 5),
+            bit(payload, 24, 6), bit(payload, 24, 7), bit(payload, 25, 0), bit(payload, 25, 1),
+            bit(payload, 25, 2), bit(payload, 25, 3)
+        );
+    }
+
+    public byte[] encodeOutput(DriverCabPlcOutputPacket packet) {
+        if (packet == null) throw new IllegalArgumentException("driver cab PLC output is required");
+        byte[] payload = new byte[UPPER_TO_PLC_BYTES];
+        ByteBuffer buffer = ByteBuffer.wrap(payload).order(byteOrder);
+        buffer.put(IDENTIFY).putShort((short) UPPER_TO_PLC_BYTES)
+            .putShort((short) (UPPER_TO_PLC_BYTES - HEADER_BYTES));
+        setBit(payload, 24, 1, packet.highVoltageClosedIndicator());
+        setBit(payload, 24, 2, packet.brakeReleaseFaultIndicator());
+        setBit(payload, 24, 4, packet.doorOpenLamp());
+        setBit(payload, 24, 5, packet.doorsClosedLockedLamp());
+        setBit(payload, 24, 6, packet.networkFaultIndicator());
+        setBit(payload, 24, 7, packet.automaticTurnbackAvailable());
+        setBit(payload, 25, 0, packet.atoModeAvailable());
+        setBit(payload, 25, 1, packet.washModeActive());
+        setBit(payload, 25, 2, packet.atoModeActive());
+        setBit(payload, 25, 3, packet.automaticTurnbackActive());
         return payload;
     }
 

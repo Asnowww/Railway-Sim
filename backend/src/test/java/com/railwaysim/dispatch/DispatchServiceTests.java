@@ -8,9 +8,13 @@ import com.railwaysim.dispatch.command.CommandValidator;
 import com.railwaysim.dispatch.command.InMemoryCommandRecordStore;
 import com.railwaysim.dispatch.config.DispatchProperties;
 import com.railwaysim.dispatch.disturbance.DisturbanceDetector;
+import com.railwaysim.dispatch.disturbance.DisturbanceType;
 import com.railwaysim.dispatch.disturbance.InMemoryDisturbanceRecordStore;
 import com.railwaysim.dispatch.monitor.InMemoryStationRecordStore;
 import com.railwaysim.dispatch.monitor.TrainRunMonitor;
+import com.railwaysim.dispatch.operation.OperationPlanRequest;
+import com.railwaysim.dispatch.operation.OperationPlanningService;
+import com.railwaysim.dispatch.optimization.LineHeadwayOptimizer;
 import com.railwaysim.dispatch.plan.OperationPlanLoader;
 import com.railwaysim.dispatch.plan.PlannedScheduleCalculator;
 import com.railwaysim.dispatch.route.RouteDecisionStatus;
@@ -19,11 +23,12 @@ import com.railwaysim.dispatch.route.RouteDispatchRecordStore;
 import com.railwaysim.dispatch.route.RouteIntentResolver;
 import com.railwaysim.dispatch.route.RouteIntentArbiter;
 import com.railwaysim.dispatch.route.RouteReservationState;
-import com.railwaysim.dispatch.strategy.StrategySelector;
 import com.railwaysim.infrastructure.OperationalLineData;
 import com.railwaysim.signal.MovementAuthority;
 import com.railwaysim.signal.RouteState;
 import com.railwaysim.signal.RouteStatus;
+import com.railwaysim.signal.dispatch.SignalDispatchPlanPublication;
+import com.railwaysim.signal.dispatch.SignalDispatchPlanRegistry;
 import com.railwaysim.simulation.TickContext;
 import com.railwaysim.train.TrainEntity;
 import com.railwaysim.train.TrainState;
@@ -134,6 +139,40 @@ class DispatchServiceTests {
     }
 
     @Test
+    void routeInterlockingFeedbackStoresStructuredFailureCodeAndRetryPolicy() {
+        dispatchService.submit(commandWithPayload("TR-1", "REQUEST_ROUTE", Map.of("routeId", "R_BRANCH")));
+
+        dispatchService.acceptFeedback(List.of(new DispatchCommandFeedback(
+            "DC-test-REQUEST_ROUTE",
+            "TR-1",
+            "REQUEST_ROUTE",
+            "SIGNAL_INTERLOCKING",
+            CommandStatus.SKIPPED,
+            "TRACK_OCCUPIED:T03 is occupied by another train",
+            Instant.parse("2026-07-09T00:00:00Z"),
+            Map.of(
+                "accepted", false,
+                "resultCode", "INTERLOCKING_REJECTED",
+                "failureCode", "TRACK_OCCUPIED",
+                "retryable", true,
+                "rawReason", "TRACK_OCCUPIED:T03 is occupied by another train"
+            )
+        )));
+
+        assertThat(dispatchService.snapshot().routeDecisions())
+            .extracting(DispatchSnapshot.RouteDecisionView::status)
+            .containsExactly(RouteDecisionStatus.REJECTED);
+        assertThat(dispatchService.snapshot().routeReservations())
+            .singleElement()
+            .satisfies(reservation -> {
+                assertThat(reservation.state()).isEqualTo(RouteReservationState.REJECTED);
+                assertThat(reservation.failureCode()).isEqualTo("TRACK_OCCUPIED");
+                assertThat(reservation.failureCategory()).isEqualTo("RESOURCE_CONFLICT");
+                assertThat(reservation.retryable()).isTrue();
+            });
+    }
+
+    @Test
     void routeReservationIsReleasedWhenInterlockingRouteIsNoLongerEstablished() {
         dispatchService.submit(commandWithPayload("TR-1", "REQUEST_ROUTE", Map.of("routeId", "R_BRANCH")));
         dispatchService.acceptFeedback(List.of(new DispatchCommandFeedback(
@@ -189,6 +228,25 @@ class DispatchServiceTests {
         assertThat(dispatchService.snapshot().routeReservations())
             .extracting(DispatchSnapshot.RouteReservationView::state)
             .containsExactly(RouteReservationState.EXPIRED);
+    }
+
+    @Test
+    void publishPlanToSignalIncludesServiceEntriesWithExistingRouteId() {
+        DispatchService service = dispatchService(routeLineData());
+        Instant effectiveFrom = Instant.parse("2026-07-09T00:00:00Z");
+
+        SignalDispatchPlanPublication publication = service.publishPlanToSignal("tester", effectiveFrom);
+
+        assertThat(publication.operator()).isEqualTo("tester");
+        assertThat(publication.effectiveFrom()).isEqualTo(effectiveFrom);
+        assertThat(publication.acceptedCount()).isGreaterThan(0);
+        assertThat(publication.rejectedCount()).isZero();
+        assertThat(publication.entries())
+            .extracting(SignalDispatchPlanPublication.Entry::sourceType)
+            .contains("SERVICE_PLAN");
+        assertThat(publication.entries())
+            .extracting(SignalDispatchPlanPublication.Entry::routeId)
+            .contains("R_MAIN");
     }
 
     @Test
@@ -254,6 +312,41 @@ class DispatchServiceTests {
         assertThat(service.snapshot().services())
             .extracting(DispatchSnapshot.ServicePlanView::departureStatus)
             .containsOnly(CommandStatus.PENDING);
+    }
+
+    @Test
+    void operationPlanQueuesRouteRequestAtPlannedDeparture() {
+        DispatchService service = dispatchService();
+        Instant now = Instant.parse("2026-07-09T00:00:00Z");
+        service.evaluate(tick(1, now), List.of(train("TR-1")), List.of(authority("TR-1")));
+
+        var plan = service.createOperationPlan(new OperationPlanRequest(
+            List.of("S01", "S02"),
+            "R_MAIN",
+            "R_MAIN:UP",
+            null,
+            null,
+            0,
+            300,
+            0
+        ));
+
+        assertThat(plan.trainId()).isEqualTo("TR-1");
+        assertThat(service.snapshot().operationPlans())
+            .extracting(DispatchSnapshot.OperationPlanView::status)
+            .containsExactly("PLANNED");
+
+        service.evaluate(tick(2, now.plusSeconds(1)), List.of(train("TR-1")), List.of(authority("TR-1")));
+
+        List<DispatchCommand> routeCommands = service.drainCommandsOfType("REQUEST_ROUTE");
+        assertThat(routeCommands).singleElement().satisfies(command -> {
+            assertThat(command.payload()).containsEntry("operationPlanId", plan.planId());
+            assertThat(command.payload()).containsEntry("routeId", "R_MAIN");
+            assertThat(command.reason()).isEqualTo("OPERATION_PLAN");
+        });
+        assertThat(service.snapshot().operationPlans())
+            .extracting(DispatchSnapshot.OperationPlanView::status)
+            .containsExactly("ROUTE_REQUESTED");
     }
 
     @Test
@@ -614,6 +707,106 @@ class DispatchServiceTests {
         DispatchConstraint constraint = dispatchService.previewConstraintsForTrains(List.of(dwellingTrain("TR-1", 15))).get(0);
 
         assertThat(constraint.releaseStationStop()).isTrue();
+    }
+
+    @Test
+    void injectedHeadwayScenarioGeneratesSelfRegulationCommandOnNextEvaluation() {
+        DispatchService service = dispatchService();
+        Instant now = Instant.parse("2026-07-09T00:00:00Z");
+
+        service.evaluate(tick(1, now), List.of(runningTrainAt("TR-1", 100, 14)), List.of(authority("TR-1")));
+
+        service.injectDemoDisturbance(
+            "TR-1",
+            DisturbanceType.TRAIN_REGULATION,
+            "TOO_SHORT",
+            300.0,
+            120.0,
+            90.0,
+            null
+        );
+        service.evaluate(tick(2, now.plusSeconds(21)), List.of(runningTrainAt("TR-1", 120, 14)), List.of(authority("TR-1")));
+
+        assertThat(service.snapshot().activeCommands())
+            .filteredOn(command -> "SPEED_BIAS".equals(command.commandType()))
+            .singleElement()
+            .satisfies(command -> {
+                assertThat(command.trainId()).isEqualTo("TR-1");
+                assertThat(command.regulatedTrainId()).isEqualTo("TR-1");
+                assertThat(command.status()).isEqualTo(CommandStatus.PENDING);
+                assertThat(command.regulationAction()).isEqualTo("SLOW_DOWN");
+                assertThat(command.payload())
+                    .containsEntry("headwayDirection", "TOO_SHORT")
+                    .containsEntry("speedBiasRatio", 0.65)
+                    .containsEntry("regulatedTrainId", "TR-1")
+                    .containsEntry("regulationSource", "LINE_HEADWAY_OPTIMIZATION")
+                    .containsKeys("lineRegulationPlanId", "lineRegulationDecisionId");
+            });
+        assertThat(service.snapshot().lineRegulationPlan()).satisfies(plan -> {
+            assertThat(plan.status()).isEqualTo("COMMANDS_PROPOSED");
+            assertThat(plan.commandCount()).isEqualTo(1);
+            assertThat(plan.currentMaxAbsHeadwayErrorSec()).isEqualTo(180.0);
+            assertThat(plan.predictedMaxAbsHeadwayErrorSec()).isLessThan(180.0);
+            assertThat(plan.decisions())
+                .singleElement()
+                .satisfies(decision -> {
+                    assertThat(decision.trainId()).isEqualTo("TR-1");
+                    assertThat(decision.regulatedTrainId()).isEqualTo("TR-1");
+                    assertThat(decision.frontTrainId()).isNull();
+                    assertThat(decision.action()).isEqualTo("SLOW_DOWN");
+                    assertThat(decision.commandType()).isEqualTo("SPEED_BIAS");
+                    assertThat(decision.status()).isEqualTo("COMMAND_PROPOSED");
+                    assertThat(decision.signalConstraint()).isEqualTo("NONE");
+                    assertThat(decision.commandId()).isNotBlank();
+                });
+        });
+    }
+
+    @Test
+    void activeSelfRegulationCommandSuppressesRepeatedLineCommand() {
+        DispatchService service = dispatchService();
+        Instant now = Instant.parse("2026-07-09T00:00:00Z");
+
+        service.markCommandsSent(List.of(new DispatchCommand(
+            "DC-active-speed-bias",
+            "TR-1",
+            "SPEED_BIAS",
+            Map.of(
+                "speedBiasRatio", 0.75,
+                "regulatedTrainId", "TR-1",
+                "headwayDirection", "TOO_SHORT",
+                "regulationAction", "SLOW_DOWN"
+            ),
+            "LINE_HEADWAY_OPTIMIZATION",
+            CommandStatus.APPLIED,
+            now,
+            now
+        )));
+        service.evaluate(tick(1, now), List.of(runningTrainAt("TR-1", 100, 25)), List.of(authority("TR-1")));
+        service.injectDemoDisturbance(
+            "TR-1",
+            DisturbanceType.TRAIN_REGULATION,
+            "TOO_SHORT",
+            300.0,
+            120.0,
+            90.0,
+            null
+        );
+
+        service.evaluate(tick(2, now.plusSeconds(21)), List.of(runningTrainAt("TR-1", 120, 25)), List.of(authority("TR-1")));
+
+        assertThat(service.snapshot().activeCommands())
+            .filteredOn(command -> "SPEED_BIAS".equals(command.commandType()))
+            .hasSize(1);
+        assertThat(service.snapshot().lineRegulationPlan().decisions())
+            .singleElement()
+            .satisfies(decision -> {
+                assertThat(decision.trainId()).isEqualTo("TR-1");
+                assertThat(decision.action()).isEqualTo("OBSERVE");
+                assertThat(decision.commandType()).isEqualTo("OBSERVE");
+                assertThat(decision.status()).isEqualTo("OBSERVE_ACTIVE_COMMAND");
+                assertThat(decision.commandId()).isNull();
+            });
     }
 
     @Test
@@ -1091,15 +1284,18 @@ class DispatchServiceTests {
                 properties,
                 new TrainRunMonitor(planLoader, new PlannedScheduleCalculator(properties), stationStore),
                 new DisturbanceDetector(properties),
-                new StrategySelector(),
                 new CommandValidator(),
                 new CommandQueue(),
                 new InMemoryDisturbanceRecordStore(),
                 new InMemoryCommandRecordStore(),
                 stationStore,
                 routeStore,
+                routeCatalog,
                 new RouteIntentResolver(routeCatalog, properties),
-                new RouteIntentArbiter(routeCatalog)
+                new RouteIntentArbiter(routeCatalog),
+                new OperationPlanningService(routeCatalog),
+                new SignalDispatchPlanRegistry(),
+                new LineHeadwayOptimizer()
             );
         } catch (IOException ex) {
             throw new IllegalStateException("failed to load dispatch test plan", ex);

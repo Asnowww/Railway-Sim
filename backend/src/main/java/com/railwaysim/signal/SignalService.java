@@ -191,12 +191,20 @@ public class SignalService {
             double nextTrainTailLimit = Double.POSITIVE_INFINITY;
             if (i + 1 < ordered.size()) {
                 TrainState nextTrain = ordered.get(i + 1);
-                // 终点站已停列车不再阻挡后车: 到终点的车视为"已清出线路"
-                if (nextTrain.positionMeters() >= lineLengthMeters - 10 && nextTrain.zeroSpeed()) {
-                    nextTrainTailLimit = Double.POSITIVE_INFINITY;
-                } else {
-                    double linearLimit = nextTrain.positionMeters() - nextTrain.lengthMeters() - effectiveSafetyGap;
-                    nextTrainTailLimit = linearLimit;
+                // 异轨列车不构成前后阻挡（M9上下行里程重叠，同km不同轨=不同车道）
+                TrackSegmentState selfSeg = trackService.segmentForTrain(train);
+                TrackSegmentState nextSeg = trackService.segmentForTrain(nextTrain);
+                boolean differentTrack = selfSeg != null && nextSeg != null
+                    && selfSeg.track() != null && nextSeg.track() != null
+                    && !selfSeg.track().equals(nextSeg.track());
+                if (!differentTrack) {
+                    // 终点站已停列车不再阻挡后车: 到终点的车视为"已清出线路"
+                    if (nextTrain.positionMeters() >= lineLengthMeters - 10 && nextTrain.zeroSpeed()) {
+                        nextTrainTailLimit = Double.POSITIVE_INFINITY;
+                    } else {
+                        double linearLimit = nextTrain.positionMeters() - nextTrain.lengthMeters() - effectiveSafetyGap;
+                        nextTrainTailLimit = linearLimit;
+                    }
                 }
             }
             // 拓扑感知（移动闭塞）：沿本车路径查找前方障碍
@@ -228,7 +236,8 @@ public class SignalService {
             );
             authorityEnd = Math.max(trainHead, Math.min(authorityEnd, lineLengthMeters));
 
-            TrackSegmentState currentSeg = trackService.segmentAt(trainHead);
+            // 与占用染色同源：前端车辆车道、进路匹配、预留起点全部跟随列车绑定的区段
+            TrackSegmentState currentSeg = trackService.segmentForTrain(train);
             allReserved.addAll(collectTopologyReserved(train.id(), currentSeg.id(), authorityEnd));
 
             TrackConstraint track = trackByTrain.get(train.id());
@@ -313,8 +322,29 @@ public class SignalService {
         }
 
         Map<String, List<String>> forwardMap = trackService.forwardNeighborMap();
+        Map<String, TrackSegmentState> segmentById = trackSegments.stream()
+            .collect(Collectors.toMap(TrackSegmentState::id, Function.identity()));
+        List<OperationalLineData.SignalDefinition> configuredSignals = infrastructureCatalog.lineData().signals();
+
+        // 正式线路使用基础设施信号表中的真实 ID、所属区段和公里标。
+        // 仅为没有信号表的旧测试/兼容线路按区段入口合成信号，避免改变既有无配置场景。
+        record SignalPlacement(String id, String segmentId, double positionMeters) {}
+        List<SignalPlacement> placements = configuredSignals.isEmpty()
+            ? trackSegments.stream()
+                .map(segment -> new SignalPlacement("SIG-" + segment.id(), segment.id(), segment.startMeters()))
+                .toList()
+            : configuredSignals.stream()
+                .map(signal -> new SignalPlacement(signal.id(), signal.segmentId(), signal.positionMeters()))
+                .toList();
+
         List<SignalState> aspects = new ArrayList<>();
-        for (TrackSegmentState seg : trackSegments) {
+        for (SignalPlacement placement : placements) {
+            TrackSegmentState seg = segmentById.get(placement.segmentId());
+            if (seg == null) {
+                throw new IllegalStateException(
+                    "Signal " + placement.id() + " references unknown segment " + placement.segmentId()
+                );
+            }
             // 按"前方两区段"判断灯色：
             //   首区段 OCCUPIED/FAULT → RED
             //   首区段 FREE/RESERVED + 第二区段 OCCUPIED/FAULT/不存在 → YELLOW
@@ -354,9 +384,9 @@ public class SignalService {
             }
 
             aspects.add(new SignalState(
-                "SIG-" + seg.id(),
-                seg.id(),
-                seg.startMeters(),
+                placement.id(),
+                placement.segmentId(),
+                placement.positionMeters(),
                 aspect,
                 reasonTrainId
             ));
@@ -381,12 +411,11 @@ public class SignalService {
         int steps = 0;
         for (int i = currentIndex + 1; i < routePath.size() && steps < MAX_RESERVE_SEGMENTS; i++) {
             TrackSegmentState seg = findSegment(routePath.get(i));
-            if (seg == null || seg.startMeters() >= maEndMeters) {
-                break;
-            }
-            if (seg.occupancy() == TrackOccupancy.OCCUPIED || seg.occupancy() == TrackOccupancy.FAULT) {
-                break;
-            }
+            if (seg == null) break;
+            if (seg.occupancy() == TrackOccupancy.OCCUPIED || seg.occupancy() == TrackOccupancy.FAULT) break;
+            // 第一个前向段总是预留（不管MA覆盖多远，下一个段需要准备）
+            // 后续段只在MA范围内预留
+            if (steps > 0 && seg.startMeters() >= maEndMeters) break;
             ids.add(seg.id());
             steps++;
         }
@@ -395,7 +424,9 @@ public class SignalService {
 
     private Set<String> collectReservedAlongActiveTopology(String startSegmentId, double maEndMeters) {
         Set<String> ids = new HashSet<>();
-        Map<String, List<String>> forwardMap = trackService.forwardNeighborMap();
+        Map<String, List<String>> forwardMap = trackService.kmForwardMap();
+        TrackSegmentState startSeg = findSegment(startSegmentId);
+        String track = startSeg != null ? startSeg.track() : "up";
         String current = startSegmentId;
         int steps = 0;
         while (current != null && steps < MAX_RESERVE_SEGMENTS) {
@@ -404,9 +435,14 @@ public class SignalService {
                 break;
             }
 
-            String next = forward.size() == 1 ? forward.get(0) : chooseActiveForwardNeighbor(current, forward);
+            String next = chooseActiveForwardNeighbor(current, forward, track);
             TrackSegmentState seg = findSegment(next);
             if (seg == null || seg.startMeters() >= maEndMeters) {
+                break;
+            }
+            String nextTrack = seg.track() != null ? seg.track() : "up";
+            // 渡线/异轨不预留——预留严格限制在本车股道内，任何跨轨即停
+            if (!nextTrack.equals(track)) {
                 break;
             }
             if (seg.occupancy() == TrackOccupancy.OCCUPIED || seg.occupancy() == TrackOccupancy.FAULT) {
@@ -421,6 +457,10 @@ public class SignalService {
     }
 
     private String chooseActiveForwardNeighbor(String currentSegmentId, List<String> forward) {
+        return chooseActiveForwardNeighbor(currentSegmentId, forward, null);
+    }
+
+    private String chooseActiveForwardNeighbor(String currentSegmentId, List<String> forward, String preferredTrack) {
         // 1. Prefer the LOCKED switch-activated branch.
         for (SwitchState sw : trackService.switchStates()) {
             if (sw.locked() && forward.contains(sw.activeSegmentId())) {
@@ -428,7 +468,17 @@ public class SignalService {
             }
         }
 
-        // 2. Fallback: pick the forward neighbor with higher speed limit (main track)
+        // 2. Prefer same-track neighbor (avoid skipping to crossover/other direction)
+        if (preferredTrack != null) {
+            for (String fwdId : forward) {
+                TrackSegmentState fwdSeg = findSegment(fwdId);
+                if (fwdSeg != null && preferredTrack.equals(fwdSeg.track())) {
+                    return fwdId;
+                }
+            }
+        }
+
+        // 3. Fallback: pick the forward neighbor with higher speed limit (main track)
         String best = forward.get(0);
         double bestSpeed = -1;
         for (String fwdId : forward) {
@@ -446,15 +496,21 @@ public class SignalService {
      * 在分叉场景下沿当前激活的道岔方向搜索，不会跨越到平行支路。
      */
     private double resolveTopologyObstacle(TrainState self, double safetyGap) {
-        TrackSegmentState seg = trackService.segmentAt(self.positionMeters());
+        TrackSegmentState seg = trackService.segmentForTrain(self);
         if (seg == null) return Double.POSITIVE_INFINITY;
-        Map<String, List<String>> forwardMap = trackService.forwardNeighborMap();
+        Map<String, List<String>> forwardMap = trackService.kmForwardMap();
+        String selfTrack = seg.track() != null ? seg.track() : "main";
         String current = seg.id();
         int steps = 0;
 
         while (current != null && steps < 20) { // 搜索上限：20段
             TrackSegmentState curSeg = findSegment(current);
             if (curSeg == null) break;
+            String curTrack = curSeg.track() != null ? curSeg.track() : "main";
+            // 不同轨道路径分叉：停止搜索，不沿渡线/异轨邻居继续（主线不被上行/支线阻挡）
+            if (!curTrack.equals(selfTrack) && !"main".equals(curTrack)) {
+                return Double.POSITIVE_INFINITY;
+            }
             // 发现此区段上有别的列车→取尾部减安全间隔
             if (curSeg.occupancy() == TrackOccupancy.OCCUPIED) {
                 // 检查是否是自己的区段
@@ -501,12 +557,29 @@ public class SignalService {
 
         double head = train.positionMeters();
 
-        // 找车头前方的下一站；允许车头在站中心后方 10m 内继续被视为站停窗口。
+        // 停车目标 = 列车所在股道站台的精确停车点（stop_right，车头对齐站台末端）
+        String track = trackService.segmentForTrain(train).track();
+
+        // 释放标记只在列车驶离当前站台窗口前有效。先清理已经越过的站，
+        // 避免旧标记让后续所有站点的 stationDistance 都被屏蔽为 9999m。
+        String releasePrefix = train.id() + ":";
+        releasedStationStops.removeIf(key -> {
+            if (!key.startsWith(releasePrefix)) return false;
+            String stationId = key.substring(releasePrefix.length());
+            return stations.stream()
+                .filter(station -> station.id().equals(stationId))
+                .findFirst()
+                .map(station -> head > lineData.stopPointMeters(station, track) + STATION_STOP_WINDOW_METERS)
+                .orElse(true);
+        });
+
+        // 找车头前方的下一站（按停车点）；允许车头在停车点后方窗口内继续被视为站停窗口。
         OperationalLineData.StationDefinition nextStation = stations.stream()
-            .filter(s -> s.centerMeters() >= head - STATION_STOP_WINDOW_METERS)
-            .min(Comparator.comparingDouble(s -> s.centerMeters() - head))
+            .filter(s -> lineData.stopPointMeters(s, track) >= head - STATION_STOP_WINDOW_METERS)
+            .min(Comparator.comparingDouble(s -> lineData.stopPointMeters(s, track) - head))
             .orElse(null);
         if (nextStation == null) return result;
+        double stopPoint = lineData.stopPointMeters(nextStation, track);
 
         String dwellKey = train.id() + ":" + nextStation.id();
         if (dispatch != null && dispatch.releaseStationStop()) {
@@ -523,12 +596,9 @@ public class SignalService {
             return result;
         }
 
-        boolean stopped = Math.abs(head - nextStation.centerMeters()) <= STATION_STOP_WINDOW_METERS && train.zeroSpeed();
+        boolean stopped = Math.abs(head - stopPoint) <= STATION_STOP_WINDOW_METERS && train.zeroSpeed();
         if (releasedStationStops.contains(dwellKey)) {
-            // 已释放的站: 列车离开窗口后清除标记, 否则保持释放不干扰
-            if (head > nextStation.centerMeters() + STATION_STOP_WINDOW_METERS) {
-                releasedStationStops.remove(dwellKey);
-            }
+            // 已释放的站在驶离窗口前保持放行；驶离后的标记已在方法入口清理。
             atStationStop.remove(train.id());
             return result; // 不截断MA, 让列车自由通过
         }
@@ -558,9 +628,23 @@ public class SignalService {
         }
         int dwellElapsedSec = (int) Math.floor(dwellTicks * simulationProperties.getTickMillis() / 1000.0);
 
-        // 站停未完成 → MA 截到站台位置
+        // 站停未完成 → MA 截到停车点后窗口边缘（余量供 ATO 精确对位，越过即越权）
         if (dwellTicks < targetDwellTicks) {
-            result.put("maEndAt", nextStation.centerMeters() + STATION_STOP_WINDOW_METERS);
+            double stationMaEnd = nextStation.centerMeters() + STATION_STOP_WINDOW_METERS;
+            // M9长段保护：列车距离站台超过安全制动距离时不截MA，避免过早刹车卡死在站窗外
+            double distanceToStation = nextStation.centerMeters() - head;
+            if (distanceToStation > 0 && train.speedMetersPerSecond() > 2.0) {
+                double safeBraking = (train.speedMetersPerSecond() * train.speedMetersPerSecond())
+                    / (2 * DEFAULT_BRAKING_DECELERATION) + 120.0;
+                if (distanceToStation > safeBraking) {
+                    return result; // 高速且离得远，不截MA
+                }
+            }
+            // 兜底：MA至少给60m或2倍车长，避免零速卡死
+            if (stationMaEnd < head + Math.max(60.0, train.lengthMeters() * 2)) {
+                stationMaEnd = head + Math.max(60.0, train.lengthMeters() * 2);
+            }
+            result.put("maEndAt", stationMaEnd);
             if (dwellTicks > 0) {
                 result.put("isDwelling", 1.0);
                 result.put("dwellElapsedSec", (double) dwellElapsedSec);

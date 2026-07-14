@@ -33,6 +33,7 @@ public record TrainStateReportDto(
     String faultCode,
     String decisionSource,
     String inputCommandId,
-    String inputTraceId
+    String inputTraceId,
+    String selectedReasonCode
 ) {
 }

@@ -14,7 +14,7 @@
 
 - **9300** 持有 `TrainStateHolder`（等效 `TrainEntity` 的 40+ 可变字段），是列车位置、速度、牵引力、能耗、TCMS 诊断等状态的权威源。
 - **线路基础设施仍由 8080 静态配置域持有**：车站/站台 ID 与里程只在 bootstrap 时作为只读拓扑下发。9300 用它执行停车、到站识别和停站计时，但不得自行生成车站。
-- **中央** 的 `TrainEntity` 在 `EXTERNAL_HTTP` 模式下为 9300 的状态镜像，在 `LOCAL` 模式下为本地计算状态。
+- **中央** 的 `TrainEntity` 固定为 9300 权威状态的镜像，不再承担本地车辆物理计算。
 - `SimulationRuntime` 提供中央统一仿真时钟；9300 在自主模式下有独立 `@Scheduled` 时钟。
 - 调度、信号、轨道在 `backend:8080` 内协作；拆分部署时，单车控制/状态/物理由 `vehicle-runtime-service:9300` 权威执行，权威供电计算由 `power-network-service:9200` 执行。
 - `step-fleet` 接口不再传输列车状态（9300 从 `TrainStateHolder` 读取），只传输约束（轨道/信号/调度/供电）。
@@ -52,10 +52,12 @@ vehicle-runtime-service/src/main/java/com/railwaysim/vehicleruntime
 │  ├─ DriverCommandHolder.java       司控台命令缓存
 │  └─ FmuHttpVehiclePhysicsExecutor.java / JavaFallbackVehiclePhysicsExecutor.java
 ├─ api/
-│  ├─ VehicleRuntimeController.java  REST 端点
-│  └─ DriverCabInputController.java  PLC 控制输入
+│  ├─ VehicleRuntimeController.java       REST 端点
+│  ├─ DriverCabInputController.java       PLC 控制输入执行
+│  └─ PeripheralAggregationController.java 9300 外设聚合入口（仅 PLC_INPUT）
 ├─ model/                            请求/响应 DTO
-└─ drivercab/                        PLC 协议编解码
+├─ protocol/                         RSIM 聚合帧编解码和通道方向校验
+└─ drivercab/                        PLC 原生协议编解码
 ```
 
 ## 仿真主循环（中央驱动模式）
@@ -76,9 +78,9 @@ SimulationRuntime.tick()
    → 中央通过 TrainManager.updateMirrorState() 更新镜像状态
    → 事件桥接到中央 SimpleEventBus
 
-→ LOCAL 模式 —— 中央计算（降级）：
-   → OnboardTrainSubsystemManager + VehiclePhysicsClient.stepFleet()
-   → TrainManager.applyPhysicsOutput()
+→ 9300 不可用 —— 当前 tick 失败并进入可观测降级状态：
+   → VehicleRuntimeIntegrationService 更新健康状态并抛出稳定领域异常
+   → SimulationRuntime 中止本 tick，不更新中央车辆镜像
 
 → TrackService.updateOccupancy()
 → PowerService.update()
@@ -110,7 +112,7 @@ SimulationRuntime.tick()
 
 后续如果加入客流、调度、故障注入，可以插入到主循环中，但要保持一个原则：模块之间优先使用内存对象和内部事件，不要在每个 tick 中走 REST、MySQL 或 WebSocket。
 
-车辆运行时主链路先通过 `vehicle-runtime-service` 暴露，每车内部包含控制队列、仿真队列和 `TrainStateHolder`（权威状态持有者）。中央本地 `VehiclePhysicsClient.stepFleet()` 仅保留作为 LOCAL 降级端口；`EXTERNAL_HTTP` 模式下 9300 异常会中止当前 tick，中央不计算替代物理状态。后续接入 Python FMU 服务或真实车辆模型时，只替换车辆运行时内部仿真层或本地 fallback 实现，不让信号、轨道、供电和调度模块直接操作 FMU。
+车辆运行时主链路通过 `vehicle-runtime-service` 暴露，每车内部包含控制队列、仿真队列和 `TrainStateHolder`（权威状态持有者）。9300保持100 ms TCMS控制与中央回传周期；每个控制周期内保持控制指令不变，连续调用9000执行5个20 ms物理子步，并仅在第5步完成后提交权威车辆状态。9300异常会中止当前tick，中央不计算替代物理状态。后续接入真实车辆模型时，只替换9300内部仿真层或其内部fallback实现，不让信号、轨道、供电和调度模块直接操作FMU。
 
 ## 数据分层
 
@@ -161,15 +163,15 @@ YAML 存仿真静态配置：
 
 监控层将每个活动告警映射为结构化 `FaultImpact`，并维护稳定 occurrence 生命周期。9300/9200 的健康状态由 `ServiceHealthService` 归一化为 `UP/DEGRADED/STALE/FALLBACK/RECOVERING`。从异常恢复时不允许直接回 UP；`RecoveryGate` 必须同时验证 runId、tick 水位、topology/config hash 及 model/parameter version。告警活动索引、最后健康态和 last-good baseline 都持久化，8080 重启后回填。
 
-9200 重启会先回到未 bootstrap 状态，拒绝权威查询和 step；8080 探测到该状态后重下发拓扑。9300 可跨 8080 重启保留车辆实例，但仅在新 run 的 tick 0/1 执行 run rollover，同时清除旧 run 的命令、约束和物理缓存，避免旧 tick 或旧输入污染新运行。
+9200 重启时默认从 `config/power_third_rail.yaml` 加载 1500 V、5 分区基线，不再暴露 750 V、2 分区的过渡拓扑；部署可通过 `POWER_NETWORK_CONFIG_PATH` 显式覆盖，8080 后续 bootstrap 仍可重下发权威拓扑。9300 可跨 8080 重启保留车辆实例，但仅在新 run 的 tick 0/1 执行 run rollover，同时清除旧 run 的命令、约束和物理缓存，避免旧 tick 或旧输入污染新运行。
 
-新增 `vehicle-runtime-service` 作为外部车辆运行时，端口 `9300`。列车上线推荐先由车辆仿真系统调用 `POST /vehicle-runtime/trains/launch`，创建车辆仿真实例、唤醒本车控制队列，再向中央 `/api/trains/runtime-registrations` 注册状态镜像。PLC 46 字节控制输入只进入 9300；8080 只提供信号系统需要的 `driverConsoleState/cabDisplay` 和 26 字节 PLC 显示输出。`split` 模式下中央每 tick 只同步列车状态、MA、轨道和调度约束；不再计算或下发供电约束。9300 在控制前向 9200 请求电压/可用功率约束，完成全车步进后每 tick 最多一次提交完整分区负荷；请求必须携带同一 `simulationRunId`。中央只镜像 9200 快照用于前端和告警，绝不补写车辆负荷。生产 `EXTERNAL_HTTP` 模式下 9300 失败会明确中止当前 tick，不由 8080 静默切换成另一套控制/物理结果；Java fallback 仅在 9300 内部按已定义的 FMU 降级策略执行。
+新增 `vehicle-runtime-service` 作为外部车辆运行时，端口 `9300`。列车上线推荐先由车辆仿真系统调用 `POST /vehicle-runtime/trains/launch`，创建车辆仿真实例、唤醒本车控制队列，再向中央 `/api/trains/runtime-registrations` 注册状态镜像。现场四端口中只有 PLC 产生业务输入：8080 把 PLC 46 字节原始帧封装为 RSIM Version 1 聚合帧，通过 `POST /vehicle-runtime/peripherals/frame` 送入 9300；网络屏、信号屏和视景系统只接收 8080 的显示输出。8080 还提供信号系统需要的 `driverConsoleState/cabDisplay` 和 26 字节 PLC 显示输出。详细方向和帧格式见 `docs/司机台与显示系统端口聚合协议.md`。`split` 模式下中央每 tick 只同步列车状态、MA、轨道和调度约束；不再计算或下发供电约束。9300 在控制前向 9200 请求电压/可用功率约束，完成全车步进后每 tick 最多一次提交完整分区负荷；请求必须携带同一 `simulationRunId`。中央只镜像 9200 快照用于前端和告警，绝不补写车辆负荷。生产 `EXTERNAL_HTTP` 模式下 9300 失败会明确中止当前 tick，不由 8080 静默切换成另一套控制/物理结果；Java fallback 仅在 9300 内部按已定义的 FMU 降级策略执行。
 
 ```text
 vehicle-runtime-service:9300（列车状态权威持有者）
   -> POST /vehicle-runtime/trains/launch（车辆启动）
   -> POST backend /api/trains/runtime-registrations（中央镜像注册）
-  <- POST PLC /api/vehicle/driver-cabs/{trainId}/plc-input（司控台输入）
+  <- POST /vehicle-runtime/peripherals/frame（RSIM 聚合帧，仅 PLC_INPUT）
   <- POST /vehicle-runtime/trains/{id}/manual-control（手动控制）
   <- POST /vehicle-runtime/tick（自主单步推进）
   -> 返回 TrainStateSnapshot（权威状态快照）

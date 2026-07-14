@@ -2,16 +2,24 @@ package com.railwaysim.dispatch;
 
 import com.railwaysim.dispatch.command.CommandStatus;
 import com.railwaysim.dispatch.disturbance.DisturbanceEvent;
+import com.railwaysim.dispatch.disturbance.DisturbanceType;
 import com.railwaysim.dispatch.monitor.StationRecordStore;
 import com.railwaysim.dispatch.monitor.TrainStationEvent;
+import com.railwaysim.dispatch.operation.OperationPlan;
+import com.railwaysim.dispatch.operation.OperationPlanRequest;
+import com.railwaysim.dispatch.operation.OperationRouteCandidate;
+import com.railwaysim.dispatch.operation.OperationRouteTemplate;
 import com.railwaysim.dispatch.plan.CurrentRunPlan;
+import com.railwaysim.dispatch.plan.DispatchPlanFile.SegmentEntry;
 import com.railwaysim.dispatch.plan.OperationPlanLoader;
 import com.railwaysim.dispatch.plan.RunModePeriod;
 import com.railwaysim.signal.RouteInterlockingService;
 import com.railwaysim.signal.RouteInterlockingService.RouteInfo;
+import com.railwaysim.signal.dispatch.SignalDispatchPlanPublication;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -20,6 +28,7 @@ import org.springframework.web.bind.annotation.CrossOrigin;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -55,6 +64,8 @@ public class DispatchController {
             planLoader.planId(),
             planLoader.lineId(),
             periods,
+            planLoader.stations(),
+            planLoader.segments(),
             planLoader.circulations(),
             planLoader.services()
         );
@@ -73,6 +84,19 @@ public class DispatchController {
     @GetMapping("/disturbances")
     public List<DisturbanceEvent> disturbances() {
         return dispatchService.disturbances();
+    }
+
+    @PostMapping("/disturbances/demo")
+    public DisturbanceEvent injectDemoDisturbance(@RequestBody DemoDisturbanceRequest request) {
+        return dispatchService.injectDemoDisturbance(
+            request.trainId(),
+            request.type(),
+            request.headwayDirection(),
+            request.targetHeadwaySec(),
+            request.actualHeadwaySec(),
+            request.violationSec(),
+            request.stationId()
+        );
     }
 
     @GetMapping("/commands")
@@ -126,10 +150,138 @@ public class DispatchController {
         return routeInterlockingService.queryRoutes();
     }
 
+    @PostMapping("/route/establish")
+    public RouteEstablishResponse establishRoute(
+        @RequestParam String routeId,
+        @RequestParam String trainId
+    ) {
+        DispatchCommand command = submit(new ManualCommandRequest(
+            trainId,
+            "REQUEST_ROUTE",
+            routeId,
+            null,
+            null,
+            null,
+            routeId,
+            Map.of("source", "MANUAL_ROUTE_ESTABLISH")
+        ));
+        return new RouteEstablishResponse(true, routeId, trainId, null, command.id());
+    }
+
+    @GetMapping("/operation-route/templates")
+    public List<OperationRouteTemplate> operationRouteTemplates() {
+        return dispatchService.operationRouteTemplates();
+    }
+
+    @PostMapping("/operation-route/preview")
+    public List<OperationRouteCandidate> previewOperationRoute(@RequestBody OperationPlanRequest request) {
+        return dispatchService.previewOperationPlan(request);
+    }
+
+    @GetMapping("/operation-plans")
+    public List<OperationPlan> operationPlans() {
+        return dispatchService.operationPlans();
+    }
+
+    @PostMapping("/operation-plans")
+    public OperationPlan createOperationPlan(@RequestBody OperationPlanRequest request) {
+        return dispatchService.createOperationPlan(request);
+    }
+
+    @PostMapping("/operation-plans/{planId}/cancel")
+    public OperationPlan cancelOperationPlan(@PathVariable String planId) {
+        return dispatchService.cancelOperationPlan(planId);
+    }
+
+    @PostMapping("/signal-publications")
+    public SignalDispatchPlanPublication publishSignalPlan(
+        @RequestBody(required = false) SignalPlanPublicationRequest request
+    ) {
+        return dispatchService.publishPlanToSignal(
+            request == null ? null : request.operator(),
+            request == null ? null : request.effectiveFrom()
+        );
+    }
+
+    @PostMapping("/headway/adjust")
+    public DispatchCommand adjustHeadway(@Valid @RequestBody HeadwayAdjustRequest request) {
+        Map<String, Object> payload = new HashMap<>();
+        payload.put("targetHeadwaySec", request.targetHeadwaySec());
+        payload.put("regulatedTrainId", request.trainId());
+        payload.put("regulationAction", request.regulationAction() == null || request.regulationAction().isBlank()
+            ? "OBSERVE"
+            : request.regulationAction());
+        payload.put("regulationSource", "MANUAL_HEADWAY_ADJUST");
+        if (request.frontTrainId() != null && !request.frontTrainId().isBlank()) {
+            payload.put("frontTrainId", request.frontTrainId());
+        }
+        return submit(new ManualCommandRequest(
+            request.trainId(),
+            "HEADWAY_ADJUST",
+            null,
+            request.targetHeadwaySec(),
+            null,
+            null,
+            null,
+            payload
+        ));
+    }
+
     @GetMapping("/station-records")
     public List<TrainStationEvent> stationRecords() {
         return stationRecordStore.list(dispatchService.simulationRunId());
     }
+
+    /** POST /api/dispatch/command-feedback — 信号/运行控制侧命令反馈（统一反馈接口） */
+    @PostMapping("/command-feedback")
+    public CommandFeedbackResponse submitFeedback(@RequestBody List<CommandFeedbackEntry> entries) {
+        List<DispatchCommandFeedback> feedbacks = new ArrayList<>();
+        Instant now = Instant.now();
+        for (CommandFeedbackEntry entry : entries) {
+            Map<String, Object> details = entry.details() != null
+                ? new HashMap<>(entry.details()) : new HashMap<>();
+            if (entry.requestedSpeedBiasRatio() != null) details.put("requestedSpeedBiasRatio", entry.requestedSpeedBiasRatio());
+            if (entry.effectiveSpeedLimitMps() != null) details.put("effectiveSpeedLimitMps", entry.effectiveSpeedLimitMps());
+            if (entry.baseSpeedLimitMps() != null) details.put("baseSpeedLimitMps", entry.baseSpeedLimitMps());
+            if (entry.dispatchSpeedLimitMps() != null) details.put("dispatchSpeedLimitMps", entry.dispatchSpeedLimitMps());
+            if (entry.signalSpeedLimitMps() != null) details.put("signalSpeedLimitMps", entry.signalSpeedLimitMps());
+            if (entry.finalLimitSource() != null) details.put("finalLimitSource", entry.finalLimitSource());
+            if (entry.constraintMeters() != null) details.put("constraintMeters", entry.constraintMeters());
+            if (entry.currentSegmentId() != null) details.put("currentSegmentId", entry.currentSegmentId());
+            feedbacks.add(new DispatchCommandFeedback(
+                entry.commandId(), entry.trainId(), entry.commandType(),
+                entry.feedbackSource() != null ? entry.feedbackSource() : "SIGNAL_RUNTIME",
+                entry.feedbackStatus(),
+                entry.reason(),
+                entry.observedAt() != null ? entry.observedAt() : now,
+                details
+            ));
+        }
+        dispatchService.acceptFeedback(feedbacks);
+        return new CommandFeedbackResponse(entries.size());
+    }
+
+    public record CommandFeedbackEntry(
+        @NotBlank String commandId,
+        @NotBlank String trainId,
+        String commandType,
+        String feedbackSource,
+        @NotBlank String feedbackStatus,
+        String reason,
+        Instant observedAt,
+        Map<String, Object> details,
+        // 便捷字段：直接填入 details
+        Double requestedSpeedBiasRatio,
+        Double effectiveSpeedLimitMps,
+        Double baseSpeedLimitMps,
+        Double dispatchSpeedLimitMps,
+        Double signalSpeedLimitMps,
+        String finalLimitSource,
+        Double constraintMeters,
+        String currentSegmentId
+    ) {}
+
+    public record CommandFeedbackResponse(int received) {}
 
     public record ManualCommandRequest(
         @NotBlank String trainId,
@@ -143,10 +295,51 @@ public class DispatchController {
     ) {
     }
 
+    public record RouteEstablishResponse(
+        boolean accepted,
+        String routeId,
+        String trainId,
+        String rejectReason,
+        String commandId
+    ) {
+    }
+
+    public record HeadwayAdjustRequest(
+        @NotBlank String trainId,
+        int targetHeadwaySec,
+        String regulationAction,
+        String frontTrainId
+    ) {
+        public HeadwayAdjustRequest {
+            if (targetHeadwaySec < 30 || targetHeadwaySec > 900) {
+                throw new IllegalArgumentException("targetHeadwaySec must be between 30 and 900");
+            }
+        }
+    }
+
+    public record DemoDisturbanceRequest(
+        String trainId,
+        DisturbanceType type,
+        String headwayDirection,
+        Double targetHeadwaySec,
+        Double actualHeadwaySec,
+        Double violationSec,
+        String stationId
+    ) {
+    }
+
+    public record SignalPlanPublicationRequest(
+        String operator,
+        Instant effectiveFrom
+    ) {
+    }
+
     public record PlanResponse(
         String planId,
         String lineId,
         List<PeriodView> periods,
+        List<com.railwaysim.dispatch.monitor.StationInfo> stations,
+        List<SegmentEntry> segments,
         List<com.railwaysim.dispatch.plan.CirculationPlan> circulations,
         List<com.railwaysim.dispatch.plan.TrainServicePlan> services
     ) {

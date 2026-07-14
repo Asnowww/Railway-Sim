@@ -1,0 +1,49 @@
+@startuml
+participant "仿真主循环" as Simulation
+participant "供电服务" as Power
+participant "车辆运行时管理器" as Vehicle
+participant "供电网络模型" as Network
+participant "FMU 物理引擎" as Fmu
+participant "实时状态缓存" as Cache
+
+Simulation -> Power: 准备外部供电拓扑()
+activate Power
+alt [供电拓扑未初始化]
+  Power -> Network: POST /power-network/bootstrap
+  activate Network
+  Network --> Power: 拓扑初始化确认
+  deactivate Network
+else [已完成初始化]
+  Power -> Network: GET /power-network/state
+  activate Network
+  Network --> Power: 供电网络状态快照
+  deactivate Network
+end
+deactivate Power
+
+Simulation -> Vehicle: 车辆运行时步进(运行标识，仿真步)
+activate Vehicle
+Vehicle -> Network: 查询当前供电约束(列车位置)
+activate Network
+Network --> Vehicle: 当前供电约束列表
+deactivate Network
+Vehicle -> Fmu: 批量物理步进
+activate Fmu
+Fmu --> Vehicle: 车辆物理输出列表
+deactivate Fmu
+Vehicle -> Network: 提交负荷与列车位置(运行标识，仿真步)
+activate Network
+Network --> Vehicle: 下一控制周期供电约束列表
+deactivate Network
+Vehicle --> Simulation: 列车状态列表和车辆物理输出列表
+deactivate Vehicle
+
+Simulation -> Power: 根据车辆输出更新供电状态()
+activate Power
+Power -> Network: GET /power-network/state
+activate Network
+Network --> Power: 供电网络状态快照
+deactivate Network
+Power -> Cache: 更新分区状态()并发布事件
+deactivate Power
+@enduml

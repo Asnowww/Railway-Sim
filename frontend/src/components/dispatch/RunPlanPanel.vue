@@ -1,10 +1,16 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import type { RunPlanPeriod, RunPlanResponse } from '../../types/dispatch'
 
-defineProps<{
+const props = defineProps<{
   plan: RunPlanResponse | null
   runMode: string
   targetHeadwaySeconds: number
+  selectedTrainId?: string
+}>()
+
+const emit = defineEmits<{
+  selectTrain: [trainId: string]
 }>()
 
 function label(type: string) {
@@ -14,6 +20,21 @@ function label(type: string) {
     OFF_PEAK: '低谷'
   }
   return map[type] ?? type
+}
+
+const selectedService = computed(() =>
+  props.plan?.services?.find((service) => service.trainId === props.selectedTrainId) ?? null
+)
+
+const visibleServices = computed(() => {
+  const services = props.plan?.services ?? []
+  if (!props.selectedTrainId) return services
+  const selected = services.find((service) => service.trainId === props.selectedTrainId)
+  return selected ? [selected, ...services.filter((service) => service.trainId !== props.selectedTrainId)] : services
+})
+
+function handleTrainSelect(event: Event) {
+  emit('selectTrain', (event.target as HTMLSelectElement).value)
 }
 </script>
 
@@ -28,6 +49,23 @@ function label(type: string) {
       正式计划：<strong>{{ plan.services?.length ?? 0 }}</strong> 个车次，
       <strong>{{ plan.circulations?.length ?? 0 }}</strong> 个交路
     </p>
+    <div v-if="plan?.services?.length" class="plan-train-picker">
+      <label>
+        <span>计划车辆</span>
+        <select :value="selectedTrainId ?? ''" aria-label="选择计划车辆" @change="handleTrainSelect">
+          <option value="">全部车次</option>
+          <option v-for="service in plan.services" :key="service.serviceId" :value="service.trainId">
+            {{ service.trainId }} · {{ service.serviceId }} · {{ service.circulationId }}
+          </option>
+        </select>
+      </label>
+      <p>
+        当前 {{ selectedService?.trainId ?? '全部' }}
+        <span v-if="selectedService">
+          / {{ selectedService.serviceId }} / {{ selectedService.stops[0]?.stationId ?? '-' }} → {{ selectedService.stops.at(-1)?.stationId ?? '-' }}
+        </span>
+      </p>
+    </div>
     <table v-if="plan">
       <thead>
         <tr>
@@ -48,7 +86,11 @@ function label(type: string) {
     </table>
     <div v-if="plan?.services?.length" class="service-list">
       <h3>车次与交路</h3>
-      <article v-for="service in plan.services" :key="service.serviceId">
+      <article
+        v-for="service in visibleServices"
+        :key="service.serviceId"
+        :class="{ selected: service.trainId === selectedTrainId }"
+      >
         <strong>{{ service.serviceId }}</strong>
         <span>{{ service.trainId }} / {{ service.circulationId }}</span>
         <span>{{ service.stops[0]?.stationId ?? '-' }} → {{ service.stops.at(-1)?.stationId ?? '-' }}</span>
@@ -60,8 +102,8 @@ function label(type: string) {
 
 <style scoped>
 .panel {
-  background: #fff;
-  border: 1px solid #e2e8f0;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
   border-radius: 12px;
   padding: 16px;
 }
@@ -79,8 +121,8 @@ h2 {
 }
 
 .badge {
-  background: #dbeafe;
-  color: #1d4ed8;
+  background: var(--status-info-bg);
+  color: var(--status-info);
   padding: 4px 10px;
   border-radius: 999px;
   font-size: 12px;
@@ -88,7 +130,42 @@ h2 {
 
 .summary {
   margin: 0 0 12px;
-  color: #64748b;
+  color: var(--text-secondary);
+}
+
+.plan-train-picker {
+  display: grid;
+  gap: 8px;
+  margin: 0 0 12px;
+  border: 1px solid var(--status-info-bg);
+  border-radius: 8px;
+  background: var(--bg-inset);
+  padding: 10px;
+}
+
+.plan-train-picker label {
+  display: grid;
+  gap: 4px;
+}
+
+.plan-train-picker span {
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.plan-train-picker select {
+  min-height: 34px;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  padding: 6px 10px;
+  font: inherit;
+}
+
+.plan-train-picker p {
+  margin: 0;
+  color: var(--status-info);
+  font-size: 12px;
 }
 
 table {
@@ -99,7 +176,7 @@ table {
 
 th,
 td {
-  border-bottom: 1px solid #f1f5f9;
+  border-bottom: 1px solid var(--bg-hover);
   padding: 8px 6px;
   text-align: left;
 }
@@ -121,11 +198,16 @@ td {
   gap: 8px;
   padding: 8px;
   border-radius: 8px;
-  background: #f8fafc;
+  background: var(--bg-panel-raised);
   font-size: 12px;
 }
 
+.service-list article.selected {
+  border: 1px solid var(--accent);
+  background: var(--status-info-bg);
+}
+
 .service-list small {
-  color: #64748b;
+  color: var(--text-secondary);
 }
 </style>

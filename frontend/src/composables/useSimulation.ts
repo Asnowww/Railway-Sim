@@ -1,61 +1,41 @@
-import { onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { storeToRefs } from 'pinia'
 import { dispatchApi } from '../api/dispatch'
 import { simulationApi } from '../api/rest'
-import { simulationSocket } from '../api/ws'
-import type { DispatchSnapshot, RunPlanResponse } from '../types/dispatch'
-import type { SimulationSnapshot, SimulationStatus } from '../types/simulation'
+import { useSimulationStore } from '../stores/simulation'
+import type { RunPlanResponse } from '../types/dispatch'
 
-const emptyDispatch: DispatchSnapshot = {
-  runMode: 'FLAT',
-  planId: '',
-  targetHeadwaySeconds: 300,
-  defaultDwellSeconds: 25,
-  services: [],
-  stationHeadways: [],
-  interventionActive: false,
-  trainProfiles: [],
-  openDisturbances: [],
-  activeCommands: [],
-  routeDispatchActive: false,
-  routeDecisions: [],
-  routeReservations: []
-}
-
+/**
+ * 调试页专用的仿真控制组合函数。
+ * 快照与 WebSocket 连接统一由全局 connection/simulation store 持有，
+ * 本组合函数只做：运行计划加载、控制操作转发、调试用自动步进定时器。
+ * （旧版在组件卸载时会断开全局 WebSocket——已修复。）
+ */
 export function useSimulation() {
+  const store = useSimulationStore()
+  const { snapshot, status, tick, dispatch } = storeToRefs(store)
+
   const plan = ref<RunPlanResponse | null>(null)
-  const snapshot = ref<SimulationSnapshot | null>(null)
-  const dispatch = ref<DispatchSnapshot>(emptyDispatch)
-  const status = ref<SimulationStatus>('STOPPED')
-  const tick = ref(0)
   const errorMessage = ref('')
-  const backendReady = ref(false)
   const autoRunning = ref(false)
+  const backendReady = computed(() => store.lastSnapshotAt !== null)
 
   let autoTimer: ReturnType<typeof setInterval> | null = null
-  let unsubscribeSnapshot: (() => void) | null = null
 
-  function applySnapshot(payload: SimulationSnapshot) {
-    snapshot.value = payload
-    status.value = payload.status
-    tick.value = payload.tick
-    dispatch.value = payload.dispatch
-      ? {
-          ...emptyDispatch,
-      ...payload.dispatch,
-      services: payload.dispatch.services ?? [],
-      stationHeadways: payload.dispatch.stationHeadways ?? [],
-      routeDecisions: payload.dispatch.routeDecisions ?? [],
-          routeReservations: payload.dispatch.routeReservations ?? []
-        }
-      : emptyDispatch
-    backendReady.value = true
-  }
-
-  async function loadPlan() {
+  async function loadPlan(): Promise<void> {
     plan.value = await dispatchApi.plan()
   }
 
-  async function runSimulation(action: 'start' | 'pause' | 'reset' | 'tick') {
+  /** 主动用 REST 拉一次快照进全局 store（供调试页在操作后立刷）。 */
+  async function refreshSimulationSnapshot(): Promise<void> {
+    try {
+      store.applySnapshot(await simulationApi.snapshot())
+    } catch (error) {
+      errorMessage.value = error instanceof Error ? error.message : '快照刷新失败'
+    }
+  }
+
+  async function runSimulation(action: 'start' | 'pause' | 'reset' | 'tick'): Promise<void> {
     errorMessage.value = ''
     try {
       const result =
@@ -66,17 +46,14 @@ export function useSimulation() {
             : action === 'reset'
               ? await simulationApi.reset()
               : await simulationApi.tick()
-      applySnapshot(result)
+      store.applySnapshot(result)
     } catch (error) {
-      backendReady.value = false
       errorMessage.value =
-        error instanceof Error
-          ? `${error.message}（请确认后端地址配置正确且服务已启动）`
-          : '操作失败'
+        error instanceof Error ? `${error.message}（请确认后端地址配置正确且服务已启动）` : '操作失败'
     }
   }
 
-  function toggleAutoRun() {
+  function toggleAutoRun(): void {
     autoRunning.value = !autoRunning.value
     if (autoTimer) {
       clearInterval(autoTimer)
@@ -94,25 +71,14 @@ export function useSimulation() {
   onMounted(async () => {
     try {
       await loadPlan()
-      applySnapshot(await simulationApi.snapshot())
     } catch (error) {
       errorMessage.value =
-        error instanceof Error
-          ? `${error.message}（请确认 VITE_API_BASE_URL 或 Vite 代理已指向可用后端）`
-          : '初始化失败'
+        error instanceof Error ? `${error.message}（请确认 Vite 代理已指向可用后端）` : '初始化失败'
     }
-
-    simulationSocket.connect()
-    unsubscribeSnapshot = simulationSocket.subscribe(applySnapshot)
   })
 
   onBeforeUnmount(() => {
-    if (autoTimer) {
-      clearInterval(autoTimer)
-    }
-    unsubscribeSnapshot?.()
-    unsubscribeSnapshot = null
-    simulationSocket.disconnect()
+    if (autoTimer) clearInterval(autoTimer)
   })
 
   return {
@@ -125,6 +91,7 @@ export function useSimulation() {
     backendReady,
     autoRunning,
     runSimulation,
+    refreshSimulationSnapshot,
     toggleAutoRun
   }
 }

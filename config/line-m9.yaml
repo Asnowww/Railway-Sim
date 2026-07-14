@@ -1,0 +1,900 @@
+# 北京地铁9号线（郭公庄—国家图书馆）真实线路数据
+# 由 scripts/convert_m9_xlsx.py 从《视景系统公里标最新数据+站台位置20260703.xlsx》生成，勿手改
+# 上行 13 边 / 下行 12 边 / 13 站 / 全线 16489.02m
+# 约定：track=up 对应 Track1/上行视景边表；track=down 对应 Track0/下行视景边表
+# raw_segment_id = 视景系统 UDP 边号（segNo）
+# 注意：下行股道公里标与上行同源（郭公庄端为 0），下行行车方向为里程递减；
+#       现阶段动车运行在上行股道验证，下行股道用于态势展示/视景映射/折返拓扑。
+
+line:
+  id: m9
+  name: 北京地铁9号线
+  length_meters: 16489.02
+  default_speed_limit_meters_per_second: 22.2
+
+stations:
+  - id: S101
+    name: 郭公庄站
+    position_meters: 372.0
+    platforms:
+      - track: up
+        center_meters: 372.0
+        stop_left_meters: 313.0
+        stop_right_meters: 431.0
+        side: left
+      - track: down
+        center_meters: 372.0
+        stop_left_meters: 313.0
+        stop_right_meters: 431.0
+        side: right
+  - id: S102
+    name: 丰台科技园站
+    position_meters: 1724.14
+    platforms:
+      - track: up
+        center_meters: 1724.14
+        stop_left_meters: 1665.14
+        stop_right_meters: 1783.14
+        side: right
+      - track: down
+        center_meters: 1719.52
+        stop_left_meters: 1660.52
+        stop_right_meters: 1778.52
+        side: left
+  - id: S103
+    name: 科怡路站
+    position_meters: 2512.677
+    platforms:
+      - track: up
+        center_meters: 2512.677
+        stop_left_meters: 2453.677
+        stop_right_meters: 2571.677
+        side: right
+      - track: down
+        center_meters: 2507.61
+        stop_left_meters: 2448.61
+        stop_right_meters: 2566.61
+        side: left
+  - id: S104
+    name: 丰台南路站
+    position_meters: 3491.832
+    platforms:
+      - track: up
+        center_meters: 3491.832
+        stop_left_meters: 3432.832
+        stop_right_meters: 3550.832
+        side: right
+      - track: down
+        center_meters: 3488.32
+        stop_left_meters: 3429.32
+        stop_right_meters: 3547.32
+        side: left
+  - id: S105
+    name: 丰台东大街站
+    position_meters: 5079.5146
+    platforms:
+      - track: up
+        center_meters: 5079.5146
+        stop_left_meters: 5020.5146
+        stop_right_meters: 5138.5146
+        side: right
+      - track: down
+        center_meters: 5074.834
+        stop_left_meters: 5015.834
+        stop_right_meters: 5133.834
+        side: left
+  - id: S106
+    name: 七里庄站
+    position_meters: 6405.27
+    platforms:
+      - track: up
+        center_meters: 6405.27
+        stop_left_meters: 6346.27
+        stop_right_meters: 6464.27
+        side: right
+      - track: down
+        center_meters: 6400.274
+        stop_left_meters: 6341.274
+        stop_right_meters: 6459.274
+        side: left
+  - id: S107
+    name: 六里桥站
+    position_meters: 8199.103
+    platforms:
+      - track: up
+        center_meters: 8199.103
+        stop_left_meters: 8140.103
+        stop_right_meters: 8258.103
+        side: left
+      - track: down
+        center_meters: 8179.204
+        stop_left_meters: 8120.204
+        stop_right_meters: 8238.204
+        side: right
+  - id: S108
+    name: 六里桥东站
+    position_meters: 9508.30248
+    platforms:
+      - track: up
+        center_meters: 9508.30248
+        stop_left_meters: 9449.30248
+        stop_right_meters: 9567.30248
+        side: right
+      - track: down
+        center_meters: 9488.344
+        stop_left_meters: 9429.344
+        stop_right_meters: 9547.344
+        side: left
+  - id: S109
+    name: 北京西站
+    position_meters: 10656.17848
+    platforms:
+      - track: up
+        center_meters: 10656.17848
+        stop_left_meters: 10597.17848
+        stop_right_meters: 10715.17848
+        side: right
+      - track: down
+        center_meters: 10659.11378
+        stop_left_meters: 10600.11378
+        stop_right_meters: 10718.11378
+        side: left
+  - id: S110
+    name: 军事博物馆站
+    position_meters: 12057.87933
+    platforms:
+      - track: up
+        center_meters: 12057.87933
+        stop_left_meters: 11998.87933
+        stop_right_meters: 12116.87933
+        side: right
+      - track: down
+        center_meters: 12058.07
+        stop_left_meters: 11999.07
+        stop_right_meters: 12117.07
+        side: left
+  - id: S111
+    name: 白堆子站
+    position_meters: 13967.68649
+    platforms:
+      - track: up
+        center_meters: 13967.68649
+        stop_left_meters: 13908.68649
+        stop_right_meters: 14026.68649
+        side: right
+      - track: down
+        center_meters: 13970.28014
+        stop_left_meters: 13911.28014
+        stop_right_meters: 14029.28014
+        side: left
+  - id: S112
+    name: 白石桥南站
+    position_meters: 15012.51349
+    platforms:
+      - track: up
+        center_meters: 15012.51349
+        stop_left_meters: 14953.51349
+        stop_right_meters: 15071.51349
+        side: right
+      - track: down
+        center_meters: 15013.91
+        stop_left_meters: 14954.91
+        stop_right_meters: 15072.91
+        side: left
+  - id: S113
+    name: 国家图书馆站
+    position_meters: 16105.57149
+    platforms:
+      - track: up
+        center_meters: 16105.57149
+        stop_left_meters: 16046.57149
+        stop_right_meters: 16164.57149
+        side: left
+      - track: down
+        center_meters: 16110.01966
+        stop_left_meters: 16051.01966
+        stop_right_meters: 16169.01966
+        side: right
+
+nodes:
+  - id: NU00
+    name: 上行节点00
+  - id: NU01
+    name: 上行节点01
+  - id: NU02
+    name: 上行节点02
+  - id: NU03
+    name: 上行节点03
+  - id: NU04
+    name: 上行节点04
+  - id: NU05
+    name: 上行节点05
+  - id: NU06
+    name: 上行节点06
+  - id: NU07
+    name: 上行节点07
+  - id: NU08
+    name: 上行节点08
+  - id: NU09
+    name: 上行节点09
+  - id: NU10
+    name: 上行节点10
+  - id: NU11
+    name: 上行节点11
+  - id: NU12
+    name: 上行节点12
+  - id: NU13
+    name: 上行节点13
+  - id: ND00
+    name: 下行节点00
+  - id: ND01
+    name: 下行节点01
+  - id: ND02
+    name: 下行节点02
+  - id: ND03
+    name: 下行节点03
+  - id: ND04
+    name: 下行节点04
+  - id: ND05
+    name: 下行节点05
+  - id: ND06
+    name: 下行节点06
+  - id: ND07
+    name: 下行节点07
+  - id: ND08
+    name: 下行节点08
+  - id: ND09
+    name: 下行节点09
+  - id: ND10
+    name: 下行节点10
+  - id: ND11
+    name: 下行节点11
+  - id: ND12
+    name: 下行节点12
+  - id: ND06s2
+    name: ND06s2（站间划分点）
+  - id: ND06s3
+    name: ND06s3（站间划分点）
+  - id: ND06s4
+    name: ND06s4（站间划分点）
+  - id: ND07s6
+    name: ND07s6（站间划分点）
+  - id: ND07s7
+    name: ND07s7（站间划分点）
+  - id: ND09s10
+    name: ND09s10（站间划分点）
+  - id: ND09s11
+    name: ND09s11（站间划分点）
+  - id: ND09s8
+    name: ND09s8（站间划分点）
+  - id: ND09s9
+    name: ND09s9（站间划分点）
+  - id: ND10s12
+    name: ND10s12（站间划分点）
+  - id: ND10s13
+    name: ND10s13（站间划分点）
+  - id: NU05s2
+    name: NU05s2（站间划分点）
+  - id: NU05s3
+    name: NU05s3（站间划分点）
+  - id: NU05s4
+    name: NU05s4（站间划分点）
+  - id: NU06s6
+    name: NU06s6（站间划分点）
+  - id: NU06s7
+    name: NU06s7（站间划分点）
+  - id: NU08s10
+    name: NU08s10（站间划分点）
+  - id: NU08s11
+    name: NU08s11（站间划分点）
+  - id: NU08s8
+    name: NU08s8（站间划分点）
+  - id: NU08s9
+    name: NU08s9（站间划分点）
+  - id: NU10s12
+    name: NU10s12（站间划分点）
+  - id: NU10s13
+    name: NU10s13（站间划分点）
+
+segments:
+  # ===== 上行（郭公庄→国家图书馆，里程递增） =====
+  - id: U02
+    from: NU00
+    to: NU01
+    start_meters: 0.0
+    end_meters: 215.49
+    raw_segment_id: 2
+    speed_limit_meters_per_second: 22.2
+    track: up
+  - id: U10
+    from: NU01
+    to: NU02
+    start_meters: 215.49
+    end_meters: 232.81
+    raw_segment_id: 10
+    speed_limit_meters_per_second: 22.2
+    track: up
+  - id: U13
+    from: NU02
+    to: NU03
+    start_meters: 232.81
+    end_meters: 300.19
+    raw_segment_id: 13
+    speed_limit_meters_per_second: 22.2
+    track: up
+  - id: U16
+    from: NU03
+    to: NU04
+    start_meters: 300.19
+    end_meters: 443.81
+    raw_segment_id: 16
+    speed_limit_meters_per_second: 22.2
+    track: up
+  - id: U19
+    from: NU04
+    to: NU05
+    start_meters: 443.81
+    end_meters: 511.19
+    raw_segment_id: 19
+    speed_limit_meters_per_second: 22.2
+    track: up
+  - id: U20a
+    from: NU05
+    to: NU05s2
+    start_meters: 511.19
+    end_meters: 1724.14
+    raw_segment_id: 0
+    speed_limit_meters_per_second: 22.2
+    track: up
+
+  - id: U20b
+    from: NU05s2
+    to: NU05s3
+    start_meters: 1724.14
+    end_meters: 2512.677
+    raw_segment_id: 0
+    speed_limit_meters_per_second: 22.2
+    track: up
+
+  - id: U20c
+    from: NU05s3
+    to: NU05s4
+    start_meters: 2512.677
+    end_meters: 3491.832
+    raw_segment_id: 0
+    speed_limit_meters_per_second: 22.2
+    track: up
+
+  - id: U20d
+    from: NU05s4
+    to: NU06
+    start_meters: 3491.832
+    end_meters: 5146.644
+    raw_segment_id: 0
+    speed_limit_meters_per_second: 22.2
+    track: up
+
+  - id: U23a
+    from: NU06
+    to: NU06s6
+    start_meters: 5146.644
+    end_meters: 6405.27
+    raw_segment_id: 0
+    speed_limit_meters_per_second: 22.2
+    track: up
+
+  - id: U23b
+    from: NU06s6
+    to: NU06s7
+    start_meters: 6405.27
+    end_meters: 8199.103
+    raw_segment_id: 0
+    speed_limit_meters_per_second: 22.2
+    track: up
+
+  - id: U23c
+    from: NU06s7
+    to: NU07
+    start_meters: 8199.103
+    end_meters: 8352.184
+    raw_segment_id: 0
+    speed_limit_meters_per_second: 22.2
+    track: up
+
+  - id: U27
+    from: NU07
+    to: NU08
+    start_meters: 8352.184
+    end_meters: 8632.564
+    raw_segment_id: 27
+    speed_limit_meters_per_second: 22.2
+    track: up
+  - id: U34a
+    from: NU08
+    to: NU08s8
+    start_meters: 8632.564
+    end_meters: 9508.30248
+    raw_segment_id: 0
+    speed_limit_meters_per_second: 22.2
+    track: up
+
+  - id: U34b
+    from: NU08s8
+    to: NU08s9
+    start_meters: 9508.30248
+    end_meters: 10656.17848
+    raw_segment_id: 0
+    speed_limit_meters_per_second: 22.2
+    track: up
+
+  - id: U34c
+    from: NU08s9
+    to: NU08s10
+    start_meters: 10656.17848
+    end_meters: 12057.87933
+    raw_segment_id: 0
+    speed_limit_meters_per_second: 22.2
+    track: up
+
+  - id: U34d
+    from: NU08s10
+    to: NU08s11
+    start_meters: 12057.87933
+    end_meters: 13967.68649
+    raw_segment_id: 0
+    speed_limit_meters_per_second: 22.2
+    track: up
+
+  - id: U34e
+    from: NU08s11
+    to: NU09
+    start_meters: 13967.68649
+    end_meters: 14119.63
+    raw_segment_id: 0
+    speed_limit_meters_per_second: 22.2
+    track: up
+
+  - id: U38
+    from: NU09
+    to: NU10
+    start_meters: 14119.63
+    end_meters: 14400.14
+    raw_segment_id: 38
+    speed_limit_meters_per_second: 22.2
+    track: up
+  - id: U42a
+    from: NU10
+    to: NU10s12
+    start_meters: 14400.14
+    end_meters: 15012.51349
+    raw_segment_id: 0
+    speed_limit_meters_per_second: 22.2
+    track: up
+
+  - id: U42b
+    from: NU10s12
+    to: NU10s13
+    start_meters: 15012.51349
+    end_meters: 16105.57149
+    raw_segment_id: 0
+    speed_limit_meters_per_second: 22.2
+    track: up
+
+  - id: U42c
+    from: NU10s13
+    to: NU11
+    start_meters: 16105.57149
+    end_meters: 16207.82966
+    raw_segment_id: 0
+    speed_limit_meters_per_second: 22.2
+    track: up
+
+  - id: U46
+    from: NU11
+    to: NU12
+    start_meters: 16207.82966
+    end_meters: 16275.20966
+    raw_segment_id: 46
+    speed_limit_meters_per_second: 22.2
+    track: up
+  - id: U48
+    from: NU12
+    to: NU13
+    start_meters: 16275.20966
+    end_meters: 16489.02
+    raw_segment_id: 48
+    speed_limit_meters_per_second: 22.2
+    track: up
+  # ===== 下行（国家图书馆→郭公庄，行车方向=里程递减） =====
+  # from/to 按行车方向（高里程节点→低里程节点），保证进路 axle 链连通性校验通过；
+  # start/end_meters 仍为升序数值（引擎 1D 投影约定 start<end）。
+  - id: D03
+    from: ND01
+    to: ND00
+    start_meters: 0.0
+    end_meters: 215.49
+    raw_segment_id: 3
+    speed_limit_meters_per_second: 22.2
+    track: down
+  - id: D04
+    from: ND02
+    to: ND01
+    start_meters: 215.49
+    end_meters: 232.81
+    raw_segment_id: 4
+    speed_limit_meters_per_second: 22.2
+    track: down
+  - id: D07
+    from: ND03
+    to: ND02
+    start_meters: 232.81
+    end_meters: 300.19
+    raw_segment_id: 7
+    speed_limit_meters_per_second: 22.2
+    track: down
+  - id: D11
+    from: ND04
+    to: ND03
+    start_meters: 300.19
+    end_meters: 443.81
+    raw_segment_id: 11
+    speed_limit_meters_per_second: 22.2
+    track: down
+  - id: D14
+    from: ND05
+    to: ND04
+    start_meters: 443.81
+    end_meters: 511.19
+    raw_segment_id: 14
+    speed_limit_meters_per_second: 22.2
+    track: down
+  - id: D17a
+    from: ND06
+    to: ND06s2
+    start_meters: 511.19
+    end_meters: 1719.52
+    raw_segment_id: 0
+    speed_limit_meters_per_second: 22.2
+    track: down
+
+  - id: D17b
+    from: ND06s2
+    to: ND06s3
+    start_meters: 1719.52
+    end_meters: 2507.61
+    raw_segment_id: 0
+    speed_limit_meters_per_second: 22.2
+    track: down
+
+  - id: D17c
+    from: ND06s3
+    to: ND06s4
+    start_meters: 2507.61
+    end_meters: 3488.32
+    raw_segment_id: 0
+    speed_limit_meters_per_second: 22.2
+    track: down
+
+  - id: D17d
+    from: ND06s4
+    to: ND05
+    start_meters: 3488.32
+    end_meters: 5274.8396
+    raw_segment_id: 0
+    speed_limit_meters_per_second: 22.2
+    track: down
+
+  - id: D21a
+    from: ND07
+    to: ND07s6
+    start_meters: 5274.8396
+    end_meters: 6400.274
+    raw_segment_id: 0
+    speed_limit_meters_per_second: 22.2
+    track: down
+
+  - id: D21b
+    from: ND07s6
+    to: ND07s7
+    start_meters: 6400.274
+    end_meters: 8179.204
+    raw_segment_id: 0
+    speed_limit_meters_per_second: 22.2
+    track: down
+
+  - id: D21c
+    from: ND07s7
+    to: ND06
+    start_meters: 8179.204
+    end_meters: 8346.083
+    raw_segment_id: 0
+    speed_limit_meters_per_second: 22.2
+    track: down
+
+  - id: D24
+    from: ND08
+    to: ND07
+    start_meters: 8346.083
+    end_meters: 8687.02908
+    raw_segment_id: 24
+    speed_limit_meters_per_second: 22.2
+    track: down
+  - id: D28a
+    from: ND09
+    to: ND09s8
+    start_meters: 8687.02908
+    end_meters: 9488.344
+    raw_segment_id: 0
+    speed_limit_meters_per_second: 22.2
+    track: down
+
+  - id: D28b
+    from: ND09s8
+    to: ND09s9
+    start_meters: 9488.344
+    end_meters: 10659.11378
+    raw_segment_id: 0
+    speed_limit_meters_per_second: 22.2
+    track: down
+
+  - id: D28c
+    from: ND09s9
+    to: ND09s10
+    start_meters: 10659.11378
+    end_meters: 12058.07
+    raw_segment_id: 0
+    speed_limit_meters_per_second: 22.2
+    track: down
+
+  - id: D28d
+    from: ND09s10
+    to: ND09s11
+    start_meters: 12058.07
+    end_meters: 13970.28014
+    raw_segment_id: 0
+    speed_limit_meters_per_second: 22.2
+    track: down
+
+  - id: D28e
+    from: ND09s11
+    to: ND08
+    start_meters: 13970.28014
+    end_meters: 14039.49649
+    raw_segment_id: 0
+    speed_limit_meters_per_second: 22.2
+    track: down
+
+  - id: D36a
+    from: ND10
+    to: ND10s12
+    start_meters: 14039.49649
+    end_meters: 15013.91
+    raw_segment_id: 0
+    speed_limit_meters_per_second: 22.2
+    track: down
+
+  - id: D36b
+    from: ND10s12
+    to: ND10s13
+    start_meters: 15013.91
+    end_meters: 16110.01966
+    raw_segment_id: 0
+    speed_limit_meters_per_second: 22.2
+    track: down
+
+  - id: D36c
+    from: ND10s13
+    to: ND09
+    start_meters: 16110.01966
+    end_meters: 16203.38149
+    raw_segment_id: 0
+    speed_limit_meters_per_second: 22.2
+    track: down
+
+  - id: D43
+    from: ND11
+    to: ND10
+    start_meters: 16203.38149
+    end_meters: 16270.76149
+    raw_segment_id: 43
+    speed_limit_meters_per_second: 22.2
+    track: down
+  - id: D47
+    from: ND12
+    to: ND11
+    start_meters: 16270.76149
+    end_meters: 16484.57149
+    raw_segment_id: 47
+    speed_limit_meters_per_second: 22.2
+    track: down
+  # ===== 折返渡线（虚拟段）=====
+  # 郭公庄端：下行到达(ND00)→上行出发(NU00)；国图端：上行到达(NU_last)→下行出发(ND_last)
+  - id: XGGZ
+    from: ND00
+    to: NU00
+    start_meters: 0
+    end_meters: 25
+    speed_limit_meters_per_second: 8.3
+    track: crossover
+  - id: XLIB
+    from: NU13
+    to: ND12
+    start_meters: 16464.02
+    end_meters: 16489.02
+    speed_limit_meters_per_second: 8.3
+    track: crossover
+
+switches:
+  - id: SW_GGZ
+    node: ND00
+    normal_target: D03
+    reverse_target: XGGZ
+    default_position: NORMAL
+  - id: SW_LIB
+    node: NU13
+    normal_target: U48
+    reverse_target: XLIB
+    default_position: NORMAL
+
+signals:
+  - id: SIG-U02
+    name: U02入口
+    position_meters: 5.00
+    direction: FORWARD
+    segment_id: U02
+  - id: SIG-U10
+    name: U10入口
+    position_meters: 220.49
+    direction: FORWARD
+    segment_id: U10
+  - id: SIG-U13
+    name: U13入口
+    position_meters: 237.81
+    direction: FORWARD
+    segment_id: U13
+  - id: SIG-U16
+    name: U16入口
+    position_meters: 305.19
+    direction: FORWARD
+    segment_id: U16
+  - id: SIG-U19
+    name: U19入口
+    position_meters: 448.81
+    direction: FORWARD
+    segment_id: U19
+  - id: SIG-U20
+    name: U20入口
+    position_meters: 516.19
+    direction: FORWARD
+    segment_id: U20a
+  - id: SIG-U23
+    name: U23入口
+    position_meters: 5151.64
+    direction: FORWARD
+    segment_id: U23a
+  - id: SIG-U27
+    name: U27入口
+    position_meters: 8357.18
+    direction: FORWARD
+    segment_id: U27
+  - id: SIG-U34
+    name: U34入口
+    position_meters: 8637.56
+    direction: FORWARD
+    segment_id: U34a
+  - id: SIG-U38
+    name: U38入口
+    position_meters: 14124.63
+    direction: FORWARD
+    segment_id: U38
+  - id: SIG-U42
+    name: U42入口
+    position_meters: 14405.14
+    direction: FORWARD
+    segment_id: U42a
+  - id: SIG-U46
+    name: U46入口
+    position_meters: 16212.83
+    direction: FORWARD
+    segment_id: U46
+  - id: SIG-U48
+    name: U48入口
+    position_meters: 16280.21
+    direction: FORWARD
+    segment_id: U48
+  - id: SIG-D03
+    name: D03入口
+    position_meters: 5.00
+    direction: FORWARD
+    segment_id: D03
+  - id: SIG-D04
+    name: D04入口
+    position_meters: 220.49
+    direction: FORWARD
+    segment_id: D04
+  - id: SIG-D07
+    name: D07入口
+    position_meters: 237.81
+    direction: FORWARD
+    segment_id: D07
+  - id: SIG-D11
+    name: D11入口
+    position_meters: 305.19
+    direction: FORWARD
+    segment_id: D11
+  - id: SIG-D14
+    name: D14入口
+    position_meters: 448.81
+    direction: FORWARD
+    segment_id: D14
+  - id: SIG-D17
+    name: D17入口
+    position_meters: 516.19
+    direction: FORWARD
+    segment_id: D17a
+  - id: SIG-D21
+    name: D21入口
+    position_meters: 5279.84
+    direction: FORWARD
+    segment_id: D21a
+  - id: SIG-D24
+    name: D24入口
+    position_meters: 8351.08
+    direction: FORWARD
+    segment_id: D24
+  - id: SIG-D28
+    name: D28入口
+    position_meters: 8692.03
+    direction: FORWARD
+    segment_id: D28a
+  - id: SIG-D36
+    name: D36入口
+    position_meters: 14044.50
+    direction: FORWARD
+    segment_id: D36a
+  - id: SIG-D43
+    name: D43入口
+    position_meters: 16208.38
+    direction: FORWARD
+    segment_id: D43
+  - id: SIG-D47
+    name: D47入口
+    position_meters: 16275.76
+    direction: FORWARD
+    segment_id: D47
+  - id: SIG-XGGZ
+    name: XGGZ入口
+    position_meters: 5.00
+    direction: FORWARD
+    segment_id: XGGZ
+  - id: SIG-XLIB
+    name: XLIB入口
+    position_meters: 16469.02
+    direction: FORWARD
+    segment_id: XLIB
+
+routes:
+  - id: R_UP
+    name: 上行正线（郭公庄→国家图书馆）
+    type: MAIN
+    start_signal: SIG-U02
+    end_signal: SIG-U48
+    axle_section_ids: [U02, U10, U13, U16, U19, U20a, U20b, U20c, U20d, U23a, U23b, U23c, U27, U34a, U34b, U34c, U34d, U34e, U38, U42a, U42b, U42c, U46, U48]
+  - id: R_DOWN
+    name: 下行正线（国家图书馆→郭公庄）
+    type: MAIN
+    start_signal: SIG-D47
+    end_signal: SIG-D03
+    axle_section_ids: [D47, D43, D36a, D36b, D36c, D28a, D28b, D28c, D28d, D28e, D24, D21a, D21b, D21c, D17a, D17b, D17c, D17d, D14, D11, D07, D04, D03]
+  - id: R_TB_LIB
+    name: 国家图书馆折返（上行→下行）
+    type: BRANCH
+    start_signal: SIG-XLIB
+    end_signal: SIG-D47
+    axle_section_ids: [XLIB, D47]
+  - id: R_TB_GGZ
+    name: 郭公庄折返（下行→上行）
+    type: BRANCH
+    start_signal: SIG-XGGZ
+    end_signal: SIG-U02
+    axle_section_ids: [XGGZ, U02]

@@ -25,7 +25,11 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.Test;
 import org.springframework.web.client.RestClient;
 
@@ -34,13 +38,95 @@ class VehicleRuntimeFmuBatchTests {
     private static final ObjectMapper JSON = new ObjectMapper();
 
     @Test
-    void twentyTrainsUseOneFmuRequestAndPreserveFleetOutputs() throws Exception {
+    void lifecycleMutationWaitsForInFlightFleetStep() throws Exception {
+        CountDownLatch stepEntered = new CountDownLatch(1);
+        CountDownLatch releaseStep = new CountDownLatch(1);
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/step-fleet", exchange -> {
+            JsonNode request = read(exchange);
+            stepEntered.countDown();
+            try {
+                if (!releaseStep.await(2, TimeUnit.SECONDS)) {
+                    throw new IOException("test did not release FMU step");
+                }
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+                throw new IOException(interrupted);
+            }
+            write(exchange, 200, successResponse(request, null));
+        });
+        server.createContext("/instances/TR-SYNC", exchange -> {
+            exchange.sendResponseHeaders(200, -1);
+            exchange.close();
+        });
+        server.start();
+        try {
+            VehicleRuntimeManager manager = fmuManager(server, 2_000);
+            CompletableFuture<Void> step = CompletableFuture.runAsync(
+                () -> manager.stepFleet(request(1, List.of(train("TR-SYNC", 100, 0))))
+            );
+            assertThat(stepEntered.await(1, TimeUnit.SECONDS)).isTrue();
+
+            CompletableFuture<Void> removal = CompletableFuture.runAsync(() -> manager.remove("TR-SYNC"));
+            Thread.sleep(50);
+            assertThat(removal).isNotDone();
+
+            releaseStep.countDown();
+            step.get(2, TimeUnit.SECONDS);
+            removal.get(2, TimeUnit.SECONDS);
+            assertThat(manager.instances()).isEmpty();
+        } finally {
+            releaseStep.countDown();
+            server.stop(0);
+        }
+    }
+
+    @Test
+    void thousandTrainsAreStablePartitionedAcrossFmuShards() throws Exception {
+        List<HttpServer> servers = new ArrayList<>();
+        List<AtomicInteger> requestCounts = new ArrayList<>();
+        ConcurrentMap<String, java.util.Set<Integer>> shardByTrain = new ConcurrentHashMap<>();
+        try {
+            for (int shard = 0; shard < 4; shard++) {
+                int shardIndex = shard;
+                AtomicInteger requestCount = new AtomicInteger();
+                requestCounts.add(requestCount);
+                HttpServer server = fmuServer(exchange -> {
+                    requestCount.incrementAndGet();
+                    JsonNode request = read(exchange);
+                    request.path("trains").forEach(train -> shardByTrain
+                        .computeIfAbsent(train.path("trainId").asText(), ignored -> ConcurrentHashMap.newKeySet())
+                        .add(shardIndex));
+                    write(exchange, 200, successResponse(request, null));
+                });
+                servers.add(server);
+            }
+            VehicleRuntimeManager manager = fmuManager(servers, 80);
+            List<TrainStateSnapshot> trains = new ArrayList<>();
+            for (int index = 0; index < 1_000; index++) {
+                trains.add(train("SHARD-TR-" + index, 100 + index * 5, 0));
+            }
+
+            VehicleRuntimeStepResponse response = manager.stepFleet(request(1, trains));
+
+            assertThat(response.trainOutputs()).hasSize(1_000);
+            assertThat(response.dataQuality()).isEqualTo("GOOD");
+            assertThat(requestCounts).allSatisfy(count -> assertThat(count).hasValue(5));
+            assertThat(shardByTrain).hasSize(1_000);
+            assertThat(shardByTrain.values()).allSatisfy(shards -> assertThat(shards).hasSize(1));
+        } finally {
+            servers.forEach(server -> server.stop(0));
+        }
+    }
+
+    @Test
+    void twentyTrainsUseFiveTwentyMillisecondFmuExchangesPerTcmsTick() throws Exception {
         AtomicInteger requestCount = new AtomicInteger();
-        AtomicReference<JsonNode> requestBody = new AtomicReference<>();
+        List<JsonNode> requests = new ArrayList<>();
         HttpServer server = fmuServer(exchange -> {
             requestCount.incrementAndGet();
             JsonNode request = read(exchange);
-            requestBody.set(request);
+            requests.add(request);
             write(exchange, 200, successResponse(request, null));
         });
         try {
@@ -52,11 +138,18 @@ class VehicleRuntimeFmuBatchTests {
 
             VehicleRuntimeStepResponse response = manager.stepFleet(request(1, trains));
 
-            assertThat(requestCount).hasValue(1);
-            assertThat(requestBody.get().path("trains")).hasSize(20);
-            assertThat(requestBody.get().path("trains").get(0).path("lifecycleCommand").asText()).isEqualTo("INIT");
-            assertThat(requestBody.get().path("stepSizeSeconds").asDouble()).isEqualTo(0.1);
-            assertThat(requestBody.get().path("trains").get(0).has("deltaSeconds")).isFalse();
+            assertThat(requestCount).hasValue(5);
+            assertThat(requests).allSatisfy(requestBody -> {
+                assertThat(requestBody.path("trains")).hasSize(20);
+                assertThat(requestBody.path("stepSizeSeconds").asDouble()).isEqualTo(0.02);
+                assertThat(requestBody.path("trains").get(0).has("deltaSeconds")).isFalse();
+            });
+            assertThat(requests).extracting(requestBody -> requestBody.path("tick").asLong())
+                .containsExactly(1L, 2L, 3L, 4L, 5L);
+            assertThat(requests.get(0).path("simulationTimeSeconds").asDouble()).isZero();
+            assertThat(requests.get(4).path("simulationTimeSeconds").asDouble()).isEqualTo(0.08);
+            assertThat(requests.get(0).path("trains").get(0).path("lifecycleCommand").asText()).isEqualTo("INIT");
+            assertThat(requests.get(4).path("trains").get(0).path("lifecycleCommand").asText()).isEqualTo("STEP");
             assertThat(response.trainOutputs()).hasSize(20);
             assertThat(response.trainReports()).hasSize(20);
             assertThat(response.dataQuality()).isEqualTo("GOOD");
@@ -96,8 +189,8 @@ class VehicleRuntimeFmuBatchTests {
             manager.resyncPhysics("TR-BAD");
             VehicleRuntimeStepResponse third = manager.stepFleet(request(3, updateFrom(second, trains)));
 
-            assertThat(requests.get(2).path("trains")).hasSize(2);
-            JsonNode bad = findTrain(requests.get(2), "TR-BAD");
+            assertThat(requests.get(10).path("trains")).hasSize(2);
+            JsonNode bad = findTrain(requests.get(10), "TR-BAD");
             assertThat(bad.path("lifecycleCommand").asText()).isEqualTo("RESYNC");
             assertThat(third.trainOutputs()).allMatch(output -> output.faultCode().equals("OK"));
             assertThat(manager.health().fallbackTrainCount()).isZero();
@@ -172,9 +265,15 @@ class VehicleRuntimeFmuBatchTests {
     }
 
     private VehicleRuntimeManager fmuManager(HttpServer server, long timeoutMillis) {
+        return fmuManager(List.of(server), timeoutMillis);
+    }
+
+    private VehicleRuntimeManager fmuManager(List<HttpServer> servers, long timeoutMillis) {
         VehicleRuntimeProperties properties = new VehicleRuntimeProperties();
         properties.setPhysicsMode(VehiclePhysicsMode.FMU_HTTP);
-        properties.setFmuBaseUrl("http://127.0.0.1:" + server.getAddress().getPort());
+        properties.setFmuBaseUrls(servers.stream()
+            .map(server -> "http://127.0.0.1:" + server.getAddress().getPort())
+            .collect(java.util.stream.Collectors.joining(",")));
         properties.setFmuTimeoutMillis(timeoutMillis);
         VehicleParameters parameters = VehicleParametersLoader.load(properties.getTrainParamsPath());
         return new VehicleRuntimeManager(
@@ -262,8 +361,9 @@ class VehicleRuntimeFmuBatchTests {
             }
             ObjectNode output = outputs.addObject();
             double speed = train.path("speedMetersPerSecond").asDouble();
+            double stepSizeSeconds = request.path("stepSizeSeconds").asDouble();
             output.put("trainId", trainId);
-            output.put("newPositionMeters", train.path("positionMeters").asDouble() + Math.max(speed, 1) * 0.1);
+            output.put("newPositionMeters", train.path("positionMeters").asDouble() + Math.max(speed, 1) * stepSizeSeconds);
             output.put("newSpeedMetersPerSecond", speed + 0.05);
             output.put("accelerationMetersPerSecondSquared", 0.5);
             output.put("tractionForceNewtons", 100_000);
@@ -274,7 +374,7 @@ class VehicleRuntimeFmuBatchTests {
             output.put("railCurrentAmps", 75.76);
             output.put("mechanicalRegenPowerWatts", 0);
             output.put("regenPowerWatts", 0);
-            output.put("energyConsumedKwh", train.path("previousEnergyConsumedKwh").asDouble() + 0.003);
+            output.put("energyConsumedKwh", train.path("previousEnergyConsumedKwh").asDouble() + 0.03 * stepSizeSeconds);
             output.put("energyRegeneratedKwh", train.path("previousEnergyRegeneratedKwh").asDouble());
             output.put("faultCode", "OK");
             output.put("instanceState", "ACTIVE");

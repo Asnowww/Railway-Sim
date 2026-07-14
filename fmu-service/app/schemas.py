@@ -159,7 +159,7 @@ def step_fleet_request_from_dict(data: dict[str, Any]) -> StepFleetRequest:
             data,
             "stepSizeSeconds",
             "step_size_seconds",
-            _optional_value(data, "deltaSeconds", "delta_seconds", 0.1),
+            _optional_value(data, "deltaSeconds", "delta_seconds", 0.02),
         )
     )
     tick = int(_optional_value(data, "tick", "tick", 0))

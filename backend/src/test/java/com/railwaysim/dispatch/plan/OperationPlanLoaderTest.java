@@ -48,8 +48,17 @@ class OperationPlanLoaderTest {
         assertEquals("SVC-001", first.serviceId());
         assertEquals("CIRC-001", first.circulationId());
         assertEquals("TR-001", first.trainId());
-        assertEquals("S01", first.origin().stationId());
-        assertEquals("S05", first.terminus().stationId());
+        assertEquals("S101", first.origin().stationId());
+        assertEquals("S113", first.terminus().stationId());
         assertFalse(first.stops().isEmpty());
+
+        TrainServicePlan firstDown = loader.services().stream()
+            .filter(service -> "SVC-003".equals(service.serviceId()))
+            .findFirst()
+            .orElseThrow();
+        assertEquals("SVC-003", firstDown.serviceId());
+        assertEquals("DOWN", firstDown.direction());
+        assertEquals("S113", firstDown.origin().stationId());
+        assertEquals("S101", firstDown.terminus().stationId());
     }
 }

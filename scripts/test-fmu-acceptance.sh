@@ -41,8 +41,8 @@ docker compose --env-file "${ENV_FILE}" config --quiet
 docker compose --env-file "${ENV_FILE}" build
 docker compose --env-file "${ENV_FILE}" up -d --wait --wait-timeout 240
 
-# A fresh 9200/9300 process deliberately starts unbootstrapped. Drive one
-# authoritative central tick so 8080 reapplies topology/runtime configuration.
+# 9200 starts from the project 1500 V / five-section YAML baseline. Drive one
+# authoritative central tick so 8080 aligns runtime topology and run metadata.
 curl -fsS -X POST "${CENTRAL_BASE_URL}/api/simulation/tick" >/dev/null
 
 python3 scripts/check-deployment.py \
@@ -77,6 +77,8 @@ python3 scripts/test-vehicle-runtime-performance.py \
   --power "${POWER_URL}" \
   --samples "${BENCHMARK_SAMPLES:-100}" \
   --warmup "${BENCHMARK_WARMUP:-10}" \
+  --train-counts "${BENCHMARK_TRAIN_COUNTS:-1,2,10,20}" \
+  --endurance-train-count "${ENDURANCE_TRAIN_COUNT:-20}" \
   --endurance-ticks "${ENDURANCE_TICKS:-6000}" \
   --output "${REPORT_DIR}/wp8-performance.json"
 

@@ -1,11 +1,18 @@
 package com.railwaysim.api;
 
 import com.railwaysim.api.dto.SignalTrackFaultRequest;
+import com.railwaysim.dispatch.DispatchCommand;
+import com.railwaysim.dispatch.DispatchCommandFeedback;
+import com.railwaysim.dispatch.DispatchService;
 import com.railwaysim.signal.RouteInterlockingService;
 import com.railwaysim.signal.SignalTrackFaultType;
+import com.railwaysim.signal.dispatch.SignalDispatchPlanPublication;
+import com.railwaysim.signal.dispatch.SignalDispatchPlanRegistry;
 import com.railwaysim.track.TrackService;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
+import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import org.springframework.http.HttpStatus;
@@ -34,10 +41,19 @@ public class SignalTrackController {
 
     private final TrackService trackService;
     private final RouteInterlockingService routeInterlockingService;
+    private final SignalDispatchPlanRegistry signalDispatchPlanRegistry;
+    private final DispatchService dispatchService;
 
-    public SignalTrackController(TrackService trackService, RouteInterlockingService routeInterlockingService) {
+    public SignalTrackController(
+        TrackService trackService,
+        RouteInterlockingService routeInterlockingService,
+        SignalDispatchPlanRegistry signalDispatchPlanRegistry,
+        DispatchService dispatchService
+    ) {
         this.trackService = trackService;
         this.routeInterlockingService = routeInterlockingService;
+        this.signalDispatchPlanRegistry = signalDispatchPlanRegistry;
+        this.dispatchService = dispatchService;
     }
 
     /** GET /api/signal-track/routes — 当前所有进路状态 */
@@ -59,6 +75,22 @@ public class SignalTrackController {
     @GetMapping("/route-events")
     public List<RouteInterlockingService.RouteLifecycleEvent> routeEvents() {
         return routeInterlockingService.drainLifecycleEvents();
+    }
+
+    /** GET /api/signal-track/dispatch-publications — 信号侧已接收的调度计划发布记录 */
+    @GetMapping("/dispatch-publications")
+    public List<SignalDispatchPlanPublication> dispatchPublications() {
+        return signalDispatchPlanRegistry.list();
+    }
+
+    /** GET /api/signal-track/dispatch-publications/latest — 最近一次调度计划发布 */
+    @GetMapping("/dispatch-publications/latest")
+    public SignalDispatchPlanPublication latestDispatchPublication() {
+        SignalDispatchPlanPublication publication = signalDispatchPlanRegistry.latest();
+        if (publication == null) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "no dispatch plan publication received");
+        }
+        return publication;
     }
 
     /** POST /api/signal-track/faults — 注入故障（WP-05） */
@@ -107,6 +139,41 @@ public class SignalTrackController {
     public List<String> faults() {
         return trackService.faultSegmentIds().stream().sorted().toList();
     }
+
+    /** POST /api/signal-track/command-receipt — 信号侧命令接收回执（调度闭环） */
+    @PostMapping("/command-receipt")
+    public List<CommandReceiptResponse> commandReceipt(@Valid @RequestBody List<CommandReceiptRequest> requests) {
+        List<DispatchCommandFeedback> feedbacks = new ArrayList<>();
+        Instant now = Instant.now();
+        for (CommandReceiptRequest req : requests) {
+            Map<String, Object> details = new java.util.LinkedHashMap<>();
+            details.put("accepted", req.accepted);
+            if (req.failureCode() != null) details.put("failureCode", req.failureCode());
+            if (req.retryable() != null) details.put("retryable", req.retryable());
+            if (req.reason() != null) details.put("reason", req.reason());
+            feedbacks.add(new DispatchCommandFeedback(
+                req.commandId(), req.trainId(), req.commandType(),
+                "SIGNAL_RUNTIME",
+                req.accepted ? "ACCEPTED" : "REJECTED",
+                req.reason() != null ? req.reason() : (req.accepted ? "command accepted by signal runtime" : "command rejected"),
+                now, details
+            ));
+        }
+        dispatchService.acceptFeedback(feedbacks);
+        return requests.stream().map(req -> new CommandReceiptResponse(req.commandId, req.trainId, req.accepted)).toList();
+    }
+
+    public record CommandReceiptRequest(
+        @NotBlank String commandId,
+        @NotBlank String trainId,
+        @NotBlank String commandType,
+        boolean accepted,
+        String failureCode,
+        Boolean retryable,
+        String reason
+    ) {}
+
+    public record CommandReceiptResponse(String commandId, String trainId, boolean accepted) {}
 
     private void requireSegment(String segmentId) {
         if (!trackService.segmentExists(segmentId)) {

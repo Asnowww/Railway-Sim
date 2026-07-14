@@ -12,7 +12,6 @@ import com.railwaysim.track.TrackSegmentState;
 import com.railwaysim.train.ExternalTrainControlSession;
 import com.railwaysim.train.TrainEntity;
 import com.railwaysim.vehicle.external.ExternalTrainDirection;
-import com.railwaysim.vehicle.protocol.TrainOperationalTelemetry;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.util.List;
@@ -28,29 +27,7 @@ class VisionUdpPacketBuilderTests {
         StaticInfrastructureCatalog catalog = new StaticInfrastructureCatalog(lineData, null);
         VisionVehicleStateStore store = new VisionVehicleStateStore();
         TrainEntity selected = new TrainEntity("TR-001", "demo", 50, 120, 0.42);
-        selected.applyOperationalTelemetry(new TrainOperationalTelemetry(
-            1,
-            4.0,
-            50,
-            ExternalTrainDirection.DOWN,
-            25_200,
-            0,
-            false,
-            6,
-            6
-        ));
-        TrainEntity other = new TrainEntity("TR-002", "demo", 220, 120, 0.42);
-        other.applyOperationalTelemetry(new TrainOperationalTelemetry(
-            2,
-            3.21,
-            222.22,
-            ExternalTrainDirection.UP,
-            25_200,
-            0,
-            false,
-            6,
-            6
-        ));
+        TrainEntity other = new TrainEntity("TR-002", "demo", 222.22, 120, 0.42);
         List<com.railwaysim.train.TrainState> trains = List.of(
             selected.state(ExternalTrainControlSession.inService("TR-001", 1, 50, ExternalTrainDirection.DOWN)),
             other.state(ExternalTrainControlSession.inService("TR-002", 1, 222.22, ExternalTrainDirection.UP))
@@ -81,22 +58,26 @@ class VisionUdpPacketBuilderTests {
             () -> switchStates,
             () -> trackStates,
             position -> position < 200 ? segmentA : segmentB,
+            List::of,
             catalog,
             store
         );
 
         VisionUdpPacket packet = builder.build("TR-001");
 
-        assertThat(packet.signalCount()).isEqualTo(2);
-        assertThat(packet.switchCount()).isEqualTo(1);
+        assertThat(packet.signalCount()).isEqualTo(77);
+        assertThat(packet.switchCount()).isEqualTo(29);
         assertThat(packet.otherTrainCount()).isEqualTo(1);
+        assertThat(packet.payload()).hasSize(137);
         ByteBuffer buffer = ByteBuffer.wrap(packet.payload()).order(ByteOrder.LITTLE_ENDIAN);
         assertThat(buffer.getInt()).isEqualTo(1);
-        assertThat(Byte.toUnsignedInt(buffer.get())).isEqualTo(2);
+        assertThat(Byte.toUnsignedInt(buffer.get())).isEqualTo(77);
         assertThat(Byte.toUnsignedInt(buffer.get())).isEqualTo(0x01);
-        assertThat(Byte.toUnsignedInt(buffer.get())).isEqualTo(0x04);
-        assertThat(Byte.toUnsignedInt(buffer.get())).isEqualTo(1);
         assertThat(Byte.toUnsignedInt(buffer.get())).isEqualTo(0x02);
+        buffer.position(4 + 1 + 77);
+        assertThat(Byte.toUnsignedInt(buffer.get())).isEqualTo(29);
+        assertThat(Byte.toUnsignedInt(buffer.get())).isEqualTo(0x02);
+        buffer.position(4 + 1 + 77 + 1 + 29);
         assertThat(buffer.getInt()).isEqualTo(10_000);
         assertThat(Short.toUnsignedInt(buffer.getShort())).isEqualTo(30);
         assertThat(Byte.toUnsignedInt(buffer.get())).isEqualTo(0x11);
@@ -105,10 +86,18 @@ class VisionUdpPacketBuilderTests {
         assertThat(Short.toUnsignedInt(buffer.getShort())).isEqualTo(7);
         assertThat(buffer.get()).isEqualTo((byte) 1);
         assertThat(Byte.toUnsignedInt(buffer.get())).isEqualTo(1);
-        assertThat(buffer.getInt()).isEqualTo(222_220);
+        assertThat(buffer.getInt()).isEqualTo(22_220);
         assertThat(Short.toUnsignedInt(buffer.getShort())).isEqualTo(8);
         assertThat(buffer.get()).isEqualTo((byte) -1);
-        assertThat(Short.toUnsignedInt(buffer.getShort())).isEqualTo(321);
+        assertThat(Short.toUnsignedInt(buffer.getShort())).isZero();
+
+        VisionUdpDecodedPacket decoded = new VisionUdpPacketDecoder().decode(packet.payload());
+        assertThat(decoded.signalStates()).hasSize(77);
+        assertThat(decoded.switchStates()).hasSize(29);
+        assertThat(decoded.ownSpeedMillimetersPerSecond()).isEqualTo(10_000);
+        assertThat(decoded.otherTrains()).containsExactly(
+            new VisionOtherTrainPacket(22_220, 8, -1, 0)
+        );
     }
 
     private TrackSegmentState segment(String id, int rawSegmentId, double startMeters, double endMeters) {

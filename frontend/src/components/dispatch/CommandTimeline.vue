@@ -38,8 +38,8 @@ const statusLabel = (status: string) => {
   const labels: Record<string, string> = {
     PENDING: '待下发',
     SENT: '已下发',
-    APPLIED: '已观测到执行',
-    EFFECT_CONFIRMED: '闭环已完成',
+    APPLIED: '约束已出现',
+    EFFECT_CONFIRMED: '效果已闭环',
     TIMEOUT: '执行超时',
     SKIPPED: '已跳过',
     CANCELLED: '已取消',
@@ -52,9 +52,9 @@ const statusLabel = (status: string) => {
 const statusDescription = (status: string) => {
   const descriptions: Record<string, string> = {
     PENDING: '调度已生成指令，等待进入信号/车辆执行链路。',
-    SENT: '指令已经下发，调度正在观察列车状态、MA 和间隔变化。',
-    APPLIED: '已经从车辆状态或信号授权中观察到指令产生作用。',
-    EFFECT_CONFIRMED: '调度已经确认扰动恢复，或该指令不需要继续施加约束。',
+    SENT: '指令已经下发，尚未看到可核对的 MA、速度、停站或进路状态变化。',
+    APPLIED: '已经看到中间约束或车辆状态变化，但还不等于最终运行效果恢复。',
+    EFFECT_CONFIRMED: '调度已经确认目标效果满足，指令可以退出持续约束。',
     TIMEOUT: '超过观察窗口仍未看到效果，需要检查信号、车辆或线路约束。',
     SKIPPED: '指令被校验规则跳过，没有进入执行链路。',
     CANCELLED: '指令已取消。',
@@ -87,8 +87,8 @@ const statusDescription = (status: string) => {
 
 <style scoped>
 .panel {
-  background: #fff;
-  border: 1px solid #e2e8f0;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
   border-radius: 12px;
   padding: 16px;
 }
@@ -100,7 +100,7 @@ h2 {
 
 .empty {
   margin: 0;
-  color: #94a3b8;
+  color: var(--text-muted);
 }
 
 ul {
@@ -114,7 +114,7 @@ ul {
 li {
   border-left: 3px solid #3b82f6;
   padding: 8px 10px;
-  background: #f8fafc;
+  background: var(--bg-panel-raised);
   border-radius: 0 8px 8px 0;
 }
 
@@ -127,13 +127,13 @@ li {
 .meta {
   margin-top: 4px;
   font-size: 12px;
-  color: #64748b;
+  color: var(--text-secondary);
 }
 
 .description {
   margin-top: 4px;
   font-size: 12px;
-  color: #475569;
+  color: var(--text-secondary);
   line-height: 1.45;
 }
 
@@ -141,43 +141,43 @@ li {
   font-size: 11px;
   padding: 2px 8px;
   border-radius: 999px;
-  background: #e2e8f0;
+  background: var(--border);
 }
 
 .status[data-status='APPLIED'] {
-  background: #dcfce7;
-  color: #166534;
+  background: var(--status-ok-bg);
+  color: var(--status-ok);
 }
 
 .status[data-status='SENT'] {
-  background: #dbeafe;
-  color: #1d4ed8;
+  background: var(--status-info-bg);
+  color: var(--status-info);
 }
 
 .status[data-status='EFFECT_CONFIRMED'] {
-  background: #ccfbf1;
-  color: #0f766e;
+  background: var(--status-ok-bg);
+  color: var(--status-ok);
 }
 
 .status[data-status='PENDING'] {
-  background: #fef3c7;
-  color: #92400e;
+  background: var(--status-warn-bg);
+  color: var(--status-warn);
 }
 
 .status[data-status='TIMEOUT'] {
-  background: #fee2e2;
-  color: #b91c1c;
+  background: var(--status-danger-bg);
+  color: var(--status-danger);
 }
 
 .status[data-status='SKIPPED'] {
-  background: #fee2e2;
-  color: #b91c1c;
+  background: var(--status-danger-bg);
+  color: var(--status-danger);
 }
 
 .status[data-status='CANCELLED'],
 .status[data-status='EXPIRED'],
 .status[data-status='RELEASED'] {
-  background: #e2e8f0;
-  color: #475569;
+  background: var(--border);
+  color: var(--text-secondary);
 }
 </style>

@@ -1,5 +1,5 @@
-planId: RP-demo-001
-lineId: demo-line-1
+planId: RP-m9-001
+lineId: m9
 periods:
   - type: PEAK
     start: "07:00"
@@ -23,39 +23,155 @@ periods:
     dwellSec: 20
 
 stations:
-  - id: S01
-    positionMeters: 0
+  - id: S101
+    positionMeters: 372.0
     platformCapacity: 1200
-  - id: S02
-    positionMeters: 1250
+  - id: S102
+    positionMeters: 1724.14
     platformCapacity: 1000
-  - id: S03
-    positionMeters: 2500
+  - id: S103
+    positionMeters: 2512.677
     platformCapacity: 1000
-  - id: S04
-    positionMeters: 3750
+  - id: S104
+    positionMeters: 3491.832
     platformCapacity: 1000
-  - id: S05
-    positionMeters: 5000
+  - id: S105
+    positionMeters: 5079.5146
     platformCapacity: 1200
+  - id: S106
+    positionMeters: 6405.27
+    platformCapacity: 1200
+  - id: S107
+    positionMeters: 8199.103
+    platformCapacity: 1200
+  - id: S108
+    positionMeters: 9508.30248
+    platformCapacity: 1000
+  - id: S109
+    positionMeters: 10656.17848
+    platformCapacity: 1400
+  - id: S110
+    positionMeters: 12057.87933
+    platformCapacity: 1200
+  - id: S111
+    positionMeters: 13967.68649
+    platformCapacity: 1000
+  - id: S112
+    positionMeters: 15012.51349
+    platformCapacity: 1000
+  - id: S113
+    positionMeters: 16105.57149
+    platformCapacity: 1400
 
 segments:
-  - id: T01
+  - id: U02
+    startMeters: 0.0
+    endMeters: 215.49
+    speedLimitMps: 22.2
+  - id: U10
+    startMeters: 215.49
+    endMeters: 232.81
+    speedLimitMps: 22.2
+  - id: U13
+    startMeters: 232.81
+    endMeters: 300.19
+    speedLimitMps: 22.2
+  - id: U16
+    startMeters: 300.19
+    endMeters: 443.81
+    speedLimitMps: 22.2
+  - id: U19
+    startMeters: 443.81
+    endMeters: 511.19
+    speedLimitMps: 22.2
+  - id: U20
+    startMeters: 511.19
+    endMeters: 5146.644
+    speedLimitMps: 22.2
+  - id: U23
+    startMeters: 5146.644
+    endMeters: 8352.184
+    speedLimitMps: 22.2
+  - id: U27
+    startMeters: 8352.184
+    endMeters: 8632.564
+    speedLimitMps: 22.2
+  - id: U34
+    startMeters: 8632.564
+    endMeters: 14119.63
+    speedLimitMps: 22.2
+  - id: U38
+    startMeters: 14119.63
+    endMeters: 14400.14
+    speedLimitMps: 22.2
+  - id: U42
+    startMeters: 14400.14
+    endMeters: 16207.82966
+    speedLimitMps: 22.2
+  - id: U46
+    startMeters: 16207.82966
+    endMeters: 16275.20966
+    speedLimitMps: 22.2
+  - id: U48
+    startMeters: 16275.20966
+    endMeters: 16489.02
+    speedLimitMps: 22.2
+  - id: D03
+    startMeters: 0.0
+    endMeters: 215.49
+    speedLimitMps: 22.2
+  - id: D04
+    startMeters: 215.49
+    endMeters: 232.81
+    speedLimitMps: 22.2
+  - id: D07
+    startMeters: 232.81
+    endMeters: 300.19
+    speedLimitMps: 22.2
+  - id: D11
+    startMeters: 300.19
+    endMeters: 443.81
+    speedLimitMps: 22.2
+  - id: D14
+    startMeters: 443.81
+    endMeters: 511.19
+    speedLimitMps: 22.2
+  - id: D17
+    startMeters: 511.19
+    endMeters: 5274.8396
+    speedLimitMps: 22.2
+  - id: D21
+    startMeters: 5274.8396
+    endMeters: 8346.083
+    speedLimitMps: 22.2
+  - id: D24
+    startMeters: 8346.083
+    endMeters: 8687.02908
+    speedLimitMps: 22.2
+  - id: D28
+    startMeters: 8687.02908
+    endMeters: 14039.49649
+    speedLimitMps: 22.2
+  - id: D36
+    startMeters: 14039.49649
+    endMeters: 16203.38149
+    speedLimitMps: 22.2
+  - id: D43
+    startMeters: 16203.38149
+    endMeters: 16270.76149
+    speedLimitMps: 22.2
+  - id: D47
+    startMeters: 16270.76149
+    endMeters: 16484.57149
+    speedLimitMps: 22.2
+  - id: XGGZ
     startMeters: 0
-    endMeters: 1250
-    speedLimitMps: 20
-  - id: T02
-    startMeters: 1250
-    endMeters: 2500
-    speedLimitMps: 22.2
-  - id: T03
-    startMeters: 2500
-    endMeters: 3750
-    speedLimitMps: 22.2
-  - id: T04
-    startMeters: 3750
-    endMeters: 5000
-    speedLimitMps: 20
+    endMeters: 25
+    speedLimitMps: 8.3
+  - id: XLIB
+    startMeters: 16464.02
+    endMeters: 16489.02
+    speedLimitMps: 8.3
 
 circulations:
   - id: CIRC-001
@@ -78,26 +194,42 @@ services:
     trainNo: 1
     linkId: 1
     offsetMeters: 0
-    direction: DOWN
+    direction: UP
     stops:
-      - { stationId: S01, arrivalOffsetSec: 0, departureOffsetSec: 15 }
-      - { stationId: S02, arrivalOffsetSec: 94, departureOffsetSec: 119 }
-      - { stationId: S03, arrivalOffsetSec: 189, departureOffsetSec: 214 }
-      - { stationId: S04, arrivalOffsetSec: 284, departureOffsetSec: 309 }
-      - { stationId: S05, arrivalOffsetSec: 403, departureOffsetSec: 403 }
+      - { stationId: S101, arrivalOffsetSec: 0, departureOffsetSec: 15 }
+      - { stationId: S102, arrivalOffsetSec: 91, departureOffsetSec: 116 }
+      - { stationId: S103, arrivalOffsetSec: 160, departureOffsetSec: 185 }
+      - { stationId: S104, arrivalOffsetSec: 240, departureOffsetSec: 265 }
+      - { stationId: S105, arrivalOffsetSec: 354, departureOffsetSec: 379 }
+      - { stationId: S106, arrivalOffsetSec: 454, departureOffsetSec: 479 }
+      - { stationId: S107, arrivalOffsetSec: 580, departureOffsetSec: 605 }
+      - { stationId: S108, arrivalOffsetSec: 679, departureOffsetSec: 704 }
+      - { stationId: S109, arrivalOffsetSec: 769, departureOffsetSec: 794 }
+      - { stationId: S110, arrivalOffsetSec: 873, departureOffsetSec: 898 }
+      - { stationId: S111, arrivalOffsetSec: 1006, departureOffsetSec: 1031 }
+      - { stationId: S112, arrivalOffsetSec: 1090, departureOffsetSec: 1115 }
+      - { stationId: S113, arrivalOffsetSec: 1177, departureOffsetSec: 1177 }
   - serviceId: SVC-002
     circulationId: CIRC-002
     trainId: TR-002
     trainNo: 2
     linkId: 1
     offsetMeters: 0
-    direction: DOWN
+    direction: UP
     stops:
-      - { stationId: S01, arrivalOffsetSec: 300, departureOffsetSec: 315 }
-      - { stationId: S02, arrivalOffsetSec: 394, departureOffsetSec: 419 }
-      - { stationId: S03, arrivalOffsetSec: 489, departureOffsetSec: 514 }
-      - { stationId: S04, arrivalOffsetSec: 584, departureOffsetSec: 609 }
-      - { stationId: S05, arrivalOffsetSec: 703, departureOffsetSec: 703 }
+      - { stationId: S101, arrivalOffsetSec: 300, departureOffsetSec: 315 }
+      - { stationId: S102, arrivalOffsetSec: 391, departureOffsetSec: 416 }
+      - { stationId: S103, arrivalOffsetSec: 460, departureOffsetSec: 485 }
+      - { stationId: S104, arrivalOffsetSec: 540, departureOffsetSec: 565 }
+      - { stationId: S105, arrivalOffsetSec: 654, departureOffsetSec: 679 }
+      - { stationId: S106, arrivalOffsetSec: 754, departureOffsetSec: 779 }
+      - { stationId: S107, arrivalOffsetSec: 880, departureOffsetSec: 905 }
+      - { stationId: S108, arrivalOffsetSec: 979, departureOffsetSec: 1004 }
+      - { stationId: S109, arrivalOffsetSec: 1069, departureOffsetSec: 1094 }
+      - { stationId: S110, arrivalOffsetSec: 1173, departureOffsetSec: 1198 }
+      - { stationId: S111, arrivalOffsetSec: 1306, departureOffsetSec: 1331 }
+      - { stationId: S112, arrivalOffsetSec: 1390, departureOffsetSec: 1415 }
+      - { stationId: S113, arrivalOffsetSec: 1477, departureOffsetSec: 1477 }
   - serviceId: SVC-003
     circulationId: CIRC-003
     trainId: TR-003
@@ -106,11 +238,19 @@ services:
     offsetMeters: 0
     direction: DOWN
     stops:
-      - { stationId: S01, arrivalOffsetSec: 600, departureOffsetSec: 615 }
-      - { stationId: S02, arrivalOffsetSec: 694, departureOffsetSec: 719 }
-      - { stationId: S03, arrivalOffsetSec: 789, departureOffsetSec: 814 }
-      - { stationId: S04, arrivalOffsetSec: 884, departureOffsetSec: 909 }
-      - { stationId: S05, arrivalOffsetSec: 1003, departureOffsetSec: 1003 }
+      - { stationId: S113, arrivalOffsetSec: 0, departureOffsetSec: 15 }
+      - { stationId: S112, arrivalOffsetSec: 91, departureOffsetSec: 116 }
+      - { stationId: S111, arrivalOffsetSec: 160, departureOffsetSec: 185 }
+      - { stationId: S110, arrivalOffsetSec: 240, departureOffsetSec: 265 }
+      - { stationId: S109, arrivalOffsetSec: 354, departureOffsetSec: 379 }
+      - { stationId: S108, arrivalOffsetSec: 454, departureOffsetSec: 479 }
+      - { stationId: S107, arrivalOffsetSec: 580, departureOffsetSec: 605 }
+      - { stationId: S106, arrivalOffsetSec: 679, departureOffsetSec: 704 }
+      - { stationId: S105, arrivalOffsetSec: 769, departureOffsetSec: 794 }
+      - { stationId: S104, arrivalOffsetSec: 873, departureOffsetSec: 898 }
+      - { stationId: S103, arrivalOffsetSec: 1006, departureOffsetSec: 1031 }
+      - { stationId: S102, arrivalOffsetSec: 1090, departureOffsetSec: 1115 }
+      - { stationId: S101, arrivalOffsetSec: 1177, departureOffsetSec: 1177 }
   - serviceId: SVC-004
     circulationId: CIRC-004
     trainId: TR-004
@@ -119,8 +259,16 @@ services:
     offsetMeters: 0
     direction: DOWN
     stops:
-      - { stationId: S01, arrivalOffsetSec: 900, departureOffsetSec: 915 }
-      - { stationId: S02, arrivalOffsetSec: 994, departureOffsetSec: 1019 }
-      - { stationId: S03, arrivalOffsetSec: 1089, departureOffsetSec: 1114 }
-      - { stationId: S04, arrivalOffsetSec: 1184, departureOffsetSec: 1209 }
-      - { stationId: S05, arrivalOffsetSec: 1303, departureOffsetSec: 1303 }
+      - { stationId: S113, arrivalOffsetSec: 300, departureOffsetSec: 315 }
+      - { stationId: S112, arrivalOffsetSec: 391, departureOffsetSec: 416 }
+      - { stationId: S111, arrivalOffsetSec: 460, departureOffsetSec: 485 }
+      - { stationId: S110, arrivalOffsetSec: 540, departureOffsetSec: 565 }
+      - { stationId: S109, arrivalOffsetSec: 654, departureOffsetSec: 679 }
+      - { stationId: S108, arrivalOffsetSec: 754, departureOffsetSec: 779 }
+      - { stationId: S107, arrivalOffsetSec: 880, departureOffsetSec: 905 }
+      - { stationId: S106, arrivalOffsetSec: 979, departureOffsetSec: 1004 }
+      - { stationId: S105, arrivalOffsetSec: 1069, departureOffsetSec: 1094 }
+      - { stationId: S104, arrivalOffsetSec: 1173, departureOffsetSec: 1198 }
+      - { stationId: S103, arrivalOffsetSec: 1306, departureOffsetSec: 1331 }
+      - { stationId: S102, arrivalOffsetSec: 1390, departureOffsetSec: 1415 }
+      - { stationId: S101, arrivalOffsetSec: 1477, departureOffsetSec: 1477 }

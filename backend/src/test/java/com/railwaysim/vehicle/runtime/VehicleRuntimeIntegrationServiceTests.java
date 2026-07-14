@@ -16,8 +16,6 @@ import com.railwaysim.signal.MovementAuthority;
 import com.railwaysim.simulation.TickContext;
 import com.railwaysim.track.TrackConstraint;
 import com.railwaysim.train.TrainEntity;
-import com.railwaysim.vehicle.SimpleVehicleDynamicsModel;
-import com.railwaysim.vehicle.onboard.OnboardTrainSubsystemManager;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import java.io.IOException;
@@ -47,7 +45,7 @@ class VehicleRuntimeIntegrationServiceTests {
         });
         server.start();
         try {
-            VehicleRuntimeIntegrationService service = service(server, VehicleRuntimeMode.EXTERNAL_HTTP, ExternalPowerNetworkMode.EXTERNAL_HTTP);
+            VehicleRuntimeIntegrationService service = service(server, ExternalPowerNetworkMode.EXTERNAL_HTTP);
 
             VehicleRuntimeStepResult result = service.stepFleet(tick(1), List.of(train()), authority(), track(), List.of(), power());
 
@@ -78,7 +76,7 @@ class VehicleRuntimeIntegrationServiceTests {
         server.createContext("/vehicle-runtime/step-fleet", exchange -> writeJson(exchange, 500, "{\"error\":\"boom\"}"));
         server.start();
         try {
-            VehicleRuntimeIntegrationService service = service(server, VehicleRuntimeMode.EXTERNAL_HTTP);
+            VehicleRuntimeIntegrationService service = service(server);
 
             assertThatThrownBy(() -> service.stepFleet(tick(1), List.of(train()), authority(), track(), List.of(), power()))
                 .isInstanceOf(IllegalStateException.class)
@@ -111,7 +109,7 @@ class VehicleRuntimeIntegrationServiceTests {
         });
         server.start();
         try {
-            VehicleRuntimeIntegrationService service = service(server, VehicleRuntimeMode.EXTERNAL_HTTP, ExternalPowerNetworkMode.EXTERNAL_HTTP);
+            VehicleRuntimeIntegrationService service = service(server, ExternalPowerNetworkMode.EXTERNAL_HTTP);
 
             assertThatThrownBy(() -> service.stepFleet(tick(1), List.of(train()), authority(), track(), List.of(), power()))
                 .isInstanceOf(IllegalStateException.class)
@@ -128,7 +126,7 @@ class VehicleRuntimeIntegrationServiceTests {
     }
 
     @Test
-    void dualShadowModeDoesNotDelegatePowerLoadForwarding() throws IOException {
+    void externalModeDelegatesPowerLoadForwarding() throws IOException {
         AtomicReference<String> bootstrapBody = new AtomicReference<>("");
         HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         server.createContext("/vehicle-runtime/bootstrap", exchange -> {
@@ -138,13 +136,13 @@ class VehicleRuntimeIntegrationServiceTests {
         server.createContext("/vehicle-runtime/step-fleet", exchange -> writeJson(exchange, 200, stepResponseJson("OK", "GOOD", 321.0)));
         server.start();
         try {
-            VehicleRuntimeIntegrationService service = service(server, VehicleRuntimeMode.DUAL_SHADOW, ExternalPowerNetworkMode.EXTERNAL_HTTP);
+            VehicleRuntimeIntegrationService service = service(server, ExternalPowerNetworkMode.EXTERNAL_HTTP);
 
             VehicleRuntimeStepResult result = service.stepFleet(tick(1), List.of(train()), authority(), track(), List.of(), power());
 
-            assertThat(bootstrapBody.get()).contains("\"forwardPowerLoads\":false");
-            assertThat(result.health().mode()).isEqualTo(VehicleRuntimeMode.LOCAL);
-            assertThat(service.ownsPowerLoadForwarding()).isFalse();
+            assertThat(bootstrapBody.get()).contains("\"forwardPowerLoads\":true");
+            assertThat(result.health().mode()).isEqualTo(VehicleRuntimeMode.EXTERNAL_HTTP);
+            assertThat(service.ownsPowerLoadForwarding()).isTrue();
         } finally {
             server.stop(0);
         }
@@ -180,7 +178,7 @@ class VehicleRuntimeIntegrationServiceTests {
         server.start();
         try {
             VehicleRuntimeIntegrationService service = service(
-                server, VehicleRuntimeMode.EXTERNAL_HTTP, ExternalPowerNetworkMode.EXTERNAL_HTTP);
+                server, ExternalPowerNetworkMode.EXTERNAL_HTTP);
             service.stepFleet(tick(1), List.of(train()), authority(), track(), List.of(), power());
 
             remoteBootstrapped.set(false);
@@ -195,28 +193,25 @@ class VehicleRuntimeIntegrationServiceTests {
         }
     }
 
-    private VehicleRuntimeIntegrationService service(HttpServer server, VehicleRuntimeMode mode) {
-        return service(server, mode, ExternalPowerNetworkMode.LOCAL);
+    private VehicleRuntimeIntegrationService service(HttpServer server) {
+        return service(server, ExternalPowerNetworkMode.LOCAL);
     }
 
-    private VehicleRuntimeIntegrationService service(HttpServer server, VehicleRuntimeMode mode, ExternalPowerNetworkMode powerMode) {
+    private VehicleRuntimeIntegrationService service(HttpServer server, ExternalPowerNetworkMode powerMode) {
         SimulationProperties simulationProperties = new SimulationProperties();
         VehicleRuntimeProperties properties = new VehicleRuntimeProperties();
-        properties.setMode(mode);
+        properties.setMode(VehicleRuntimeMode.EXTERNAL_HTTP);
         properties.setBaseUrl("http://127.0.0.1:" + server.getAddress().getPort());
         properties.setTimeoutMillis(300);
         ExternalPowerNetworkProperties externalPowerNetworkProperties = new ExternalPowerNetworkProperties();
         externalPowerNetworkProperties.setMode(powerMode);
         StaticInfrastructureCatalog catalog = new StaticInfrastructureCatalog(lineData(), powerData());
-        OnboardTrainSubsystemManager onboard = new OnboardTrainSubsystemManager(simulationProperties, catalog);
         return new VehicleRuntimeIntegrationService(
             properties,
             externalPowerNetworkProperties,
             simulationProperties,
             catalog,
-            new HttpVehicleRuntimeClient(properties, RestClient.builder()),
-            onboard,
-            inputs -> inputs.stream().map(new SimpleVehicleDynamicsModel()::step).toList()
+            new HttpVehicleRuntimeClient(properties, RestClient.builder())
         );
     }
 

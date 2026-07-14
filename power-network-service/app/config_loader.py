@@ -7,6 +7,13 @@ from typing import Any
 import yaml
 
 
+def resolve_power_config_path(configured_path: str | None = None) -> Path:
+    """Resolve the explicit override or the repository/container default config."""
+    if configured_path and configured_path.strip():
+        return Path(configured_path.strip())
+    return Path(__file__).resolve().parents[2] / "config" / "power_third_rail.yaml"
+
+
 def load_power_config(path: str | Path) -> tuple[dict[str, Any], str]:
     source = Path(path)
     raw = source.read_bytes()

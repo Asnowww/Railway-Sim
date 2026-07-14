@@ -1,6 +1,5 @@
 package com.railwaysim.config;
 
-import com.railwaysim.vehicle.onboard.OnboardTrainSubsystemMode;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 @ConfigurationProperties(prefix = "railway.simulation")
@@ -14,6 +13,7 @@ public class SimulationProperties {
     private long powerStepMillis = 100;
     private long dispatchStepMillis = 1000;
     private long persistenceStepMillis = 5000;
+    private int controlDecisionQueueCapacity = 4096;
     private double defaultLineLengthMeters = 5000;
     private double defaultSpeedLimitMetersPerSecond = 22.2;
     private double defaultCurveRadiusMeters = 1000;
@@ -26,7 +26,6 @@ public class SimulationProperties {
     private boolean fmuServiceEnabled;
     private String fmuServiceUrl = "http://localhost:9000";
     private long fmuServiceTimeoutMillis = 500;
-    private OnboardTrainSubsystemMode onboardSubsystemMode = OnboardTrainSubsystemMode.IN_PROCESS;
     private String onboardSubsystemUrl = "http://localhost:9100";
     private long onboardSubsystemTimeoutMillis = 300;
     private long onboardSubsystemLeaseMillis = 1000;
@@ -93,6 +92,14 @@ public class SimulationProperties {
 
     public void setPersistenceStepMillis(long persistenceStepMillis) {
         this.persistenceStepMillis = persistenceStepMillis;
+    }
+
+    public int getControlDecisionQueueCapacity() {
+        return controlDecisionQueueCapacity;
+    }
+
+    public void setControlDecisionQueueCapacity(int controlDecisionQueueCapacity) {
+        this.controlDecisionQueueCapacity = Math.max(1, controlDecisionQueueCapacity);
     }
 
     public double getDefaultLineLengthMeters() {
@@ -191,15 +198,6 @@ public class SimulationProperties {
         this.fmuServiceTimeoutMillis = fmuServiceTimeoutMillis;
     }
 
-    public OnboardTrainSubsystemMode getOnboardSubsystemMode() {
-        return onboardSubsystemMode;
-    }
-
-    public void setOnboardSubsystemMode(OnboardTrainSubsystemMode onboardSubsystemMode) {
-        this.onboardSubsystemMode = onboardSubsystemMode == null
-            ? OnboardTrainSubsystemMode.IN_PROCESS
-            : onboardSubsystemMode;
-    }
 
     public String getOnboardSubsystemUrl() {
         return onboardSubsystemUrl;

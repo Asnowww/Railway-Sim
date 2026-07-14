@@ -4,8 +4,6 @@ import com.railwaysim.infrastructure.OperationalLineData;
 import com.railwaysim.vehicle.TrainStateReport;
 import com.railwaysim.vehicle.VehicleLoadPolicy;
 import com.railwaysim.vehicle.VehiclePhysicsOutput;
-import com.railwaysim.vehicle.drivercab.DriverCabMasterHandleState;
-import com.railwaysim.vehicle.drivercab.DriverCabPlcInputPacket;
 import com.railwaysim.vehicle.drivercab.DriverCabStateSnapshot;
 import com.railwaysim.vehicle.protocol.TrainOperationalTelemetry;
 import java.time.Instant;
@@ -152,18 +150,17 @@ public class TrainEntity {
             ? resolveAvailableOperationMode(availableOperationMode, effectiveVehicleProtectionReason)
             : "NO_DEPARTURE";
         String effectiveDataQuality = injectedFaultCode == null ? dataQuality : "INVALID";
-        String effectiveFaultCode = injectedFaultCode == null ? faultCode : injectedFaultCode;
-        String effectiveStatus = injectedFaultCode == null ? status : "FAULT";
+        String effectiveFaultCode = getFaultCode();
         return new TrainState(
             id,
             routeId,
             id,
-            controlSession == null ? ExternalTrainControlSessionState.IN_SERVICE.name() : controlSession.state().name(),
-            controlSession == null ? "ATTACHED" : controlSession.signalNetworkStatus(),
-            controlSession == null ? "ATTACHED" : controlSession.powerNetworkStatus(),
-            controlSession == null ? "EXTERNAL_CONTROL_IN_SERVICE" : controlSession.reason(),
+            controlSession == null ? null : controlSession.state().name(),
+            controlSession == null ? null : controlSession.signalNetworkStatus(),
+            controlSession == null ? null : controlSession.powerNetworkStatus(),
+            controlSession == null ? null : controlSession.reason(),
             controlSession == null ? 0 : controlSession.linkId(),
-            controlSession == null ? "UNKNOWN" : controlSession.direction().name(),
+            controlSession == null ? "DOWN" : controlSession.direction().name(),
             positionMeters,
             speedMetersPerSecond,
             lengthMeters,
@@ -175,7 +172,7 @@ public class TrainEntity {
             effectiveAvailableTractionCount,
             effectiveAvailableBrakeCount,
             effectiveVehicleProtectionReason,
-            effectiveStatus,
+            injectedFaultCode == null ? status : "FAULT",
             operationMode,
             speedMetersPerSecond <= 0.05,
             effectiveDoorState,
@@ -212,30 +209,25 @@ public class TrainEntity {
         );
     }
 
-    public void applyOperationalTelemetry(TrainOperationalTelemetry telemetry) {
-        positionMeters = Math.max(0, telemetry.cumulativeDistanceMeters());
-        speedMetersPerSecond = Math.max(0, telemetry.speedMetersPerSecond());
-        loadMassKg = VehicleLoadPolicy.loadMassKg(telemetry.loadMassKg(), loadRate);
-        loadRate = VehicleLoadPolicy.loadRateFromMass(loadMassKg);
-        overloadStatus = VehicleLoadPolicy.overloadStatus(loadMassKg);
-        availableTractionCount = VehicleLoadPolicy.normalizeUnitCount(
-            telemetry.availableTractionCount(),
-            VehicleLoadPolicy.NOMINAL_TRACTION_UNITS
-        );
-        availableBrakeCount = VehicleLoadPolicy.normalizeUnitCount(
-            telemetry.availableBrakeCount(),
-            VehicleLoadPolicy.NOMINAL_BRAKE_UNITS
-        );
-        vehicleProtectionReason = VehicleLoadPolicy.vehicleProtectionReason(overloadStatus);
-        if (telemetry.emergencyBrakeApplied()) {
-            brakeState = "EMERGENCY";
-            status = "EMERGENCY_BRAKE";
-            operationMode = "ATP_BRAKE";
-            faultCode = "ATP_BRAKE";
-            faultLevel = Math.max(faultLevel, 3);
-            availableOperationMode = "NO_DEPARTURE";
+    public String id() { return id; }
+
+    /**
+     * Store the latest driver-cab console state received via the 8080 PLC gateway (browser console)
+     * or the machine-room PLC TCP link. This is the display mirror the front-end cab reads back; it does
+     * not itself drive vehicle physics (9300 remains authoritative).
+     */
+    public void applyDriverCabState(DriverCabStateSnapshot snapshot) {
+        if (snapshot != null) {
+            this.driverCabState = snapshot;
         }
-        vehicleFaultSpeedLimitMetersPerSecond = telemetry.faultSpeedLimitMetersPerSecond();
+    }
+
+    /** @deprecated 9300 trainStates snapshots are the sole vehicle-state authority. */
+    @Deprecated(forRemoval = true)
+    public void applyOperationalTelemetry(TrainOperationalTelemetry telemetry) {
+        throw new UnsupportedOperationException(
+            "central vehicle telemetry writes are retired; use 9300 trainStates via applyExternalSnapshot"
+        );
     }
 
     /**
@@ -294,157 +286,68 @@ public class TrainEntity {
         return "RUNNING";
     }
 
-    /**
-     * @deprecated Authority moved to 9300's TrainStateHolder.applyDriverCabInput(). Retained only for LOCAL mode fallback.
-     */
-    @Deprecated(forRemoval=true)
-    public void applyDriverCabInput(DriverCabPlcInputPacket input) {
-        if (input == null) {
-            throw new IllegalArgumentException("driver cab PLC input is required");
-        }
-        driverCabState = DriverCabStateSnapshot.fromInput(input, Instant.now());
-        if (input.openDoorRequested()) {
-            doorState = "OPEN";
-        } else if (input.closeDoorRequested()) {
-            doorState = "CLOSED_LOCKED";
-        }
-
-        if (!input.keySwitchLocked()) {
-            operationMode = "STANDBY";
-            tractionState = "IDLE";
-            brakeState = speedMetersPerSecond > 0.1 ? "SERVICE" : "RELEASED";
-            tractionAvailable = false;
-            selfCheckStatus = "FAIL";
-            faultLevel = Math.max(faultLevel, 2);
-            availableOperationMode = "NO_DEPARTURE";
-            vehicleProtectionReason = "DRIVER_CAB_KEY_OFF";
-            faultCode = "DRIVER_CAB_KEY_OFF";
-            return;
-        }
-
-        if ("DRIVER_CAB_KEY_OFF".equals(faultCode)) {
-            faultCode = "OK";
-            faultLevel = 0;
-            selfCheckStatus = "PASS";
-            availableOperationMode = "NORMAL";
-            tractionAvailable = true;
-            vehicleProtectionReason = "NONE";
-        }
-
-        if (input.emergencyBrakeRequested()) {
-            operationMode = "ATP_BRAKE";
-            brakeState = "EMERGENCY";
-            tractionState = "IDLE";
-            status = "EMERGENCY_BRAKE";
-            faultCode = "DRIVER_CAB_EMERGENCY_BRAKE";
-            faultLevel = Math.max(faultLevel, 3);
-            availableOperationMode = "NO_DEPARTURE";
-            vehicleProtectionReason = "DRIVER_CAB_EMERGENCY_BRAKE";
-            return;
-        }
-
-        if (input.automaticTurnbackFlag()) {
-            operationMode = "AR";
-        } else if (input.atoStartFlag()) {
-            operationMode = "ATO";
-        } else if (input.masterHandleState() != DriverCabMasterHandleState.ZERO) {
-            operationMode = "DEGRADED";
-        }
-
-        switch (input.masterHandleState()) {
-            case TRACTION -> {
-                tractionState = "APPLYING";
-                brakeState = "RELEASED";
-            }
-            case BRAKE -> {
-                tractionState = "IDLE";
-                brakeState = "SERVICE";
-            }
-            default -> {
-                if (!"EMERGENCY".equals(brakeState)) {
-                    tractionState = "IDLE";
-                    brakeState = "RELEASED";
-                }
-            }
-        }
-    }
-
     public void injectFault(String faultCode) {
         injectedFaultCode = faultCode == null || faultCode.isBlank() ? "TRAIN_FAULT" : faultCode;
-    }
-
-    public void clearFault() {
-        injectedFaultCode = null;
     }
 
     public String injectedFaultCode() {
         return injectedFaultCode;
     }
 
+    public void clearFault() {
+        injectedFaultCode = null;
+    }
+
+    public String getFaultCode() {
+        return injectedFaultCode != null ? injectedFaultCode : faultCode;
+    }
+
+    private String resolveStatus(TrainStateReport report, VehiclePhysicsOutput output) {
+        if (output == null || report == null) {
+            return status;
+        }
+        if (!"OK".equals(report.faultCode()) || report.faultLevel() >= 3) {
+            return "FAULT";
+        }
+        if (report.faultLevel() > 0 || report.operationMode() == null) {
+            return "DEGRADED";
+        }
+        if ("STATION_STOPPED".equals(dynamicsState) && speedMetersPerSecond <= 0.2) {
+            return "DWELLING";
+        }
+        return "RUNNING";
+    }
+
     private void updateStationTracking(TrainStateReport report, double deltaSeconds) {
-        boolean dwelling = "STATION_STOPPED".equals(report.dynamicsState()) && speedMetersPerSecond <= 0.2;
+        boolean dwelling = "STATION_STOPPED".equals(report.dynamicsState()) && this.speedMetersPerSecond <= 0.2;
         if (dwelling) {
             if (currentStationId == null) {
                 currentStationId = inferStationId();
             }
-            dwellElapsedAccumulatorSeconds += Math.max(0, deltaSeconds);
+            dwellElapsedAccumulatorSeconds += deltaSeconds;
             dwellElapsedSeconds = (int) Math.floor(dwellElapsedAccumulatorSeconds);
-            return;
-        }
-
-        if (currentStationId != null || dwellElapsedSeconds > 0) {
-            lastDepartureAt = Instant.now().toString();
-            currentStationId = null;
-            dwellElapsedAccumulatorSeconds = 0;
-            dwellElapsedSeconds = 0;
+        } else {
+            if (currentStationId != null || dwellElapsedSeconds > 0) {
+                lastDepartureAt = Instant.now().toString();
+                currentStationId = null;
+                dwellElapsedAccumulatorSeconds = 0;
+                dwellElapsedSeconds = 0;
+            }
         }
     }
 
     private String inferStationId() {
-        if (!stations.isEmpty()) {
-            String nearest = null;
-            double nearestDistance = Double.MAX_VALUE;
-            for (OperationalLineData.StationDefinition station : stations) {
-                double distance = Math.abs(positionMeters - station.centerMeters());
-                if (distance < nearestDistance) {
-                    nearestDistance = distance;
-                    nearest = station.id();
-                }
-            }
-            return nearestDistance <= 30 ? nearest : null;
-        }
-        double[] stationPositions = {0, 1250, 2500, 3750, 5000};
-        String[] stationIds = {"S01", "S02", "S03", "S04", "S05"};
+        if (stations.isEmpty()) return null;
         String nearest = null;
         double nearestDistance = Double.MAX_VALUE;
-        for (int i = 0; i < stationPositions.length; i++) {
-            double distance = Math.abs(positionMeters - stationPositions[i]);
+        for (OperationalLineData.StationDefinition station : stations) {
+            double distance = Math.abs(positionMeters - station.centerMeters());
             if (distance < nearestDistance) {
                 nearestDistance = distance;
-                nearest = stationIds[i];
+                nearest = station.id();
             }
         }
         return nearestDistance <= 30 ? nearest : null;
-    }
-
-    public String id() {
-        return id;
-    }
-
-    private String resolveStatus(TrainStateReport report, VehiclePhysicsOutput output) {
-        if (report.emergencyBrakeCommand()) {
-            return "EMERGENCY_BRAKE";
-        }
-        if ("STATION_STOPPED".equals(report.dynamicsState()) && speedMetersPerSecond <= 0.2) {
-            return "DWELLING";
-        }
-        if (report.faultLevel() >= 3) {
-            return "FAULT";
-        }
-        if (report.faultLevel() > 0 || !"OK".equals(output.faultCode())) {
-            return "DEGRADED";
-        }
-        return "RUNNING";
     }
 
     private String effectiveDoorState() {
@@ -471,18 +374,15 @@ public class TrainEntity {
         return injectedFaultCode == null || !"BRAKE_UNAVAILABLE".equals(injectedFaultCode);
     }
 
-    private String mergeVehicleProtectionReason(String currentReason, String loadReason) {
-        if (loadReason != null && !"NONE".equals(loadReason)) {
-            return loadReason;
-        }
-        return currentReason == null || currentReason.isBlank() ? "NONE" : currentReason;
+    private String mergeVehicleProtectionReason(String trainReason, String overloadReason) {
+        if (overloadReason != null && !"NONE".equals(overloadReason)) return overloadReason;
+        return (trainReason == null || trainReason.isBlank()) ? "NONE" : trainReason;
     }
 
     private String resolveAvailableOperationMode(String currentMode, String protectionReason) {
-        if (("OVERLOAD".equals(protectionReason) || "CRITICAL_OVERLOAD".equals(protectionReason))
-            && "NORMAL".equals(currentMode)) {
-            return "DEGRADED";
-        }
+        if (injectedFaultCode != null) return "NO_DEPARTURE";
+        boolean overloaded = "OVERLOAD".equals(overloadStatus) || "CRUSH_OVERLOAD".equals(overloadStatus);
+        if (overloaded && "NORMAL".equals(currentMode)) return "DEGRADED";
         return currentMode;
     }
 }

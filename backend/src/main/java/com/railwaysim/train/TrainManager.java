@@ -17,17 +17,11 @@ import com.railwaysim.simulation.event.TrainFaultStateChangedEvent;
 import com.railwaysim.simulation.event.VehiclePhysicsUpdatedEvent;
 import com.railwaysim.track.TrackConstraint;
 import com.railwaysim.vehicle.VehiclePhysicsOutput;
-import com.railwaysim.vehicle.control.DriverCommandHolder;
-import com.railwaysim.vehicle.control.DriverControlCommand;
-import com.railwaysim.vehicle.drivercab.DriverCabPlcInputPacket;
-import com.railwaysim.vehicle.onboard.OnboardTrainSubsystemManager;
 import com.railwaysim.vehicle.protocol.TrainOperationalTelemetry;
 import com.railwaysim.vehicle.external.ExternalTrainDirection;
-import com.railwaysim.vehicle.runtime.VehicleRuntimeEvent;
 import com.railwaysim.vehicle.runtime.VehicleRuntimeHealth;
 import com.railwaysim.vehicle.runtime.VehicleRuntimeIntegrationService;
 import com.railwaysim.vehicle.runtime.VehicleRuntimeStepResult;
-import com.railwaysim.vehicle.runtime.VehicleRuntimeTrainStep;
 import jakarta.annotation.PostConstruct;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -46,7 +40,6 @@ public class TrainManager {
 
     private final List<TrainEntity> trains = new ArrayList<>();
     private final Map<String, ExternalTrainControlSession> controlSessions = new LinkedHashMap<>();
-    private final OnboardTrainSubsystemManager onboardTrainSubsystemManager;
     private final VehicleRuntimeIntegrationService vehicleRuntimeIntegrationService;
     private final StaticInfrastructureCatalog infrastructureCatalog;
     private final RealtimeStateCache realtimeStateCache;
@@ -54,43 +47,20 @@ public class TrainManager {
     private final VehicleSpecificationCatalog vehicleSpecificationCatalog;
     private final Map<String, RuntimeVehicleMetadata> vehicleMetadata = new LinkedHashMap<>();
     private final List<TrainFaultRecord> faultRecords = new ArrayList<>();
-    private final DriverCommandHolder driverCommandHolder;
 
     @Autowired
     public TrainManager(
-        OnboardTrainSubsystemManager onboardTrainSubsystemManager,
         VehicleRuntimeIntegrationService vehicleRuntimeIntegrationService,
         StaticInfrastructureCatalog infrastructureCatalog,
         RealtimeStateCache realtimeStateCache,
         SimpleEventBus eventBus,
-        VehicleSpecificationCatalog vehicleSpecificationCatalog,
-        DriverCommandHolder driverCommandHolder
+        VehicleSpecificationCatalog vehicleSpecificationCatalog
     ) {
-        this.onboardTrainSubsystemManager = onboardTrainSubsystemManager;
         this.vehicleRuntimeIntegrationService = vehicleRuntimeIntegrationService;
         this.infrastructureCatalog = infrastructureCatalog;
         this.realtimeStateCache = realtimeStateCache;
         this.eventBus = eventBus;
         this.vehicleSpecificationCatalog = vehicleSpecificationCatalog;
-        this.driverCommandHolder = driverCommandHolder;
-    }
-
-    public TrainManager(
-        OnboardTrainSubsystemManager onboardTrainSubsystemManager,
-        VehicleRuntimeIntegrationService vehicleRuntimeIntegrationService,
-        StaticInfrastructureCatalog infrastructureCatalog,
-        RealtimeStateCache realtimeStateCache,
-        SimpleEventBus eventBus
-    ) {
-        this(
-            onboardTrainSubsystemManager,
-            vehicleRuntimeIntegrationService,
-            infrastructureCatalog,
-            realtimeStateCache,
-            eventBus,
-            new VehicleSpecificationCatalog("config/train_params.yaml"),
-            new DriverCommandHolder()
-        );
     }
 
     @PostConstruct
@@ -99,7 +69,6 @@ public class TrainManager {
     }
 
     public synchronized void reset() {
-        driverCommandHolder.clear();
         String routeId = infrastructureCatalog.lineData().lineId();
         double lineLengthMeters = infrastructureCatalog.lineData().lineLengthMeters();
         if (lineLengthMeters <= 0) {
@@ -110,14 +79,12 @@ public class TrainManager {
         trains.clear();
         controlSessions.clear();
         vehicleMetadata.clear();
-        onboardTrainSubsystemManager.clear();
         vehicleRuntimeIntegrationService.clear();
-        addInitialTrain("TR-001", routeId, rearStartMeters, 0.42, 1, ExternalTrainDirection.DOWN);
-        addInitialTrain("TR-002", routeId, frontStartMeters, 0.55, 2, ExternalTrainDirection.DOWN);
+        // TR-001/002 由调度 DEPART 命令创建(SVC-001/SVC-002)
         faultRecords.clear();
     }
 
-    public synchronized List<VehiclePhysicsOutput> tickAll(
+    public synchronized VehicleRuntimeStepResult tickAll(
         TickContext context,
         List<MovementAuthority> authorities,
         List<TrackConstraint> trackConstraints,
@@ -141,34 +108,12 @@ public class TrainManager {
             powerConstraints
         );
         List<TrainState> resultTrainStates = runtimeResult.trainStates();
-        boolean hasAuthoritativeStates = resultTrainStates != null && !resultTrainStates.isEmpty();
 
-        if (hasAuthoritativeStates) {
-            // EXTERNAL_HTTP 模式：9300 返回了权威状态快照 → 批量更新中央镜像
+        if (resultTrainStates != null && !resultTrainStates.isEmpty()) {
             updateMirrorState(resultTrainStates);
-        } else {
-            // LOCAL 模式：用本地计算输出更新 TrainEntity
-            Map<String, VehicleRuntimeTrainStep> stepByTrain = runtimeResult.trainSteps().stream()
-                .collect(Collectors.toMap(VehicleRuntimeTrainStep::trainId, Function.identity(), (left, right) -> right));
-            for (TrainEntity train : trains) {
-                TrainState currentState = train.state(controlSessions.get(train.id()));
-                VehicleRuntimeTrainStep step = stepByTrain.get(currentState.id());
-                if (step != null && step.output() != null && step.report() != null) {
-                    train.applyPhysicsOutput(step.output(), step.report(), context.deltaSeconds());
-                    realtimeStateCache.updateTrainTcmsState(step.report());
-                    publishVehicleEvents(step.output());
-                }
-            }
         }
 
-        // 发布 9300 事件到中央 event bus
-        if (runtimeResult.events() != null) {
-            for (VehicleRuntimeEvent event : runtimeResult.events()) {
-                publishExternalEvent(event);
-            }
-        }
-
-        return runtimeResult.outputs();
+        return runtimeResult;
     }
 
     public synchronized List<TrainState> applyLifecycleCommand(SignalTrainLifecycleCommand command) {
@@ -199,7 +144,6 @@ public class TrainManager {
         );
         trains.add(train);
         vehicleMetadata.put(trainId, RuntimeVehicleMetadata.from(vehicleSpec));
-        onboardTrainSubsystemManager.register(trainId);
         controlSessions.put(trainId, ExternalTrainControlSession.connecting(
             trainId,
             spec.linkId(),
@@ -273,7 +217,6 @@ public class TrainManager {
             new RuntimeVehicleMetadata(effectiveTrainType, effectiveParameterSetId, effectiveLength)
         );
         // 该入口由 9300 主动发起，中央只建立镜像和 fallback 纳管视图，不能再反向注册 9300。
-        onboardTrainSubsystemManager.register(train.id());
         controlSessions.put(train.id(), ExternalTrainControlSession.connecting(
             train.id(),
             linkId,
@@ -304,29 +247,12 @@ public class TrainManager {
         }
     }
 
+    /** @deprecated 9300 trainStates snapshots are the sole vehicle-state authority. */
+    @Deprecated(forRemoval = true)
     public synchronized void applyOperationalTelemetry(List<TrainOperationalTelemetry> telemetries) {
-        Map<String, TrainOperationalTelemetry> telemetryByTrain = telemetries.stream()
-            .collect(Collectors.toMap(TrainOperationalTelemetry::trainId, Function.identity(), (left, right) -> right));
-        for (TrainEntity train : trains) {
-            TrainOperationalTelemetry telemetry = telemetryByTrain.get(train.state().id());
-            if (telemetry != null) {
-                train.applyOperationalTelemetry(telemetry);
-            }
-        }
-    }
-
-    public synchronized TrainState applyDriverCabInput(String trainId, DriverCabPlcInputPacket input) {
-        TrainEntity train = trainEntity(trainId);
-        train.applyDriverCabInput(input);
-        return train.state(controlSessions.get(train.id()));
-    }
-
-    public void storeDriverCommand(DriverControlCommand cmd) {
-        driverCommandHolder.store(cmd.trainId(), cmd);
-    }
-
-    public DriverControlCommand latestDriverCommand(String trainId) {
-        return driverCommandHolder.latest(trainId);
+        throw new UnsupportedOperationException(
+            "central vehicle telemetry writes are retired; use 9300 authoritative snapshots"
+        );
     }
 
     public synchronized List<TrainState> states() {
@@ -344,6 +270,19 @@ public class TrainManager {
             .filter(train -> train.id().equals(trainId))
             .map(train -> train.state(controlSessions.get(train.id())))
             .findFirst();
+    }
+
+    /**
+     * Store the latest driver-cab console snapshot for the train so the front-end cab can read it back
+     * via GET /api/vehicle/driver-cabs/{id}/state. Returns false when the train is unknown.
+     */
+    public synchronized boolean applyDriverCabState(
+        String trainId,
+        com.railwaysim.vehicle.drivercab.DriverCabStateSnapshot snapshot
+    ) {
+        Optional<TrainEntity> entity = findTrainEntity(trainId);
+        entity.ifPresent(train -> train.applyDriverCabState(snapshot));
+        return entity.isPresent();
     }
 
     public synchronized TrainFaultRecord injectFault(String trainId, String faultCode, String detail, String traceId) {
@@ -420,7 +359,6 @@ public class TrainManager {
         );
         trains.add(train);
         vehicleMetadata.put(trainId, RuntimeVehicleMetadata.from(vehicleSpec));
-        onboardTrainSubsystemManager.register(trainId);
         controlSessions.put(trainId, ExternalTrainControlSession.inService(trainId, linkId, positionMeters, direction));
         vehicleRuntimeIntegrationService.register(train.state(controlSessions.get(trainId)));
     }
@@ -446,7 +384,6 @@ public class TrainManager {
                 iterator.remove();
                 controlSessions.remove(train.id());
                 vehicleMetadata.remove(train.id());
-                onboardTrainSubsystemManager.remove(train.id());
                 vehicleRuntimeIntegrationService.remove(train.id());
             }
         }
@@ -495,29 +432,6 @@ public class TrainManager {
             return new RuntimeVehicleMetadata(
                 specification.trainType(), specification.parameterSetId(), specification.lengthMeters()
             );
-        }
-    }
-
-    /** 发布来自 9300 的远程事件到中央 event bus。 */
-    private void publishExternalEvent(VehicleRuntimeEvent event) {
-        Instant now = Instant.now();
-        switch (event.eventType()) {
-            case "VehiclePhysicsUpdated" ->
-                eventBus.publish(new VehiclePhysicsUpdatedEvent(
-                    event.trainId(), 0, 0, 0, now));
-            case "TractionPowerChanged" ->
-                eventBus.publish(new TractionPowerChangedEvent(
-                    event.trainId(), 0, 0, now));
-            case "BrakeForceChanged" ->
-                eventBus.publish(new BrakeForceChangedEvent(
-                    event.trainId(), 0, now));
-            case "RegenerativePowerGenerated" ->
-                eventBus.publish(new RegenerativePowerGeneratedEvent(
-                    event.trainId(), 0, 0, now));
-            case "TrainFaultStateChanged" ->
-                eventBus.publish(new TrainFaultStateChangedEvent(
-                    event.trainId(), event.detail(), "UPDATED", event.detail(), now));
-            default -> { /* ignore unknown event types */ }
         }
     }
 

@@ -14,6 +14,50 @@ public class ExternalSimulatorProperties {
     private UdpProperties udp = new UdpProperties();
     private RtLabProperties rtLab = new RtLabProperties();
     private ShadowProperties shadow = new ShadowProperties();
+    private ManualBridgeProperties manualBridge = new ManualBridgeProperties();
+
+    public ManualBridgeProperties getManualBridge() {
+        return manualBridge;
+    }
+
+    public void setManualBridge(ManualBridgeProperties manualBridge) {
+        this.manualBridge = manualBridge == null ? new ManualBridgeProperties() : manualBridge;
+    }
+
+    /**
+     * 手动指挥桥：把司控台镜像手柄按协议 20ms 周期直发外部仿真模型机（UDP 23001），
+     * 并常驻接收模型遥测（UDP 23002），不经 9300 车辆运行时。
+     */
+    public static class ManualBridgeProperties {
+
+        private boolean enabled;
+        private String trainId = "TR-001";
+        private long sendIntervalMillis = 20;
+
+        public boolean isEnabled() {
+            return enabled;
+        }
+
+        public void setEnabled(boolean enabled) {
+            this.enabled = enabled;
+        }
+
+        public String getTrainId() {
+            return trainId;
+        }
+
+        public void setTrainId(String trainId) {
+            this.trainId = trainId == null || trainId.isBlank() ? "TR-001" : trainId.trim();
+        }
+
+        public long getSendIntervalMillis() {
+            return sendIntervalMillis;
+        }
+
+        public void setSendIntervalMillis(long sendIntervalMillis) {
+            this.sendIntervalMillis = Math.max(10, sendIntervalMillis);
+        }
+    }
 
     public ExternalSimulatorMode getMode() {
         return mode;

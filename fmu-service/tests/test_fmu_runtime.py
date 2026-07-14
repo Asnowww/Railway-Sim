@@ -247,13 +247,37 @@ def test_real_fmu_physics_scenarios(manager: FmuManager) -> None:
     assert door.fault_code == "DOOR_NOT_LOCKED"
 
     energy = output["ENERGY"]
-    expected_energy_delta = energy.traction_power_watts * 0.1 / 3_600_000.0
+    expected_energy_delta = energy.traction_power_watts * 0.02 / 3_600_000.0
     assert energy.energy_consumed_kwh - 12.5 == pytest.approx(
         expected_energy_delta, rel=0.01
     )
     for item in response.train_outputs:
         assert math.isfinite(item.new_position_meters)
         assert item.mechanical_traction_power_watts <= 4_336_000.0 + 1.0
+
+
+def test_service_brake_zero_crossing_does_not_fail_fmu_instance(
+    manager: FmuManager,
+) -> None:
+    braking = train_input(
+        "ZERO-CROSSING",
+        speed_meters_per_second=0.01,
+        brake_command=1.0,
+        regen_power_available_watts=0.0,
+        dynamics_state="STATION_BRAKE",
+    )
+
+    first = manager.step_fleet(fleet_request(manager, 1, 0.0, [braking]))
+    assert not first.train_errors
+    assert first.train_outputs[0].new_speed_meters_per_second == pytest.approx(0.0, abs=1e-9)
+
+    second = manager.step_fleet(
+        fleet_request(manager, 2, 0.02, [replace(braking, lifecycle_command="STEP")])
+    )
+    assert not second.train_errors
+    assert second.train_outputs[0].new_speed_meters_per_second == pytest.approx(0.0, abs=1e-9)
+    assert manager.health()["failedInstanceCount"] == 0
+    assert manager.health()["fmiErrorCount"] == 0
 
 
 def test_two_persistent_instances_remain_independent_for_100_steps(
@@ -296,13 +320,13 @@ def test_two_persistent_instances_remain_independent_for_100_steps(
             previous_energy_regenerated_kwh=b_output.energy_regenerated_kwh,
         )
         response = manager.step_fleet(
-            fleet_request(manager, tick, (tick - 1) * 0.1, [a, b])
+            fleet_request(manager, tick, (tick - 1) * 0.02, [a, b])
         )
         assert not response.train_errors
         outputs = {item.train_id: item for item in response.train_outputs}
 
     assert outputs["TRAIN-A"].new_position_meters < 1_000.0
-    assert outputs["TRAIN-B"].new_position_meters > 1_100.0
+    assert outputs["TRAIN-B"].new_position_meters > 1_020.0
     assert outputs["TRAIN-A"].energy_consumed_kwh > 0
     assert outputs["TRAIN-B"].energy_consumed_kwh == pytest.approx(0.0, abs=1e-9)
 
@@ -315,7 +339,7 @@ def test_two_persistent_instances_remain_independent_for_100_steps(
         position_meters=b_before_delete.new_position_meters,
         speed_meters_per_second=b_before_delete.new_speed_meters_per_second,
     )
-    after_delete = manager.step_fleet(fleet_request(manager, 102, 10.1, [b]))
+    after_delete = manager.step_fleet(fleet_request(manager, 102, 2.02, [b]))
     assert after_delete.train_outputs[0].new_position_meters > b_before_delete.new_position_meters
 
 

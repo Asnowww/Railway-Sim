@@ -17,13 +17,17 @@ public record DispatchSnapshot(
     List<CommandView> activeCommands,
     boolean routeDispatchActive,
     List<RouteDecisionView> routeDecisions,
-    List<RouteReservationView> routeReservations
+    List<RouteReservationView> routeReservations,
+    List<OperationPlanView> operationPlans,
+    LineRegulationPlanView lineRegulationPlan
 ) {
     public DispatchSnapshot {
         services = services == null ? List.of() : List.copyOf(services);
         stationHeadways = stationHeadways == null ? List.of() : List.copyOf(stationHeadways);
         routeDecisions = routeDecisions == null ? List.of() : List.copyOf(routeDecisions);
         routeReservations = routeReservations == null ? List.of() : List.copyOf(routeReservations);
+        operationPlans = operationPlans == null ? List.of() : List.copyOf(operationPlans);
+        lineRegulationPlan = lineRegulationPlan == null ? LineRegulationPlanView.empty() : lineRegulationPlan;
     }
 
     public record TrainProfileView(
@@ -66,8 +70,14 @@ public record DispatchSnapshot(
         String commandType,
         String status,
         String reason,
-        String regulationAction
+        String regulationAction,
+        Map<String, Object> payload,
+        Instant createdAt,
+        Instant appliedAt
     ) {
+        public CommandView {
+            payload = payload == null ? Map.of() : Map.copyOf(payload);
+        }
     }
 
     public record ServicePlanView(
@@ -133,6 +143,81 @@ public record DispatchSnapshot(
     ) {
     }
 
+    public record OperationPlanView(
+        String planId,
+        String routeId,
+        String routeName,
+        String direction,
+        String trainId,
+        String originPointId,
+        String destinationPointId,
+        List<String> viaPointIds,
+        List<String> pointIds,
+        List<String> stationIds,
+        List<String> segmentIds,
+        Instant plannedDepartureAt,
+        String status,
+        int priority,
+        int version,
+        String routeCommandId,
+        String rejectReason
+    ) {
+        public OperationPlanView {
+            viaPointIds = viaPointIds == null ? List.of() : List.copyOf(viaPointIds);
+            pointIds = pointIds == null ? List.of() : List.copyOf(pointIds);
+            stationIds = stationIds == null ? List.of() : List.copyOf(stationIds);
+            segmentIds = segmentIds == null ? List.of() : List.copyOf(segmentIds);
+        }
+    }
+
+    public record LineRegulationPlanView(
+        String planId,
+        Instant generatedAt,
+        String objective,
+        String status,
+        int targetHeadwaySec,
+        Double currentMaxAbsHeadwayErrorSec,
+        Double predictedMaxAbsHeadwayErrorSec,
+        int commandCount,
+        List<LineRegulationDecisionView> decisions
+    ) {
+        public LineRegulationPlanView {
+            decisions = decisions == null ? List.of() : List.copyOf(decisions);
+        }
+
+        public static LineRegulationPlanView empty() {
+            return new LineRegulationPlanView(
+                "",
+                null,
+                "RESTORE_EVEN_HEADWAY",
+                "NO_DATA",
+                300,
+                null,
+                null,
+                0,
+                List.of()
+            );
+        }
+    }
+
+    public record LineRegulationDecisionView(
+        String trainId,
+        String regulatedTrainId,
+        String frontTrainId,
+        String action,
+        String commandType,
+        String status,
+        String reason,
+        Double currentHeadwaySec,
+        int targetHeadwaySec,
+        Double currentHeadwayErrorSec,
+        Double predictedHeadwayErrorSec,
+        double priorityScore,
+        String signalConstraint,
+        String commandId
+    ) {
+    }
+
     public static DispatchSnapshot empty() {
         return new DispatchSnapshot(
             "FLAT",
@@ -147,7 +232,9 @@ public record DispatchSnapshot(
             List.of(),
             false,
             List.of(),
-            List.of()
+            List.of(),
+            List.of(),
+            LineRegulationPlanView.empty()
         );
     }
 }

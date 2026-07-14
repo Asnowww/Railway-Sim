@@ -7,6 +7,7 @@ import com.railwaysim.train.TrainManager;
 import com.railwaysim.train.TrainState;
 import com.railwaysim.vehicle.drivercab.DriverCabAdapter;
 import com.railwaysim.vehicle.drivercab.DriverCabStateSnapshot;
+import com.railwaysim.api.dto.DriverCabPlcGatewayRequest;
 import java.util.Map;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -16,6 +17,8 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.CrossOrigin;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
@@ -46,6 +49,15 @@ public class DriverCabController {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Driver cab state not received for train: " + trainId);
         }
         return train.driverCabState();
+    }
+
+    @PostMapping("/{trainId}/plc-input")
+    public Map<String, Object> plcInput(
+        @PathVariable String trainId,
+        @RequestBody DriverCabPlcGatewayRequest input
+    ) {
+        trainState(trainId);
+        return driverCabAdapter.encodeAndForwardPlcInput(trainId, input);
     }
 
     @GetMapping(

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections import OrderedDict
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 import hashlib
 import json
 import math
@@ -41,7 +41,7 @@ class CachedFleetResponse:
 
 class FmuManager:
     CACHE_LIMIT = 512
-    STEP_SIZE_SECONDS = 0.1
+    STEP_SIZE_SECONDS = 0.02
     TIME_TOLERANCE_SECONDS = 1e-9
 
     def __init__(
@@ -52,6 +52,7 @@ class FmuManager:
         self._parameters = parameters or load_vehicle_parameters()
         self._runtime = runtime or FmuModelRuntime(self._parameters)
         self._instances: dict[str, TrainFMUInstance] = {}
+        self._last_inputs: dict[str, VehiclePhysicsInput] = {}
         self._response_cache: OrderedDict[int, CachedFleetResponse] = OrderedDict()
         self._lock = RLock()
         self._closed = False
@@ -110,15 +111,22 @@ class FmuManager:
             self._require_open()
             return self._runtime.validate()
 
-    def step_fleet(self, request: StepFleetRequest) -> StepFleetResponse:
-        request_hash = self._request_hash(request)
+    def step_fleet(
+        self,
+        request: StepFleetRequest,
+        *,
+        request_hash: str | None = None,
+        validate_request: bool = True,
+    ) -> StepFleetResponse:
+        effective_request_hash = request_hash or self._request_hash(request)
         with self._lock:
             self._require_open()
-            self._validate_request(request)
+            if validate_request:
+                self._validate_request(request)
 
             cached = self._response_cache.get(request.tick)
             if cached is not None:
-                if cached.request_hash == request_hash:
+                if cached.request_hash == effective_request_hash:
                     self._duplicate_tick_count += 1
                     return cached.response
                 self._tick_conflict_count += 1
@@ -173,10 +181,146 @@ class FmuManager:
                 train_outputs=outputs,
                 train_errors=errors,
             )
-            self._cache_response(request.tick, request_hash, response)
+            self._cache_response(request.tick, effective_request_hash, response)
+            successful_ids = {output.train_id for output in outputs}
+            for train in request.trains:
+                if train.train_id in successful_ids:
+                    self._last_inputs[train.train_id] = train
             if outputs:
                 self._last_successful_tick = request.tick
             return response
+
+    def step_fleet_compact(
+        self,
+        tick: int,
+        simulation_time_seconds: float,
+        step_size_seconds: float,
+        model_version: str,
+        parameter_set_id: str,
+        trace_id: str,
+        updates: list[list[Any]],
+    ) -> StepFleetResponse:
+        with self._lock:
+            self._validate_compact_envelope(
+                tick,
+                simulation_time_seconds,
+                step_size_seconds,
+                model_version,
+                parameter_set_id,
+                trace_id,
+            )
+            trains: list[VehiclePhysicsInput] = []
+            train_ids: set[str] = set()
+            for update in updates:
+                if not isinstance(update, list) or len(update) != 5:
+                    raise FmuProtocolError(
+                        400, "INVALID_REQUEST",
+                        "compact train update must be [trainId, position, speed, consumed, regenerated]",
+                    )
+                train_id = str(update[0])
+                if not train_id.strip():
+                    raise FmuProtocolError(400, "INVALID_REQUEST", "trainId must not be blank")
+                if train_id in train_ids:
+                    raise FmuProtocolError(
+                        400, "DUPLICATE_TRAIN_ID",
+                        f"trainId values must be unique within a batch: {train_id}",
+                    )
+                train_ids.add(train_id)
+                previous = self._last_inputs.get(train_id)
+                if previous is None:
+                    raise FmuProtocolError(
+                        409, "FMU_INPUT_STATE_NOT_FOUND",
+                        f"compact input state does not exist for train {train_id}",
+                    )
+                position = float(update[1])
+                speed = float(update[2])
+                consumed = float(update[3])
+                regenerated = float(update[4])
+                for name, value in (
+                    ("positionMeters", position),
+                    ("speedMetersPerSecond", speed),
+                    ("previousEnergyConsumedKwh", consumed),
+                    ("previousEnergyRegeneratedKwh", regenerated),
+                ):
+                    self._finite(name, value)
+                if speed < 0:
+                    self._invalid_range("speedMetersPerSecond", ">= 0")
+                if consumed < 0:
+                    self._invalid_range("previousEnergyConsumedKwh", ">= 0")
+                if regenerated < 0:
+                    self._invalid_range("previousEnergyRegeneratedKwh", ">= 0")
+                trains.append(replace(
+                    previous,
+                    lifecycle_command="STEP",
+                    position_meters=position,
+                    speed_meters_per_second=speed,
+                    previous_energy_consumed_kwh=consumed,
+                    previous_energy_regenerated_kwh=regenerated,
+                    delta_seconds=step_size_seconds,
+                ))
+            compact_request = StepFleetRequest(
+                tick=tick,
+                simulation_time_seconds=simulation_time_seconds,
+                step_size_seconds=step_size_seconds,
+                model_version=model_version,
+                parameter_set_id=parameter_set_id,
+                trace_id=trace_id,
+                trains=trains,
+            )
+            return self.step_fleet(
+                compact_request,
+                request_hash=self._compact_request_hash(
+                    tick,
+                    simulation_time_seconds,
+                    step_size_seconds,
+                    model_version,
+                    parameter_set_id,
+                    trace_id,
+                    updates,
+                ),
+                validate_request=False,
+            )
+
+    def _validate_compact_envelope(
+        self,
+        tick: int,
+        simulation_time_seconds: float,
+        step_size_seconds: float,
+        model_version: str,
+        parameter_set_id: str,
+        trace_id: str,
+    ) -> None:
+        if isinstance(tick, bool) or tick < 0:
+            raise FmuProtocolError(400, "INVALID_REQUEST", "tick must be >= 0")
+        self._finite("simulationTimeSeconds", simulation_time_seconds)
+        if simulation_time_seconds < 0:
+            raise FmuProtocolError(
+                400, "INVALID_REQUEST", "simulationTimeSeconds must be >= 0"
+            )
+        self._finite("stepSizeSeconds", step_size_seconds)
+        if not math.isclose(
+            step_size_seconds,
+            self.STEP_SIZE_SECONDS,
+            rel_tol=0.0,
+            abs_tol=1e-12,
+        ):
+            raise FmuProtocolError(
+                400,
+                "INVALID_STEP_SIZE",
+                f"stepSizeSeconds must be exactly {self.STEP_SIZE_SECONDS}",
+            )
+        if model_version != self.model_version:
+            raise FmuProtocolError(
+                409,
+                "FMU_MODEL_VERSION_MISMATCH",
+                f"request modelVersion {model_version!r} does not match {self.model_version!r}",
+            )
+        if parameter_set_id != self.parameter_set_id:
+            raise ParameterSetMismatchError(
+                "request parameterSetId does not match the loaded vehicle parameter set"
+            )
+        if not trace_id.strip():
+            raise FmuProtocolError(400, "INVALID_REQUEST", "traceId must not be blank")
 
     def _validate_request(self, request: StepFleetRequest) -> None:
         if isinstance(request.tick, bool) or request.tick < 0:
@@ -377,6 +521,32 @@ class FmuManager:
         ).encode("utf-8")
         return "sha256:" + hashlib.sha256(canonical).hexdigest()
 
+    @staticmethod
+    def _compact_request_hash(
+        tick: int,
+        simulation_time_seconds: float,
+        step_size_seconds: float,
+        model_version: str,
+        parameter_set_id: str,
+        trace_id: str,
+        updates: list[list[Any]],
+    ) -> str:
+        canonical = json.dumps(
+            [
+                tick,
+                simulation_time_seconds,
+                step_size_seconds,
+                model_version,
+                parameter_set_id,
+                trace_id,
+                updates,
+            ],
+            ensure_ascii=False,
+            separators=(",", ":"),
+            allow_nan=False,
+        ).encode("utf-8")
+        return "sha256:" + hashlib.sha256(canonical).hexdigest()
+
     def _cache_response(
         self,
         tick: int,
@@ -413,6 +583,7 @@ class FmuManager:
                     f"FMU instance does not exist for train {train_id}",
                 )
             previous_state = instance.state
+            self._last_inputs.pop(train_id, None)
             instance.close()
             self._response_cache.clear()
             return {
@@ -428,6 +599,7 @@ class FmuManager:
             for instance in self._instances.values():
                 instance.close()
             self._instances.clear()
+            self._last_inputs.clear()
             self._response_cache.clear()
             return {"resetInstanceCount": count, "instanceCount": 0}
 
@@ -438,6 +610,7 @@ class FmuManager:
             for instance in self._instances.values():
                 instance.close()
             self._instances.clear()
+            self._last_inputs.clear()
             self._response_cache.clear()
             self._runtime.close()
             self._closed = True

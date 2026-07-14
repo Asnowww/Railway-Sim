@@ -55,14 +55,39 @@ public class TrackController {
         result.put("stations", line.stations().stream().map(s -> {
             Map<String, Object> sm = new LinkedHashMap<>();
             sm.put("id", s.id()); sm.put("name", s.name()); sm.put("centerMeters", s.centerMeters());
+            // 双向站台（9号线：上下行站中心/停车窗口/站台侧不同）
+            List<Map<String, Object>> platformList = line.platforms().stream()
+                .filter(p -> s.platformIds().contains(p.id()))
+                .map(p -> {
+                    Map<String, Object> pm = new LinkedHashMap<>();
+                    pm.put("id", p.id());
+                    pm.put("track", p.directionCode() == null ? "main" : p.directionCode().toLowerCase(java.util.Locale.ROOT));
+                    pm.put("centerMeters", p.centerMeters());
+                    pm.put("stopLeftMeters", p.stopLeftMeters());
+                    pm.put("stopRightMeters", p.stopRightMeters());
+                    pm.put("side", p.platformSide());
+                    pm.put("anchorSegmentId", p.anchorSegmentId());
+                    return pm;
+                })
+                .toList();
+            if (!platformList.isEmpty()) {
+                sm.put("platforms", platformList);
+            }
             return sm;
         }).toList());
+        // 视景边号映射（UDP segNo，来自线路数据 raw_segment_id）
+        Map<String, Integer> rawIdBySegment = new LinkedHashMap<>();
+        line.trackSegments().forEach(seg -> rawIdBySegment.put(seg.id(), seg.rawSegmentId()));
         result.put("segments", trackService.states().stream().map(s -> {
             Map<String, Object> sm = new LinkedHashMap<>();
             sm.put("id", s.id()); sm.put("startMeters", s.startMeters()); sm.put("endMeters", s.endMeters());
             sm.put("speedLimitMetersPerSecond", s.speedLimitMetersPerSecond());
             sm.put("occupancy", s.occupancy().name());
             sm.put("fromNode", s.fromNode()); sm.put("toNode", s.toNode()); sm.put("track", s.track());
+            Integer rawId = rawIdBySegment.get(s.id());
+            if (rawId != null && rawId > 0) {
+                sm.put("rawSegmentId", rawId);
+            }
             return sm;
         }).toList());
         result.put("switches", trackService.switchStates());
