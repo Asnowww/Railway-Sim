@@ -1,0 +1,33 @@
+# 端到端验收专用覆盖：把机房局域网司机台 TCP 适配指向本机 loopback 仿真器。
+# 仅供 scripts/localnet-drivercab-tcp-sim.py 验收使用，切勿用于生产（会连 loopback 假设备）。
+# 启动示例：
+#   java -jar backend/target/railway-sim-backend-*.jar --spring.profiles.active=split \
+#        --server.port=18080 --spring.config.additional-location=file:./config/application-localnet-e2e.yml
+railway:
+  simulation:
+    driver-cab:
+      control-source: PHYSICAL
+    localnet:
+      enabled: true
+      driver-cab:
+        enabled: true
+        reconnect-millis: 500
+        connections:
+          - train-id: TR-001
+            role: PLC
+            host: 127.0.0.1
+            port: 18001
+            cycle-millis: 100
+            timeout-millis: 300
+          - train-id: TR-001
+            role: NETWORK_SCREEN
+            host: 127.0.0.1
+            port: 18888
+            cycle-millis: 200
+            timeout-millis: 300
+          - train-id: TR-001
+            role: SIGNAL_SCREEN
+            host: 127.0.0.1
+            port: 19999
+            cycle-millis: 200
+            timeout-millis: 300

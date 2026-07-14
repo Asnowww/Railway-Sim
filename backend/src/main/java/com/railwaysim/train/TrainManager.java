@@ -273,6 +273,19 @@ public class TrainManager {
             .findFirst();
     }
 
+    /**
+     * Store the latest driver-cab console snapshot for the train so the front-end cab can read it back
+     * via GET /api/vehicle/driver-cabs/{id}/state. Returns false when the train is unknown.
+     */
+    public synchronized boolean applyDriverCabState(
+        String trainId,
+        com.railwaysim.vehicle.drivercab.DriverCabStateSnapshot snapshot
+    ) {
+        Optional<TrainEntity> entity = findTrainEntity(trainId);
+        entity.ifPresent(train -> train.applyDriverCabState(snapshot));
+        return entity.isPresent();
+    }
+
     public synchronized TrainFaultRecord injectFault(String trainId, String faultCode, String detail, String traceId) {
         TrainEntity train = trainEntity(trainId);
         train.injectFault(faultCode);

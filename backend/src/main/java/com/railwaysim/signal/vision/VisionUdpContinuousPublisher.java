@@ -25,7 +25,8 @@ public class VisionUdpContinuousPublisher {
         this.sender = sender;
     }
 
-    @Scheduled(fixedDelayString = "${railway.simulation.vision.interval-millis:100}")
+    // fixedRate（而非 fixedDelay）：周期=interval，不叠加执行耗时，严格贴合文档"ATS↔视景控制机 100ms"。
+    @Scheduled(fixedRateString = "${railway.simulation.vision.interval-millis:100}")
     public void publish() {
         if (!properties.isEnabled()) {
             return;

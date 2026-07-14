@@ -211,6 +211,17 @@ public class TrainEntity {
 
     public String id() { return id; }
 
+    /**
+     * Store the latest driver-cab console state received via the 8080 PLC gateway (browser console)
+     * or the machine-room PLC TCP link. This is the display mirror the front-end cab reads back; it does
+     * not itself drive vehicle physics (9300 remains authoritative).
+     */
+    public void applyDriverCabState(DriverCabStateSnapshot snapshot) {
+        if (snapshot != null) {
+            this.driverCabState = snapshot;
+        }
+    }
+
     /** @deprecated 9300 trainStates snapshots are the sole vehicle-state authority. */
     @Deprecated(forRemoval = true)
     public void applyOperationalTelemetry(TrainOperationalTelemetry telemetry) {

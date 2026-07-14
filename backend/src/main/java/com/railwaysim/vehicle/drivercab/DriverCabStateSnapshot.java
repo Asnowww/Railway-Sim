@@ -13,12 +13,14 @@ public record DriverCabStateSnapshot(
     boolean keySwitchLocked,
     int tractionNotchPercent,
     int brakeNotchPercent,
+    DriverCabControlSource source,
     Instant updatedAt
 ) {
     public DriverCabStateSnapshot {
         doorModeSwitchState = doorModeSwitchState == null ? DriverCabDoorModeSwitch.SEMI_AUTOMATIC : doorModeSwitchState;
         directionHandleState = directionHandleState == null ? DriverCabDirectionHandleState.ZERO : directionHandleState;
         masterHandleState = masterHandleState == null ? DriverCabMasterHandleState.ZERO : masterHandleState;
+        source = source == null ? DriverCabControlSource.FRONTEND : source;
         requirePercent("tractionNotchPercent", tractionNotchPercent);
         requirePercent("brakeNotchPercent", brakeNotchPercent);
         updatedAt = updatedAt == null ? Instant.now() : updatedAt;

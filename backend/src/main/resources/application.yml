@@ -4,6 +4,11 @@ server:
 spring:
   application:
     name: railway-sim-backend
+  task:
+    scheduling:
+      # 多线程调度池：避免视景(100ms)、仿真tick(100ms)等 @Scheduled 任务在单线程上串行导致周期漂移。
+      pool:
+        size: 4
   config:
     import:
       - optional:file:./application-local.yml
@@ -59,6 +64,11 @@ railway:
     fmu-service-url: http://localhost:9000
     fmu-service-timeout-millis: 500
     block-mode: MOVING
+    driver-cab:
+      # 双控制源仲裁：FRONTEND=仅前端司机台驱动9300(实物PLC输入仅镜像显示)；
+      # PHYSICAL=仅实物PLC驱动9300(前端仅显示)；LAST_WINS=两者都下发,后到覆盖。
+      # 联调阶段仅手动、前端为操作席，默认 FRONTEND。
+      control-source: FRONTEND
     vision:
       enabled: false
       train-id: TR-001
@@ -90,9 +100,34 @@ railway:
         max-trains: 20
         shadow-comparison: true
       driver-cab:
+        # 机房局域网司机台 TCP 适配（默认关闭，防止抢占其他组正在占用的现场接口）。
+        # 上线接线时：把 localnet.enabled 与本节 enabled 置 true，并取消下方 connections 注释。
+        # 现场部署：PLC/网络屏/信号屏均为 TCP 服务器，本服务作客户端外连。
+        #   PLC(8001)  通讯设备 192.168.100.123 -> 部署机 192.168.200.102，上行 100ms 46B / 下行 26B
+        #   网络屏HMI(8888) 192.168.100.121，单向输出 570B
+        #   信号屏MMI(9999) 192.168.100.122，单向输出 68B(包头 totalLen 保留 62)
         enabled: false
         reconnect-millis: 1000
         connections: []
+        # connections:
+        #   - train-id: TR-001
+        #     role: PLC
+        #     host: 192.168.100.123
+        #     port: 8001
+        #     cycle-millis: 100
+        #     timeout-millis: 300
+        #   - train-id: TR-001
+        #     role: NETWORK_SCREEN
+        #     host: 192.168.100.121
+        #     port: 8888
+        #     cycle-millis: 200
+        #     timeout-millis: 300
+        #   - train-id: TR-001
+        #     role: SIGNAL_SCREEN
+        #     host: 192.168.100.122
+        #     port: 9999
+        #     cycle-millis: 200
+        #     timeout-millis: 300
       power-points:
         enabled: false
         point-table-path: ../config/power-point-table-example.yaml
