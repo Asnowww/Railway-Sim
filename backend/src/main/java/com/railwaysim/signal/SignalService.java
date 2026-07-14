@@ -556,6 +556,10 @@ public class SignalService {
         if (stations.isEmpty()) return result;
 
         double head = train.positionMeters();
+        boolean isDown = "DOWN".equalsIgnoreCase(train.direction());
+        double lineLen = infrastructureCatalog.lineData().lineLengthMeters();
+        // DOWN列车: effectiveHead = L-head → 物理递增镜像为递减,匹配S113→S101站序
+        double searchHead = (isDown && lineLen > 0) ? lineLen - head : head;
 
         // 停车目标 = 列车所在股道站台的精确停车点（stop_right，车头对齐站台末端）
         String track = trackService.segmentForTrain(train).track();
@@ -575,8 +579,8 @@ public class SignalService {
 
         // 找车头前方的下一站（按停车点）；允许车头在停车点后方窗口内继续被视为站停窗口。
         OperationalLineData.StationDefinition nextStation = stations.stream()
-            .filter(s -> lineData.stopPointMeters(s, track) >= head - STATION_STOP_WINDOW_METERS)
-            .min(Comparator.comparingDouble(s -> lineData.stopPointMeters(s, track) - head))
+            .filter(s -> s.centerMeters() >= searchHead - STATION_STOP_WINDOW_METERS)
+            .min(Comparator.comparingDouble(s -> s.centerMeters() - searchHead))
             .orElse(null);
         if (nextStation == null) return result;
         double stopPoint = lineData.stopPointMeters(nextStation, track);

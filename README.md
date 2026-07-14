@@ -85,30 +85,49 @@ PYTHON_312=python3.12 ./scripts/verify-all.sh --bootstrap
 ## 当前初始化范围
 
 - 后端已建立仿真总控、统一时钟、列车实体管理、轨道占用、信号 MA、接触轨供电状态、TCMS/ATO 适配层、车辆物理端口、监控快照和 WebSocket 推送骨架。
-- 后端已增加静态线路适配层，可从 `line-demo.yaml` 或线路 `.xls/.xlsx` 工作簿中提取区段、限速、坡度、道岔、车站/站台、信号机、应答器和进路等标准对象；当前多车 1D 运行环路通过线性投影消费这些数据。
+- 后端已接入 **北京地铁9号线真实线路数据**（`config/line-m9.yaml`），13 站 16.5km，上下行双线独立运行，信号机闭塞区间按站间距切分为 47 段（24 上段 + 23 下段），前端态势图染色粒度均匀。
+- 信号轨道模块已完成**调度→信号→车辆发车闭环**：四条运行线按时刻表全自动 DEPART，移除硬编码初始车，UP/DOWN 方向各自独立发车并被显式绑定到对应股道。
+- 占用/预留/联锁联动已完成**同轨过滤和上下行隔离**：同公里标上下行互不阻挡 MA，预留段不溢到对向轨道，列车驶过后正确释放占用。
+- **三层命令反馈闭环**已完成：信号接收回执（`POST /api/signal-track/command-receipt`）、每 tick 自动应用反馈（包含有效限速/MA 距离/约束来源）、统一反馈接口（`POST /api/dispatch/command-feedback`）。
 - FMU 服务已建立 Modelica 模型草案、HTTP JSON 批量步进接口和 Python fallback 运行路径；默认后端仍关闭外部 FMU 服务，使用 Java 降级模型保持可运行。
-- 前端仅建立 Vue 3 + TypeScript 工程骨架、API 封装目录、类型目录和组件/视图目录，不预置具体界面实现。
+- 前端已建立 Vue 3 + TypeScript 工程骨架、综合态势图、调度工作台、信号轨道调试面板、司机台等多视图。
 - 文档已给出成员任务入口、模块边界、Git 协作方式和接口契约。
 
 ## 静态线路数据入口
 
-后端默认从 `../config/line-demo.yaml` 和 `../config/power_third_rail.yaml` 读取演示线路与供电数据。接入电子地图工作簿时，修改 `backend/src/main/resources/application.yml` 中的这两个配置：
+后端默认从 `../config/line-m9.yaml` 和 `../config/power_third_rail.yaml` 读取北京地铁9号线真实数据与供电配置。也可切换为 `line-demo.yaml` 等其他演示线：
 
 ```yaml
 railway:
   simulation:
-    line-data-path: /absolute/path/to/线路数据.xls
+    line-data-path: ../config/line-m9.yaml
     power-config-path: ../config/power_third_rail.yaml
 ```
 
 当前适配层会：
 
-- 读取 `Seg表`、`静态限速表`、`坡度表`、`道岔表`、`车站表`、`站台表`、`信号机表`、`应答器表`、`进路表`
+- 读取区段、限速、坡度、道岔、车站/站台、信号机、应答器和进路
 - 完成 `cm -> m`、`cm/s -> m/s` 的单位转换
-- 过滤 `65535` 这类空值哨兵
-- 为当前 `TrainState.positionMeters` 标量模型生成线性投影
+- 过滤 `65535` 空值哨兵
+- 自动计算 forwardNeighbor/sideNeighbor 拓扑邻居关系
+- 支持 kmForwardMap（同轨公里标邻接图）用于上下行独立前向搜索
 
-这一步解决的是“系统可以接入原始线路工作簿”；后续如果要完整消费上下行、折返和分支图结构，需要在列车状态里引入显式路由和区段图定位，而不是只用单一标量里程。
+## 信号轨道 API 端点
+
+| 端点 | 方法 | 说明 |
+|------|------|------|
+| `/api/signal-track/routes` | GET | 当前所有进路状态 |
+| `/api/signal-track/route-events` | GET | 进路生命周期事件（状态迁移记录） |
+| `/api/signal-track/dispatch-publications` | GET | 信号侧已接收的调度计划发布记录 |
+| `/api/signal-track/dispatch-publications/latest` | GET | 最近一次调度计划发布 |
+| `/api/signal-track/faults` | GET/POST | 故障区段查询与注入 |
+| `/api/signal-track/command-receipt` | POST | 命令接收回执（反馈闭环） |
+| `/api/dispatch/commands` | GET/POST | 调度命令下发与查询 |
+| `/api/dispatch/command-feedback` | POST | 信号→调度统一反馈 |
+| `/api/dispatch/route/list` | GET | 可用进路模板查询 |
+| `/api/dispatch/signal-publications` | POST | 调度→信号发布发车计划 |
+
+详细设计见 [docs/信号轨道模块详细设计文档.md](docs/信号轨道模块详细设计文档.md)。
 
 ## 重要设计原则
 
