@@ -149,10 +149,21 @@ public class TrackService {
         }
 
         // Resolve each train onto one topology path before applying body occupancy.
+        double lineLength = infrastructureCatalog.lineData().lineLengthMeters();
+        List<OperationalLineData.StationDefinition> stationDefs = infrastructureCatalog.lineData().stations();
+        boolean hasStations = stationDefs != null && !stationDefs.isEmpty();
+        double firstStationPos = hasStations
+            ? stationDefs.stream().mapToDouble(s -> s.centerMeters()).min().orElse(0) : 0;
+        double lastStationPos = hasStations
+            ? stationDefs.stream().mapToDouble(s -> s.centerMeters()).max().orElse(lineLength) : lineLength;
         for (TrainState train : trains) {
-            // 终点站已停列车不再标记占用——后车可跟随进站
-            if (train.positionMeters() >= infrastructureCatalog.lineData().lineLengthMeters() - 10
-                && train.zeroSpeed()) {
+            // 终点站已停列车不再标记占用——后车可跟随进站/折返
+            boolean atTerminalStation = hasStations && train.zeroSpeed()
+                && (Math.abs(train.positionMeters() - firstStationPos) <= 120
+                    || Math.abs(train.positionMeters() - lastStationPos) <= 120);
+            boolean atLineEnd = !hasStations && train.zeroSpeed()
+                && train.positionMeters() >= lineLength - 10;
+            if (atTerminalStation || atLineEnd) {
                 continue;
             }
             double tail = train.positionMeters() - train.lengthMeters();
@@ -197,6 +208,16 @@ public class TrackService {
         previousTrainSegmentIds.remove(trainId);
     }
 
+    /** 根据位置和股道(up/down)显式绑定列车，避免并行股道里程重叠时 segmentAt 选错 */
+    public synchronized void assignTrainToTrack(String trainId, double positionMeters, String track) {
+        if (trainId == null || track == null) return;
+        segments.stream()
+            .filter(s -> positionMeters >= s.startMeters() && positionMeters < s.endMeters())
+            .filter(s -> track.equals(s.track()))
+            .findFirst()
+            .ifPresent(s -> assignTrainToSegment(trainId, s.id()));
+    }
+
     public synchronized TrackSegmentState segmentForTrain(TrainState train) {
         TrackSegmentState assigned = stateById(trainSegmentIds.get(train.id()));
         if (assigned != null && contains(assigned, train.positionMeters())) {
@@ -232,8 +253,22 @@ public class TrackService {
         if (assigned == null || candidates.isEmpty()) {
             return null;
         }
+        String assignedTrack = assigned.track() != null ? assigned.track() : "main";
         List<String> forward = forwardNeighborMap().getOrDefault(assigned.id(), List.of());
-        List<TrackSegmentState> reachable = candidates.stream().filter(segment -> forward.contains(segment.id())).toList();
+        // 只取前向邻居中与当前轨道相同的(up/down/main)，排除crossover异轨邻居
+        List<TrackSegmentState> reachable = candidates.stream()
+            .filter(segment -> forward.contains(segment.id()))
+            .filter(segment -> {
+                String segTrack = segment.track() != null ? segment.track() : "main";
+                return segTrack.equals(assignedTrack) || "main".equals(segTrack) || "main".equals(assignedTrack);
+            })
+            .toList();
+        if (reachable.isEmpty()) {
+            // 无同轨候选：可能在道岔分叉，允许异轨（如进车辆段）
+            reachable = candidates.stream()
+                .filter(segment -> forward.contains(segment.id()))
+                .toList();
+        }
         if (reachable.isEmpty()) {
             return null;
         }
@@ -242,7 +277,7 @@ public class TrackService {
             .collect(java.util.stream.Collectors.toSet());
         return reachable.stream()
             .min(Comparator.comparingInt((TrackSegmentState segment) -> activeSwitchSegments.contains(segment.id()) ? 0 : 1)
-                .thenComparingInt(segment -> assigned.track().equals(segment.track()) ? 0 : 1)
+                .thenComparingInt(segment -> assignedTrack.equals(segment.track()) ? 0 : 1)
                 .thenComparing(TrackSegmentState::id))
             .orElse(null);
     }
@@ -362,6 +397,22 @@ public class TrackService {
         Map<String, List<String>> map = new HashMap<>();
         for (OperationalLineData.TrackSegmentDefinition def : lineData.trackSegments()) {
             map.put(def.id(), def.forwardNeighborSegmentIds());
+        }
+        return map;
+    }
+
+    /** 同轨公里标递增前向邻居（不依赖 from→to 节点方向，上下行通用） */
+    public synchronized Map<String, List<String>> kmForwardMap() {
+        Map<String, List<String>> map = new HashMap<>();
+        for (TrackSegmentState seg : segments) {
+            String segTrack = seg.track() != null ? seg.track() : "main";
+            List<String> next = segments.stream()
+                .filter(o -> !o.id().equals(seg.id()))
+                .filter(o -> Math.abs(o.startMeters() - seg.endMeters()) < 0.1)
+                .filter(o -> segTrack.equals(o.track() != null ? o.track() : "main"))
+                .map(TrackSegmentState::id)
+                .toList();
+            map.put(seg.id(), next);
         }
         return map;
     }
@@ -516,7 +567,9 @@ public class TrackService {
      * 判断两个区间 [head, tail) 与 [segStart, segEnd) 是否有重叠。
      */
     private static boolean overlaps(double head, double tail, double segStart, double segEnd) {
-        return head > segStart && tail < segEnd;
+        // 列车车体 [tail, head] 与区段 [segStart, segEnd) 是否有重叠
+        // head=车头公里标, tail=车尾公里标(=head-length)
+        return tail < segEnd && head > segStart;
     }
 
     private TrackSegmentState fallbackSegment() {

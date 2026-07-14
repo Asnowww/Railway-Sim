@@ -16,8 +16,8 @@
 nominalVoltage: 1500
 minimumVoltage: 1000
 cutoffVoltage: 900
-maxTractionCurrentAmps: 3000
-overCurrentThresholdAmps: 3300
+maxTractionCurrentAmps: 12000
+overCurrentThresholdAmps: 13000
 currentToVoltageDrop: 0.03
 
 # ── 供电分区（5 个分区 x 上下行）────────────────────────
