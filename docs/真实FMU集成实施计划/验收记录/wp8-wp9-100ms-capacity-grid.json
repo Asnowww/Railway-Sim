@@ -1,0 +1,97 @@
+{
+  "testDate": "2026-07-14",
+  "environment": {
+    "host": "local Docker Desktop acceptance host",
+    "java": "25.0.2",
+    "fmuPlatform": "linux/amd64",
+    "fmuShardCount": 10,
+    "fmuSubstepMillis": 20,
+    "tcmsPeriodMillis": 100
+  },
+  "fullChain": {
+    "criterion": "centralTotal.p95Millis <= 100",
+    "comparisonCommit": "75eab40",
+    "baselineMethod": "reverse the measured full-chain optimizations in an isolated detached worktree while retaining timing instrumentation",
+    "coarseGrid": {
+      "beforeOptimization": [
+        {"trainCount": 20, "sampleTicks": 30, "centralP95Millis": 65.977, "passed": true},
+        {"trainCount": 40, "sampleTicks": 30, "centralP95Millis": 82.355, "passed": true},
+        {"trainCount": 60, "sampleTicks": 30, "centralP95Millis": 110.626, "passed": false},
+        {"trainCount": 80, "sampleTicks": 30, "centralP95Millis": 123.793, "passed": false},
+        {"trainCount": 100, "sampleTicks": 30, "centralP95Millis": 145.962, "passed": false}
+      ],
+      "afterOptimization": [
+        {"trainCount": 100, "sampleTicks": 30, "centralP95Millis": 73.205, "passed": true},
+        {"trainCount": 150, "sampleTicks": 30, "centralP95Millis": 86.997, "passed": true},
+        {"trainCount": 160, "sampleTicks": 40, "centralP95Millis": 91.877, "passed": true},
+        {"trainCount": 170, "sampleTicks": 40, "centralP95Millis": 86.485, "passed": true},
+        {"trainCount": 180, "sampleTicks": 40, "centralP95Millis": 96.595, "passed": true},
+        {"trainCount": 190, "sampleTicks": 40, "centralP95Millis": 98.257, "passed": true},
+        {"trainCount": 200, "sampleTicks": 30, "centralP95Millis": 101.432, "passed": false},
+        {"trainCount": 250, "sampleTicks": 30, "centralP95Millis": 113.964, "passed": false},
+        {"trainCount": 300, "sampleTicks": 30, "centralP95Millis": 129.926, "passed": false}
+      ]
+    },
+    "samplePolicy": {
+      "warmupTicks": 10,
+      "sampleTicks": 100
+    },
+    "beforeOptimization": {
+      "observedMaximumPassingTrainCountIn100SampleBoundaryGrid": 56,
+      "nextTrainCount": 57,
+      "nextTrainCountPassed": false,
+      "points": [
+        {"trainCount": 50, "centralP50Millis": 68.933, "centralP95Millis": 122.096, "centralMaxMillis": 202.626, "httpP95Millis": 127.504, "vehicleRuntimeP95Millis": 36.917, "passed": false},
+        {"trainCount": 51, "centralP50Millis": 67.561, "centralP95Millis": 99.423, "centralMaxMillis": 263.632, "httpP95Millis": 108.590, "vehicleRuntimeP95Millis": 33.911, "passed": true},
+        {"trainCount": 52, "centralP50Millis": 77.686, "centralP95Millis": 108.430, "centralMaxMillis": 226.768, "httpP95Millis": 115.390, "vehicleRuntimeP95Millis": 43.488, "passed": false},
+        {"trainCount": 53, "centralP50Millis": 80.907, "centralP95Millis": 108.004, "centralMaxMillis": 215.572, "httpP95Millis": 117.874, "vehicleRuntimeP95Millis": 38.444, "passed": false},
+        {"trainCount": 54, "centralP50Millis": 70.517, "centralP95Millis": 102.518, "centralMaxMillis": 216.389, "httpP95Millis": 109.150, "vehicleRuntimeP95Millis": 36.477, "passed": false},
+        {"trainCount": 55, "centralP50Millis": 71.731, "centralP95Millis": 105.516, "centralMaxMillis": 260.791, "httpP95Millis": 113.111, "vehicleRuntimeP95Millis": 35.238, "passed": false},
+        {"trainCount": 56, "centralP50Millis": 71.359, "centralP95Millis": 99.111, "centralMaxMillis": 218.165, "httpP95Millis": 106.618, "vehicleRuntimeP95Millis": 35.482, "passed": true},
+        {"trainCount": 57, "centralP50Millis": 71.160, "centralP95Millis": 105.915, "centralMaxMillis": 210.840, "httpP95Millis": 112.432, "vehicleRuntimeP95Millis": 37.846, "passed": false},
+        {"trainCount": 58, "centralP50Millis": 79.031, "centralP95Millis": 111.041, "centralMaxMillis": 267.804, "httpP95Millis": 119.373, "vehicleRuntimeP95Millis": 36.815, "passed": false},
+        {"trainCount": 59, "centralP50Millis": 73.163, "centralP95Millis": 108.715, "centralMaxMillis": 226.884, "httpP95Millis": 115.236, "vehicleRuntimeP95Millis": 34.882, "passed": false},
+        {"trainCount": 60, "centralP50Millis": 73.264, "centralP95Millis": 105.062, "centralMaxMillis": 228.799, "httpP95Millis": 111.360, "vehicleRuntimeP95Millis": 41.008, "passed": false}
+      ]
+    },
+    "afterOptimization": {
+      "observedMaximumPassingTrainCountIn100SampleBoundaryGrid": 173,
+      "nextTrainCount": 174,
+      "nextTrainCountPassed": false,
+      "points": [
+        {"trainCount": 170, "centralP50Millis": 73.118, "centralP95Millis": 95.568, "centralMaxMillis": 611.694, "httpP95Millis": 103.623, "vehicleRuntimeP95Millis": 51.020, "passed": true},
+        {"trainCount": 171, "centralP50Millis": 74.361, "centralP95Millis": 99.231, "centralMaxMillis": 610.922, "httpP95Millis": 107.120, "vehicleRuntimeP95Millis": 52.417, "passed": true},
+        {"trainCount": 172, "centralP50Millis": 74.517, "centralP95Millis": 98.061, "centralMaxMillis": 609.317, "httpP95Millis": 105.792, "vehicleRuntimeP95Millis": 52.415, "passed": true},
+        {"trainCount": 173, "centralP50Millis": 75.479, "centralP95Millis": 97.406, "centralMaxMillis": 612.886, "httpP95Millis": 106.744, "vehicleRuntimeP95Millis": 52.457, "passed": true},
+        {"trainCount": 174, "centralP50Millis": 75.447, "centralP95Millis": 102.948, "centralMaxMillis": 627.731, "httpP95Millis": 112.381, "vehicleRuntimeP95Millis": 52.768, "passed": false},
+        {"trainCount": 175, "centralP50Millis": 75.974, "centralP95Millis": 101.379, "centralMaxMillis": 692.117, "httpP95Millis": 109.437, "vehicleRuntimeP95Millis": 54.775, "passed": false}
+      ]
+    },
+    "observedCapacityChange": {
+      "additionalTrains": 117,
+      "ratio": 3.089
+    }
+  },
+  "vehicleFmuCommunication": {
+    "criterion": "vehicleRuntimeMillis.p95 <= 100 and fmuBatchMillis.p95 <= 100 with no fallback or FMI error",
+    "samplePolicy": {
+      "warmupTicks": 5,
+      "sampleTicks": 100,
+      "exception": "the 700-train exploratory point used 50 samples"
+    },
+    "observedMaximumPassingTrainCount": 782,
+    "nextTrainCount": 783,
+    "nextTrainCountPassed": false,
+    "points": [
+      {"trainCount": 700, "sampleTicks": 50, "runtimeMedianMillis": 73.0, "runtimeP95Millis": 84.0, "fmuP95Millis": 81.0, "httpP95Millis": 125.018, "passed": true},
+      {"trainCount": 750, "sampleTicks": 100, "runtimeMedianMillis": 76.0, "runtimeP95Millis": 96.0, "fmuP95Millis": 94.0, "httpP95Millis": 138.114, "passed": true},
+      {"trainCount": 760, "sampleTicks": 100, "runtimeMedianMillis": 76.0, "runtimeP95Millis": 96.0, "fmuP95Millis": 94.0, "httpP95Millis": 141.158, "passed": true},
+      {"trainCount": 770, "sampleTicks": 100, "runtimeMedianMillis": 79.0, "runtimeP95Millis": 93.0, "fmuP95Millis": 90.0, "httpP95Millis": 139.441, "passed": true},
+      {"trainCount": 780, "sampleTicks": 100, "runtimeMedianMillis": 81.0, "runtimeP95Millis": 97.0, "fmuP95Millis": 95.0, "httpP95Millis": 141.857, "passed": true},
+      {"trainCount": 782, "sampleTicks": 100, "runtimeMedianMillis": 83.5, "runtimeP95Millis": 100.0, "fmuP95Millis": 97.0, "httpP95Millis": 149.189, "passed": true},
+      {"trainCount": 783, "sampleTicks": 100, "runtimeMedianMillis": 83.0, "runtimeP95Millis": 108.0, "fmuP95Millis": 106.0, "httpP95Millis": 167.328, "passed": false},
+      {"trainCount": 790, "sampleTicks": 100, "runtimeMedianMillis": 84.0, "runtimeP95Millis": 107.0, "fmuP95Millis": 105.0, "httpP95Millis": 155.552, "passed": false},
+      {"trainCount": 800, "sampleTicks": 100, "runtimeMedianMillis": 80.0, "runtimeP95Millis": 103.0, "fmuP95Millis": 100.0, "httpP95Millis": 150.987, "passed": false}
+    ]
+  }
+}
