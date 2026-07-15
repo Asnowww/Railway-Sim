@@ -1,18 +1,25 @@
-# 北京地铁9号线（郭公庄—国家图书馆）真实线路数据
-# 由 scripts/convert_m9_xlsx.py 从《视景系统公里标最新数据+站台位置20260703.xlsx》生成，勿手改
-# 上行 13 边 / 下行 12 边 / 13 站 / 全线 16489.02m
+# 北京地铁9号线（郭公庄—国家图书馆）真实线路数据 — 环线里程（loop-km）版
+# 数据源自《视景系统公里标最新数据+站台位置20260703.xlsx》（scripts/convert_m9_xlsx.py），
+# down 侧由 scripts/fold_m9_loop.py 换算生成，勿手改数值。
+#
+# 环线里程约定（引擎只支持里程递增行驶，双线折叠成一条 0→2L 的单调里程轴）：
+#   - up 股道：loop_km = geo_km，范围 [0, L]，L=16489.02（郭公庄=0 → 国图=L）
+#   - down 股道：loop_km = 2L - geo_km，范围 [L, 2L]（国图=L → 郭公庄=2L=32978.04）
+#   - down 行车方向（国图→郭公庄）= loop_km 递增；D47 为下行第一段，D03 为最后一段
+#   - 中间站拆为两个点：S1xx=up 侧，S2xx=down 侧（同名车站，前端折叠后只显示一个站名）
+#   - 前端 LineDiagram 将 loop_km > L 的部分折叠回顶部车道（显示 geo = 2L - loop_km）
+# 上行 24 段 / 下行 23 段 / 上行 13 站 + 下行 13 站
 # 约定：track=up 对应 Track1/上行视景边表；track=down 对应 Track0/下行视景边表
-# raw_segment_id = 视景系统 UDP 边号（segNo）
-# 注意：下行股道公里标与上行同源（郭公庄端为 0），下行行车方向为里程递减；
-#       现阶段动车运行在上行股道验证，下行股道用于态势展示/视景映射/折返拓扑。
+# raw_segment_id = 视景系统 UDP 边号（segNo）；视景对接时 down 段需换算回 geo_km
 
 line:
   id: m9
   name: 北京地铁9号线
-  length_meters: 16489.02
+  length_meters: 32978.04
   default_speed_limit_meters_per_second: 22.2
 
 stations:
+  # ===== up 侧车站（loop_km = geo_km） =====
   - id: S101
     name: 郭公庄站
     position_meters: 372.0
@@ -22,11 +29,6 @@ stations:
         stop_left_meters: 313.0
         stop_right_meters: 431.0
         side: left
-      - track: down
-        center_meters: 372.0
-        stop_left_meters: 313.0
-        stop_right_meters: 431.0
-        side: right
   - id: S102
     name: 丰台科技园站
     position_meters: 1724.14
@@ -36,11 +38,6 @@ stations:
         stop_left_meters: 1665.14
         stop_right_meters: 1783.14
         side: right
-      - track: down
-        center_meters: 1719.52
-        stop_left_meters: 1660.52
-        stop_right_meters: 1778.52
-        side: left
   - id: S103
     name: 科怡路站
     position_meters: 2512.677
@@ -50,11 +47,6 @@ stations:
         stop_left_meters: 2453.677
         stop_right_meters: 2571.677
         side: right
-      - track: down
-        center_meters: 2507.61
-        stop_left_meters: 2448.61
-        stop_right_meters: 2566.61
-        side: left
   - id: S104
     name: 丰台南路站
     position_meters: 3491.832
@@ -64,11 +56,6 @@ stations:
         stop_left_meters: 3432.832
         stop_right_meters: 3550.832
         side: right
-      - track: down
-        center_meters: 3488.32
-        stop_left_meters: 3429.32
-        stop_right_meters: 3547.32
-        side: left
   - id: S105
     name: 丰台东大街站
     position_meters: 5079.5146
@@ -78,11 +65,6 @@ stations:
         stop_left_meters: 5020.5146
         stop_right_meters: 5138.5146
         side: right
-      - track: down
-        center_meters: 5074.834
-        stop_left_meters: 5015.834
-        stop_right_meters: 5133.834
-        side: left
   - id: S106
     name: 七里庄站
     position_meters: 6405.27
@@ -92,11 +74,6 @@ stations:
         stop_left_meters: 6346.27
         stop_right_meters: 6464.27
         side: right
-      - track: down
-        center_meters: 6400.274
-        stop_left_meters: 6341.274
-        stop_right_meters: 6459.274
-        side: left
   - id: S107
     name: 六里桥站
     position_meters: 8199.103
@@ -106,11 +83,6 @@ stations:
         stop_left_meters: 8140.103
         stop_right_meters: 8258.103
         side: left
-      - track: down
-        center_meters: 8179.204
-        stop_left_meters: 8120.204
-        stop_right_meters: 8238.204
-        side: right
   - id: S108
     name: 六里桥东站
     position_meters: 9508.30248
@@ -120,11 +92,6 @@ stations:
         stop_left_meters: 9449.30248
         stop_right_meters: 9567.30248
         side: right
-      - track: down
-        center_meters: 9488.344
-        stop_left_meters: 9429.344
-        stop_right_meters: 9547.344
-        side: left
   - id: S109
     name: 北京西站
     position_meters: 10656.17848
@@ -134,11 +101,6 @@ stations:
         stop_left_meters: 10597.17848
         stop_right_meters: 10715.17848
         side: right
-      - track: down
-        center_meters: 10659.11378
-        stop_left_meters: 10600.11378
-        stop_right_meters: 10718.11378
-        side: left
   - id: S110
     name: 军事博物馆站
     position_meters: 12057.87933
@@ -148,11 +110,6 @@ stations:
         stop_left_meters: 11998.87933
         stop_right_meters: 12116.87933
         side: right
-      - track: down
-        center_meters: 12058.07
-        stop_left_meters: 11999.07
-        stop_right_meters: 12117.07
-        side: left
   - id: S111
     name: 白堆子站
     position_meters: 13967.68649
@@ -162,11 +119,6 @@ stations:
         stop_left_meters: 13908.68649
         stop_right_meters: 14026.68649
         side: right
-      - track: down
-        center_meters: 13970.28014
-        stop_left_meters: 13911.28014
-        stop_right_meters: 14029.28014
-        side: left
   - id: S112
     name: 白石桥南站
     position_meters: 15012.51349
@@ -176,11 +128,6 @@ stations:
         stop_left_meters: 14953.51349
         stop_right_meters: 15071.51349
         side: right
-      - track: down
-        center_meters: 15013.91
-        stop_left_meters: 14954.91
-        stop_right_meters: 15072.91
-        side: left
   - id: S113
     name: 国家图书馆站
     position_meters: 16105.57149
@@ -190,10 +137,123 @@ stations:
         stop_left_meters: 16046.57149
         stop_right_meters: 16164.57149
         side: left
+  # ===== down 侧车站（loop_km = 2L - geo_km，行车序 S213→S201） =====
+  - id: S213
+    name: 国家图书馆站
+    position_meters: 16868.02034
+    platforms:
       - track: down
-        center_meters: 16110.01966
-        stop_left_meters: 16051.01966
-        stop_right_meters: 16169.01966
+        center_meters: 16868.02034
+        stop_left_meters: 16809.02034
+        stop_right_meters: 16927.02034
+        side: right
+  - id: S212
+    name: 白石桥南站
+    position_meters: 17964.13
+    platforms:
+      - track: down
+        center_meters: 17964.13
+        stop_left_meters: 17905.13
+        stop_right_meters: 18023.13
+        side: left
+  - id: S211
+    name: 白堆子站
+    position_meters: 19007.75986
+    platforms:
+      - track: down
+        center_meters: 19007.75986
+        stop_left_meters: 18948.75986
+        stop_right_meters: 19066.75986
+        side: left
+  - id: S210
+    name: 军事博物馆站
+    position_meters: 20919.97
+    platforms:
+      - track: down
+        center_meters: 20919.97
+        stop_left_meters: 20860.97
+        stop_right_meters: 20978.97
+        side: left
+  - id: S209
+    name: 北京西站
+    position_meters: 22318.92622
+    platforms:
+      - track: down
+        center_meters: 22318.92622
+        stop_left_meters: 22259.92622
+        stop_right_meters: 22377.92622
+        side: left
+  - id: S208
+    name: 六里桥东站
+    position_meters: 23489.696
+    platforms:
+      - track: down
+        center_meters: 23489.696
+        stop_left_meters: 23430.696
+        stop_right_meters: 23548.696
+        side: left
+  - id: S207
+    name: 六里桥站
+    position_meters: 24798.836
+    platforms:
+      - track: down
+        center_meters: 24798.836
+        stop_left_meters: 24739.836
+        stop_right_meters: 24857.836
+        side: right
+  - id: S206
+    name: 七里庄站
+    position_meters: 26577.766
+    platforms:
+      - track: down
+        center_meters: 26577.766
+        stop_left_meters: 26518.766
+        stop_right_meters: 26636.766
+        side: left
+  - id: S205
+    name: 丰台东大街站
+    position_meters: 27903.206
+    platforms:
+      - track: down
+        center_meters: 27903.206
+        stop_left_meters: 27844.206
+        stop_right_meters: 27962.206
+        side: left
+  - id: S204
+    name: 丰台南路站
+    position_meters: 29489.72
+    platforms:
+      - track: down
+        center_meters: 29489.72
+        stop_left_meters: 29430.72
+        stop_right_meters: 29548.72
+        side: left
+  - id: S203
+    name: 科怡路站
+    position_meters: 30470.43
+    platforms:
+      - track: down
+        center_meters: 30470.43
+        stop_left_meters: 30411.43
+        stop_right_meters: 30529.43
+        side: left
+  - id: S202
+    name: 丰台科技园站
+    position_meters: 31258.52
+    platforms:
+      - track: down
+        center_meters: 31258.52
+        stop_left_meters: 31199.52
+        stop_right_meters: 31317.52
+        side: left
+  - id: S201
+    name: 郭公庄站
+    position_meters: 32606.04
+    platforms:
+      - track: down
+        center_meters: 32606.04
+        stop_left_meters: 32547.04
+        stop_right_meters: 32665.04
         side: right
 
 nodes:
@@ -297,7 +357,7 @@ nodes:
     name: NU10s13（站间划分点）
 
 segments:
-  # ===== 上行（郭公庄→国家图书馆，里程递增） =====
+  # ===== 上行（郭公庄→国家图书馆，loop_km = geo_km 递增） =====
   - id: U02
     from: NU00
     to: NU01
@@ -505,170 +565,29 @@ segments:
     raw_segment_id: 48
     speed_limit_meters_per_second: 22.2
     track: up
-  # ===== 下行（国家图书馆→郭公庄，行车方向=里程递减） =====
-  # from/to 按行车方向（高里程节点→低里程节点），保证进路 axle 链连通性校验通过；
-  # start/end_meters 仍为升序数值（引擎 1D 投影约定 start<end）。
-  - id: D03
-    from: ND01
-    to: ND00
-    start_meters: 0.0
-    end_meters: 215.49
-    raw_segment_id: 3
+  # ===== 下行（国家图书馆→郭公庄，loop_km = 2L - geo_km，行车方向=递增） =====
+  # 由 scripts/fold_m9_loop.py 生成；区段 ID 按行车链（R_DOWN axle 顺序）映射到升序区间
+  - id: D47
+    from: ND12
+    to: ND11
+    start_meters: 16493.46851
+    end_meters: 16707.27851
+    raw_segment_id: 47
     speed_limit_meters_per_second: 22.2
     track: down
-  - id: D04
-    from: ND02
-    to: ND01
-    start_meters: 215.49
-    end_meters: 232.81
-    raw_segment_id: 4
+  - id: D43
+    from: ND11
+    to: ND10
+    start_meters: 16707.27851
+    end_meters: 16774.65851
+    raw_segment_id: 43
     speed_limit_meters_per_second: 22.2
     track: down
-  - id: D07
-    from: ND03
-    to: ND02
-    start_meters: 232.81
-    end_meters: 300.19
-    raw_segment_id: 7
-    speed_limit_meters_per_second: 22.2
-    track: down
-  - id: D11
-    from: ND04
-    to: ND03
-    start_meters: 300.19
-    end_meters: 443.81
-    raw_segment_id: 11
-    speed_limit_meters_per_second: 22.2
-    track: down
-  - id: D14
-    from: ND05
-    to: ND04
-    start_meters: 443.81
-    end_meters: 511.19
-    raw_segment_id: 14
-    speed_limit_meters_per_second: 22.2
-    track: down
-  - id: D17a
-    from: ND06
-    to: ND06s2
-    start_meters: 511.19
-    end_meters: 1719.52
-    raw_segment_id: 0
-    speed_limit_meters_per_second: 22.2
-    track: down
-
-  - id: D17b
-    from: ND06s2
-    to: ND06s3
-    start_meters: 1719.52
-    end_meters: 2507.61
-    raw_segment_id: 0
-    speed_limit_meters_per_second: 22.2
-    track: down
-
-  - id: D17c
-    from: ND06s3
-    to: ND06s4
-    start_meters: 2507.61
-    end_meters: 3488.32
-    raw_segment_id: 0
-    speed_limit_meters_per_second: 22.2
-    track: down
-
-  - id: D17d
-    from: ND06s4
-    to: ND05
-    start_meters: 3488.32
-    end_meters: 5274.8396
-    raw_segment_id: 0
-    speed_limit_meters_per_second: 22.2
-    track: down
-
-  - id: D21a
-    from: ND07
-    to: ND07s6
-    start_meters: 5274.8396
-    end_meters: 6400.274
-    raw_segment_id: 0
-    speed_limit_meters_per_second: 22.2
-    track: down
-
-  - id: D21b
-    from: ND07s6
-    to: ND07s7
-    start_meters: 6400.274
-    end_meters: 8179.204
-    raw_segment_id: 0
-    speed_limit_meters_per_second: 22.2
-    track: down
-
-  - id: D21c
-    from: ND07s7
-    to: ND06
-    start_meters: 8179.204
-    end_meters: 8346.083
-    raw_segment_id: 0
-    speed_limit_meters_per_second: 22.2
-    track: down
-
-  - id: D24
-    from: ND08
-    to: ND07
-    start_meters: 8346.083
-    end_meters: 8687.02908
-    raw_segment_id: 24
-    speed_limit_meters_per_second: 22.2
-    track: down
-  - id: D28a
-    from: ND09
-    to: ND09s8
-    start_meters: 8687.02908
-    end_meters: 9488.344
-    raw_segment_id: 0
-    speed_limit_meters_per_second: 22.2
-    track: down
-
-  - id: D28b
-    from: ND09s8
-    to: ND09s9
-    start_meters: 9488.344
-    end_meters: 10659.11378
-    raw_segment_id: 0
-    speed_limit_meters_per_second: 22.2
-    track: down
-
-  - id: D28c
-    from: ND09s9
-    to: ND09s10
-    start_meters: 10659.11378
-    end_meters: 12058.07
-    raw_segment_id: 0
-    speed_limit_meters_per_second: 22.2
-    track: down
-
-  - id: D28d
-    from: ND09s10
-    to: ND09s11
-    start_meters: 12058.07
-    end_meters: 13970.28014
-    raw_segment_id: 0
-    speed_limit_meters_per_second: 22.2
-    track: down
-
-  - id: D28e
-    from: ND09s11
-    to: ND08
-    start_meters: 13970.28014
-    end_meters: 14039.49649
-    raw_segment_id: 0
-    speed_limit_meters_per_second: 22.2
-    track: down
-
   - id: D36a
     from: ND10
     to: ND10s12
-    start_meters: 14039.49649
-    end_meters: 15013.91
+    start_meters: 16774.65851
+    end_meters: 16868.02034
     raw_segment_id: 0
     speed_limit_meters_per_second: 22.2
     track: down
@@ -676,8 +595,8 @@ segments:
   - id: D36b
     from: ND10s12
     to: ND10s13
-    start_meters: 15013.91
-    end_meters: 16110.01966
+    start_meters: 16868.02034
+    end_meters: 17964.13
     raw_segment_id: 0
     speed_limit_meters_per_second: 22.2
     track: down
@@ -685,30 +604,171 @@ segments:
   - id: D36c
     from: ND10s13
     to: ND09
-    start_meters: 16110.01966
-    end_meters: 16203.38149
+    start_meters: 17964.13
+    end_meters: 18938.54351
     raw_segment_id: 0
     speed_limit_meters_per_second: 22.2
     track: down
 
-  - id: D43
-    from: ND11
-    to: ND10
-    start_meters: 16203.38149
-    end_meters: 16270.76149
-    raw_segment_id: 43
+  - id: D28a
+    from: ND09
+    to: ND09s8
+    start_meters: 18938.54351
+    end_meters: 19007.75986
+    raw_segment_id: 0
     speed_limit_meters_per_second: 22.2
     track: down
-  - id: D47
-    from: ND12
-    to: ND11
-    start_meters: 16270.76149
-    end_meters: 16484.57149
-    raw_segment_id: 47
+
+  - id: D28b
+    from: ND09s8
+    to: ND09s9
+    start_meters: 19007.75986
+    end_meters: 20919.97
+    raw_segment_id: 0
+    speed_limit_meters_per_second: 22.2
+    track: down
+
+  - id: D28c
+    from: ND09s9
+    to: ND09s10
+    start_meters: 20919.97
+    end_meters: 22318.92622
+    raw_segment_id: 0
+    speed_limit_meters_per_second: 22.2
+    track: down
+
+  - id: D28d
+    from: ND09s10
+    to: ND09s11
+    start_meters: 22318.92622
+    end_meters: 23489.696
+    raw_segment_id: 0
+    speed_limit_meters_per_second: 22.2
+    track: down
+
+  - id: D28e
+    from: ND09s11
+    to: ND08
+    start_meters: 23489.696
+    end_meters: 24291.01092
+    raw_segment_id: 0
+    speed_limit_meters_per_second: 22.2
+    track: down
+
+  - id: D24
+    from: ND08
+    to: ND07
+    start_meters: 24291.01092
+    end_meters: 24631.957
+    raw_segment_id: 24
+    speed_limit_meters_per_second: 22.2
+    track: down
+  - id: D21a
+    from: ND07
+    to: ND07s6
+    start_meters: 24631.957
+    end_meters: 24798.836
+    raw_segment_id: 0
+    speed_limit_meters_per_second: 22.2
+    track: down
+
+  - id: D21b
+    from: ND07s6
+    to: ND07s7
+    start_meters: 24798.836
+    end_meters: 26577.766
+    raw_segment_id: 0
+    speed_limit_meters_per_second: 22.2
+    track: down
+
+  - id: D21c
+    from: ND07s7
+    to: ND06
+    start_meters: 26577.766
+    end_meters: 27703.2004
+    raw_segment_id: 0
+    speed_limit_meters_per_second: 22.2
+    track: down
+
+  - id: D17a
+    from: ND06
+    to: ND06s2
+    start_meters: 27703.2004
+    end_meters: 29489.72
+    raw_segment_id: 0
+    speed_limit_meters_per_second: 22.2
+    track: down
+
+  - id: D17b
+    from: ND06s2
+    to: ND06s3
+    start_meters: 29489.72
+    end_meters: 30470.43
+    raw_segment_id: 0
+    speed_limit_meters_per_second: 22.2
+    track: down
+
+  - id: D17c
+    from: ND06s3
+    to: ND06s4
+    start_meters: 30470.43
+    end_meters: 31258.52
+    raw_segment_id: 0
+    speed_limit_meters_per_second: 22.2
+    track: down
+
+  - id: D17d
+    from: ND06s4
+    to: ND05
+    start_meters: 31258.52
+    end_meters: 32466.85
+    raw_segment_id: 0
+    speed_limit_meters_per_second: 22.2
+    track: down
+
+  - id: D14
+    from: ND05
+    to: ND04
+    start_meters: 32466.85
+    end_meters: 32534.23
+    raw_segment_id: 14
+    speed_limit_meters_per_second: 22.2
+    track: down
+  - id: D11
+    from: ND04
+    to: ND03
+    start_meters: 32534.23
+    end_meters: 32677.85
+    raw_segment_id: 11
+    speed_limit_meters_per_second: 22.2
+    track: down
+  - id: D07
+    from: ND03
+    to: ND02
+    start_meters: 32677.85
+    end_meters: 32745.23
+    raw_segment_id: 7
+    speed_limit_meters_per_second: 22.2
+    track: down
+  - id: D04
+    from: ND02
+    to: ND01
+    start_meters: 32745.23
+    end_meters: 32762.55
+    raw_segment_id: 4
+    speed_limit_meters_per_second: 22.2
+    track: down
+  - id: D03
+    from: ND01
+    to: ND00
+    start_meters: 32762.55
+    end_meters: 32978.04
+    raw_segment_id: 3
     speed_limit_meters_per_second: 22.2
     track: down
   # ===== 折返渡线（虚拟段）=====
-  # 郭公庄端：下行到达(ND00)→上行出发(NU00)；国图端：上行到达(NU_last)→下行出发(ND_last)
+  # 国图端：上行到达(NU13, loop 16489.02)→下行出发(ND12, loop 16493.47)——XLIB 正好填缝
+  # 郭公庄端：下行到达(ND00, loop 32978.04)→上行出发(NU00, loop 0)——XGGZ 里程仅装饰（回绕）
   - id: XGGZ
     from: ND00
     to: NU00
@@ -719,8 +779,8 @@ segments:
   - id: XLIB
     from: NU13
     to: ND12
-    start_meters: 16464.02
-    end_meters: 16489.02
+    start_meters: 16489.02
+    end_meters: 16493.46851
     speed_limit_meters_per_second: 8.3
     track: crossover
 
@@ -802,66 +862,67 @@ signals:
     position_meters: 16280.21
     direction: FORWARD
     segment_id: U48
-  - id: SIG-D03
-    name: D03入口
-    position_meters: 5.00
-    direction: FORWARD
-    segment_id: D03
-  - id: SIG-D04
-    name: D04入口
-    position_meters: 220.49
-    direction: FORWARD
-    segment_id: D04
-  - id: SIG-D07
-    name: D07入口
-    position_meters: 237.81
-    direction: FORWARD
-    segment_id: D07
-  - id: SIG-D11
-    name: D11入口
-    position_meters: 305.19
-    direction: FORWARD
-    segment_id: D11
-  - id: SIG-D14
-    name: D14入口
-    position_meters: 448.81
-    direction: FORWARD
-    segment_id: D14
-  - id: SIG-D17
-    name: D17入口
-    position_meters: 516.19
-    direction: FORWARD
-    segment_id: D17a
-  - id: SIG-D21
-    name: D21入口
-    position_meters: 5279.84
-    direction: FORWARD
-    segment_id: D21a
-  - id: SIG-D24
-    name: D24入口
-    position_meters: 8351.08
-    direction: FORWARD
-    segment_id: D24
-  - id: SIG-D28
-    name: D28入口
-    position_meters: 8692.03
-    direction: FORWARD
-    segment_id: D28a
-  - id: SIG-D36
-    name: D36入口
-    position_meters: 14044.50
-    direction: FORWARD
-    segment_id: D36a
-  - id: SIG-D43
-    name: D43入口
-    position_meters: 16208.38
-    direction: FORWARD
-    segment_id: D43
+  # down 信号：loop_start + 5m（scripts/fold_m9_loop.py 生成）
   - id: SIG-D47
     name: D47入口
-    position_meters: 16275.76
+    position_meters: 16498.46851
     direction: FORWARD
     segment_id: D47
+  - id: SIG-D43
+    name: D43入口
+    position_meters: 16712.27851
+    direction: FORWARD
+    segment_id: D43
+  - id: SIG-D36
+    name: D36入口
+    position_meters: 16779.65851
+    direction: FORWARD
+    segment_id: D36a
+  - id: SIG-D28
+    name: D28入口
+    position_meters: 18943.54351
+    direction: FORWARD
+    segment_id: D28a
+  - id: SIG-D24
+    name: D24入口
+    position_meters: 24296.01092
+    direction: FORWARD
+    segment_id: D24
+  - id: SIG-D21
+    name: D21入口
+    position_meters: 24636.957
+    direction: FORWARD
+    segment_id: D21a
+  - id: SIG-D17
+    name: D17入口
+    position_meters: 27708.2004
+    direction: FORWARD
+    segment_id: D17a
+  - id: SIG-D14
+    name: D14入口
+    position_meters: 32471.85
+    direction: FORWARD
+    segment_id: D14
+  - id: SIG-D11
+    name: D11入口
+    position_meters: 32539.23
+    direction: FORWARD
+    segment_id: D11
+  - id: SIG-D07
+    name: D07入口
+    position_meters: 32682.85
+    direction: FORWARD
+    segment_id: D07
+  - id: SIG-D04
+    name: D04入口
+    position_meters: 32750.23
+    direction: FORWARD
+    segment_id: D04
+  - id: SIG-D03
+    name: D03入口
+    position_meters: 32767.55
+    direction: FORWARD
+    segment_id: D03
   - id: SIG-XGGZ
     name: XGGZ入口
     position_meters: 5.00
@@ -869,7 +930,7 @@ signals:
     segment_id: XGGZ
   - id: SIG-XLIB
     name: XLIB入口
-    position_meters: 16469.02
+    position_meters: 16490.02
     direction: FORWARD
     segment_id: XLIB
 

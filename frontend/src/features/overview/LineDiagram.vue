@@ -72,25 +72,69 @@ const TOP_PAD = 50
 /** 渡线股道标签：不占车道，画为跨车道斜线 */
 const CROSSOVER_TRACK = 'crossover'
 
-const lineLength = computed(() => {
+/**
+ * 环线里程折叠：后端把双线展开成一条 0→2L 的单调里程轴（up=[0,L]，down=[L,2L]，
+ * loop = 2L - geo）。显示时把 >L 的部分折回 [0,L]（down 车道从右往左）。
+ * - foldKm：折叠点 L = 主车道（覆盖里程最长的股道）max endMeters
+ * - totalKm：全部区段 max endMeters（环线=2L；单线=L，此时折叠为恒等映射）
+ */
+const totalKm = computed(() => {
   const ends = props.segments.map((segment) => segment.endMeters)
   return Math.max(1, ...ends)
 })
 
+const foldKm = computed(() => {
+  let best = 1
+  const byTrack = new Map<string, number>()
+  props.segments.forEach((segment) => {
+    const track = segment.track || 'MAIN'
+    if (track === CROSSOVER_TRACK) return
+    byTrack.set(track, Math.max(byTrack.get(track) ?? 0, segment.endMeters))
+  })
+  let bestCoverage = -1
+  const coverage = new Map<string, number>()
+  props.segments.forEach((segment) => {
+    const track = segment.track || 'MAIN'
+    if (track === CROSSOVER_TRACK) return
+    coverage.set(track, (coverage.get(track) ?? 0) + (segment.endMeters - segment.startMeters))
+  })
+  coverage.forEach((length, track) => {
+    if (length > bestCoverage) {
+      bestCoverage = length
+      best = byTrack.get(track) ?? 1
+    }
+  })
+  return Math.max(1, best)
+})
+
+/** 环线里程 → 显示里程（geo）：折叠点以内恒等，以外镜像折回 */
+function geoKm(mileage: number): number {
+  if (mileage <= foldKm.value) return Math.max(0, mileage)
+  return Math.min(Math.max(totalKm.value - mileage, 0), foldKm.value)
+}
+
+const lineLength = foldKm
+
 /**
- * 里程 → x 投影。
+ * 里程 → x 投影（输入可为环线里程，内部先折叠回显示里程）。
  * - proportional：真实里程线性比例（工程视角）
  * - even（默认）：车站锚点均匀分布、锚点间分段线性（示意图视角，
  *   16.5km 全线站间距悬殊时保证站名不重叠——参考地铁线路图习惯）
  */
 const evenAnchors = computed(() => {
-  const centers = [...new Set(props.stations.map((station) => station.centerMeters))].sort((a, b) => a - b)
+  const centers = [
+    ...new Set(
+      props.stations
+        .filter((station) => station.centerMeters <= foldKm.value)
+        .map((station) => station.centerMeters)
+    )
+  ].sort((a, b) => a - b)
   const anchors = [0, ...centers.filter((c) => c > 0 && c < lineLength.value), lineLength.value]
   return [...new Set(anchors)].sort((a, b) => a - b)
 })
 
 function x(mileage: number): number {
-  const clamped = Math.min(Math.max(mileage, 0), lineLength.value)
+  const clamped = geoKm(mileage)
   const usable = VIEW_W - PAD_X * 2
   if (props.mode === 'proportional' || evenAnchors.value.length < 3) {
     return PAD_X + (clamped / lineLength.value) * usable
@@ -127,18 +171,6 @@ const laneByTrack = computed(() => {
     map.set(track, MAIN_Y.value - LANE_GAP * index)
   })
   return map
-})
-
-const mainTrack = computed(() => {
-  let best = ''
-  let bestY = -Infinity
-  laneByTrack.value.forEach((y, track) => {
-    if (y > bestY) {
-      bestY = y
-      best = track
-    }
-  })
-  return best
 })
 
 function laneY(track?: string | null): number {
@@ -226,8 +258,11 @@ const platformShapes = computed(() => {
       const left = Number(platform.stopLeftMeters ?? 0)
       const right = Number(platform.stopRightMeters ?? 0)
       if (!(right > left)) return
-      const px1 = x(left)
-      const px2 = x(right)
+      // 折叠后 down 侧站台窗口左右互换，用 min/max 归一
+      const pxA = x(left)
+      const pxB = x(right)
+      const px1 = Math.min(pxA, pxB)
+      const px2 = Math.max(pxA, pxB)
       const isLowestLane = lane === MAIN_Y.value
       shapes.push({
         key: `${station.id}-${track}`,
@@ -281,12 +316,15 @@ const connectors = computed(() => {
 
 /* ---------------- 数据图层 ---------------- */
 
+/** 站名/刻度只画折叠点以内的站（S2xx 折叠后与同名 S1xx 同一 x，避免重复标注） */
 const stationMarks = computed(() =>
-  props.stations.map((station) => ({
-    id: station.id,
-    name: station.name,
-    px: x(station.centerMeters)
-  }))
+  props.stations
+    .filter((station) => station.centerMeters <= foldKm.value)
+    .map((station) => ({
+      id: station.id,
+      name: station.name,
+      px: x(station.centerMeters)
+    }))
 )
 
 const authorityByTrain = computed(() => new Map(props.authorities.map((authority) => [authority.trainId, authority])))
@@ -297,8 +335,12 @@ function trainLaneY(train: TrainState): number {
     const segment = segmentById.value.get(authority.currentSegmentId)
     if (segment) return laneY(segment.track)
   }
+  // 环线里程下各股道里程域不重叠，任意包含判定即唯一命中
   const containing = props.segments.find(
-    (segment) => (segment.track || 'MAIN') === mainTrack.value && train.positionMeters >= segment.startMeters && train.positionMeters <= segment.endMeters
+    (segment) =>
+      (segment.track || 'MAIN') !== CROSSOVER_TRACK &&
+      train.positionMeters >= segment.startMeters &&
+      train.positionMeters <= segment.endMeters
   )
   return containing ? laneY(containing.track) : MAIN_Y.value
 }
@@ -330,6 +372,8 @@ const maBands = computed(() =>
         x1: Math.min(fromX, toX),
         x2: Math.max(fromX, toX),
         endX: toX,
+        // 折叠后 down 车道行车方向朝左：箭头随显示方向翻转
+        dir: toX >= fromX ? 1 : -1,
         y: trainLaneY(train)
       }
     })
@@ -375,10 +419,11 @@ const switchMarks = computed(() =>
 )
 
 const powerBands = computed(() =>
+  // 供电分区表为地理里程（可超出正线，如车辆段）：夹取到折叠点，不参与环线折叠
   props.powerSections.map((section) => ({
     section,
-    x1: x(section.startMeters),
-    x2: x(section.endMeters)
+    x1: x(Math.min(section.startMeters, foldKm.value)),
+    x2: x(Math.min(section.endMeters, foldKm.value))
   }))
 )
 
@@ -520,7 +565,7 @@ function powerClass(status: string): string {
               {{ Math.round(band.authority.speedLimitMetersPerSecond * 3.6) }}km/h · {{ band.authority.reason }}
             </title>
           </line>
-          <path :d="`M ${band.endX} ${band.y - 13} L ${band.endX} ${band.y - 5} L ${band.endX + 5} ${band.y - 9} Z`" class="ma-end" />
+          <path :d="`M ${band.endX} ${band.y - 13} L ${band.endX} ${band.y - 5} L ${band.endX + 5 * band.dir} ${band.y - 9} Z`" class="ma-end" />
         </g>
       </g>
 
