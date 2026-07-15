@@ -127,7 +127,9 @@ railway:
 | `/api/dispatch/route/list` | GET | 可用进路模板查询 |
 | `/api/dispatch/signal-publications` | POST | 调度→信号发布发车计划 |
 
-详细设计见 [docs/信号轨道模块详细设计文档.md](docs/信号轨道模块详细设计文档.md)。
+详细设计见 [docs/信号轨道模块详细设计文档.md](docs/信号轨道模块详细设计文档.md)。  
+补充文档见 [docs/信号轨道-补充文档-问题排查与性能.md](docs/信号轨道-补充文档-问题排查与性能.md)。  
+PPT 汇报要点见 [docs/信号轨道-PPT汇报要点.md](docs/信号轨道-PPT汇报要点.md)。
 
 ## 重要设计原则
 
