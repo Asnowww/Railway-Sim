@@ -639,6 +639,14 @@ public class SimulationRuntime {
             String dirStr = stringFromPayload(payload, "direction", "DOWN");
             ExternalTrainDirection direction = "UP".equalsIgnoreCase(dirStr)
                 ? ExternalTrainDirection.UP : ExternalTrainDirection.DOWN;
+            // 环线里程：下行域从 down 股道最小 start（loop-km L 端）起步，offset 缺省时兜底
+            if (ExternalTrainDirection.DOWN.equals(direction) && offsetMeters <= 0) {
+                offsetMeters = infrastructureCatalog.lineData().trackSegments().stream()
+                    .filter(s -> "down".equalsIgnoreCase(s.track()))
+                    .mapToDouble(s -> s.startMeters())
+                    .min()
+                    .orElse(0);
+            }
 
             // 安全门：如果列车已存在，跳过
             if (trainManager.states().stream().anyMatch(t -> t.id().equals(trainId))) {
@@ -674,8 +682,7 @@ public class SimulationRuntime {
             );
             try {
                 trainManager.applyLifecycleCommand(SignalTrainLifecycleCommand.add(List.of(spec)));
-                // 下行列车从线路末端出发：显式绑定到下行段，避免 segmentAt 回退选到上行段
-                double lineLen = infrastructureCatalog.lineData().lineLengthMeters();
+                // 显式绑定股道，避免 segmentAt 回退选到并行股道（环线里程下 up/down 域已不重叠，双保险）
                 String track = ExternalTrainDirection.DOWN.equals(direction) ? "down" : "up";
                 trackService.assignTrainToTrack(trainId, offsetMeters, track);
                 log.info("[Runtime] 发车 {} — trainNo={} linkId={} offset={}m direction={}",

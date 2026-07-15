@@ -158,12 +158,7 @@ public class TrackService {
             ? stationDefs.stream().mapToDouble(s -> s.centerMeters()).max().orElse(lineLength) : lineLength;
         for (TrainState train : trains) {
             // 终点站已停列车不再标记占用——后车可跟随进站/折返
-            boolean atTerminalStation = hasStations && train.zeroSpeed()
-                && (Math.abs(train.positionMeters() - firstStationPos) <= 120
-                    || Math.abs(train.positionMeters() - lastStationPos) <= 120);
-            boolean atLineEnd = !hasStations && train.zeroSpeed()
-                && train.positionMeters() >= lineLength - 10;
-            if (atTerminalStation || atLineEnd) {
+            if (isAtTerminalStation(train)) {
                 continue;
             }
             double tail = train.positionMeters() - train.lengthMeters();
@@ -187,6 +182,75 @@ public class TrackService {
                 }
             }
         }
+    }
+
+    /**
+     * 终点站判定：零速且贴近所在里程域（股道分组）的端点站（±120m）。
+     * 环线里程下 up/down 域各自有起终点站；无站线路退化为线路末端（-10m）。
+     * 终点站已停列车视为"已清出线路"——不标占用、不阻挡后车。
+     */
+    public synchronized boolean isAtTerminalStation(TrainState train) {
+        if (!train.zeroSpeed()) {
+            return false;
+        }
+        List<OperationalLineData.StationDefinition> stationDefs = infrastructureCatalog.lineData().stations();
+        if (stationDefs == null || stationDefs.isEmpty()) {
+            double lineLength = infrastructureCatalog.lineData().lineLengthMeters();
+            return train.positionMeters() >= lineLength - 10;
+        }
+        return terminalStationCenters().stream()
+            .anyMatch(center -> Math.abs(train.positionMeters() - center) <= 120);
+    }
+
+    /**
+     * 各里程域（按股道分组）的起/终点站中心集合。
+     * 分组规则：站中心落在哪个股道的 [min start, max end] 里程域内即属于该组
+     * （环线里程 up/down 域不重叠；单线线路只有一组，退化为全局 min/max）。
+     */
+    private List<Double> terminalStationCenters() {
+        List<OperationalLineData.StationDefinition> stationDefs = infrastructureCatalog.lineData().stations();
+        Map<String, double[]> domainByTrack = new HashMap<>();
+        for (TrackSegmentState seg : segments) {
+            String track = seg.track() != null ? seg.track() : "main";
+            if ("crossover".equals(track)) {
+                continue;
+            }
+            double[] domain = domainByTrack.computeIfAbsent(track,
+                ignored -> new double[] {Double.POSITIVE_INFINITY, Double.NEGATIVE_INFINITY});
+            domain[0] = Math.min(domain[0], seg.startMeters());
+            domain[1] = Math.max(domain[1], seg.endMeters());
+        }
+        List<Double> terminals = new ArrayList<>();
+        for (double[] domain : domainByTrack.values()) {
+            double min = Double.POSITIVE_INFINITY;
+            double max = Double.NEGATIVE_INFINITY;
+            for (OperationalLineData.StationDefinition station : stationDefs) {
+                double center = station.centerMeters();
+                if (center >= domain[0] - 1 && center <= domain[1] + 1) {
+                    min = Math.min(min, center);
+                    max = Math.max(max, center);
+                }
+            }
+            if (min <= max) {
+                terminals.add(min);
+                terminals.add(max);
+            }
+        }
+        if (terminals.isEmpty()) {
+            terminals.add(stationDefs.stream().mapToDouble(OperationalLineData.StationDefinition::centerMeters).min().orElse(0));
+            terminals.add(stationDefs.stream().mapToDouble(OperationalLineData.StationDefinition::centerMeters).max().orElse(0));
+        }
+        return terminals;
+    }
+
+    /** 指定股道的里程域终点（max endMeters）；未知股道回退全线长。 */
+    public synchronized double trackEndMeters(String track) {
+        String key = track != null ? track : "main";
+        return segments.stream()
+            .filter(seg -> key.equals(seg.track() != null ? seg.track() : "main"))
+            .mapToDouble(TrackSegmentState::endMeters)
+            .max()
+            .orElse(infrastructureCatalog.lineData().lineLengthMeters());
     }
 
     /** 返回当前实际覆盖指定区段的列车 ID 快照。 */

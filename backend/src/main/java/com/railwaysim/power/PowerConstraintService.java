@@ -359,8 +359,9 @@ public class PowerConstraintService {
         if (!validLinePosition(positionMeters)) {
             return null;
         }
+        double geo = geoPosition(positionMeters);
         return sections.stream()
-            .filter(section -> positionMeters >= section.startMeters() && positionMeters < section.endMeters())
+            .filter(section -> geo >= section.startMeters() && geo < section.endMeters())
             .findFirst()
             .orElse(null);
     }
@@ -369,10 +370,28 @@ public class PowerConstraintService {
         if (!validLinePosition(positionMeters)) {
             return null;
         }
+        double geo = geoPosition(positionMeters);
         return sections.stream()
-            .filter(section -> positionMeters >= section.startMeters() && positionMeters < section.endMeters())
+            .filter(section -> geo >= section.startMeters() && geo < section.endMeters())
             .findFirst()
             .orElse(null);
+    }
+
+    /**
+     * 环线里程 → 地理里程折叠：供电分区表按地理里程 [0, L] 定义（上下行共用同一物理接触轨），
+     * down 域列车（loop-km > L）负荷归属需折回地理位置 geo = 2L - loop。
+     * 单线线路（无 up/down 拆分）fold=全线长，恒等映射。
+     */
+    private double geoPosition(double positionMeters) {
+        double fold = infrastructureCatalog.lineData().trackSegments().stream()
+            .filter(seg -> "up".equalsIgnoreCase(seg.track()))
+            .mapToDouble(seg -> seg.endMeters())
+            .max()
+            .orElse(0);
+        if (fold <= 0 || positionMeters <= fold) {
+            return positionMeters;
+        }
+        return Math.max(0, Math.min(fold, 2 * fold - positionMeters));
     }
 
     private boolean validLinePosition(double positionMeters) {

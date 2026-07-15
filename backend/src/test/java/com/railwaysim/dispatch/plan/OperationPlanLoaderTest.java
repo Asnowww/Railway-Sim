@@ -58,8 +58,8 @@ class OperationPlanLoaderTest {
             .orElseThrow();
         assertEquals("SVC-003", firstDown.serviceId());
         assertEquals("DOWN", firstDown.direction());
-        assertEquals("S113", firstDown.origin().stationId());
-        assertEquals("S101", firstDown.terminus().stationId());
+        assertEquals("S213", firstDown.origin().stationId());
+        assertEquals("S201", firstDown.terminus().stationId());
     }
 
     @Test

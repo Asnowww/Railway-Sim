@@ -188,18 +188,24 @@ public class SignalService {
             // ---- 故障安全：刹车/牵引失效 → 加大安全距离 ----
             double effectiveSafetyGap = resolveSafetyGap(train);
 
+            // 与占用染色同源：前端车辆车道、进路匹配、预留起点全部跟随列车绑定的区段
+            TrackSegmentState currentSeg = trackService.segmentForTrain(train);
+
             double nextTrainTailLimit = Double.POSITIVE_INFINITY;
             if (i + 1 < ordered.size()) {
                 TrainState nextTrain = ordered.get(i + 1);
-                // 异轨列车不构成前后阻挡（M9上下行里程重叠，同km不同轨=不同车道）
-                TrackSegmentState selfSeg = trackService.segmentForTrain(train);
+                // 异轨列车不构成前后阻挡（环线里程 up/down 域不重叠，此为双保险）
                 TrackSegmentState nextSeg = trackService.segmentForTrain(nextTrain);
-                boolean differentTrack = selfSeg != null && nextSeg != null
-                    && selfSeg.track() != null && nextSeg.track() != null
-                    && !selfSeg.track().equals(nextSeg.track());
+                boolean differentTrack = currentSeg != null && nextSeg != null
+                    && currentSeg.track() != null && nextSeg.track() != null
+                    && !currentSeg.track().equals(nextSeg.track());
                 if (!differentTrack) {
                     // 终点站已停列车不再阻挡后车: 到终点的车视为"已清出线路"
-                    if (nextTrain.positionMeters() >= lineLengthMeters - 10 && nextTrain.zeroSpeed()) {
+                    String nextTrack = nextSeg != null ? nextSeg.track() : null;
+                    boolean nextCleared = trackService.isAtTerminalStation(nextTrain)
+                        || (nextTrain.zeroSpeed()
+                            && nextTrain.positionMeters() >= trackService.trackEndMeters(nextTrack) - 10);
+                    if (nextCleared) {
                         nextTrainTailLimit = Double.POSITIVE_INFINITY;
                     } else {
                         double linearLimit = nextTrain.positionMeters() - nextTrain.lengthMeters() - effectiveSafetyGap;
@@ -215,7 +221,9 @@ public class SignalService {
                 }
             }
 
-            double lineEndLimit = lineLengthMeters;
+            // MA 端点按本车股道里程域截断（环线里程下 up 车不得越过 L 冲进 down 域）
+            double trackEndLimit = trackService.trackEndMeters(currentSeg != null ? currentSeg.track() : null);
+            double lineEndLimit = trackEndLimit;
             double faultLimit = trackService.nextFaultPosition(trainHead) - effectiveSafetyGap;
             boolean waitingForRoute = interlockingService.isRouteHoldActive(train.id());
             double interlockingLimit = waitingForRoute
@@ -234,10 +242,8 @@ public class SignalService {
                 Math.min(nextTrainTailLimit, lineEndLimit),
                 Math.min(faultLimit, interlockingLimit)
             );
-            authorityEnd = Math.max(trainHead, Math.min(authorityEnd, lineLengthMeters));
+            authorityEnd = Math.max(trainHead, Math.min(authorityEnd, trackEndLimit));
 
-            // 与占用染色同源：前端车辆车道、进路匹配、预留起点全部跟随列车绑定的区段
-            TrackSegmentState currentSeg = trackService.segmentForTrain(train);
             allReserved.addAll(collectTopologyReserved(train.id(), currentSeg.id(), authorityEnd));
 
             TrackConstraint track = trackByTrain.get(train.id());
@@ -259,7 +265,7 @@ public class SignalService {
 
             double speedLimit = Math.min(segmentSpeedLimit, dispatchLimitedSpeed);
             String reason = buildReason(authorityEnd, nextTrainTailLimit, lineEndLimit,
-                faultLimit, interlockingLimit, lineLengthMeters);
+                faultLimit, interlockingLimit, trackEndLimit);
             if (stationLimits.containsKey("isDwelling") && stationLimits.get("isDwelling") > 0) {
                 int dwellElapsedSec = stationLimits.getOrDefault("dwellElapsedSec", 0.0).intValue();
                 int dwellTargetSec = stationLimits.getOrDefault("dwellTargetSec", (double) DEFAULT_DWELL_SECONDS).intValue();
@@ -561,23 +567,8 @@ public class SignalService {
         // DOWN列车: effectiveHead = L-head → 物理递增镜像为递减,匹配S113→S101站序
         double searchHead = (isDown && lineLen > 0) ? lineLen - head : head;
 
-        // 停车目标 = 列车所在股道站台的精确停车点（stop_right，车头对齐站台末端）
-        String track = trackService.segmentForTrain(train).track();
-
-        // 释放标记只在列车驶离当前站台窗口前有效。先清理已经越过的站，
-        // 避免旧标记让后续所有站点的 stationDistance 都被屏蔽为 9999m。
-        String releasePrefix = train.id() + ":";
-        releasedStationStops.removeIf(key -> {
-            if (!key.startsWith(releasePrefix)) return false;
-            String stationId = key.substring(releasePrefix.length());
-            return stations.stream()
-                .filter(station -> station.id().equals(stationId))
-                .findFirst()
-                .map(station -> head > lineData.stopPointMeters(station, track) + STATION_STOP_WINDOW_METERS)
-                .orElse(true);
-        });
-
-        // 找车头前方的下一站（按停车点）；允许车头在停车点后方窗口内继续被视为站停窗口。
+        // 找车头前方的下一站；允许车头在站中心后方 10m 内继续被视为站停窗口。
+        // 环线里程下 up/down 站点各在自己的里程域（S1xx ≤ L < S2xx），统一按里程递增搜索。
         OperationalLineData.StationDefinition nextStation = stations.stream()
             .filter(s -> s.centerMeters() >= searchHead - STATION_STOP_WINDOW_METERS)
             .min(Comparator.comparingDouble(s -> s.centerMeters() - searchHead))
