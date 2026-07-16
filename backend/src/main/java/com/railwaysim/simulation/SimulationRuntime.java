@@ -70,6 +70,7 @@ public class SimulationRuntime {
     private Instant simulatedTime = Instant.now();
     private long lastPushAtMillis;
     private final Set<String> appliedFeedbackSent = new HashSet<>();
+    private volatile SimulationTickTiming latestTickTiming = SimulationTickTiming.idle();
 
     public SimulationRuntime(
         TrainManager trainManager,
@@ -116,6 +117,10 @@ public class SimulationRuntime {
 
     public synchronized SimulationSnapshot snapshot() {
         return buildSnapshot();
+    }
+
+    public SimulationTickTiming latestTickTiming() {
+        return latestTickTiming;
     }
 
     public synchronized SimulationSnapshot start() {
@@ -181,6 +186,7 @@ public class SimulationRuntime {
     }
 
     private SimulationSnapshot advanceOneTick() {
+        long tickStartedAt = System.nanoTime();
         tick++;
         simulatedTime = simulatedTime.plusMillis(simulationProperties.getTickMillis());
         TickContext context = new TickContext(
@@ -195,7 +201,9 @@ public class SimulationRuntime {
         List<TrainState> beforeTrainStates = trainManager.states();
         trackService.updateOccupancy(beforeTrainStates);
         List<TrackConstraint> trackConstraints = trackService.constraintsForTrains(beforeTrainStates);
+        long trackConstraintsCompletedAt = System.nanoTime();
         signalService.calculateAuthorities(beforeTrainStates, trackConstraints, List.of());
+        long preliminarySignalAndDispatchCompletedAt = System.nanoTime();
         dispatchService.evaluate(context, beforeTrainStates, signalService.authorities());
 
         // 一次性进路指令在约束计算前交给联锁处理。
@@ -267,10 +275,14 @@ public class SimulationRuntime {
         if (!generatedCommands.isEmpty()) {
             dispatchCommandPublisher.publish(generatedCommands);
         }
+        long commandAndInterlockingCompletedAt = System.nanoTime();
 
         // 保存调度约束快照（消费前），供完成检查使用
-        List<DispatchConstraint> dispatchConstraintsPreview = dispatchService.previewConstraintsForTrains(beforeTrainStates);
         List<DispatchConstraint> dispatchConstraints = dispatchService.constraintsForTrains(beforeTrainStates);
+        // constraintsForTrains returns the pre-consumption values; preserve that
+        // same snapshot for completion checks instead of calculating all
+        // automatic headway regulations a second time.
+        List<DispatchConstraint> dispatchConstraintsPreview = List.copyOf(dispatchConstraints);
         signalService.calculateAuthorities(beforeTrainStates, trackConstraints, dispatchConstraints);
         dispatchService.syncRouteReservations(interlockingService.states(), context.simulatedTime());
         boolean externalPowerAuthority = vehicleRuntimeIntegrationService.usesExternalPowerAuthority();
@@ -281,6 +293,7 @@ public class SimulationRuntime {
         List<PowerConstraint> powerConstraints = externalPowerAuthority
             ? List.of()
             : powerService.constraintsForTrains(beforeTrainStates);
+        long constraintsCompletedAt = System.nanoTime();
 
         VehicleRuntimeStepResult trainSteps = trainManager.tickAll(
             context,
@@ -289,24 +302,55 @@ public class SimulationRuntime {
             dispatchConstraints,
             powerConstraints
         );
+        long vehicleRuntimeCompletedAt = System.nanoTime();
         List<VehiclePhysicsOutput> outputs = trainSteps.outputs();
         finalControlDecisionPersistenceService.persistFinalControlDecisions(context, trainSteps.trainSteps());
         trainStopEvaluationService.evaluate(context, trainManager.states());
+        long centralVehiclePostProcessingCompletedAt = System.nanoTime();
         powerService.updateFromVehicleOutputs(outputs);
+        long powerSnapshotCompletedAt = System.nanoTime();
         trackService.updateOccupancy(trainManager.states());
         signalService.recomputeSignalAspects(); // 基于最终区段占用刷新灯色
         generateTimeCommandFeedback(dispatchConstraints, signalService.authorities()); // 时间命令→调度反馈
         checkDispatchCompletion(dispatchConstraintsPreview); // 信号→调度反馈：指令是否完成
         lastEvents = eventBus.drain();
         persistIfDue(context);
+        long centralPostProcessingCompletedAt = System.nanoTime();
 
         SimulationSnapshot snapshot = buildSnapshot();
+        long snapshotCompletedAt = System.nanoTime();
+        var monitorTiming = monitorService.latestBuildTiming();
         long nowMillis = System.currentTimeMillis();
         if (nowMillis - lastPushAtMillis >= simulationProperties.getPushIntervalMillis()) {
             webSocketHandler.broadcast(snapshot);
             lastPushAtMillis = nowMillis;
         }
+        long tickCompletedAt = System.nanoTime();
+        latestTickTiming = new SimulationTickTiming(
+            context.tick(),
+            beforeTrainStates.size(),
+            externalPowerAuthority,
+            elapsedMillis(tickStartedAt, trackConstraintsCompletedAt),
+            elapsedMillis(trackConstraintsCompletedAt, preliminarySignalAndDispatchCompletedAt),
+            elapsedMillis(preliminarySignalAndDispatchCompletedAt, commandAndInterlockingCompletedAt),
+            elapsedMillis(commandAndInterlockingCompletedAt, constraintsCompletedAt),
+            elapsedMillis(tickStartedAt, constraintsCompletedAt),
+            elapsedMillis(constraintsCompletedAt, vehicleRuntimeCompletedAt),
+            elapsedMillis(vehicleRuntimeCompletedAt, centralVehiclePostProcessingCompletedAt),
+            elapsedMillis(centralVehiclePostProcessingCompletedAt, powerSnapshotCompletedAt),
+            elapsedMillis(powerSnapshotCompletedAt, centralPostProcessingCompletedAt),
+            monitorTiming.serviceHealthMillis(),
+            monitorTiming.alarmProjectionMillis(),
+            monitorTiming.alarmReconciliationMillis(),
+            elapsedMillis(centralPostProcessingCompletedAt, snapshotCompletedAt),
+            elapsedMillis(snapshotCompletedAt, tickCompletedAt),
+            elapsedMillis(tickStartedAt, tickCompletedAt)
+        );
         return snapshot;
+    }
+
+    private double elapsedMillis(long startedAt, long completedAt) {
+        return (completedAt - startedAt) / 1_000_000.0;
     }
 
     private SimulationSnapshot advanceWithFailureTracking() {
@@ -595,6 +639,14 @@ public class SimulationRuntime {
             String dirStr = stringFromPayload(payload, "direction", "DOWN");
             ExternalTrainDirection direction = "UP".equalsIgnoreCase(dirStr)
                 ? ExternalTrainDirection.UP : ExternalTrainDirection.DOWN;
+            // 环线里程：下行域从 down 股道最小 start（loop-km L 端）起步，offset 缺省时兜底
+            if (ExternalTrainDirection.DOWN.equals(direction) && offsetMeters <= 0) {
+                offsetMeters = infrastructureCatalog.lineData().trackSegments().stream()
+                    .filter(s -> "down".equalsIgnoreCase(s.track()))
+                    .mapToDouble(s -> s.startMeters())
+                    .min()
+                    .orElse(0);
+            }
 
             // 安全门：如果列车已存在，跳过
             if (trainManager.states().stream().anyMatch(t -> t.id().equals(trainId))) {
@@ -630,8 +682,7 @@ public class SimulationRuntime {
             );
             try {
                 trainManager.applyLifecycleCommand(SignalTrainLifecycleCommand.add(List.of(spec)));
-                // 下行列车从线路末端出发：显式绑定到下行段，避免 segmentAt 回退选到上行段
-                double lineLen = infrastructureCatalog.lineData().lineLengthMeters();
+                // 显式绑定股道，避免 segmentAt 回退选到并行股道（环线里程下 up/down 域已不重叠，双保险）
                 String track = ExternalTrainDirection.DOWN.equals(direction) ? "down" : "up";
                 trackService.assignTrainToTrack(trainId, offsetMeters, track);
                 log.info("[Runtime] 发车 {} — trainNo={} linkId={} offset={}m direction={}",
@@ -714,12 +765,16 @@ public class SimulationRuntime {
 
     private SimulationSnapshot buildSnapshot() {
         simulationRunContext.update(dispatchService.simulationRunId(), tick);
+        double lineLen = infrastructureCatalog.lineData().lineLengthMeters();
+        List<TrainState> trains = trainManager.states().stream()
+            .map(t -> t.forDisplay(lineLen))
+            .toList();
         return monitorService.buildSnapshot(
             dispatchService.simulationRunId(),
             tick,
             simulatedTime,
             status,
-            trainManager.states(),
+            trains,
             trackService.states(),
             signalService.authorities(),
             signalService.signalStates(),

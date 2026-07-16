@@ -22,6 +22,9 @@ public class PowerNetworkLoadClient {
 
     private final VehicleRuntimeProperties properties;
     private final RestClient.Builder restClientBuilder;
+    private volatile RestClient restClient;
+    private volatile String restClientBaseUrl = "";
+    private volatile long restClientTimeoutMillis = -1;
 
     public PowerNetworkLoadClient(VehicleRuntimeProperties properties, RestClient.Builder restClientBuilder) {
         this.properties = properties;
@@ -39,7 +42,7 @@ public class PowerNetworkLoadClient {
         }
         PowerNetworkStepResponse response = client()
             .post()
-            .uri("/power-network/constraints/query")
+            .uri("/power-network/constraints/query-compact")
             .contentType(MediaType.APPLICATION_JSON)
             .accept(MediaType.APPLICATION_JSON)
             .body(new PowerNetworkConstraintQueryRequest(trainPositions))
@@ -65,7 +68,7 @@ public class PowerNetworkLoadClient {
         }
         PowerNetworkStepResponse response = client()
             .post()
-            .uri("/power-network/step")
+            .uri("/power-network/step-compact")
             .contentType(MediaType.APPLICATION_JSON)
             .accept(MediaType.APPLICATION_JSON)
             .body(new PowerNetworkStepRequest(simulationRunId, tick, simulationTimeSeconds, stepSizeSeconds, loads, trainPositions))
@@ -75,10 +78,27 @@ public class PowerNetworkLoadClient {
     }
 
     private RestClient client() {
-        return restClientBuilder
-            .baseUrl(properties.getPowerNetworkBaseUrl())
-            .requestFactory(requestFactory(properties.getPowerNetworkTimeoutMillis()))
-            .build();
+        String baseUrl = properties.getPowerNetworkBaseUrl();
+        long timeoutMillis = properties.getPowerNetworkTimeoutMillis();
+        RestClient current = restClient;
+        if (current != null
+            && baseUrl.equals(restClientBaseUrl)
+            && timeoutMillis == restClientTimeoutMillis) {
+            return current;
+        }
+        synchronized (this) {
+            if (restClient == null
+                || !baseUrl.equals(restClientBaseUrl)
+                || timeoutMillis != restClientTimeoutMillis) {
+                restClient = restClientBuilder
+                    .baseUrl(baseUrl)
+                    .requestFactory(requestFactory(timeoutMillis))
+                    .build();
+                restClientBaseUrl = baseUrl;
+                restClientTimeoutMillis = timeoutMillis;
+            }
+            return restClient;
+        }
     }
 
     private SimpleClientHttpRequestFactory requestFactory(long timeoutMillis) {

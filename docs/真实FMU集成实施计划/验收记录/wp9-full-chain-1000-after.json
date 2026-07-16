@@ -1,0 +1,1459 @@
+{
+  "label": "after-optimization-1000",
+  "status": "PASS",
+  "criteria": {
+    "trainCount": 1000,
+    "warmupTicks": 5,
+    "sampleTicks": 20,
+    "tcmsPeriodMillis": 100,
+    "fmuSubstepMillis": 20,
+    "fmuSubstepsPerTick": 5,
+    "singlePowerLoadWriter": "9300"
+  },
+  "errors": [],
+  "singleWriterEvidence": {
+    "acceptedStepCountBefore": 26,
+    "acceptedStepCountAfter": 51,
+    "acceptedStepCountDelta": 25,
+    "sequentialAcceptedWrites": 25,
+    "expectedSequentialWrites": 25
+  },
+  "tickEvidence": [
+    {
+      "tick": 1,
+      "runtimeTiming": {
+        "tick": 1,
+        "trainCount": 1000,
+        "powerConstraintQueryMillis": 4.6895,
+        "controlPreparationMillis": 0.62975,
+        "fmuFleetStepMillis": 337.049209,
+        "stateApplyMillis": 2.6875,
+        "powerNetworkStepMillis": 13.564166,
+        "totalMillis": 358.916708
+      },
+      "runtimeDataQuality": "DEGRADED",
+      "runtimeReason": "PARTIAL_STEP",
+      "powerLastAcceptedTick": 1,
+      "powerAcceptedStepCount": 27
+    },
+    {
+      "tick": 2,
+      "runtimeTiming": {
+        "tick": 2,
+        "trainCount": 1000,
+        "powerConstraintQueryMillis": 5.45275,
+        "controlPreparationMillis": 0.550166,
+        "fmuFleetStepMillis": 87.620625,
+        "stateApplyMillis": 0.807209,
+        "powerNetworkStepMillis": 5.981375,
+        "totalMillis": 100.729084
+      },
+      "runtimeDataQuality": "DEGRADED",
+      "runtimeReason": "PARTIAL_STEP",
+      "powerLastAcceptedTick": 2,
+      "powerAcceptedStepCount": 28
+    },
+    {
+      "tick": 3,
+      "runtimeTiming": {
+        "tick": 3,
+        "trainCount": 1000,
+        "powerConstraintQueryMillis": 5.551833,
+        "controlPreparationMillis": 0.536792,
+        "fmuFleetStepMillis": 83.964083,
+        "stateApplyMillis": 0.856834,
+        "powerNetworkStepMillis": 6.040667,
+        "totalMillis": 97.277417
+      },
+      "runtimeDataQuality": "DEGRADED",
+      "runtimeReason": "PARTIAL_STEP",
+      "powerLastAcceptedTick": 3,
+      "powerAcceptedStepCount": 29
+    },
+    {
+      "tick": 4,
+      "runtimeTiming": {
+        "tick": 4,
+        "trainCount": 1000,
+        "powerConstraintQueryMillis": 5.420333,
+        "controlPreparationMillis": 0.544042,
+        "fmuFleetStepMillis": 88.444208,
+        "stateApplyMillis": 0.832667,
+        "powerNetworkStepMillis": 5.692416,
+        "totalMillis": 101.226291
+      },
+      "runtimeDataQuality": "DEGRADED",
+      "runtimeReason": "PARTIAL_STEP",
+      "powerLastAcceptedTick": 4,
+      "powerAcceptedStepCount": 30
+    },
+    {
+      "tick": 5,
+      "runtimeTiming": {
+        "tick": 5,
+        "trainCount": 1000,
+        "powerConstraintQueryMillis": 5.446417,
+        "controlPreparationMillis": 0.559042,
+        "fmuFleetStepMillis": 88.078625,
+        "stateApplyMillis": 0.794375,
+        "powerNetworkStepMillis": 11.727834,
+        "totalMillis": 106.928584
+      },
+      "runtimeDataQuality": "DEGRADED",
+      "runtimeReason": "PARTIAL_STEP",
+      "powerLastAcceptedTick": 5,
+      "powerAcceptedStepCount": 31
+    },
+    {
+      "tick": 6,
+      "runtimeTiming": {
+        "tick": 6,
+        "trainCount": 1000,
+        "powerConstraintQueryMillis": 5.57375,
+        "controlPreparationMillis": 0.528917,
+        "fmuFleetStepMillis": 87.46425,
+        "stateApplyMillis": 0.814041,
+        "powerNetworkStepMillis": 5.875167,
+        "totalMillis": 100.536917
+      },
+      "runtimeDataQuality": "DEGRADED",
+      "runtimeReason": "PARTIAL_STEP",
+      "powerLastAcceptedTick": 6,
+      "powerAcceptedStepCount": 32
+    },
+    {
+      "tick": 7,
+      "runtimeTiming": {
+        "tick": 7,
+        "trainCount": 1000,
+        "powerConstraintQueryMillis": 5.475292,
+        "controlPreparationMillis": 0.583583,
+        "fmuFleetStepMillis": 94.249125,
+        "stateApplyMillis": 0.759042,
+        "powerNetworkStepMillis": 5.624416,
+        "totalMillis": 107.027416
+      },
+      "runtimeDataQuality": "DEGRADED",
+      "runtimeReason": "PARTIAL_STEP",
+      "powerLastAcceptedTick": 7,
+      "powerAcceptedStepCount": 33
+    },
+    {
+      "tick": 8,
+      "runtimeTiming": {
+        "tick": 8,
+        "trainCount": 1000,
+        "powerConstraintQueryMillis": 5.443042,
+        "controlPreparationMillis": 0.539541,
+        "fmuFleetStepMillis": 87.852084,
+        "stateApplyMillis": 0.766875,
+        "powerNetworkStepMillis": 6.015084,
+        "totalMillis": 100.901292
+      },
+      "runtimeDataQuality": "DEGRADED",
+      "runtimeReason": "PARTIAL_STEP",
+      "powerLastAcceptedTick": 8,
+      "powerAcceptedStepCount": 34
+    },
+    {
+      "tick": 9,
+      "runtimeTiming": {
+        "tick": 9,
+        "trainCount": 1000,
+        "powerConstraintQueryMillis": 5.35875,
+        "controlPreparationMillis": 0.539875,
+        "fmuFleetStepMillis": 88.657084,
+        "stateApplyMillis": 1.521916,
+        "powerNetworkStepMillis": 5.862459,
+        "totalMillis": 102.238542
+      },
+      "runtimeDataQuality": "DEGRADED",
+      "runtimeReason": "PARTIAL_STEP",
+      "powerLastAcceptedTick": 9,
+      "powerAcceptedStepCount": 35
+    },
+    {
+      "tick": 10,
+      "runtimeTiming": {
+        "tick": 10,
+        "trainCount": 1000,
+        "powerConstraintQueryMillis": 5.4905,
+        "controlPreparationMillis": 0.606875,
+        "fmuFleetStepMillis": 85.4055,
+        "stateApplyMillis": 0.863291,
+        "powerNetworkStepMillis": 5.902542,
+        "totalMillis": 98.566167
+      },
+      "runtimeDataQuality": "DEGRADED",
+      "runtimeReason": "PARTIAL_STEP",
+      "powerLastAcceptedTick": 10,
+      "powerAcceptedStepCount": 36
+    },
+    {
+      "tick": 11,
+      "runtimeTiming": {
+        "tick": 11,
+        "trainCount": 1000,
+        "powerConstraintQueryMillis": 5.422167,
+        "controlPreparationMillis": 0.512458,
+        "fmuFleetStepMillis": 91.116708,
+        "stateApplyMillis": 0.742709,
+        "powerNetworkStepMillis": 5.813041,
+        "totalMillis": 103.912875
+      },
+      "runtimeDataQuality": "DEGRADED",
+      "runtimeReason": "PARTIAL_STEP",
+      "powerLastAcceptedTick": 11,
+      "powerAcceptedStepCount": 37
+    },
+    {
+      "tick": 12,
+      "runtimeTiming": {
+        "tick": 12,
+        "trainCount": 1000,
+        "powerConstraintQueryMillis": 5.378167,
+        "controlPreparationMillis": 0.527125,
+        "fmuFleetStepMillis": 176.548792,
+        "stateApplyMillis": 2.171166,
+        "powerNetworkStepMillis": 23.0075,
+        "totalMillis": 207.916542
+      },
+      "runtimeDataQuality": "DEGRADED",
+      "runtimeReason": "PARTIAL_STEP",
+      "powerLastAcceptedTick": 12,
+      "powerAcceptedStepCount": 38
+    },
+    {
+      "tick": 13,
+      "runtimeTiming": {
+        "tick": 13,
+        "trainCount": 1000,
+        "powerConstraintQueryMillis": 6.116542,
+        "controlPreparationMillis": 0.487917,
+        "fmuFleetStepMillis": 89.36275,
+        "stateApplyMillis": 0.779083,
+        "powerNetworkStepMillis": 6.040042,
+        "totalMillis": 103.09275
+      },
+      "runtimeDataQuality": "DEGRADED",
+      "runtimeReason": "PARTIAL_STEP",
+      "powerLastAcceptedTick": 13,
+      "powerAcceptedStepCount": 39
+    },
+    {
+      "tick": 14,
+      "runtimeTiming": {
+        "tick": 14,
+        "trainCount": 1000,
+        "powerConstraintQueryMillis": 5.468,
+        "controlPreparationMillis": 0.608459,
+        "fmuFleetStepMillis": 92.156833,
+        "stateApplyMillis": 0.740333,
+        "powerNetworkStepMillis": 5.736,
+        "totalMillis": 105.081041
+      },
+      "runtimeDataQuality": "DEGRADED",
+      "runtimeReason": "PARTIAL_STEP",
+      "powerLastAcceptedTick": 14,
+      "powerAcceptedStepCount": 40
+    },
+    {
+      "tick": 15,
+      "runtimeTiming": {
+        "tick": 15,
+        "trainCount": 1000,
+        "powerConstraintQueryMillis": 5.957458,
+        "controlPreparationMillis": 0.582417,
+        "fmuFleetStepMillis": 101.734833,
+        "stateApplyMillis": 0.786167,
+        "powerNetworkStepMillis": 6.102833,
+        "totalMillis": 115.510375
+      },
+      "runtimeDataQuality": "DEGRADED",
+      "runtimeReason": "PARTIAL_STEP",
+      "powerLastAcceptedTick": 15,
+      "powerAcceptedStepCount": 41
+    },
+    {
+      "tick": 16,
+      "runtimeTiming": {
+        "tick": 16,
+        "trainCount": 1000,
+        "powerConstraintQueryMillis": 5.490583,
+        "controlPreparationMillis": 0.587292,
+        "fmuFleetStepMillis": 87.169041,
+        "stateApplyMillis": 0.768334,
+        "powerNetworkStepMillis": 5.75175,
+        "totalMillis": 100.08625
+      },
+      "runtimeDataQuality": "DEGRADED",
+      "runtimeReason": "PARTIAL_STEP",
+      "powerLastAcceptedTick": 16,
+      "powerAcceptedStepCount": 42
+    },
+    {
+      "tick": 17,
+      "runtimeTiming": {
+        "tick": 17,
+        "trainCount": 1000,
+        "powerConstraintQueryMillis": 5.560917,
+        "controlPreparationMillis": 0.586875,
+        "fmuFleetStepMillis": 102.6935,
+        "stateApplyMillis": 0.760792,
+        "powerNetworkStepMillis": 5.910958,
+        "totalMillis": 115.834792
+      },
+      "runtimeDataQuality": "DEGRADED",
+      "runtimeReason": "PARTIAL_STEP",
+      "powerLastAcceptedTick": 17,
+      "powerAcceptedStepCount": 43
+    },
+    {
+      "tick": 18,
+      "runtimeTiming": {
+        "tick": 18,
+        "trainCount": 1000,
+        "powerConstraintQueryMillis": 5.664708,
+        "controlPreparationMillis": 0.568542,
+        "fmuFleetStepMillis": 88.6335,
+        "stateApplyMillis": 0.753125,
+        "powerNetworkStepMillis": 5.961125,
+        "totalMillis": 101.935125
+      },
+      "runtimeDataQuality": "DEGRADED",
+      "runtimeReason": "PARTIAL_STEP",
+      "powerLastAcceptedTick": 18,
+      "powerAcceptedStepCount": 44
+    },
+    {
+      "tick": 19,
+      "runtimeTiming": {
+        "tick": 19,
+        "trainCount": 1000,
+        "powerConstraintQueryMillis": 5.513041,
+        "controlPreparationMillis": 0.558,
+        "fmuFleetStepMillis": 96.41625,
+        "stateApplyMillis": 0.856417,
+        "powerNetworkStepMillis": 5.865333,
+        "totalMillis": 109.524458
+      },
+      "runtimeDataQuality": "DEGRADED",
+      "runtimeReason": "PARTIAL_STEP",
+      "powerLastAcceptedTick": 19,
+      "powerAcceptedStepCount": 45
+    },
+    {
+      "tick": 20,
+      "runtimeTiming": {
+        "tick": 20,
+        "trainCount": 1000,
+        "powerConstraintQueryMillis": 5.943875,
+        "controlPreparationMillis": 0.598708,
+        "fmuFleetStepMillis": 99.837292,
+        "stateApplyMillis": 0.843708,
+        "powerNetworkStepMillis": 5.837958,
+        "totalMillis": 113.400083
+      },
+      "runtimeDataQuality": "DEGRADED",
+      "runtimeReason": "PARTIAL_STEP",
+      "powerLastAcceptedTick": 20,
+      "powerAcceptedStepCount": 46
+    },
+    {
+      "tick": 21,
+      "runtimeTiming": {
+        "tick": 21,
+        "trainCount": 1000,
+        "powerConstraintQueryMillis": 5.426,
+        "controlPreparationMillis": 0.5505,
+        "fmuFleetStepMillis": 108.064667,
+        "stateApplyMillis": 1.37875,
+        "powerNetworkStepMillis": 6.160458,
+        "totalMillis": 121.871125
+      },
+      "runtimeDataQuality": "DEGRADED",
+      "runtimeReason": "PARTIAL_STEP",
+      "powerLastAcceptedTick": 21,
+      "powerAcceptedStepCount": 47
+    },
+    {
+      "tick": 22,
+      "runtimeTiming": {
+        "tick": 22,
+        "trainCount": 1000,
+        "powerConstraintQueryMillis": 5.617042,
+        "controlPreparationMillis": 0.564916,
+        "fmuFleetStepMillis": 90.758459,
+        "stateApplyMillis": 0.785416,
+        "powerNetworkStepMillis": 5.700792,
+        "totalMillis": 103.821417
+      },
+      "runtimeDataQuality": "DEGRADED",
+      "runtimeReason": "PARTIAL_STEP",
+      "powerLastAcceptedTick": 22,
+      "powerAcceptedStepCount": 48
+    },
+    {
+      "tick": 23,
+      "runtimeTiming": {
+        "tick": 23,
+        "trainCount": 1000,
+        "powerConstraintQueryMillis": 5.5035,
+        "controlPreparationMillis": 0.55825,
+        "fmuFleetStepMillis": 86.9765,
+        "stateApplyMillis": 0.8145,
+        "powerNetworkStepMillis": 6.18675,
+        "totalMillis": 100.397333
+      },
+      "runtimeDataQuality": "DEGRADED",
+      "runtimeReason": "PARTIAL_STEP",
+      "powerLastAcceptedTick": 23,
+      "powerAcceptedStepCount": 49
+    },
+    {
+      "tick": 24,
+      "runtimeTiming": {
+        "tick": 24,
+        "trainCount": 1000,
+        "powerConstraintQueryMillis": 5.453708,
+        "controlPreparationMillis": 0.568459,
+        "fmuFleetStepMillis": 88.853916,
+        "stateApplyMillis": 0.748584,
+        "powerNetworkStepMillis": 5.668208,
+        "totalMillis": 101.64075
+      },
+      "runtimeDataQuality": "DEGRADED",
+      "runtimeReason": "PARTIAL_STEP",
+      "powerLastAcceptedTick": 24,
+      "powerAcceptedStepCount": 50
+    },
+    {
+      "tick": 25,
+      "runtimeTiming": {
+        "tick": 25,
+        "trainCount": 1000,
+        "powerConstraintQueryMillis": 5.833334,
+        "controlPreparationMillis": 0.608791,
+        "fmuFleetStepMillis": 84.292917,
+        "stateApplyMillis": 0.762042,
+        "powerNetworkStepMillis": 5.875791,
+        "totalMillis": 97.73625
+      },
+      "runtimeDataQuality": "DEGRADED",
+      "runtimeReason": "PARTIAL_STEP",
+      "powerLastAcceptedTick": 25,
+      "powerAcceptedStepCount": 51
+    }
+  ],
+  "metrics": {
+    "httpWall": {
+      "samples": 20,
+      "p50Millis": 272.623,
+      "p95Millis": 411.783,
+      "p99Millis": 422.048,
+      "maxMillis": 424.614
+    },
+    "centralTotal": {
+      "samples": 20,
+      "p50Millis": 256.066,
+      "p95Millis": 397.16,
+      "p99Millis": 406.309,
+      "maxMillis": 408.596
+    },
+    "centralConstraintPreparation": {
+      "samples": 20,
+      "p50Millis": 53.98,
+      "p95Millis": 199.541,
+      "p99Millis": 202.597,
+      "maxMillis": 203.361
+    },
+    "centralTrainStateAndTrackConstraint": {
+      "samples": 20,
+      "p50Millis": 12.374,
+      "p95Millis": 13.664,
+      "p99Millis": 14.21,
+      "maxMillis": 14.346
+    },
+    "centralPreliminarySignalAndDispatch": {
+      "samples": 20,
+      "p50Millis": 0.099,
+      "p95Millis": 147.061,
+      "p99Millis": 149.485,
+      "maxMillis": 150.09
+    },
+    "centralCommandAndInterlocking": {
+      "samples": 20,
+      "p50Millis": 0.003,
+      "p95Millis": 0.074,
+      "p99Millis": 0.078,
+      "maxMillis": 0.079
+    },
+    "centralFinalConstraintAndPowerBootstrap": {
+      "samples": 20,
+      "p50Millis": 40.883,
+      "p95Millis": 43.433,
+      "p99Millis": 43.448,
+      "maxMillis": 43.452
+    },
+    "centralVehicleRuntime": {
+      "samples": 20,
+      "p50Millis": 130.814,
+      "p95Millis": 154.236,
+      "p99Millis": 228.191,
+      "maxMillis": 246.68
+    },
+    "centralPowerSnapshot": {
+      "samples": 20,
+      "p50Millis": 1.642,
+      "p95Millis": 2.062,
+      "p99Millis": 2.892,
+      "maxMillis": 3.1
+    },
+    "centralServiceHealth": {
+      "samples": 20,
+      "p50Millis": 2.206,
+      "p95Millis": 5.409,
+      "p99Millis": 8.746,
+      "maxMillis": 9.58
+    },
+    "centralAlarmProjection": {
+      "samples": 20,
+      "p50Millis": 0.289,
+      "p95Millis": 0.317,
+      "p99Millis": 0.325,
+      "maxMillis": 0.327
+    },
+    "centralAlarmReconciliation": {
+      "samples": 20,
+      "p50Millis": 55.467,
+      "p95Millis": 77.069,
+      "p99Millis": 78.431,
+      "maxMillis": 78.772
+    },
+    "centralSnapshotBuild": {
+      "samples": 20,
+      "p50Millis": 58.461,
+      "p95Millis": 79.018,
+      "p99Millis": 80.426,
+      "maxMillis": 80.778
+    },
+    "centralWebSocketPush": {
+      "samples": 20,
+      "p50Millis": 0.001,
+      "p95Millis": 12.098,
+      "p99Millis": 12.232,
+      "maxMillis": 12.266
+    },
+    "runtimeTotal": {
+      "samples": 20,
+      "p50Millis": 103.457,
+      "p95Millis": 126.173,
+      "p99Millis": 191.568,
+      "maxMillis": 207.917
+    },
+    "runtimePowerConstraintQuery": {
+      "samples": 20,
+      "p50Millis": 5.497,
+      "p95Millis": 5.965,
+      "p99Millis": 6.086,
+      "maxMillis": 6.117
+    },
+    "runtimeControlPreparation": {
+      "samples": 20,
+      "p50Millis": 0.567,
+      "p95Millis": 0.608,
+      "p99Millis": 0.609,
+      "maxMillis": 0.609
+    },
+    "runtimeFmuFleetStep": {
+      "samples": 20,
+      "p50Millis": 90.061,
+      "p95Millis": 111.489,
+      "p99Millis": 163.537,
+      "maxMillis": 176.549
+    },
+    "runtimeStateApply": {
+      "samples": 20,
+      "p50Millis": 0.782,
+      "p95Millis": 1.554,
+      "p99Millis": 2.048,
+      "maxMillis": 2.171
+    },
+    "runtimePowerNetworkStep": {
+      "samples": 20,
+      "p50Millis": 5.875,
+      "p95Millis": 7.028,
+      "p99Millis": 19.812,
+      "maxMillis": 23.008
+    },
+    "responseBytes": {
+      "samples": 20,
+      "p50Millis": 2720510.5,
+      "p95Millis": 2768466.15,
+      "p99Millis": 2768468.43,
+      "maxMillis": 2768469.0
+    }
+  },
+  "samples": [
+    {
+      "tick": 6,
+      "httpWallMillis": 256.116,
+      "responseBytes": 2670891,
+      "central": {
+        "tick": 6,
+        "trainCount": 1000,
+        "externalPowerAuthority": true,
+        "trainStateAndTrackConstraintMillis": 12.39325,
+        "preliminarySignalAndDispatchMillis": 0.116042,
+        "commandAndInterlockingMillis": 0.002916,
+        "finalConstraintAndPowerBootstrapMillis": 40.590084,
+        "constraintPreparationMillis": 53.102292,
+        "vehicleRuntimeMillis": 128.477041,
+        "centralVehiclePostProcessingMillis": 0.614084,
+        "authoritativePowerSnapshotMillis": 1.655125,
+        "centralPostProcessingMillis": 1.231375,
+        "serviceHealthMillis": 1.563292,
+        "alarmProjectionMillis": 0.272125,
+        "alarmReconciliationMillis": 54.938333,
+        "snapshotBuildMillis": 56.858916,
+        "webSocketPushMillis": 0.001084,
+        "totalMillis": 241.939917
+      },
+      "runtime": {
+        "tick": 6,
+        "trainCount": 1000,
+        "powerConstraintQueryMillis": 5.57375,
+        "controlPreparationMillis": 0.528917,
+        "fmuFleetStepMillis": 87.46425,
+        "stateApplyMillis": 0.814041,
+        "powerNetworkStepMillis": 5.875167,
+        "totalMillis": 100.536917
+      },
+      "runtimeHealth": {
+        "latencyMillis": 100,
+        "fmuBatchLatencyMillis": 87,
+        "fallbackTrainCount": 0,
+        "fmiErrorCount": 0,
+        "dataQuality": "DEGRADED",
+        "reason": "PARTIAL_STEP"
+      }
+    },
+    {
+      "tick": 7,
+      "httpWallMillis": 289.276,
+      "responseBytes": 2670890,
+      "central": {
+        "tick": 7,
+        "trainCount": 1000,
+        "externalPowerAuthority": true,
+        "trainStateAndTrackConstraintMillis": 14.346458,
+        "preliminarySignalAndDispatchMillis": 0.093167,
+        "commandAndInterlockingMillis": 0.003208,
+        "finalConstraintAndPowerBootstrapMillis": 41.286542,
+        "constraintPreparationMillis": 55.729375,
+        "vehicleRuntimeMillis": 133.905375,
+        "centralVehiclePostProcessingMillis": 0.621875,
+        "authoritativePowerSnapshotMillis": 1.703291,
+        "centralPostProcessingMillis": 1.225459,
+        "serviceHealthMillis": 1.615125,
+        "alarmProjectionMillis": 0.304541,
+        "alarmReconciliationMillis": 78.77175,
+        "snapshotBuildMillis": 80.777666,
+        "webSocketPushMillis": 0.001167,
+        "totalMillis": 273.964208
+      },
+      "runtime": {
+        "tick": 7,
+        "trainCount": 1000,
+        "powerConstraintQueryMillis": 5.475292,
+        "controlPreparationMillis": 0.583583,
+        "fmuFleetStepMillis": 94.249125,
+        "stateApplyMillis": 0.759042,
+        "powerNetworkStepMillis": 5.624416,
+        "totalMillis": 107.027416
+      },
+      "runtimeHealth": {
+        "latencyMillis": 107,
+        "fmuBatchLatencyMillis": 93,
+        "fallbackTrainCount": 0,
+        "fmiErrorCount": 0,
+        "dataQuality": "DEGRADED",
+        "reason": "PARTIAL_STEP"
+      }
+    },
+    {
+      "tick": 8,
+      "httpWallMillis": 262.166,
+      "responseBytes": 2670891,
+      "central": {
+        "tick": 8,
+        "trainCount": 1000,
+        "externalPowerAuthority": true,
+        "trainStateAndTrackConstraintMillis": 12.274417,
+        "preliminarySignalAndDispatchMillis": 0.096208,
+        "commandAndInterlockingMillis": 0.002667,
+        "finalConstraintAndPowerBootstrapMillis": 41.610208,
+        "constraintPreparationMillis": 53.9835,
+        "vehicleRuntimeMillis": 131.047,
+        "centralVehiclePostProcessingMillis": 0.64625,
+        "authoritativePowerSnapshotMillis": 1.673792,
+        "centralPostProcessingMillis": 1.1915,
+        "serviceHealthMillis": 1.673625,
+        "alarmProjectionMillis": 0.233709,
+        "alarmReconciliationMillis": 56.668083,
+        "snapshotBuildMillis": 58.67325,
+        "webSocketPushMillis": 0.001458,
+        "totalMillis": 247.21675
+      },
+      "runtime": {
+        "tick": 8,
+        "trainCount": 1000,
+        "powerConstraintQueryMillis": 5.443042,
+        "controlPreparationMillis": 0.539541,
+        "fmuFleetStepMillis": 87.852084,
+        "stateApplyMillis": 0.766875,
+        "powerNetworkStepMillis": 6.015084,
+        "totalMillis": 100.901292
+      },
+      "runtimeHealth": {
+        "latencyMillis": 100,
+        "fmuBatchLatencyMillis": 87,
+        "fallbackTrainCount": 0,
+        "fmiErrorCount": 0,
+        "dataQuality": "DEGRADED",
+        "reason": "PARTIAL_STEP"
+      }
+    },
+    {
+      "tick": 9,
+      "httpWallMillis": 276.308,
+      "responseBytes": 2670893,
+      "central": {
+        "tick": 9,
+        "trainCount": 1000,
+        "externalPowerAuthority": true,
+        "trainStateAndTrackConstraintMillis": 12.370042,
+        "preliminarySignalAndDispatchMillis": 0.080291,
+        "commandAndInterlockingMillis": 0.002417,
+        "finalConstraintAndPowerBootstrapMillis": 40.514417,
+        "constraintPreparationMillis": 52.967167,
+        "vehicleRuntimeMillis": 130.040458,
+        "centralVehiclePostProcessingMillis": 0.589375,
+        "authoritativePowerSnapshotMillis": 1.569625,
+        "centralPostProcessingMillis": 1.214417,
+        "serviceHealthMillis": 5.188958,
+        "alarmProjectionMillis": 0.294167,
+        "alarmReconciliationMillis": 55.9965,
+        "snapshotBuildMillis": 61.566583,
+        "webSocketPushMillis": 12.029458,
+        "totalMillis": 259.977083
+      },
+      "runtime": {
+        "tick": 9,
+        "trainCount": 1000,
+        "powerConstraintQueryMillis": 5.35875,
+        "controlPreparationMillis": 0.539875,
+        "fmuFleetStepMillis": 88.657084,
+        "stateApplyMillis": 1.521916,
+        "powerNetworkStepMillis": 5.862459,
+        "totalMillis": 102.238542
+      },
+      "runtimeHealth": {
+        "latencyMillis": 102,
+        "fmuBatchLatencyMillis": 88,
+        "fallbackTrainCount": 0,
+        "fmiErrorCount": 0,
+        "dataQuality": "DEGRADED",
+        "reason": "PARTIAL_STEP"
+      }
+    },
+    {
+      "tick": 10,
+      "httpWallMillis": 256.808,
+      "responseBytes": 2670890,
+      "central": {
+        "tick": 10,
+        "trainCount": 1000,
+        "externalPowerAuthority": true,
+        "trainStateAndTrackConstraintMillis": 13.628375,
+        "preliminarySignalAndDispatchMillis": 0.089667,
+        "commandAndInterlockingMillis": 0.002333,
+        "finalConstraintAndPowerBootstrapMillis": 40.932833,
+        "constraintPreparationMillis": 54.653208,
+        "vehicleRuntimeMillis": 126.698542,
+        "centralVehiclePostProcessingMillis": 0.628625,
+        "authoritativePowerSnapshotMillis": 1.591417,
+        "centralPostProcessingMillis": 1.191125,
+        "serviceHealthMillis": 2.358417,
+        "alarmProjectionMillis": 0.2845,
+        "alarmReconciliationMillis": 54.138625,
+        "snapshotBuildMillis": 56.879708,
+        "webSocketPushMillis": 0.001292,
+        "totalMillis": 241.643917
+      },
+      "runtime": {
+        "tick": 10,
+        "trainCount": 1000,
+        "powerConstraintQueryMillis": 5.4905,
+        "controlPreparationMillis": 0.606875,
+        "fmuFleetStepMillis": 85.4055,
+        "stateApplyMillis": 0.863291,
+        "powerNetworkStepMillis": 5.902542,
+        "totalMillis": 98.566167
+      },
+      "runtimeHealth": {
+        "latencyMillis": 98,
+        "fmuBatchLatencyMillis": 85,
+        "fallbackTrainCount": 0,
+        "fmiErrorCount": 0,
+        "dataQuality": "DEGRADED",
+        "reason": "PARTIAL_STEP"
+      }
+    },
+    {
+      "tick": 11,
+      "httpWallMillis": 411.108,
+      "responseBytes": 2720507,
+      "central": {
+        "tick": 11,
+        "trainCount": 1000,
+        "externalPowerAuthority": true,
+        "trainStateAndTrackConstraintMillis": 12.332458,
+        "preliminarySignalAndDispatchMillis": 150.090375,
+        "commandAndInterlockingMillis": 0.074042,
+        "finalConstraintAndPowerBootstrapMillis": 40.864125,
+        "constraintPreparationMillis": 203.361,
+        "vehicleRuntimeMillis": 132.156541,
+        "centralVehiclePostProcessingMillis": 0.599459,
+        "authoritativePowerSnapshotMillis": 1.649083,
+        "centralPostProcessingMillis": 1.182208,
+        "serviceHealthMillis": 3.941917,
+        "alarmProjectionMillis": 0.275041,
+        "alarmReconciliationMillis": 53.305667,
+        "snapshotBuildMillis": 57.608709,
+        "webSocketPushMillis": 0.001166,
+        "totalMillis": 396.558166
+      },
+      "runtime": {
+        "tick": 11,
+        "trainCount": 1000,
+        "powerConstraintQueryMillis": 5.422167,
+        "controlPreparationMillis": 0.512458,
+        "fmuFleetStepMillis": 91.116708,
+        "stateApplyMillis": 0.742709,
+        "powerNetworkStepMillis": 5.813041,
+        "totalMillis": 103.912875
+      },
+      "runtimeHealth": {
+        "latencyMillis": 103,
+        "fmuBatchLatencyMillis": 90,
+        "fallbackTrainCount": 0,
+        "fmiErrorCount": 0,
+        "dataQuality": "DEGRADED",
+        "reason": "PARTIAL_STEP"
+      }
+    },
+    {
+      "tick": 12,
+      "httpWallMillis": 409.359,
+      "responseBytes": 2720505,
+      "central": {
+        "tick": 12,
+        "trainCount": 1000,
+        "externalPowerAuthority": true,
+        "trainStateAndTrackConstraintMillis": 12.539333,
+        "preliminarySignalAndDispatchMillis": 0.101084,
+        "commandAndInterlockingMillis": 0.002541,
+        "finalConstraintAndPowerBootstrapMillis": 43.451875,
+        "constraintPreparationMillis": 56.094833,
+        "vehicleRuntimeMillis": 246.679709,
+        "centralVehiclePostProcessingMillis": 1.230541,
+        "authoritativePowerSnapshotMillis": 3.100167,
+        "centralPostProcessingMillis": 2.762208,
+        "serviceHealthMillis": 9.580083,
+        "alarmProjectionMillis": 0.327,
+        "alarmReconciliationMillis": 62.194167,
+        "snapshotBuildMillis": 72.204167,
+        "webSocketPushMillis": 11.947917,
+        "totalMillis": 394.019542
+      },
+      "runtime": {
+        "tick": 12,
+        "trainCount": 1000,
+        "powerConstraintQueryMillis": 5.378167,
+        "controlPreparationMillis": 0.527125,
+        "fmuFleetStepMillis": 176.548792,
+        "stateApplyMillis": 2.171166,
+        "powerNetworkStepMillis": 23.0075,
+        "totalMillis": 207.916542
+      },
+      "runtimeHealth": {
+        "latencyMillis": 207,
+        "fmuBatchLatencyMillis": 175,
+        "fallbackTrainCount": 0,
+        "fmiErrorCount": 0,
+        "dataQuality": "DEGRADED",
+        "reason": "PARTIAL_STEP"
+      }
+    },
+    {
+      "tick": 13,
+      "httpWallMillis": 263.285,
+      "responseBytes": 2720511,
+      "central": {
+        "tick": 13,
+        "trainCount": 1000,
+        "externalPowerAuthority": true,
+        "trainStateAndTrackConstraintMillis": 12.186667,
+        "preliminarySignalAndDispatchMillis": 0.088125,
+        "commandAndInterlockingMillis": 0.003041,
+        "finalConstraintAndPowerBootstrapMillis": 40.781167,
+        "constraintPreparationMillis": 53.059,
+        "vehicleRuntimeMillis": 130.375125,
+        "centralVehiclePostProcessingMillis": 0.607625,
+        "authoritativePowerSnapshotMillis": 1.62625,
+        "centralPostProcessingMillis": 1.233375,
+        "serviceHealthMillis": 2.053125,
+        "alarmProjectionMillis": 0.2645,
+        "alarmReconciliationMillis": 59.772583,
+        "snapshotBuildMillis": 62.177292,
+        "webSocketPushMillis": 0.001166,
+        "totalMillis": 249.079833
+      },
+      "runtime": {
+        "tick": 13,
+        "trainCount": 1000,
+        "powerConstraintQueryMillis": 6.116542,
+        "controlPreparationMillis": 0.487917,
+        "fmuFleetStepMillis": 89.36275,
+        "stateApplyMillis": 0.779083,
+        "powerNetworkStepMillis": 6.040042,
+        "totalMillis": 103.09275
+      },
+      "runtimeHealth": {
+        "latencyMillis": 103,
+        "fmuBatchLatencyMillis": 89,
+        "fallbackTrainCount": 0,
+        "fmiErrorCount": 0,
+        "dataQuality": "DEGRADED",
+        "reason": "PARTIAL_STEP"
+      }
+    },
+    {
+      "tick": 14,
+      "httpWallMillis": 261.6,
+      "responseBytes": 2720509,
+      "central": {
+        "tick": 14,
+        "trainCount": 1000,
+        "externalPowerAuthority": true,
+        "trainStateAndTrackConstraintMillis": 11.994791,
+        "preliminarySignalAndDispatchMillis": 0.082459,
+        "commandAndInterlockingMillis": 0.002625,
+        "finalConstraintAndPowerBootstrapMillis": 40.628875,
+        "constraintPreparationMillis": 52.70875,
+        "vehicleRuntimeMillis": 132.753916,
+        "centralVehiclePostProcessingMillis": 0.566375,
+        "authoritativePowerSnapshotMillis": 1.548625,
+        "centralPostProcessingMillis": 1.227709,
+        "serviceHealthMillis": 4.916417,
+        "alarmProjectionMillis": 0.307041,
+        "alarmReconciliationMillis": 52.940459,
+        "snapshotBuildMillis": 58.249375,
+        "webSocketPushMillis": 0.001416,
+        "totalMillis": 247.056166
+      },
+      "runtime": {
+        "tick": 14,
+        "trainCount": 1000,
+        "powerConstraintQueryMillis": 5.468,
+        "controlPreparationMillis": 0.608459,
+        "fmuFleetStepMillis": 92.156833,
+        "stateApplyMillis": 0.740333,
+        "powerNetworkStepMillis": 5.736,
+        "totalMillis": 105.081041
+      },
+      "runtimeHealth": {
+        "latencyMillis": 105,
+        "fmuBatchLatencyMillis": 91,
+        "fallbackTrainCount": 0,
+        "fmiErrorCount": 0,
+        "dataQuality": "DEGRADED",
+        "reason": "PARTIAL_STEP"
+      }
+    },
+    {
+      "tick": 15,
+      "httpWallMillis": 274.529,
+      "responseBytes": 2720511,
+      "central": {
+        "tick": 15,
+        "trainCount": 1000,
+        "externalPowerAuthority": true,
+        "trainStateAndTrackConstraintMillis": 12.387125,
+        "preliminarySignalAndDispatchMillis": 0.101917,
+        "commandAndInterlockingMillis": 0.002625,
+        "finalConstraintAndPowerBootstrapMillis": 42.592,
+        "constraintPreparationMillis": 55.083667,
+        "vehicleRuntimeMillis": 143.093417,
+        "centralVehiclePostProcessingMillis": 0.615916,
+        "authoritativePowerSnapshotMillis": 1.707125,
+        "centralPostProcessingMillis": 1.2685,
+        "serviceHealthMillis": 1.619917,
+        "alarmProjectionMillis": 0.275292,
+        "alarmReconciliationMillis": 54.815625,
+        "snapshotBuildMillis": 56.800167,
+        "webSocketPushMillis": 0.001125,
+        "totalMillis": 258.569917
+      },
+      "runtime": {
+        "tick": 15,
+        "trainCount": 1000,
+        "powerConstraintQueryMillis": 5.957458,
+        "controlPreparationMillis": 0.582417,
+        "fmuFleetStepMillis": 101.734833,
+        "stateApplyMillis": 0.786167,
+        "powerNetworkStepMillis": 6.102833,
+        "totalMillis": 115.510375
+      },
+      "runtimeHealth": {
+        "latencyMillis": 115,
+        "fmuBatchLatencyMillis": 101,
+        "fallbackTrainCount": 0,
+        "fmiErrorCount": 0,
+        "dataQuality": "DEGRADED",
+        "reason": "PARTIAL_STEP"
+      }
+    },
+    {
+      "tick": 16,
+      "httpWallMillis": 269.897,
+      "responseBytes": 2720515,
+      "central": {
+        "tick": 16,
+        "trainCount": 1000,
+        "externalPowerAuthority": true,
+        "trainStateAndTrackConstraintMillis": 12.173625,
+        "preliminarySignalAndDispatchMillis": 0.107167,
+        "commandAndInterlockingMillis": 0.002458,
+        "finalConstraintAndPowerBootstrapMillis": 40.849042,
+        "constraintPreparationMillis": 53.132292,
+        "vehicleRuntimeMillis": 127.541041,
+        "centralVehiclePostProcessingMillis": 0.586375,
+        "authoritativePowerSnapshotMillis": 1.601667,
+        "centralPostProcessingMillis": 1.182333,
+        "serviceHealthMillis": 2.970084,
+        "alarmProjectionMillis": 0.280875,
+        "alarmReconciliationMillis": 56.09625,
+        "snapshotBuildMillis": 59.433292,
+        "webSocketPushMillis": 12.089542,
+        "totalMillis": 255.566542
+      },
+      "runtime": {
+        "tick": 16,
+        "trainCount": 1000,
+        "powerConstraintQueryMillis": 5.490583,
+        "controlPreparationMillis": 0.587292,
+        "fmuFleetStepMillis": 87.169041,
+        "stateApplyMillis": 0.768334,
+        "powerNetworkStepMillis": 5.75175,
+        "totalMillis": 100.08625
+      },
+      "runtimeHealth": {
+        "latencyMillis": 100,
+        "fmuBatchLatencyMillis": 86,
+        "fallbackTrainCount": 0,
+        "fmiErrorCount": 0,
+        "dataQuality": "DEGRADED",
+        "reason": "PARTIAL_STEP"
+      }
+    },
+    {
+      "tick": 17,
+      "httpWallMillis": 276.33,
+      "responseBytes": 2720510,
+      "central": {
+        "tick": 17,
+        "trainCount": 1000,
+        "externalPowerAuthority": true,
+        "trainStateAndTrackConstraintMillis": 11.997959,
+        "preliminarySignalAndDispatchMillis": 0.085916,
+        "commandAndInterlockingMillis": 0.002459,
+        "finalConstraintAndPowerBootstrapMillis": 40.152583,
+        "constraintPreparationMillis": 52.238917,
+        "vehicleRuntimeMillis": 144.363292,
+        "centralVehiclePostProcessingMillis": 0.822166,
+        "authoritativePowerSnapshotMillis": 2.006917,
+        "centralPostProcessingMillis": 1.354292,
+        "serviceHealthMillis": 1.916708,
+        "alarmProjectionMillis": 0.2955,
+        "alarmReconciliationMillis": 58.084667,
+        "snapshotBuildMillis": 60.389166,
+        "webSocketPushMillis": 0.001209,
+        "totalMillis": 261.175959
+      },
+      "runtime": {
+        "tick": 17,
+        "trainCount": 1000,
+        "powerConstraintQueryMillis": 5.560917,
+        "controlPreparationMillis": 0.586875,
+        "fmuFleetStepMillis": 102.6935,
+        "stateApplyMillis": 0.760792,
+        "powerNetworkStepMillis": 5.910958,
+        "totalMillis": 115.834792
+      },
+      "runtimeHealth": {
+        "latencyMillis": 115,
+        "fmuBatchLatencyMillis": 102,
+        "fallbackTrainCount": 0,
+        "fmiErrorCount": 0,
+        "dataQuality": "DEGRADED",
+        "reason": "PARTIAL_STEP"
+      }
+    },
+    {
+      "tick": 18,
+      "httpWallMillis": 282.429,
+      "responseBytes": 2720516,
+      "central": {
+        "tick": 18,
+        "trainCount": 1000,
+        "externalPowerAuthority": true,
+        "trainStateAndTrackConstraintMillis": 13.167167,
+        "preliminarySignalAndDispatchMillis": 0.109208,
+        "commandAndInterlockingMillis": 0.002875,
+        "finalConstraintAndPowerBootstrapMillis": 43.432125,
+        "constraintPreparationMillis": 56.711375,
+        "vehicleRuntimeMillis": 129.117125,
+        "centralVehiclePostProcessingMillis": 0.619792,
+        "authoritativePowerSnapshotMillis": 1.574875,
+        "centralPostProcessingMillis": 1.216458,
+        "serviceHealthMillis": 1.574291,
+        "alarmProjectionMillis": 0.280125,
+        "alarmReconciliationMillis": 76.978959,
+        "snapshotBuildMillis": 78.925792,
+        "webSocketPushMillis": 0.001416,
+        "totalMillis": 268.166833
+      },
+      "runtime": {
+        "tick": 18,
+        "trainCount": 1000,
+        "powerConstraintQueryMillis": 5.664708,
+        "controlPreparationMillis": 0.568542,
+        "fmuFleetStepMillis": 88.6335,
+        "stateApplyMillis": 0.753125,
+        "powerNetworkStepMillis": 5.961125,
+        "totalMillis": 101.935125
+      },
+      "runtimeHealth": {
+        "latencyMillis": 101,
+        "fmuBatchLatencyMillis": 88,
+        "fallbackTrainCount": 0,
+        "fmiErrorCount": 0,
+        "dataQuality": "DEGRADED",
+        "reason": "PARTIAL_STEP"
+      }
+    },
+    {
+      "tick": 19,
+      "httpWallMillis": 268.061,
+      "responseBytes": 2720513,
+      "central": {
+        "tick": 19,
+        "trainCount": 1000,
+        "externalPowerAuthority": true,
+        "trainStateAndTrackConstraintMillis": 12.24625,
+        "preliminarySignalAndDispatchMillis": 0.082541,
+        "commandAndInterlockingMillis": 0.002167,
+        "finalConstraintAndPowerBootstrapMillis": 40.743792,
+        "constraintPreparationMillis": 53.07475,
+        "vehicleRuntimeMillis": 137.725041,
+        "centralVehiclePostProcessingMillis": 0.613417,
+        "authoritativePowerSnapshotMillis": 1.623208,
+        "centralPostProcessingMillis": 1.210584,
+        "serviceHealthMillis": 1.895417,
+        "alarmProjectionMillis": 0.3145,
+        "alarmReconciliationMillis": 56.5865,
+        "snapshotBuildMillis": 58.88625,
+        "webSocketPushMillis": 0.001333,
+        "totalMillis": 253.134583
+      },
+      "runtime": {
+        "tick": 19,
+        "trainCount": 1000,
+        "powerConstraintQueryMillis": 5.513041,
+        "controlPreparationMillis": 0.558,
+        "fmuFleetStepMillis": 96.41625,
+        "stateApplyMillis": 0.856417,
+        "powerNetworkStepMillis": 5.865333,
+        "totalMillis": 109.524458
+      },
+      "runtimeHealth": {
+        "latencyMillis": 109,
+        "fmuBatchLatencyMillis": 96,
+        "fallbackTrainCount": 0,
+        "fmiErrorCount": 0,
+        "dataQuality": "DEGRADED",
+        "reason": "PARTIAL_STEP"
+      }
+    },
+    {
+      "tick": 20,
+      "httpWallMillis": 299.355,
+      "responseBytes": 2720509,
+      "central": {
+        "tick": 20,
+        "trainCount": 1000,
+        "externalPowerAuthority": true,
+        "trainStateAndTrackConstraintMillis": 12.567083,
+        "preliminarySignalAndDispatchMillis": 0.133083,
+        "commandAndInterlockingMillis": 0.003084,
+        "finalConstraintAndPowerBootstrapMillis": 43.190708,
+        "constraintPreparationMillis": 55.893958,
+        "vehicleRuntimeMillis": 140.581292,
+        "centralVehiclePostProcessingMillis": 16.8895,
+        "authoritativePowerSnapshotMillis": 1.69225,
+        "centralPostProcessingMillis": 1.278208,
+        "serviceHealthMillis": 2.686,
+        "alarmProjectionMillis": 0.316459,
+        "alarmReconciliationMillis": 52.476333,
+        "snapshotBuildMillis": 55.569833,
+        "webSocketPushMillis": 12.266,
+        "totalMillis": 284.171041
+      },
+      "runtime": {
+        "tick": 20,
+        "trainCount": 1000,
+        "powerConstraintQueryMillis": 5.943875,
+        "controlPreparationMillis": 0.598708,
+        "fmuFleetStepMillis": 99.837292,
+        "stateApplyMillis": 0.843708,
+        "powerNetworkStepMillis": 5.837958,
+        "totalMillis": 113.400083
+      },
+      "runtimeHealth": {
+        "latencyMillis": 113,
+        "fmuBatchLatencyMillis": 99,
+        "fallbackTrainCount": 0,
+        "fmiErrorCount": 0,
+        "dataQuality": "DEGRADED",
+        "reason": "PARTIAL_STEP"
+      }
+    },
+    {
+      "tick": 21,
+      "httpWallMillis": 424.614,
+      "responseBytes": 2768464,
+      "central": {
+        "tick": 21,
+        "trainCount": 1000,
+        "externalPowerAuthority": true,
+        "trainStateAndTrackConstraintMillis": 12.211,
+        "preliminarySignalAndDispatchMillis": 146.902,
+        "commandAndInterlockingMillis": 0.079042,
+        "finalConstraintAndPowerBootstrapMillis": 40.148,
+        "constraintPreparationMillis": 199.340042,
+        "vehicleRuntimeMillis": 149.37025,
+        "centralVehiclePostProcessingMillis": 0.61975,
+        "authoritativePowerSnapshotMillis": 1.648333,
+        "centralPostProcessingMillis": 1.257583,
+        "serviceHealthMillis": 1.569292,
+        "alarmProjectionMillis": 0.264042,
+        "alarmReconciliationMillis": 54.4355,
+        "snapshotBuildMillis": 56.358875,
+        "webSocketPushMillis": 0.001292,
+        "totalMillis": 408.596125
+      },
+      "runtime": {
+        "tick": 21,
+        "trainCount": 1000,
+        "powerConstraintQueryMillis": 5.426,
+        "controlPreparationMillis": 0.5505,
+        "fmuFleetStepMillis": 108.064667,
+        "stateApplyMillis": 1.37875,
+        "powerNetworkStepMillis": 6.160458,
+        "totalMillis": 121.871125
+      },
+      "runtimeHealth": {
+        "latencyMillis": 121,
+        "fmuBatchLatencyMillis": 107,
+        "fallbackTrainCount": 0,
+        "fmiErrorCount": 0,
+        "dataQuality": "DEGRADED",
+        "reason": "PARTIAL_STEP"
+      }
+    },
+    {
+      "tick": 22,
+      "httpWallMillis": 272.279,
+      "responseBytes": 2768469,
+      "central": {
+        "tick": 22,
+        "trainCount": 1000,
+        "externalPowerAuthority": true,
+        "trainStateAndTrackConstraintMillis": 12.378584,
+        "preliminarySignalAndDispatchMillis": 0.110083,
+        "commandAndInterlockingMillis": 0.003167,
+        "finalConstraintAndPowerBootstrapMillis": 40.902375,
+        "constraintPreparationMillis": 53.394209,
+        "vehicleRuntimeMillis": 130.581291,
+        "centralVehiclePostProcessingMillis": 0.594584,
+        "authoritativePowerSnapshotMillis": 1.634875,
+        "centralPostProcessingMillis": 1.209041,
+        "serviceHealthMillis": 4.369667,
+        "alarmProjectionMillis": 0.3005,
+        "alarmReconciliationMillis": 64.043167,
+        "snapshotBuildMillis": 68.803417,
+        "webSocketPushMillis": 0.001292,
+        "totalMillis": 256.218709
+      },
+      "runtime": {
+        "tick": 22,
+        "trainCount": 1000,
+        "powerConstraintQueryMillis": 5.617042,
+        "controlPreparationMillis": 0.564916,
+        "fmuFleetStepMillis": 90.758459,
+        "stateApplyMillis": 0.785416,
+        "powerNetworkStepMillis": 5.700792,
+        "totalMillis": 103.821417
+      },
+      "runtimeHealth": {
+        "latencyMillis": 103,
+        "fmuBatchLatencyMillis": 90,
+        "fallbackTrainCount": 0,
+        "fmiErrorCount": 0,
+        "dataQuality": "DEGRADED",
+        "reason": "PARTIAL_STEP"
+      }
+    },
+    {
+      "tick": 23,
+      "httpWallMillis": 272.967,
+      "responseBytes": 2768466,
+      "central": {
+        "tick": 23,
+        "trainCount": 1000,
+        "externalPowerAuthority": true,
+        "trainStateAndTrackConstraintMillis": 12.053167,
+        "preliminarySignalAndDispatchMillis": 0.097125,
+        "commandAndInterlockingMillis": 0.003291,
+        "finalConstraintAndPowerBootstrapMillis": 40.65825,
+        "constraintPreparationMillis": 52.811833,
+        "vehicleRuntimeMillis": 128.385375,
+        "centralVehiclePostProcessingMillis": 0.621709,
+        "authoritativePowerSnapshotMillis": 1.633708,
+        "centralPostProcessingMillis": 2.512208,
+        "serviceHealthMillis": 3.864375,
+        "alarmProjectionMillis": 0.167584,
+        "alarmReconciliationMillis": 53.791291,
+        "snapshotBuildMillis": 57.909167,
+        "webSocketPushMillis": 12.039292,
+        "totalMillis": 255.913292
+      },
+      "runtime": {
+        "tick": 23,
+        "trainCount": 1000,
+        "powerConstraintQueryMillis": 5.5035,
+        "controlPreparationMillis": 0.55825,
+        "fmuFleetStepMillis": 86.9765,
+        "stateApplyMillis": 0.8145,
+        "powerNetworkStepMillis": 6.18675,
+        "totalMillis": 100.397333
+      },
+      "runtimeHealth": {
+        "latencyMillis": 100,
+        "fmuBatchLatencyMillis": 86,
+        "fallbackTrainCount": 0,
+        "fmiErrorCount": 0,
+        "dataQuality": "DEGRADED",
+        "reason": "PARTIAL_STEP"
+      }
+    },
+    {
+      "tick": 24,
+      "httpWallMillis": 259.71,
+      "responseBytes": 2768465,
+      "central": {
+        "tick": 24,
+        "trainCount": 1000,
+        "externalPowerAuthority": true,
+        "trainStateAndTrackConstraintMillis": 12.675833,
+        "preliminarySignalAndDispatchMillis": 0.107375,
+        "commandAndInterlockingMillis": 0.002542,
+        "finalConstraintAndPowerBootstrapMillis": 41.42875,
+        "constraintPreparationMillis": 54.2145,
+        "vehicleRuntimeMillis": 128.474583,
+        "centralVehiclePostProcessingMillis": 0.567959,
+        "authoritativePowerSnapshotMillis": 1.619375,
+        "centralPostProcessingMillis": 1.200041,
+        "serviceHealthMillis": 3.730083,
+        "alarmProjectionMillis": 0.303959,
+        "alarmReconciliationMillis": 53.501041,
+        "snapshotBuildMillis": 57.625334,
+        "webSocketPushMillis": 0.001416,
+        "totalMillis": 243.703208
+      },
+      "runtime": {
+        "tick": 24,
+        "trainCount": 1000,
+        "powerConstraintQueryMillis": 5.453708,
+        "controlPreparationMillis": 0.568459,
+        "fmuFleetStepMillis": 88.853916,
+        "stateApplyMillis": 0.748584,
+        "powerNetworkStepMillis": 5.668208,
+        "totalMillis": 101.64075
+      },
+      "runtimeHealth": {
+        "latencyMillis": 101,
+        "fmuBatchLatencyMillis": 88,
+        "fallbackTrainCount": 0,
+        "fmiErrorCount": 0,
+        "dataQuality": "DEGRADED",
+        "reason": "PARTIAL_STEP"
+      }
+    },
+    {
+      "tick": 25,
+      "httpWallMillis": 253.924,
+      "responseBytes": 2768457,
+      "central": {
+        "tick": 25,
+        "trainCount": 1000,
+        "externalPowerAuthority": true,
+        "trainStateAndTrackConstraintMillis": 12.379583,
+        "preliminarySignalAndDispatchMillis": 0.095209,
+        "commandAndInterlockingMillis": 0.002625,
+        "finalConstraintAndPowerBootstrapMillis": 41.499083,
+        "constraintPreparationMillis": 53.9765,
+        "vehicleRuntimeMillis": 126.077333,
+        "centralVehiclePostProcessingMillis": 0.650542,
+        "authoritativePowerSnapshotMillis": 1.657583,
+        "centralPostProcessingMillis": 1.4275,
+        "serviceHealthMillis": 1.630583,
+        "alarmProjectionMillis": 0.30175,
+        "alarmReconciliationMillis": 52.929292,
+        "snapshotBuildMillis": 54.947625,
+        "webSocketPushMillis": 0.001,
+        "totalMillis": 238.738083
+      },
+      "runtime": {
+        "tick": 25,
+        "trainCount": 1000,
+        "powerConstraintQueryMillis": 5.833334,
+        "controlPreparationMillis": 0.608791,
+        "fmuFleetStepMillis": 84.292917,
+        "stateApplyMillis": 0.762042,
+        "powerNetworkStepMillis": 5.875791,
+        "totalMillis": 97.73625
+      },
+      "runtimeHealth": {
+        "latencyMillis": 97,
+        "fmuBatchLatencyMillis": 83,
+        "fallbackTrainCount": 0,
+        "fmiErrorCount": 0,
+        "dataQuality": "DEGRADED",
+        "reason": "PARTIAL_STEP"
+      }
+    }
+  ]
+}

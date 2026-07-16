@@ -35,6 +35,8 @@ public class DispatchProperties {
     private int routeMaxRetries = 3;
     private double routeWaitingPriorityPerSecond = 0.05;
     private double routeWaitingPriorityMaxBonus = 20.0;
+    private boolean departureHeadwayGateEnabled = true;
+    private double departureHeadwayGateRatio = 1.0;
 
     public String getPlanLocation() {
         return planLocation;
@@ -274,5 +276,21 @@ public class DispatchProperties {
 
     public void setRouteWaitingPriorityMaxBonus(double routeWaitingPriorityMaxBonus) {
         this.routeWaitingPriorityMaxBonus = routeWaitingPriorityMaxBonus;
+    }
+
+    public boolean isDepartureHeadwayGateEnabled() {
+        return departureHeadwayGateEnabled;
+    }
+
+    public void setDepartureHeadwayGateEnabled(boolean departureHeadwayGateEnabled) {
+        this.departureHeadwayGateEnabled = departureHeadwayGateEnabled;
+    }
+
+    public double getDepartureHeadwayGateRatio() {
+        return departureHeadwayGateRatio;
+    }
+
+    public void setDepartureHeadwayGateRatio(double departureHeadwayGateRatio) {
+        this.departureHeadwayGateRatio = departureHeadwayGateRatio;
     }
 }

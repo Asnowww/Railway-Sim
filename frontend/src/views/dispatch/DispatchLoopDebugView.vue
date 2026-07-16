@@ -7,6 +7,7 @@ import StationHeadwayPanel from '../../components/dispatch/StationHeadwayPanel.v
 import RouteClosurePanel from '../../components/dispatch/RouteClosurePanel.vue'
 import type {
   DispatchDisturbance,
+  DispatchCirculationPlan,
   DispatchRouteInfo,
   OperationPlanView,
   OperationRouteTemplate
@@ -162,6 +163,10 @@ const routePlannerLeadSeconds = ref(60)
 const routePlannerHeadwaySeconds = ref(300)
 const routePlannerMessage = ref('')
 const selectedOperationPlanId = ref('')
+const circulationCycleTarget = ref(2)
+const circulationLeadSeconds = ref(30)
+const circulationMessage = ref('')
+const circulationPending = ref(false)
 
 const dispatchLineNodeById = computed(() => new Map(dispatchLineNodes.map((node) => [node.id, node])))
 const dispatchLineNodeByPointId = computed(() => {
@@ -248,6 +253,7 @@ const selectedOperationPlan = computed(() =>
   generatedOperationPlans.value.find((item) => item.planId === selectedOperationPlanId.value) ?? null
 )
 const generatedOperationPlans = computed<OperationPlanView[]>(() => dispatch.value.operationPlans ?? [])
+const circulationPlans = computed(() => dispatch.value.circulationPlans ?? [])
 const routePlannerCandidates = computed(() => {
   return operationRouteTemplates.value
     .flatMap((template) => routeTemplateDirections(template.routeId)
@@ -1079,6 +1085,37 @@ async function createOperationPlan() {
   }
 }
 
+async function autoAssignCirculationPlans() {
+  if (circulationPending.value) return
+  circulationPending.value = true
+  circulationMessage.value = '正在按车辆起点生成车队交路。'
+  try {
+    const plans = await dispatchApi.autoAssignCirculationPlans({
+      cycleTarget: normalizedPlannerSeconds(circulationCycleTarget.value, 1, 20),
+      headwaySeconds: normalizedPlannerSeconds(routePlannerHeadwaySeconds.value, 30, 3600),
+      leadSeconds: normalizedPlannerSeconds(circulationLeadSeconds.value, 0, 3600)
+    })
+    await refreshSimulationSnapshot()
+    circulationMessage.value = plans.length
+      ? `已生成 ${plans.length} 个车队交路，系统将按当前 leg 自动申请既有进路。`
+      : '没有可分配车辆：请确认车辆已由轨道侧创建，并停在郭公庄 S101 或国家图书馆 S113。'
+  } catch (error) {
+    circulationMessage.value = error instanceof Error ? `车队交路生成失败：${error.message}` : '车队交路生成失败'
+  } finally {
+    circulationPending.value = false
+  }
+}
+
+async function cancelCirculationPlan(circulationId: string) {
+  try {
+    const plan = await dispatchApi.cancelCirculationPlan(circulationId)
+    await refreshSimulationSnapshot()
+    circulationMessage.value = `${plan.trainId} 的交路 ${plan.circulationId} 已取消。`
+  } catch (error) {
+    circulationMessage.value = error instanceof Error ? `取消交路失败：${error.message}` : '取消交路失败'
+  }
+}
+
 function selectOperationPlan(planId: string) {
   const plan = generatedOperationPlans.value.find((item) => item.planId === planId)
   if (!plan) return
@@ -1137,6 +1174,38 @@ function operationPlanTitle(plan: OperationPlanView) {
 function operationPlanPathText(plan: OperationPlanView) {
   const via = plan.viaPointIds.length > 0 ? ` / 经由 ${plan.viaPointIds.map(pointLabel).join('、')}` : ''
   return `${pointLabel(plan.originPointId)} -> ${pointLabel(plan.destinationPointId)}${via} / ${formatPlannedTime(plan.plannedDepartureAt)}`
+}
+
+function circulationStatusLabel(statusText: string) {
+  const labels: Record<string, string> = {
+    ASSIGNED: '已分配',
+    IN_SERVICE: '运行中',
+    WAITING_ROUTE: '等进路',
+    BLOCKED: '受阻',
+    RESTING: '休息',
+    CANCELLED: '已取消'
+  }
+  return labels[statusText] ?? statusText
+}
+
+function circulationLegStatusLabel(statusText: string) {
+  const labels: Record<string, string> = {
+    PLANNED: '计划中',
+    ROUTE_REQUESTED: '已申请',
+    ROUTE_ACCEPTED: '已接受',
+    ROUTE_REJECTED: '已拒绝',
+    COMPLETED: '完成',
+    SKIPPED: '跳过'
+  }
+  return labels[statusText] ?? statusText
+}
+
+function currentCirculationLeg(plan: DispatchCirculationPlan) {
+  return plan.legs[plan.currentLegPointer] ?? plan.legs[plan.legs.length - 1] ?? null
+}
+
+function terminalLabel(pointId: string) {
+  return pointId === 'S101' ? '郭公庄' : pointId === 'S113' ? '国家图书馆' : pointLabel(pointId)
 }
 
 function normalizedPlannerSeconds(value: number, minimum: number, maximum: number) {
@@ -1723,7 +1792,7 @@ function formatDelta(current: number | null | undefined, baseline: number | null
       <section>
         <p class="eyebrow">Dispatch Closed Loop</p>
         <h1>调度闭环调试台</h1>
-        <p>实时跟随后端总循环查看调度指令、列车、MA、信号、既有进路和道岔；调度页只申请信号端已有进路，不新增轨道拓扑。</p>
+        <p>默认聚焦闭环是否跑通和本车调度证据；路线、MA、进路、道岔信号等联调明细按需展开查看。</p>
       </section>
       <section class="debug-actions" aria-label="调度页操作">
         <button type="button" class="ghost-button" @click="$emit('back')">返回大屏</button>
@@ -1756,7 +1825,11 @@ function formatDelta(current: number | null | undefined, baseline: number | null
       </article>
     </section>
 
-    <section class="debug-panel dispatch-line-panel">
+    <details class="debug-panel debug-details dispatch-line-panel">
+      <summary>
+        <span>路线编排联调</span>
+        <small>信号模板、待发车计划和既有进路映射</small>
+      </summary>
       <div class="panel-title dispatch-line-title">
         <h2>既有路线编排</h2>
         <div class="dispatch-line-title-actions">
@@ -1768,10 +1841,82 @@ function formatDelta(current: number | null | undefined, baseline: number | null
       <p class="route-planner-source">
         运营路线只来自信号轨道端既有 route/template；调度端在这里选择模板、绑定列车和发车时间，不新增线路拓扑。
       </p>
+      <section class="route-planner-card circulation-planner-card">
+        <div class="route-planner-heading">
+          <h3>车队交路循环</h3>
+          <span>{{ circulationPlans.length }} 个交路</span>
+        </div>
+        <div class="route-planner-fields circulation-fields">
+          <label>
+            <span>循环次数</span>
+            <input v-model.number="circulationCycleTarget" type="number" min="1" max="20" step="1">
+          </label>
+          <label>
+            <span>发车间隔(s)</span>
+            <input v-model.number="routePlannerHeadwaySeconds" type="number" min="30" max="3600" step="30">
+          </label>
+          <label>
+            <span>首车等待(s)</span>
+            <input v-model.number="circulationLeadSeconds" type="number" min="0" max="3600" step="30">
+          </label>
+          <button type="button" class="demo-button" :disabled="circulationPending" @click="autoAssignCirculationPlans">
+            {{ circulationPending ? '生成中' : '按车辆起点生成交路' }}
+          </button>
+        </div>
+        <p v-if="circulationMessage" class="route-planner-message">{{ circulationMessage }}</p>
+        <div v-if="circulationPlans.length === 0" class="empty">暂无车队交路。车辆停在 S101/S113 后可自动分配循环计划。</div>
+        <div v-else class="circulation-plan-list">
+          <article v-for="plan in circulationPlans" :key="plan.circulationId" :data-status="plan.status">
+            <header>
+              <strong>{{ plan.trainId }} · {{ terminalLabel(plan.startTerminalId) }}</strong>
+              <span :data-status="plan.status">{{ circulationStatusLabel(plan.status) }}</span>
+            </header>
+            <dl>
+              <div>
+                <dt>当前路线</dt>
+                <dd>{{ currentCirculationLeg(plan)?.routeId ?? '-' }}</dd>
+              </div>
+              <div>
+                <dt>圈数</dt>
+                <dd>{{ plan.cycleCompleted }} / {{ plan.cycleTarget }}</dd>
+              </div>
+              <div>
+                <dt>下一发车</dt>
+                <dd>{{ formatPlannedTime(currentCirculationLeg(plan)?.plannedDepartureAt ?? plan.plannedStartAt) }}</dd>
+              </div>
+              <div>
+                <dt>间隔</dt>
+                <dd>{{ plan.headwaySeconds }}s</dd>
+              </div>
+            </dl>
+            <div class="circulation-leg-strip">
+              <span
+                v-for="leg in plan.legs"
+                :key="leg.legId"
+                :data-status="leg.status"
+                :class="{ active: leg.legIndex === plan.currentLegPointer }"
+              >
+                {{ leg.routeId }} · {{ circulationLegStatusLabel(leg.status) }}
+              </span>
+            </div>
+            <p v-if="currentCirculationLeg(plan)?.rejectReason" class="route-planner-message">
+              {{ currentCirculationLeg(plan)?.rejectReason }}
+            </p>
+            <button
+              v-if="!['RESTING', 'CANCELLED'].includes(plan.status)"
+              type="button"
+              class="release-button"
+              @click="cancelCirculationPlan(plan.circulationId)"
+            >
+              取消交路
+            </button>
+          </article>
+        </div>
+      </section>
       <div class="dispatch-line-workspace route-planner-panel" aria-label="既有路线编排">
         <section class="route-planner-card">
           <div class="route-planner-heading">
-            <h3>选择信号路线模板</h3>
+            <h3>单条路线计划</h3>
             <span>{{ routePlannerCandidates.length }} 个模板方向</span>
           </div>
           <label>
@@ -1865,21 +2010,61 @@ function formatDelta(current: number | null | undefined, baseline: number | null
           未映射 {{ dispatchLineUnmappedRoutes.join(' / ') }}
         </span>
       </div>
-    </section>
+    </details>
 
-    <section class="debug-panel train-overview-panel">
+    <section class="debug-panel train-overview-panel compact-train-panel">
       <div class="panel-title">
-        <h2>列车运行表</h2>
-        <span>站点偏差正值表示越站；距运营终点正值表示剩余、负值表示越过；MA 可在授权耗尽时为 0</span>
+        <h2>闭环对象选择</h2>
+        <span>只保留进入调度诊断需要的列车字段；点击行后查看本车闭环</span>
       </div>
       <div class="table-wrap">
-        <table class="overview-table">
+        <table class="overview-table compact-overview-table">
           <thead>
             <tr>
               <th>列车</th>
               <th>运行状态</th>
-              <th>位置(m)</th>
-              <th>当前站/区间</th>
+              <th>位置/速度</th>
+              <th>当前/下一站</th>
+              <th>间隔观测</th>
+              <th>进路/MA</th>
+              <th>调度关注</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-if="trainOverviewRows.length === 0">
+              <td colspan="7">暂无上线列车。等待运行计划发车或后端总循环推进。</td>
+            </tr>
+            <tr
+              v-for="row in trainOverviewRows"
+              :key="row.train.id"
+              :class="rowClass(row.train)"
+              :data-attention="row.attention"
+              @click="selectTrain(row.train.id)"
+            >
+              <td><strong>{{ row.train.id }}</strong></td>
+              <td>{{ trainStatusLabel(row.train.status) }}</td>
+              <td>{{ formatNumber(row.train.positionMeters) }}m / {{ formatNumber(row.train.speedMetersPerSecond) }}m/s</td>
+              <td>{{ stationObservation(row.train.id, row.train.currentStationId) }} -> {{ nextStopText(row.train) }}</td>
+              <td>
+                {{ headwayStateLabel(row.profile?.headwayState ?? 'UNKNOWN') }}
+                / 偏差 {{ formatSeconds(row.profile?.headwayDeviationSeconds ?? null) }}
+              </td>
+              <td>{{ row.dispatchRouteState }} / MA {{ formatNumber(row.authority ? row.authority.authorityEndMeters - row.train.positionMeters : row.train.movementAuthorityDistanceMeters) }}m</td>
+              <td><span :data-attention="row.attention">{{ attentionLabel(row.attention) }}</span></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <details class="nested-details">
+        <summary>查看车辆实时明细</summary>
+        <div class="table-wrap">
+          <table class="overview-table">
+            <thead>
+              <tr>
+                <th>列车</th>
+                <th>运行状态</th>
+                <th>位置(m)</th>
+                <th>当前站/区间</th>
               <th>下一站</th>
               <th>停站(s)</th>
               <th>速度(m/s)</th>
@@ -1922,7 +2107,8 @@ function formatDelta(current: number | null | undefined, baseline: number | null
             </tr>
           </tbody>
         </table>
-      </div>
+        </div>
+      </details>
     </section>
 
     <section class="debug-panel selected-workbench">
@@ -2028,22 +2214,32 @@ function formatDelta(current: number | null | undefined, baseline: number | null
       </div>
     </section>
 
-    <section class="closure-overview-grid">
-      <RunPlanPanel
-        :plan="plan"
-        :run-mode="dispatch.runMode"
-        :target-headway-seconds="dispatch.targetHeadwaySeconds"
-        :selected-train-id="selectedTrainId"
-        @select-train="selectedTrainId = $event"
-      />
-      <StationHeadwayPanel :observations="dispatch.stationHeadways" />
-      <RouteClosurePanel
-        :decisions="dispatch.routeDecisions"
-        :reservations="dispatch.routeReservations"
-      />
-    </section>
+    <details class="debug-panel debug-details component-details">
+      <summary>
+        <span>计划、站间隔与路线闭环组件明细</span>
+        <small>这些内容主调度页已有摘要，这里仅作为联调证据</small>
+      </summary>
+      <section class="closure-overview-grid">
+        <RunPlanPanel
+          :plan="plan"
+          :run-mode="dispatch.runMode"
+          :target-headway-seconds="dispatch.targetHeadwaySeconds"
+          :selected-train-id="selectedTrainId"
+          @select-train="selectedTrainId = $event"
+        />
+        <StationHeadwayPanel :observations="dispatch.stationHeadways" />
+        <RouteClosurePanel
+          :decisions="dispatch.routeDecisions"
+          :reservations="dispatch.routeReservations"
+        />
+      </section>
+    </details>
 
-    <section class="headway-focus" :data-state="headwayViolation.state">
+    <details class="debug-panel debug-details headway-focus" :data-state="headwayViolation.state">
+      <summary>
+        <span>运行间隔关键指标</span>
+        <small>主调度页已有闭环摘要，这里用于展开排查本车间隔计算</small>
+      </summary>
       <div class="panel-title">
         <h2>运行间隔关键指标</h2>
         <span>本车相对前车 / 带符号间隔偏差</span>
@@ -2081,9 +2277,13 @@ function formatDelta(current: number | null | undefined, baseline: number | null
         </article>
       </div>
       <p class="headway-focus-hint">{{ headwayViolation.hint }}</p>
-    </section>
+    </details>
 
-    <section class="line-regulation-panel" :data-status="lineRegulationPlan.status">
+    <details class="debug-panel debug-details line-regulation-panel" :data-status="lineRegulationPlan.status">
+      <summary>
+        <span>线路级调节方案明细</span>
+        <small>展开查看每辆候选车的偏差预测、命令与信号约束</small>
+      </summary>
       <div class="panel-title">
         <h2>线路级调节方案</h2>
         <span>{{ lineRegulationStatusLabel(lineRegulationPlan.status) }} / {{ lineRegulationPlan.commandCount }} 条本车命令</span>
@@ -2142,7 +2342,7 @@ function formatDelta(current: number | null | undefined, baseline: number | null
           <p>{{ decision.reason }}</p>
         </article>
       </div>
-    </section>
+    </details>
 
     <section class="debug-grid">
       <section class="debug-panel command-panel">
@@ -2185,7 +2385,11 @@ function formatDelta(current: number | null | undefined, baseline: number | null
         </div>
       </section>
 
-      <section class="debug-panel">
+      <details class="debug-panel debug-details">
+        <summary>
+          <span>扰动与间隔观测明细</span>
+          <small>调度策略输入，默认收起避免和主页面重复</small>
+        </summary>
         <div class="panel-title">
           <h2>运动扰动</h2>
           <span>调度策略输入</span>
@@ -2213,10 +2417,14 @@ function formatDelta(current: number | null | undefined, baseline: number | null
           </article>
           <p v-if="dispatch.trainProfiles.length === 0" class="empty">暂无调度观测数据。</p>
         </div>
-      </section>
+      </details>
     </section>
 
-    <section class="debug-panel comparison-panel">
+    <details class="debug-panel debug-details comparison-panel">
+      <summary>
+        <span>调度前后对比明细</span>
+        <small>演示指令触发后用于核对调度效果</small>
+      </summary>
       <div class="panel-title">
         <h2>调度前后对比</h2>
         <span v-if="comparisonBaseline">
@@ -2244,10 +2452,15 @@ function formatDelta(current: number | null | undefined, baseline: number | null
           <small>{{ row.delta }}</small>
         </article>
       </div>
-    </section>
+    </details>
 
-    <section class="debug-grid three">
-      <section class="debug-panel">
+    <details class="debug-panel debug-details signal-evidence-details">
+      <summary>
+        <span>信号侧全量证据</span>
+        <small>MA、进路状态、道岔与信号机，默认收起减少冗余</small>
+      </summary>
+      <section class="debug-grid three signal-evidence-grid">
+        <section class="debug-panel">
         <div class="panel-title">
           <h2>信号 MA</h2>
           <span>调度到车辆的中间约束</span>
@@ -2322,7 +2535,8 @@ function formatDelta(current: number | null | undefined, baseline: number | null
           </div>
         </div>
       </section>
-    </section>
+      </section>
+    </details>
   </main>
 </template>
 
@@ -2380,7 +2594,7 @@ button {
   border: 1px solid var(--border-strong);
   border-radius: 8px;
   background: var(--bg-panel);
-  color: #1e293b;
+  color: var(--text-primary);
   min-height: 36px;
   padding: 8px 12px;
   font-weight: 600;
@@ -2442,8 +2656,8 @@ button:disabled {
 }
 
 .demo-action-card.primary {
-  border-color: #c4b5fd;
-  background: linear-gradient(180deg, #faf5ff 0%, var(--bg-panel) 100%);
+  border-color: rgba(167, 139, 250, 0.58);
+  background: linear-gradient(180deg, rgba(167, 139, 250, 0.16) 0%, var(--bg-panel) 100%);
   box-shadow: inset 3px 0 0 #7c3aed;
 }
 
@@ -2598,7 +2812,7 @@ button:disabled {
   width: fit-content;
   border-radius: 999px;
   background: rgba(167, 139, 250, 0.16);
-  color: #6d28d9;
+  color: var(--status-info);
   padding: 3px 8px;
   font-size: 12px;
   font-weight: 800;
@@ -2672,6 +2886,76 @@ button:disabled {
   color: var(--status-info);
   font-size: 13px;
   line-height: 1.5;
+}
+
+.circulation-planner-card {
+  margin-bottom: 12px;
+}
+
+.circulation-fields {
+  grid-template-columns: repeat(3, minmax(120px, 1fr)) auto;
+  align-items: end;
+}
+
+.circulation-plan-list {
+  display: grid;
+  gap: 10px;
+}
+
+.circulation-plan-list article {
+  display: grid;
+  gap: 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-panel);
+  padding: 10px;
+}
+
+.circulation-plan-list article > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.circulation-plan-list dl {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+}
+
+.circulation-plan-list dt,
+.circulation-plan-list dd {
+  margin: 0;
+}
+
+.circulation-plan-list dd {
+  overflow-wrap: anywhere;
+  color: var(--text-primary);
+  font-weight: 800;
+}
+
+.circulation-leg-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.circulation-leg-strip span {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-panel-raised);
+  color: var(--text-secondary);
+  padding: 4px 8px;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.circulation-leg-strip span.active {
+  border-color: var(--accent);
+  background: var(--status-info-bg);
+  color: var(--status-info);
 }
 
 .operation-plan-list {
@@ -3003,7 +3287,7 @@ small {
 }
 
 .headway-kpi.controlled {
-  border-color: #c7d2fe;
+  border-color: rgba(88, 166, 255, 0.42);
   background: var(--status-info-bg);
 }
 
@@ -3045,11 +3329,11 @@ small {
 
 .line-regulation-panel {
   margin-bottom: 12px;
-  border: 1px solid #c7d2fe;
+  border: 1px solid rgba(88, 166, 255, 0.32);
   border-radius: 8px;
-  background: #fbfdff;
+  background: var(--bg-panel);
   padding: 14px;
-  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.05);
+  box-shadow: var(--shadow-panel);
 }
 
 .line-regulation-summary {
@@ -3065,22 +3349,22 @@ small {
   gap: 5px;
   min-width: 0;
   min-height: 86px;
-  border: 1px solid #dbeafe;
+  border: 1px solid var(--border-strong);
   border-radius: 8px;
-  background: #fff;
+  background: var(--bg-panel-raised);
   padding: 12px;
 }
 
 .line-regulation-summary span,
 .line-decision-list dt {
-  color: #475569;
+  color: var(--text-secondary);
   font-size: 12px;
   font-weight: 700;
 }
 
 .line-regulation-summary strong {
   overflow-wrap: anywhere;
-  color: #172033;
+  color: var(--text-primary);
   font-size: 20px;
   line-height: 1.25;
 }
@@ -3093,8 +3377,9 @@ small {
 .line-decision-list article {
   display: grid;
   gap: 10px;
-  border-left: 3px solid #4f46e5;
-  background: #eef2ff;
+  border: 1px solid rgba(88, 166, 255, 0.28);
+  border-left: 3px solid var(--status-info);
+  background: var(--status-info-bg);
   padding: 10px 12px;
 }
 
@@ -3112,8 +3397,8 @@ small {
 .line-decision-list header span {
   flex: 0 0 auto;
   border-radius: 999px;
-  background: #fff;
-  color: #3730a3;
+  background: var(--bg-panel);
+  color: var(--status-info);
   padding: 4px 8px;
   font-size: 12px;
   font-weight: 800;
@@ -3131,14 +3416,14 @@ small {
 
 .line-decision-list dd {
   overflow-wrap: anywhere;
-  color: #172033;
+  color: var(--text-primary);
   font-size: 13px;
   font-weight: 700;
 }
 
 .line-decision-list p {
   margin: 0;
-  color: #475569;
+  color: var(--text-secondary);
   font-size: 13px;
   line-height: 1.45;
 }
@@ -3207,6 +3492,33 @@ small {
   padding: 10px;
 }
 
+.debug-shell .command-list > article.command-card {
+  display: grid;
+  grid-template-columns: none;
+  align-items: stretch;
+  gap: 10px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-panel-raised);
+  color: var(--text-primary);
+}
+
+.debug-shell .command-card strong,
+.debug-shell .command-card dd {
+  color: var(--text-primary);
+}
+
+.debug-shell .command-card dt,
+.debug-shell .command-card p,
+.debug-shell .command-card small {
+  color: var(--text-secondary);
+}
+
+.debug-shell .command-card [data-status] {
+  color: var(--text-primary);
+}
+
 .command-card header,
 .disturbance-list article,
 .compact-list article {
@@ -3246,8 +3558,9 @@ dd {
 .command-card .command-evidence {
   margin-top: 6px;
   border-radius: 8px;
+  border: 1px solid rgba(88, 166, 255, 0.28);
   background: var(--status-info-bg);
-  color: #3730a3;
+  color: var(--status-info);
   padding: 7px 8px;
   font-size: 12px;
 }
@@ -3325,8 +3638,8 @@ dd {
 .comparison-grid article small {
   width: fit-content;
   border-radius: 999px;
-  background: #e0f2fe;
-  color: #0369a1;
+  background: var(--status-info-bg);
+  color: var(--status-info);
   padding: 3px 8px;
   font-weight: 700;
 }

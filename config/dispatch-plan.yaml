@@ -22,6 +22,8 @@ periods:
     intervalSec: 420
     dwellSec: 20
 
+# 环线里程（loop-km）约定见 config/line-m9.yaml 头部注释：
+#   up 股道 S1xx = geo_km；down 股道 S2xx = 2L - geo_km（L=16489.02）
 stations:
   - id: S101
     positionMeters: 372.0
@@ -62,6 +64,45 @@ stations:
   - id: S113
     positionMeters: 16105.57149
     platformCapacity: 1400
+  - id: S213
+    positionMeters: 16868.02034
+    platformCapacity: 1400
+  - id: S212
+    positionMeters: 17964.13
+    platformCapacity: 1000
+  - id: S211
+    positionMeters: 19007.75986
+    platformCapacity: 1000
+  - id: S210
+    positionMeters: 20919.97
+    platformCapacity: 1200
+  - id: S209
+    positionMeters: 22318.92622
+    platformCapacity: 1400
+  - id: S208
+    positionMeters: 23489.696
+    platformCapacity: 1000
+  - id: S207
+    positionMeters: 24798.836
+    platformCapacity: 1200
+  - id: S206
+    positionMeters: 26577.766
+    platformCapacity: 1200
+  - id: S205
+    positionMeters: 27903.206
+    platformCapacity: 1200
+  - id: S204
+    positionMeters: 29489.72
+    platformCapacity: 1000
+  - id: S203
+    positionMeters: 30470.43
+    platformCapacity: 1000
+  - id: S202
+    positionMeters: 31258.52
+    platformCapacity: 1000
+  - id: S201
+    positionMeters: 32606.04
+    platformCapacity: 1200
 
 segments:
   - id: U02
@@ -116,61 +157,61 @@ segments:
     startMeters: 16275.20966
     endMeters: 16489.02
     speedLimitMps: 22.2
-  - id: D03
-    startMeters: 0.0
-    endMeters: 215.49
-    speedLimitMps: 22.2
-  - id: D04
-    startMeters: 215.49
-    endMeters: 232.81
-    speedLimitMps: 22.2
-  - id: D07
-    startMeters: 232.81
-    endMeters: 300.19
-    speedLimitMps: 22.2
-  - id: D11
-    startMeters: 300.19
-    endMeters: 443.81
-    speedLimitMps: 22.2
-  - id: D14
-    startMeters: 443.81
-    endMeters: 511.19
-    speedLimitMps: 22.2
-  - id: D17
-    startMeters: 511.19
-    endMeters: 5274.8396
-    speedLimitMps: 22.2
-  - id: D21
-    startMeters: 5274.8396
-    endMeters: 8346.083
-    speedLimitMps: 22.2
-  - id: D24
-    startMeters: 8346.083
-    endMeters: 8687.02908
-    speedLimitMps: 22.2
-  - id: D28
-    startMeters: 8687.02908
-    endMeters: 14039.49649
-    speedLimitMps: 22.2
-  - id: D36
-    startMeters: 14039.49649
-    endMeters: 16203.38149
+  - id: D47
+    startMeters: 16493.46851
+    endMeters: 16707.27851
     speedLimitMps: 22.2
   - id: D43
-    startMeters: 16203.38149
-    endMeters: 16270.76149
+    startMeters: 16707.27851
+    endMeters: 16774.65851
     speedLimitMps: 22.2
-  - id: D47
-    startMeters: 16270.76149
-    endMeters: 16484.57149
+  - id: D36
+    startMeters: 16774.65851
+    endMeters: 18938.54351
+    speedLimitMps: 22.2
+  - id: D28
+    startMeters: 18938.54351
+    endMeters: 24291.01092
+    speedLimitMps: 22.2
+  - id: D24
+    startMeters: 24291.01092
+    endMeters: 24631.957
+    speedLimitMps: 22.2
+  - id: D21
+    startMeters: 24631.957
+    endMeters: 27703.2004
+    speedLimitMps: 22.2
+  - id: D17
+    startMeters: 27703.2004
+    endMeters: 32466.85
+    speedLimitMps: 22.2
+  - id: D14
+    startMeters: 32466.85
+    endMeters: 32534.23
+    speedLimitMps: 22.2
+  - id: D11
+    startMeters: 32534.23
+    endMeters: 32677.85
+    speedLimitMps: 22.2
+  - id: D07
+    startMeters: 32677.85
+    endMeters: 32745.23
+    speedLimitMps: 22.2
+  - id: D04
+    startMeters: 32745.23
+    endMeters: 32762.55
+    speedLimitMps: 22.2
+  - id: D03
+    startMeters: 32762.55
+    endMeters: 32978.04
     speedLimitMps: 22.2
   - id: XGGZ
     startMeters: 0
     endMeters: 25
     speedLimitMps: 8.3
   - id: XLIB
-    startMeters: 16464.02
-    endMeters: 16489.02
+    startMeters: 16489.02
+    endMeters: 16493.46851
     speedLimitMps: 8.3
 
 circulations:
@@ -179,10 +220,10 @@ circulations:
     serviceIds: [SVC-001]
   - id: CIRC-002
     rollingStockId: STOCK-002
-    serviceIds: [SVC-002]
+    serviceIds: [SVC-003]
   - id: CIRC-003
     rollingStockId: STOCK-003
-    serviceIds: [SVC-003]
+    serviceIds: [SVC-002]
   - id: CIRC-004
     rollingStockId: STOCK-004
     serviceIds: [SVC-004]
@@ -210,8 +251,8 @@ services:
       - { stationId: S112, arrivalOffsetSec: 1090, departureOffsetSec: 1115 }
       - { stationId: S113, arrivalOffsetSec: 1177, departureOffsetSec: 1177 }
   - serviceId: SVC-002
-    circulationId: CIRC-002
-    trainId: TR-002
+    circulationId: CIRC-003
+    trainId: TR-003
     trainNo: 2
     linkId: 1
     offsetMeters: 0
@@ -230,45 +271,46 @@ services:
       - { stationId: S111, arrivalOffsetSec: 1306, departureOffsetSec: 1331 }
       - { stationId: S112, arrivalOffsetSec: 1390, departureOffsetSec: 1415 }
       - { stationId: S113, arrivalOffsetSec: 1477, departureOffsetSec: 1477 }
+  # 下行车从 D47 起点（loop 16493.47，国图端折返出口）出发，loop-km 递增行驶
   - serviceId: SVC-003
-    circulationId: CIRC-003
-    trainId: TR-003
+    circulationId: CIRC-002
+    trainId: TR-002
     trainNo: 3
     linkId: 1
-    offsetMeters: 0
+    offsetMeters: 16493.46851
     direction: DOWN
     stops:
-      - { stationId: S113, arrivalOffsetSec: 0, departureOffsetSec: 15 }
-      - { stationId: S112, arrivalOffsetSec: 91, departureOffsetSec: 116 }
-      - { stationId: S111, arrivalOffsetSec: 160, departureOffsetSec: 185 }
-      - { stationId: S110, arrivalOffsetSec: 240, departureOffsetSec: 265 }
-      - { stationId: S109, arrivalOffsetSec: 354, departureOffsetSec: 379 }
-      - { stationId: S108, arrivalOffsetSec: 454, departureOffsetSec: 479 }
-      - { stationId: S107, arrivalOffsetSec: 580, departureOffsetSec: 605 }
-      - { stationId: S106, arrivalOffsetSec: 679, departureOffsetSec: 704 }
-      - { stationId: S105, arrivalOffsetSec: 769, departureOffsetSec: 794 }
-      - { stationId: S104, arrivalOffsetSec: 873, departureOffsetSec: 898 }
-      - { stationId: S103, arrivalOffsetSec: 1006, departureOffsetSec: 1031 }
-      - { stationId: S102, arrivalOffsetSec: 1090, departureOffsetSec: 1115 }
-      - { stationId: S101, arrivalOffsetSec: 1177, departureOffsetSec: 1177 }
+      - { stationId: S213, arrivalOffsetSec: 0, departureOffsetSec: 15 }
+      - { stationId: S212, arrivalOffsetSec: 91, departureOffsetSec: 116 }
+      - { stationId: S211, arrivalOffsetSec: 160, departureOffsetSec: 185 }
+      - { stationId: S210, arrivalOffsetSec: 240, departureOffsetSec: 265 }
+      - { stationId: S209, arrivalOffsetSec: 354, departureOffsetSec: 379 }
+      - { stationId: S208, arrivalOffsetSec: 454, departureOffsetSec: 479 }
+      - { stationId: S207, arrivalOffsetSec: 580, departureOffsetSec: 605 }
+      - { stationId: S206, arrivalOffsetSec: 679, departureOffsetSec: 704 }
+      - { stationId: S205, arrivalOffsetSec: 769, departureOffsetSec: 794 }
+      - { stationId: S204, arrivalOffsetSec: 873, departureOffsetSec: 898 }
+      - { stationId: S203, arrivalOffsetSec: 1006, departureOffsetSec: 1031 }
+      - { stationId: S202, arrivalOffsetSec: 1090, departureOffsetSec: 1115 }
+      - { stationId: S201, arrivalOffsetSec: 1177, departureOffsetSec: 1177 }
   - serviceId: SVC-004
     circulationId: CIRC-004
     trainId: TR-004
     trainNo: 4
     linkId: 1
-    offsetMeters: 0
+    offsetMeters: 16493.46851
     direction: DOWN
     stops:
-      - { stationId: S113, arrivalOffsetSec: 300, departureOffsetSec: 315 }
-      - { stationId: S112, arrivalOffsetSec: 391, departureOffsetSec: 416 }
-      - { stationId: S111, arrivalOffsetSec: 460, departureOffsetSec: 485 }
-      - { stationId: S110, arrivalOffsetSec: 540, departureOffsetSec: 565 }
-      - { stationId: S109, arrivalOffsetSec: 654, departureOffsetSec: 679 }
-      - { stationId: S108, arrivalOffsetSec: 754, departureOffsetSec: 779 }
-      - { stationId: S107, arrivalOffsetSec: 880, departureOffsetSec: 905 }
-      - { stationId: S106, arrivalOffsetSec: 979, departureOffsetSec: 1004 }
-      - { stationId: S105, arrivalOffsetSec: 1069, departureOffsetSec: 1094 }
-      - { stationId: S104, arrivalOffsetSec: 1173, departureOffsetSec: 1198 }
-      - { stationId: S103, arrivalOffsetSec: 1306, departureOffsetSec: 1331 }
-      - { stationId: S102, arrivalOffsetSec: 1390, departureOffsetSec: 1415 }
-      - { stationId: S101, arrivalOffsetSec: 1477, departureOffsetSec: 1477 }
+      - { stationId: S213, arrivalOffsetSec: 300, departureOffsetSec: 315 }
+      - { stationId: S212, arrivalOffsetSec: 391, departureOffsetSec: 416 }
+      - { stationId: S211, arrivalOffsetSec: 460, departureOffsetSec: 485 }
+      - { stationId: S210, arrivalOffsetSec: 540, departureOffsetSec: 565 }
+      - { stationId: S209, arrivalOffsetSec: 654, departureOffsetSec: 679 }
+      - { stationId: S208, arrivalOffsetSec: 754, departureOffsetSec: 779 }
+      - { stationId: S207, arrivalOffsetSec: 880, departureOffsetSec: 905 }
+      - { stationId: S206, arrivalOffsetSec: 979, departureOffsetSec: 1004 }
+      - { stationId: S205, arrivalOffsetSec: 1069, departureOffsetSec: 1094 }
+      - { stationId: S204, arrivalOffsetSec: 1173, departureOffsetSec: 1198 }
+      - { stationId: S203, arrivalOffsetSec: 1306, departureOffsetSec: 1331 }
+      - { stationId: S202, arrivalOffsetSec: 1390, departureOffsetSec: 1415 }
+      - { stationId: S201, arrivalOffsetSec: 1477, departureOffsetSec: 1477 }

@@ -29,6 +29,23 @@ public class AlarmLifecycleService {
     private final Map<String, AlarmRecord> recordsById = new LinkedHashMap<>();
     private final Map<String, String> activeIdByBaseKey = new LinkedHashMap<>();
     private final Map<String, Integer> occurrenceByBaseKey = new LinkedHashMap<>();
+    private static final String UPSERT_SQL = """
+        INSERT INTO alarm_record (
+          alarm_id, simulation_run_id, alarm_code, source_module, location_ref,
+          level, title, detail_text, state, confirmed, raised_at, last_seen_at,
+          acknowledged_at, acknowledged_by, cleared_at, affected_train_ids_json,
+          affected_section_ids_json, safety_action, clear_condition, recovery_condition
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON DUPLICATE KEY UPDATE
+          level = VALUES(level), title = VALUES(title), detail_text = VALUES(detail_text),
+          state = VALUES(state), confirmed = VALUES(confirmed),
+          last_seen_at = VALUES(last_seen_at), acknowledged_at = VALUES(acknowledged_at),
+          acknowledged_by = VALUES(acknowledged_by), cleared_at = VALUES(cleared_at),
+          affected_train_ids_json = VALUES(affected_train_ids_json),
+          affected_section_ids_json = VALUES(affected_section_ids_json),
+          safety_action = VALUES(safety_action), clear_condition = VALUES(clear_condition),
+          recovery_condition = VALUES(recovery_condition)
+        """;
 
     @Autowired
     public AlarmLifecycleService(
@@ -88,6 +105,7 @@ public class AlarmLifecycleService {
 
     public synchronized List<Alarm> reconcile(String runId, List<Alarm> candidates, Instant now) {
         Set<String> seenBaseKeys = new HashSet<>();
+        List<AlarmRecord> recordsToPersist = new ArrayList<>();
         for (Alarm candidate : candidates) {
             String baseKey = runId + "|" + candidate.id();
             seenBaseKeys.add(baseKey);
@@ -112,7 +130,7 @@ public class AlarmLifecycleService {
                     current.acknowledgedAt(), current.acknowledgedBy(), null, impact);
                 recordsById.put(current.id(), current);
             }
-            persist(current);
+            recordsToPersist.add(current);
         }
 
         for (Map.Entry<String, String> active : new ArrayList<>(activeIdByBaseKey.entrySet())) {
@@ -127,10 +145,11 @@ public class AlarmLifecycleService {
                     AlarmLifecycleState.CLEARED, current.raisedAt(), current.lastSeenAt(),
                     current.acknowledgedAt(), current.acknowledgedBy(), now, current.impact());
                 recordsById.put(cleared.id(), cleared);
-                persist(cleared);
+                recordsToPersist.add(cleared);
             }
             activeIdByBaseKey.remove(active.getKey());
         }
+        persistAll(recordsToPersist);
         return activeIdByBaseKey.values().stream()
             .map(recordsById::get)
             .filter(record -> record != null && record.state() != AlarmLifecycleState.CLEARED)
@@ -172,32 +191,36 @@ public class AlarmLifecycleService {
     }
 
     private void persist(AlarmRecord record) {
+        persistAll(List.of(record));
+    }
+
+    private void persistAll(List<AlarmRecord> records) {
+        if (records == null || records.isEmpty()) {
+            return;
+        }
         try {
-            jdbcTemplate.update("""
-                INSERT INTO alarm_record (
-                  alarm_id, simulation_run_id, alarm_code, source_module, location_ref,
-                  level, title, detail_text, state, confirmed, raised_at, last_seen_at,
-                  acknowledged_at, acknowledged_by, cleared_at, affected_train_ids_json,
-                  affected_section_ids_json, safety_action, clear_condition, recovery_condition
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ON DUPLICATE KEY UPDATE
-                  level = VALUES(level), title = VALUES(title), detail_text = VALUES(detail_text),
-                  state = VALUES(state), confirmed = VALUES(confirmed),
-                  last_seen_at = VALUES(last_seen_at), acknowledged_at = VALUES(acknowledged_at),
-                  acknowledged_by = VALUES(acknowledged_by), cleared_at = VALUES(cleared_at),
-                  affected_train_ids_json = VALUES(affected_train_ids_json),
-                  affected_section_ids_json = VALUES(affected_section_ids_json),
-                  safety_action = VALUES(safety_action), clear_condition = VALUES(clear_condition),
-                  recovery_condition = VALUES(recovery_condition)
-                """,
-                record.id(), record.simulationRunId(), record.alarmCode(), record.sourceModule(),
-                record.locationRef(), record.level(), record.title(), record.detail(),
-                record.state().name(), record.state() == AlarmLifecycleState.ACKNOWLEDGED,
-                Timestamp.from(record.raisedAt()), Timestamp.from(record.lastSeenAt()),
-                timestamp(record.acknowledgedAt()), record.acknowledgedBy(), timestamp(record.clearedAt()),
-                json(record.impact().affectedTrainIds()), json(record.impact().affectedSectionIds()),
-                record.impact().safetyAction(), record.impact().clearCondition(),
-                record.impact().recoveryCondition());
+            jdbcTemplate.batchUpdate(UPSERT_SQL, records, 500, (statement, value) -> {
+                statement.setString(1, value.id());
+                statement.setString(2, value.simulationRunId());
+                statement.setString(3, value.alarmCode());
+                statement.setString(4, value.sourceModule());
+                statement.setString(5, value.locationRef());
+                statement.setInt(6, value.level());
+                statement.setString(7, value.title());
+                statement.setString(8, value.detail());
+                statement.setString(9, value.state().name());
+                statement.setBoolean(10, value.state() == AlarmLifecycleState.ACKNOWLEDGED);
+                statement.setTimestamp(11, Timestamp.from(value.raisedAt()));
+                statement.setTimestamp(12, Timestamp.from(value.lastSeenAt()));
+                statement.setTimestamp(13, timestamp(value.acknowledgedAt()));
+                statement.setString(14, value.acknowledgedBy());
+                statement.setTimestamp(15, timestamp(value.clearedAt()));
+                statement.setString(16, json(value.impact().affectedTrainIds()));
+                statement.setString(17, json(value.impact().affectedSectionIds()));
+                statement.setString(18, value.impact().safetyAction());
+                statement.setString(19, value.impact().clearCondition());
+                statement.setString(20, value.impact().recoveryCondition());
+            });
         } catch (DataAccessException ex) {
             log.warn("Alarm lifecycle persistence failed: {}", ex.getMessage());
         }

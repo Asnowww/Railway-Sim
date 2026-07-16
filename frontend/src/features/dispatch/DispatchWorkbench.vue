@@ -3,11 +3,9 @@ import { computed, onMounted, ref } from 'vue'
 import { storeToRefs } from 'pinia'
 import { dispatchApi } from '../../api/dispatch'
 import { useSimulationStore } from '../../stores/simulation'
-import { useConnectionStore } from '../../stores/connection'
 import { useTopologyStore } from '../../stores/topology'
 import Panel from '../../shared/components/Panel.vue'
 import StatusBadge from '../../shared/components/StatusBadge.vue'
-import RunPlanPanel from '../../components/dispatch/RunPlanPanel.vue'
 import HeadwayChart from '../../components/dispatch/HeadwayChart.vue'
 import SelfRegulationPanel from '../../components/dispatch/SelfRegulationPanel.vue'
 import StationHeadwayPanel from '../../components/dispatch/StationHeadwayPanel.vue'
@@ -19,17 +17,16 @@ import {
   dispatchCommandTypeLabel,
   dispatchCommandStatusLabel,
   commandStatusTone,
+  type Tone,
   runModeLabel,
   stationEventTypeLabel
 } from '../../shared/labels'
-import type { RunPlanResponse, TrainStationEvent, DispatchCommandView, DispatchRouteInfo } from '../../types/dispatch'
+import type { TrainStationEvent, DispatchCommandView, DispatchRouteInfo } from '../../types/dispatch'
 
 const simulation = useSimulationStore()
-const connection = useConnectionStore()
 const topology = useTopologyStore()
 const { dispatch, trains } = storeToRefs(simulation)
 
-const plan = ref<RunPlanResponse | null>(null)
 const routeList = ref<DispatchRouteInfo[]>([])
 const stationRecords = ref<TrainStationEvent[]>([])
 const allCommands = ref<DispatchCommandView[]>([])
@@ -37,17 +34,15 @@ const loadError = ref('')
 
 async function loadStatic(): Promise<void> {
   try {
-    const [planResult, routesResult, recordsResult, commandsResult] = await Promise.allSettled([
-      dispatchApi.plan(),
+    const [routesResult, recordsResult, commandsResult] = await Promise.allSettled([
       dispatchApi.routeList(),
       dispatchApi.stationRecords(),
       dispatchApi.commands()
     ])
-    if (planResult.status === 'fulfilled') plan.value = planResult.value
     if (routesResult.status === 'fulfilled') routeList.value = routesResult.value
     if (recordsResult.status === 'fulfilled') stationRecords.value = recordsResult.value
     if (commandsResult.status === 'fulfilled') allCommands.value = commandsResult.value
-    const firstError = [planResult, routesResult, recordsResult, commandsResult].find(
+    const firstError = [routesResult, recordsResult, commandsResult].find(
       (result): result is PromiseRejectedResult => result.status === 'rejected'
     )
     loadError.value = firstError ? String(firstError.reason instanceof Error ? firstError.reason.message : firstError.reason) : ''
@@ -128,10 +123,158 @@ const sortedRecords = computed(() =>
   [...stationRecords.value].sort((a, b) => (b.simulatedAt ?? '').localeCompare(a.simulatedAt ?? ''))
 )
 
+const activeCommandsByTrain = computed(() => {
+  const map = new Map<string, DispatchCommandView[]>()
+  for (const command of dispatch.value.activeCommands) {
+    const trainId = command.regulatedTrainId || command.trainId
+    const list = map.get(trainId) ?? []
+    list.push(command)
+    map.set(trainId, list)
+  }
+  return map
+})
+
+const headwayToleranceSeconds = computed(() => Math.max(5, Math.round((dispatch.value.targetHeadwaySeconds || 300) * 0.1)))
+
+const headwayFeedbackRows = computed(() =>
+  dispatch.value.trainProfiles
+    .map((profile) => {
+      const trainId = profile.regulatedTrainId || profile.trainId
+      const command = activeCommandsByTrain.value.get(trainId)?.[0] ?? null
+      const details = commandPayloadObject(command?.payload?.lastFeedbackDetails)
+      const feedbackStatus = textPayloadValue(command?.payload?.lastFeedbackStatus)
+      const feedbackReason = textPayloadValue(command?.payload?.lastFeedbackReason)
+      const deviation = numericValue(profile.headwayErrorSeconds ?? profile.headwayDeviationSeconds)
+      const predicted = numericValue(command?.payload?.predictedHeadwayErrorSec)
+        ?? numericValue(command?.payload?.predictedHeadwayDeviationSec)
+      const improvement = deviation !== null && predicted !== null
+        ? Math.max(0, Math.abs(deviation) - Math.abs(predicted))
+        : null
+      const effectiveSpeed = numericValue(details.effectiveSpeedLimitMps)
+      const source = textPayloadValue(details.finalLimitSource)
+      const constraint = textPayloadValue(details.constraint)
+        || textPayloadValue(details.failureCode)
+        || textPayloadValue(command?.payload?.signalConstraint)
+      const authority = numericValue(details.authorityDistanceMeters)
+        ?? numericValue(details.movementAuthorityDistanceMeters)
+      return {
+        trainId,
+        frontTrainId: profile.frontTrainId,
+        state: profile.headwayState,
+        action: profile.regulationAction,
+        actual: profile.headwayActualSeconds,
+        deviation,
+        predicted,
+        improvement,
+        command,
+        feedbackStatus,
+        feedbackReason,
+        effectiveSpeed,
+        source,
+        constraint,
+        authority
+      }
+    })
+    .sort((left, right) => {
+      const leftCommand = left.command ? 1 : 0
+      const rightCommand = right.command ? 1 : 0
+      if (leftCommand !== rightCommand) return rightCommand - leftCommand
+      return Math.abs(right.deviation ?? 0) - Math.abs(left.deviation ?? 0)
+    })
+    .slice(0, 6)
+)
+
+const signalFeedbackCount = computed(() =>
+  dispatch.value.activeCommands.filter((command) => Boolean(command.payload?.lastFeedbackStatus)).length
+)
+
+const effectConfirmedCount = computed(() =>
+  dispatch.value.activeCommands.filter((command) => command.status === 'EFFECT_CONFIRMED').length
+)
+
 function delayTone(delaySeconds: number) {
   if (Math.abs(delaySeconds) <= 30) return 'ok' as const
   if (Math.abs(delaySeconds) <= 120) return 'warn' as const
   return 'danger' as const
+}
+
+function formatSeconds(value: number | null | undefined): string {
+  if (value === null || value === undefined || Number.isNaN(value)) return '—'
+  const rounded = Math.round(value)
+  const sign = rounded > 0 ? '+' : rounded < 0 ? '-' : ''
+  const absolute = Math.abs(rounded)
+  const minutes = Math.floor(absolute / 60)
+  const seconds = absolute % 60
+  return minutes > 0 ? `${sign}${minutes}m${seconds.toString().padStart(2, '0')}s` : `${sign}${seconds}s`
+}
+
+function formatNumber(value: number | null | undefined, digits = 1): string {
+  return value === null || value === undefined || Number.isNaN(value) ? '—' : value.toFixed(digits)
+}
+
+function formatAuthority(value: number | null | undefined): string {
+  return value === null || value === undefined || Number.isNaN(value) ? '—' : `${Math.round(value)}m`
+}
+
+function commandPayloadObject(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
+}
+
+function textPayloadValue(value: unknown): string {
+  return typeof value === 'string' && value.trim() ? value : ''
+}
+
+function numericValue(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) return value
+  if (typeof value === 'string' && value.trim() && Number.isFinite(Number(value))) return Number(value)
+  return null
+}
+
+function headwayStateLabel(state: string): string {
+  const labels: Record<string, string> = {
+    NORMAL: '正常',
+    ON_TARGET: '正常',
+    HEADWAY_ON_TARGET: '正常',
+    TOO_SHORT: '间隔过小',
+    TOO_LONG: '间隔过大',
+    LEADING_TRAIN: '头车',
+    SCHEDULE_LATE: '晚点',
+    WAITING_DEPARTURE_DATA: '等发车数据',
+    WAITING_FOR_REFERENCE_DATA: '等参考车'
+  }
+  return labels[state] ?? state
+}
+
+function regulationActionLabel(action: string): string {
+  const labels: Record<string, string> = {
+    CATCH_UP: '追赶',
+    SLOW_DOWN: '放慢',
+    EXTEND_DWELL: '延长停站',
+    SHORTEN_DWELL: '缩短停站',
+    NORMAL: '正常',
+    OBSERVE: '观察'
+  }
+  return labels[action] ?? action
+}
+
+function feedbackStatusLabel(status: string): string {
+  const labels: Record<string, string> = {
+    ACCEPTED: '已接收',
+    REJECTED: '已拒绝',
+    APPLIED: '已应用',
+    PARTIALLY_APPLIED: '部分应用',
+    BLOCKED: '受阻',
+    EFFECT_CONFIRMED: '效果确认',
+    EFFECT_NOT_CONFIRMED: '效果未确认'
+  }
+  return labels[status] ?? (status || '未反馈')
+}
+
+function feedbackTone(status: string, commandStatus?: string): Tone {
+  if (status === 'REJECTED' || status === 'BLOCKED' || commandStatus === 'TIMEOUT' || commandStatus === 'SKIPPED') return 'warn'
+  if (status === 'APPLIED' || status === 'PARTIALLY_APPLIED' || commandStatus === 'APPLIED') return 'info'
+  if (status === 'EFFECT_CONFIRMED' || commandStatus === 'EFFECT_CONFIRMED') return 'ok'
+  return status ? 'neutral' : 'stale'
 }
 </script>
 
@@ -150,10 +293,53 @@ function delayTone(delaySeconds: number) {
       <span v-if="loadError" class="load-error">{{ loadError }}</span>
     </div>
 
-    <div class="wb-aligned">
-      <div class="reused card-plan">
-        <RunPlanPanel :plan="plan" :run-mode="dispatch.runMode" :target-headway-seconds="dispatch.targetHeadwaySeconds" />
+    <Panel title="时间间隔闭环" subtitle="问题识别、线路级动作、命令状态、信号反馈和效果确认放在同一条证据链里">
+      <template #actions>
+        <StatusBadge tone="info" :label="`信号反馈 ${signalFeedbackCount}/${dispatch.activeCommands.length}`" />
+        <StatusBadge tone="ok" :label="`效果确认 ${effectConfirmedCount}`" />
+      </template>
+      <div class="headway-chain">
+        <article v-if="headwayFeedbackRows.length === 0" class="empty-card">暂无列车间隔观测，等待仿真快照。</article>
+        <article v-for="row in headwayFeedbackRows" :key="row.trainId" class="headway-chain-row">
+          <div class="train-cell">
+            <strong>{{ row.trainId }}</strong>
+            <span>{{ row.frontTrainId ? `前车 ${row.frontTrainId}` : headwayStateLabel(row.state) }}</span>
+          </div>
+          <div class="evidence-cell">
+            <span>问题识别</span>
+            <strong>{{ headwayStateLabel(row.state) }}</strong>
+            <small>实际 {{ formatSeconds(row.actual) }} / 偏差 {{ formatSeconds(row.deviation) }}</small>
+          </div>
+          <div class="evidence-cell">
+            <span>策略动作</span>
+            <strong>{{ regulationActionLabel(row.action) }}</strong>
+            <small>容差 ±{{ formatSeconds(headwayToleranceSeconds) }}</small>
+          </div>
+          <div class="evidence-cell">
+            <span>命令下发</span>
+            <strong>{{ row.command ? dispatchCommandTypeLabel(row.command.commandType) : '未下发' }}</strong>
+            <small>{{ row.command ? dispatchCommandStatusLabel(row.command.status) : '等待策略生成' }}</small>
+          </div>
+          <div class="evidence-cell signal-feedback-cell">
+            <span>信号反馈</span>
+            <StatusBadge :tone="feedbackTone(row.feedbackStatus, row.command?.status)" :label="feedbackStatusLabel(row.feedbackStatus)" />
+            <small>{{ row.feedbackReason || row.constraint || '暂无回执' }}</small>
+          </div>
+          <div class="evidence-cell">
+            <span>最终约束</span>
+            <strong>{{ row.effectiveSpeed !== null ? `${formatNumber(row.effectiveSpeed)}m/s` : (row.source || row.constraint || '—') }}</strong>
+            <small>MA {{ formatAuthority(row.authority) }} / {{ row.source || row.constraint || '无约束' }}</small>
+          </div>
+          <div class="evidence-cell">
+            <span>效果</span>
+            <strong>{{ row.command?.status === 'EFFECT_CONFIRMED' ? '已闭环' : formatSeconds(row.improvement) }}</strong>
+            <small>预计偏差 {{ formatSeconds(row.predicted) }}</small>
+          </div>
+        </article>
       </div>
+    </Panel>
+
+    <div class="wb-aligned">
       <div class="reused">
         <HeadwayChart :profiles="dispatch.trainProfiles" :target-headway-seconds="dispatch.targetHeadwaySeconds" />
       </div>
@@ -321,6 +507,63 @@ function delayTone(delaySeconds: number) {
 .load-error {
   color: var(--status-danger);
   font-size: var(--fs-xs);
+}
+
+.headway-chain {
+  display: grid;
+  gap: var(--gap-sm);
+}
+
+.headway-chain-row {
+  display: grid;
+  grid-template-columns: minmax(96px, 0.8fr) repeat(6, minmax(112px, 1fr));
+  gap: 1px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--border);
+}
+
+.train-cell,
+.evidence-cell {
+  display: grid;
+  align-content: start;
+  gap: 3px;
+  min-height: 74px;
+  padding: 9px 10px;
+  background: var(--bg-panel-raised);
+  min-width: 0;
+}
+
+.train-cell strong,
+.evidence-cell strong {
+  overflow-wrap: anywhere;
+}
+
+.train-cell span,
+.evidence-cell span,
+.evidence-cell small {
+  color: var(--text-secondary);
+  font-size: var(--fs-xs);
+  overflow-wrap: anywhere;
+}
+
+.signal-feedback-cell :deep(.status-badge) {
+  width: fit-content;
+}
+
+.empty-card {
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  color: var(--text-muted);
+  background: var(--bg-panel-raised);
+}
+
+@media (max-width: 1280px) {
+  .headway-chain-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 /* 固定 3×2 网格：同行卡片等高对齐（stretch），边框整齐无缺口；

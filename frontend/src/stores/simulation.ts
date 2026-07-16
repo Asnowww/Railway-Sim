@@ -18,6 +18,7 @@ const emptyDispatch: DispatchSnapshot = {
   routeDecisions: [],
   routeReservations: [],
   operationPlans: [],
+  circulationPlans: [],
   lineRegulationPlan: {
     planId: '',
     generatedAt: null,
@@ -74,6 +75,7 @@ export const useSimulationStore = defineStore('simulation', () => {
       routeDecisions: raw.routeDecisions ?? [],
       routeReservations: raw.routeReservations ?? [],
       operationPlans: raw.operationPlans ?? [],
+      circulationPlans: raw.circulationPlans ?? [],
       lineRegulationPlan: {
         ...emptyDispatch.lineRegulationPlan,
         ...(raw.lineRegulationPlan ?? {}),

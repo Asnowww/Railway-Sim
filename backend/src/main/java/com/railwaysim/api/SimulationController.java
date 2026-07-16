@@ -5,6 +5,7 @@ import com.railwaysim.signal.SignalService;
 import com.railwaysim.simulation.SimulationRuntime;
 import com.railwaysim.simulation.SimulationSnapshot;
 import com.railwaysim.simulation.SimulationStatus;
+import com.railwaysim.simulation.SimulationTickTiming;
 import com.railwaysim.track.TrackService;
 import com.railwaysim.train.TrainManager;
 import org.springframework.web.bind.annotation.CrossOrigin;
@@ -42,6 +43,11 @@ public class SimulationController {
     @GetMapping("/snapshot")
     public SimulationSnapshot snapshot() {
         return simulationRuntime.snapshot();
+    }
+
+    @GetMapping("/timing")
+    public SimulationTickTiming timing() {
+        return simulationRuntime.latestTickTiming();
     }
 
     @PostMapping("/start")

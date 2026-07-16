@@ -75,7 +75,16 @@ onBeforeUnmount(() => {
 
 <template>
   <section class="panel">
-    <h2>本车发车间隔与目标对比</h2>
+    <header>
+      <h2>本车发车间隔与目标对比</h2>
+      <span>柱高=实际间隔，颜色=本车调节动作</span>
+    </header>
+    <div class="action-legend" aria-label="调节动作颜色说明">
+      <span><i class="normal" />正常</span>
+      <span><i class="slow" />本车放慢/拉大间隔</span>
+      <span><i class="catch" />本车追赶/压缩间隔</span>
+      <span><i class="observe" />继续观测</span>
+    </div>
     <div ref="chartRef" class="chart" />
   </section>
 </template>
@@ -88,13 +97,62 @@ onBeforeUnmount(() => {
   padding: 16px;
 }
 
+header {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: baseline;
+}
+
 h2 {
-  margin: 0 0 8px;
+  margin: 0;
   font-size: 16px;
+}
+
+header span {
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.action-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  margin-top: 10px;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.action-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.action-legend i {
+  width: 9px;
+  height: 9px;
+  border-radius: 2px;
+}
+
+.action-legend .normal {
+  background: #10b981;
+}
+
+.action-legend .slow {
+  background: #ef4444;
+}
+
+.action-legend .catch {
+  background: #f59e0b;
+}
+
+.action-legend .observe {
+  background: #94a3b8;
 }
 
 .chart {
   width: 100%;
-  height: 260px;
+  height: 232px;
 }
 </style>

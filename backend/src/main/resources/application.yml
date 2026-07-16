@@ -15,7 +15,7 @@ spring:
       - optional:file:./config/application-local.yml
       - optional:file:../config/application-local.yml
   datasource:
-    url: jdbc:mysql://${DB_HOST:localhost}:${DB_PORT:3306}/${DB_NAME:railway_sim}?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
+    url: jdbc:mysql://${DB_HOST:localhost}:${DB_PORT:3306}/${DB_NAME:railway_sim}?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true&rewriteBatchedStatements=true
     username: ${DB_USER:railway_user}
     password: ${DB_PASSWORD:}
     driver-class-name: com.mysql.cj.jdbc.Driver
@@ -180,3 +180,5 @@ railway:
     route-max-retries: 3
     route-waiting-priority-per-second: 0.05
     route-waiting-priority-max-bonus: 20
+    departure-headway-gate-enabled: true
+    departure-headway-gate-ratio: 1.0

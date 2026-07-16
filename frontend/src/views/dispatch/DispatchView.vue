@@ -194,6 +194,11 @@ const trainById = computed(() => {
   return new Map(entries)
 })
 
+const serviceByTrain = computed(() => {
+  const entries = props.plan?.services?.map((service) => [service.trainId, service] as const) ?? []
+  return new Map(entries)
+})
+
 const liveTrains = computed(() => props.snapshot?.trains ?? [])
 
 const demoTrainId = computed(() =>
@@ -219,11 +224,6 @@ const commandByTrain = computed(() => {
 
 const profileByTrain = computed(() => {
   const entries = props.dispatch.trainProfiles.map((profile) => [profile.regulatedTrainId || profile.trainId, profile] as const)
-  return new Map(entries)
-})
-
-const authorityByTrain = computed(() => {
-  const entries = props.snapshot?.authorities.map((authority) => [authority.trainId, authority] as const) ?? []
   return new Map(entries)
 })
 
@@ -390,6 +390,53 @@ const assessmentConclusion = computed(() => {
   return '存在间隔偏差，但当前未形成有效调度动作。'
 })
 
+const loopSteps = computed(() => {
+  const totalProfiles = profilesWithDeviation.value.length
+  const totalCommands = props.dispatch.activeCommands.length
+  const totalRoutes = props.dispatch.routeReservations.length
+  return [
+    {
+      key: 'disturbance',
+      label: '扰动识别',
+      value: `${props.dispatch.openDisturbances.length} 个`,
+      detail: props.dispatch.openDisturbances.length ? '存在未恢复扰动' : '暂无开放扰动',
+      state: props.dispatch.openDisturbances.length ? 'warn' : 'ok'
+    },
+    {
+      key: 'strategy',
+      label: '策略生成',
+      value: lineRegulationStatusLabel(linePlan.value.status),
+      detail: `${linePlan.value.decisions?.length ?? 0} 条线路级决策`,
+      state: linePlan.value.status === 'NO_ACTION' || linePlan.value.status === 'EMPTY' ? 'idle' : 'ok'
+    },
+    {
+      key: 'command',
+      label: '命令下发',
+      value: `${confirmedCommandCount.value}/${totalCommands}`,
+      detail: `执行中 ${executingCommandCount.value} · 异常 ${failedCommandCount.value}`,
+      state: failedCommandCount.value ? 'warn' : totalCommands ? 'ok' : 'idle'
+    },
+    {
+      key: 'signal',
+      label: '信号反馈',
+      value: totalRoutes ? `${routeAcceptedCount.value}/${totalRoutes}` : '-',
+      detail: totalRoutes
+        ? `进路接受 ${routeAcceptedCount.value} · 拒绝 ${routeRejectedCount.value}`
+        : latestPublication.value
+          ? `计划发布 ${latestPublication.value.status}`
+          : '暂无进路反馈',
+      state: routeRejectedCount.value ? 'warn' : totalRoutes ? 'ok' : 'idle'
+    },
+    {
+      key: 'effect',
+      label: '效果确认',
+      value: totalProfiles ? `${withinToleranceCount.value}/${totalProfiles}` : '-',
+      detail: `最大偏差 ${formatSeconds(maxAbsHeadwayDeviation.value)}`,
+      state: totalProfiles && withinToleranceCount.value < totalProfiles ? 'warn' : totalProfiles ? 'ok' : 'idle'
+    }
+  ]
+})
+
 const attentionRows = computed(() => {
   const disturbances = props.dispatch.openDisturbances.slice(0, 4).map((item) => ({
     id: item.id,
@@ -411,37 +458,6 @@ const attentionRows = computed(() => {
       detail: `剩余偏差 ${formatSeconds(profile.headwayErrorSeconds ?? profile.headwayDeviationSeconds)}`,
       state: profile.regulationAction
     }))
-})
-
-const effectRows = computed(() =>
-  props.dispatch.trainProfiles.map((profile) => {
-    const trainId = profile.regulatedTrainId || profile.trainId
-    const commands = commandByTrain.value.get(trainId) ?? []
-    const latestCommand = commands[0] ?? null
-    const decision = regulationDecisionByTrain.value.get(trainId) ?? null
-    return {
-      trainId,
-      frontTrainId: profile.frontTrainId,
-      actual: profile.headwayActualSeconds,
-      target: props.dispatch.targetHeadwaySeconds,
-      remainingDeviation: profile.headwayErrorSeconds ?? profile.headwayDeviationSeconds,
-      predictedDeviation: decision?.predictedHeadwayErrorSec ?? null,
-      state: profile.headwayState,
-      action: decision?.action ?? profile.regulationAction,
-      signalConstraint: decision?.signalConstraint ?? 'NONE',
-      reason: profile.regulationReason,
-      command: latestCommand
-    }
-  })
-)
-
-const operationLine = computed(() => {
-  const stations = props.plan?.stations ?? []
-  const segments = props.plan?.segments ?? []
-  return stations.map((station, index) => ({
-    station,
-    nextSegment: segments[index] ?? null
-  }))
 })
 
 function stopFor(service: TrainServicePlan, stationId: string): PlannedStop | null {
@@ -469,24 +485,8 @@ function trainNextStop(service: TrainServicePlan, train: TrainState | undefined)
   return next?.stationId ?? lastStop(service)?.stationId ?? '-'
 }
 
-function currentSegmentForTrain(train: TrainState) {
-  const authoritySegmentId = authorityByTrain.value.get(train.id)?.currentSegmentId
-  const segments = props.snapshot?.trackSegments ?? []
-  if (authoritySegmentId) {
-    const segment = segments.find((item) => item.id === authoritySegmentId)
-    if (segment) return segment
-  }
-  return segments
-    .filter((segment) => train.positionMeters >= segment.startMeters && train.positionMeters < segment.endMeters)
-    .sort((left, right) => {
-      const leftRank = left.track === 'main' ? 0 : 1
-      const rightRank = right.track === 'main' ? 0 : 1
-      return leftRank - rightRank || left.startMeters - right.startMeters
-    })[0] ?? null
-}
-
-function baseSpeedLimitForTrain(train: TrainState) {
-  return currentSegmentForTrain(train)?.speedLimitMetersPerSecond ?? null
+function currentCommandForTrain(trainId: string) {
+  return commandByTrain.value.get(trainId)?.[0] ?? null
 }
 
 function normalizedSeconds(value: number, minimum: number, maximum: number) {
@@ -638,38 +638,56 @@ async function publishSignalPlan() {
       <p v-if="demoMessage" class="demo-message">{{ demoMessage }}</p>
     </section>
 
-    <section class="workspace-grid">
-      <section class="panel plan-panel">
+    <section class="workspace-grid plan-decision-grid">
+      <section class="panel timetable-panel">
         <header>
           <div>
-            <h2>线路计划</h2>
-            <p>{{ plan?.planId ?? dispatch.planId }} · {{ plan?.lineId ?? '-' }} · 区间基础限速</p>
+            <h2>运营计划</h2>
+            <p>{{ plan?.planId ?? dispatch.planId }} · {{ plan?.lineId ?? '-' }} · 按当前时段生成发车间隔</p>
           </div>
           <span class="pill">{{ plan?.services?.length ?? 0 }} 个车次</span>
         </header>
-
-        <div v-if="operationLine.length" class="line-plan">
-          <div v-for="item in operationLine" :key="item.station.id" class="line-node">
-            <div class="station-dot"></div>
-            <div>
-              <strong>{{ item.station.id }}</strong>
-              <span>{{ item.station.positionMeters.toFixed(0) }}m · 容量 {{ item.station.platformCapacity }}</span>
-            </div>
-            <small v-if="item.nextSegment">
-              {{ item.nextSegment.id }} · {{ item.nextSegment.startMeters.toFixed(0) }}-{{ item.nextSegment.endMeters.toFixed(0) }}m ·
-              基础限速 {{ item.nextSegment.speedLimitMps.toFixed(1) }}m/s
-            </small>
-          </div>
+        <div v-if="orderedServices.length" class="table-wrap">
+          <table class="timetable-table">
+            <thead>
+              <tr>
+                <th>车次</th>
+                <th>列车</th>
+                <th>方向</th>
+                <th v-for="stationId in stationIds" :key="stationId">{{ stationId }}</th>
+                <th>上线状态</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="service in orderedServices" :key="service.serviceId">
+                <td>{{ service.serviceId }}</td>
+                <td>{{ service.trainId }}</td>
+                <td>{{ directionLabel(service.direction) }}</td>
+                <td v-for="stationId in stationIds" :key="stationId">
+                  {{ stopCell(service, stationId) }}
+                </td>
+                <td>
+                  <template v-if="trainById.get(service.trainId)">
+                    {{ trainStatusLabel(trainById.get(service.trainId)!.status) }}
+                    · {{ trainById.get(service.trainId)!.positionMeters.toFixed(0) }}m
+                    · 下一站 {{ trainNextStop(service, trainById.get(service.trainId)) }}
+                  </template>
+                  <template v-else>未上线</template>
+                </td>
+              </tr>
+            </tbody>
+          </table>
         </div>
-        <p v-else class="empty">暂无线路计划数据</p>
+        <p v-else class="empty">暂无时刻表数据</p>
       </section>
 
       <section class="panel attention-panel">
         <header>
           <div>
-            <h2>调度关注</h2>
-            <p>按扰动和间隔偏差生成关注项</p>
+            <h2>调度决策</h2>
+            <p>扰动、间隔偏差与线路级优化动作</p>
           </div>
+          <span class="pill">{{ lineRegulationStatusLabel(linePlan.status) }}</span>
         </header>
         <div v-if="attentionRows.length" class="attention-list">
           <article v-for="item in attentionRows" :key="item.id">
@@ -682,53 +700,12 @@ async function publishSignalPlan() {
       </section>
     </section>
 
-    <section class="panel timetable-panel">
-      <header>
-        <div>
-          <h2>间隔时刻表</h2>
-          <p>计划到发偏移与当前列车运行状态对照</p>
-        </div>
-      </header>
-      <div v-if="orderedServices.length" class="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>车次</th>
-              <th>列车</th>
-              <th>方向</th>
-              <th v-for="stationId in stationIds" :key="stationId">{{ stationId }}</th>
-              <th>当前状态</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="service in orderedServices" :key="service.serviceId">
-              <td>{{ service.serviceId }}</td>
-              <td>{{ service.trainId }}</td>
-              <td>{{ directionLabel(service.direction) }}</td>
-              <td v-for="stationId in stationIds" :key="stationId">
-                {{ stopCell(service, stationId) }}
-              </td>
-              <td>
-                <template v-if="trainById.get(service.trainId)">
-                  {{ trainStatusLabel(trainById.get(service.trainId)!.status) }}
-                  · {{ trainById.get(service.trainId)!.positionMeters.toFixed(0) }}m
-                  · 下一站 {{ trainNextStop(service, trainById.get(service.trainId)) }}
-                </template>
-                <template v-else>未上线</template>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-      <p v-else class="empty">暂无时刻表数据</p>
-    </section>
-
     <section class="workspace-grid evaluation-grid">
       <section class="panel assessment-panel">
         <header>
           <div>
             <h2>调度效果评估</h2>
-            <p>用间隔偏差、预计改善和命令确认率判断本轮调度作用</p>
+            <p>合并全局指标与逐车确认，判断本轮调度是否生效</p>
           </div>
           <span class="pill">{{ lineRegulationStatusLabel(linePlan.status) }}</span>
         </header>
@@ -798,63 +775,11 @@ async function publishSignalPlan() {
         <p v-else class="empty">暂无可评估的列车间隔数据</p>
       </section>
 
-      <section class="panel effect-panel">
+      <section class="panel loop-panel">
         <header>
           <div>
-            <h2>效果确认</h2>
-            <p>用剩余间隔偏差和命令状态确认调度是否生效</p>
-          </div>
-        </header>
-        <div v-if="effectRows.length" class="effect-list">
-          <article v-for="item in effectRows" :key="item.trainId">
-            <div class="effect-main">
-              <strong>{{ item.trainId }}</strong>
-              <span :data-state="item.state">{{ headwayStateLabel(item.state) }}</span>
-            </div>
-            <dl>
-              <div>
-                <dt>前车</dt>
-                <dd>{{ item.frontTrainId ?? '-' }}</dd>
-              </div>
-              <div>
-                <dt>实际/目标</dt>
-                <dd>{{ formatSeconds(item.actual) }} / {{ formatSeconds(item.target) }}</dd>
-              </div>
-              <div>
-                <dt>剩余偏差</dt>
-                <dd>{{ formatSeconds(item.remainingDeviation) }}</dd>
-              </div>
-              <div>
-                <dt>预计偏差</dt>
-                <dd>{{ formatSeconds(item.predictedDeviation) }}</dd>
-              </div>
-              <div>
-                <dt>策略</dt>
-                <dd>{{ regulationLabel(item.action) }}</dd>
-              </div>
-              <div>
-                <dt>信号约束</dt>
-                <dd>{{ signalConstraintLabel(item.signalConstraint) }}</dd>
-              </div>
-            </dl>
-            <p>
-              {{ item.reason }}
-              <span v-if="item.command">
-                · {{ commandLabel(item.command.commandType) }} / {{ commandStatusLabel(item.command.status) }}
-              </span>
-            </p>
-          </article>
-        </div>
-        <p v-else class="empty">暂无可评估的调度效果</p>
-      </section>
-    </section>
-
-    <section class="workspace-grid lower-grid">
-      <section class="panel signal-panel">
-        <header>
-          <div>
-            <h2>信号轨道反馈</h2>
-            <p>只展示调度相关的进路与预约状态</p>
+            <h2>闭环反馈摘要</h2>
+            <p>主页面只保留调度相关证据，详细事件放入下方联调明细</p>
           </div>
           <div class="signal-actions">
             <span v-if="latestPublication" class="pill">{{ latestPublication.status }}</span>
@@ -864,69 +789,64 @@ async function publishSignalPlan() {
           </div>
         </header>
         <p v-if="publishMessage" class="publish-message">{{ publishMessage }}</p>
-        <div v-if="dispatch.routeReservations.length || dispatch.routeDecisions.length" class="signal-list">
-          <article v-for="reservation in dispatch.routeReservations.slice(0, 5)" :key="reservation.reservationId">
+        <div class="loop-steps">
+          <article v-for="step in loopSteps" :key="step.key" :data-state="step.state">
+            <span>{{ step.label }}</span>
+            <strong>{{ step.value }}</strong>
+            <small>{{ step.detail }}</small>
+          </article>
+        </div>
+        <div v-if="dispatch.routeReservations.length || dispatch.routeDecisions.length" class="signal-list compact-signal-list">
+          <article v-for="reservation in dispatch.routeReservations.slice(0, 3)" :key="reservation.reservationId">
             <strong>{{ reservation.routeId }}</strong>
             <span>{{ reservation.trainId }} · {{ reservation.state }}</span>
             <small v-if="reservation.rejectReason">{{ reservation.rejectReason }}</small>
             <small v-else>命令 {{ reservation.commandId }} · 重试 {{ reservation.retryCount }}</small>
           </article>
-          <article v-for="decision in dispatch.routeDecisions.slice(0, 3)" :key="decision.decisionId">
-            <strong>{{ decision.selectedRouteId }}</strong>
-            <span>{{ decision.selectedTrainId }} · {{ decision.status }}</span>
-            <small>{{ decision.reason }}</small>
-          </article>
         </div>
-        <p v-else class="empty">暂无进路申请或联锁反馈</p>
       </section>
-    </section>
-
-    <section class="workspace-grid lower-grid">
-      <DisturbanceList :disturbances="dispatch.openDisturbances" />
-      <CommandTimeline :commands="dispatch.activeCommands" />
     </section>
 
     <section v-if="snapshot" class="panel trains-panel">
       <header>
         <div>
-          <h2>列车实时状态</h2>
-          <p>车辆位置、速度、MA 与调度约束观察值</p>
+          <h2>调度相关列车状态</h2>
+          <p>只保留计划、间隔、当前命令和执行状态</p>
         </div>
       </header>
       <div class="table-wrap">
-        <table>
+        <table class="dispatch-train-table">
           <thead>
             <tr>
               <th>车次</th>
-              <th>位置(m)</th>
-              <th>速度(m/s)</th>
+              <th>计划车次</th>
+              <th>方向</th>
               <th>状态</th>
+              <th>位置/速度</th>
               <th>站点</th>
-              <th>停站(s)</th>
-              <th>区段</th>
-              <th>基础限速(m/s)</th>
-              <th>有效限速(m/s)</th>
-              <th>MA距离(m)</th>
-              <th>车辆约束</th>
+              <th>下一站</th>
               <th>间隔偏差</th>
-              <th>满载率</th>
+              <th>当前命令</th>
+              <th>执行依据</th>
             </tr>
           </thead>
           <tbody>
             <tr v-for="train in snapshot.trains" :key="train.id">
               <td>{{ train.id }}</td>
-              <td>{{ train.positionMeters.toFixed(1) }}</td>
-              <td>{{ train.speedMetersPerSecond.toFixed(1) }}</td>
+              <td>{{ serviceByTrain.get(train.id)?.serviceId ?? '-' }}</td>
+              <td>{{ directionLabel(serviceByTrain.get(train.id)?.direction ?? '-') }}</td>
               <td>{{ trainStatusLabel(train.status) }}</td>
+              <td>{{ train.positionMeters.toFixed(0) }}m / {{ train.speedMetersPerSecond.toFixed(1) }}m/s</td>
               <td>{{ train.currentStationId || '-' }}</td>
-              <td>{{ train.dwellElapsedSeconds ?? 0 }}</td>
-              <td>{{ currentSegmentForTrain(train)?.id ?? '-' }}</td>
-              <td>{{ formatNumber(baseSpeedLimitForTrain(train), 1) }}</td>
-              <td>{{ train.speedLimitMetersPerSecond.toFixed(1) }}</td>
-              <td>{{ train.movementAuthorityDistanceMeters.toFixed(1) }}</td>
-              <td>{{ dynamicsReasonLabel(train.dynamicsConstraintReason || '-') }}</td>
+              <td>{{ serviceByTrain.get(train.id) ? trainNextStop(serviceByTrain.get(train.id)!, train) : '-' }}</td>
               <td>{{ formatSeconds(profileByTrain.get(train.id)?.headwayErrorSeconds ?? profileByTrain.get(train.id)?.headwayDeviationSeconds) }}</td>
-              <td>{{ formatNumber((train.loadRate ?? 0) * 100) }}%</td>
+              <td>
+                <template v-if="currentCommandForTrain(train.id)">
+                  {{ commandLabel(currentCommandForTrain(train.id)!.commandType) }} / {{ commandStatusLabel(currentCommandForTrain(train.id)!.status) }}
+                </template>
+                <template v-else>无</template>
+              </td>
+              <td>{{ dynamicsReasonLabel(train.dynamicsConstraintReason || '-') }}</td>
             </tr>
           </tbody>
         </table>
@@ -935,6 +855,14 @@ async function publishSignalPlan() {
     <section v-else class="panel empty-state">
       暂无列车数据。请使用页面顶部的启动或步进控制。
     </section>
+
+    <details class="panel debug-details">
+      <summary>联调明细：扰动列表、命令时间线与完整闭环证据</summary>
+      <section class="workspace-grid lower-grid debug-grid">
+        <DisturbanceList :disturbances="dispatch.openDisturbances" />
+        <CommandTimeline :commands="dispatch.activeCommands" />
+      </section>
+    </details>
   </div>
 </template>
 
@@ -957,7 +885,7 @@ async function publishSignalPlan() {
 .kpi-strip article,
 .panel {
   background: var(--bg-panel);
-  border: 1px solid #d8e1ea;
+  border: 1px solid var(--border-strong);
   border-radius: 8px;
 }
 
@@ -970,14 +898,11 @@ async function publishSignalPlan() {
 .kpi-strip span,
 .kpi-strip small,
 header p,
-.line-node span,
-.line-node small,
 .assessment-summary span,
 .assessment-summary small,
-.effect-list dt,
-.effect-list p,
 .signal-list small,
-.attention-list small {
+.attention-list small,
+.loop-steps small {
   color: var(--text-secondary);
 }
 
@@ -1137,62 +1062,15 @@ header p {
   font-size: 13px;
 }
 
-.line-plan {
-  display: grid;
-  gap: 0;
-}
-
-.line-node {
-  position: relative;
-  display: grid;
-  grid-template-columns: 18px minmax(120px, 0.45fr) minmax(180px, 1fr);
-  gap: 10px;
-  min-height: 58px;
-  padding-bottom: 10px;
-  font-size: 13px;
-}
-
-.line-node::after {
-  content: '';
-  position: absolute;
-  left: 6px;
-  top: 18px;
-  bottom: 0;
-  width: 2px;
-  background: #cad5e2;
-}
-
-.line-node:last-child::after {
-  display: none;
-}
-
-.station-dot {
-  position: relative;
-  z-index: 1;
-  width: 14px;
-  height: 14px;
-  margin-top: 2px;
-  border-radius: 50%;
-  background: #1f7a5f;
-  border: 3px solid #dff5eb;
-}
-
-.line-node div:nth-child(2) {
-  display: grid;
-  gap: 3px;
-}
-
 .attention-list,
-.effect-list,
 .signal-list {
   display: grid;
   gap: 10px;
 }
 
 .attention-list article,
-.effect-list article,
 .signal-list article {
-  border: 1px solid #e5edf5;
+  border: 1px solid var(--border-strong);
   border-radius: 8px;
   padding: 10px;
   background: var(--bg-panel-raised);
@@ -1233,13 +1111,14 @@ header p {
   display: grid;
   gap: 6px;
   min-height: 94px;
-  border: 1px solid #e5edf5;
+  border: 1px solid var(--border-strong);
   border-radius: 8px;
   padding: 10px;
-  background: #f7f9fc;
+  background: var(--bg-panel-raised);
 }
 
 .assessment-summary strong {
+  color: var(--text-primary);
   font-size: 22px;
   line-height: 1;
 }
@@ -1249,10 +1128,10 @@ header p {
 }
 
 .assessment-conclusion {
-  border: 1px solid #c9daf8;
+  border: 1px solid rgba(88, 166, 255, 0.38);
   border-radius: 8px;
-  background: #eef5ff;
-  color: #1c4e93;
+  background: var(--status-info-bg);
+  color: var(--status-info);
   padding: 10px 12px;
   font-size: 13px;
   font-weight: 700;
@@ -1267,12 +1146,12 @@ header p {
 }
 
 .assessment-table td[data-risk='true'] {
-  color: #b42318;
+  color: var(--status-danger);
   font-weight: 800;
 }
 
 .assessment-table td[data-risk='false'] {
-  color: #08704f;
+  color: var(--status-ok);
   font-weight: 700;
 }
 
@@ -1287,9 +1166,17 @@ table {
   font-size: 12px;
 }
 
+.timetable-table {
+  min-width: 1180px;
+}
+
+.dispatch-train-table {
+  min-width: 980px;
+}
+
 th,
 td {
-  border-bottom: 1px solid #edf2f7;
+  border-bottom: 1px solid var(--border);
   padding: 9px 8px;
   text-align: left;
   vertical-align: top;
@@ -1297,58 +1184,9 @@ td {
 }
 
 th {
-  color: #526173;
+  color: var(--text-secondary);
   font-weight: 700;
   background: var(--bg-panel-raised);
-}
-
-.effect-main {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}
-
-.effect-main span {
-  border-radius: 999px;
-  padding: 2px 8px;
-  background: var(--status-info-bg);
-  color: var(--status-info);
-  font-size: 11px;
-}
-
-.effect-main span[data-state='TOO_SHORT'],
-.effect-main span[data-state='SCHEDULE_LATE'] {
-  background: #fff0d8;
-  color: var(--status-warn);
-}
-
-.effect-main span[data-state='TOO_LONG'] {
-  background: var(--status-ok-bg);
-  color: var(--status-ok);
-}
-
-dl {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 8px;
-  margin: 10px 0 0;
-}
-
-dt,
-dd {
-  margin: 0;
-}
-
-dd {
-  margin-top: 2px;
-  font-weight: 700;
-}
-
-.effect-list p {
-  margin: 8px 0 0;
-  line-height: 1.45;
-  font-size: 12px;
 }
 
 .signal-list article {
@@ -1359,6 +1197,62 @@ dd {
 
 .signal-list small {
   grid-column: 1 / -1;
+}
+
+.loop-panel {
+  display: grid;
+  gap: 12px;
+}
+
+.loop-steps {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.loop-steps article {
+  display: grid;
+  gap: 5px;
+  min-height: 86px;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  padding: 10px;
+  background: var(--bg-panel-raised);
+}
+
+.loop-steps article[data-state='ok'] {
+  border-color: rgba(46, 160, 67, 0.55);
+  background: var(--status-ok-bg);
+}
+
+.loop-steps article[data-state='warn'] {
+  border-color: rgba(210, 153, 34, 0.58);
+  background: var(--status-warn-bg);
+}
+
+.loop-steps article span,
+.loop-steps article small {
+  color: var(--text-secondary);
+}
+
+.loop-steps article strong {
+  color: var(--text-primary);
+  font-size: 18px;
+  line-height: 1.1;
+}
+
+.debug-details {
+  display: block;
+}
+
+.debug-details summary {
+  cursor: pointer;
+  color: var(--text-primary);
+  font-weight: 700;
+}
+
+.debug-grid {
+  margin-top: 14px;
 }
 
 .empty,
@@ -1384,6 +1278,10 @@ dd {
   .assessment-summary {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+
+  .loop-steps {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 720px) {
@@ -1391,19 +1289,8 @@ dd {
     padding: 12px;
   }
 
-  .line-node {
-    grid-template-columns: 18px 1fr;
-  }
-
-  .line-node small {
-    grid-column: 2;
-  }
-
-  dl {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .assessment-summary {
+  .assessment-summary,
+  .loop-steps {
     grid-template-columns: 1fr;
   }
 }

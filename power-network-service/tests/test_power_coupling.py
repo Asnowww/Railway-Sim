@@ -4,7 +4,14 @@ import copy
 import unittest
 
 from app.manager import PowerNetworkModel
-from app.main import TimedPowerStepPayload, model as api_model, step as api_step
+from app.main import (
+    PowerConstraintQueryPayload,
+    TimedPowerStepPayload,
+    model as api_model,
+    query_constraints_compact as api_query_constraints_compact,
+    step as api_step,
+    step_compact as api_step_compact,
+)
 from app.self_test import central_bootstrap_payload
 from fastapi import HTTPException
 
@@ -281,6 +288,24 @@ class PowerStepApiTests(unittest.TestCase):
         with self.assertRaises(HTTPException) as wrong_step:
             api_step(TimedPowerStepPayload.model_validate({**payload, "tick": 3, "simulationTimeSeconds": 0.6, "stepSizeSeconds": 0.2}))
         self.assertEqual(422, wrong_step.exception.status_code)
+
+    def test_compact_internal_endpoints_return_only_next_cycle_constraints(self) -> None:
+        query = api_query_constraints_compact(PowerConstraintQueryPayload.model_validate({
+            "trainPositions": [{"trainId": "TR-A", "positionMeters": 200.0}],
+        }))
+        stepped = api_step_compact(TimedPowerStepPayload.model_validate({
+            "simulationRunId": "run-compact",
+            "tick": 1,
+            "simulationTimeSeconds": 0.1,
+            "stepSizeSeconds": 0.1,
+            "sectionLoads": [],
+            "trainPositions": [{"trainId": "TR-A", "positionMeters": 200.0}],
+        }))
+
+        self.assertEqual(["powerConstraints"], list(query))
+        self.assertEqual(["powerConstraints"], list(stepped))
+        self.assertEqual("TR-A", query["powerConstraints"][0]["trainId"])
+        self.assertEqual("TR-A", stepped["powerConstraints"][0]["trainId"])
 
 
 def load_payload(

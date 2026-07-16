@@ -108,6 +108,44 @@ export interface OperationPlanView {
   version: number
   routeCommandId?: string | null
   rejectReason?: string | null
+  circulationPlanId?: string | null
+  circulationLegId?: string | null
+  cycleIndex?: number | null
+  legIndex?: number | null
+}
+
+export interface DispatchCirculationLeg {
+  legId: string
+  routeId: string
+  routeName: string
+  direction: 'UP' | 'DOWN' | string
+  legType: string
+  fromPointId: string
+  toPointId: string
+  pointIds: string[]
+  stationIds: string[]
+  segmentIds: string[]
+  cycleIndex: number
+  legIndex: number
+  plannedDepartureAt: string
+  status: string
+  operationPlanId?: string | null
+  routeCommandId?: string | null
+  rejectReason?: string | null
+}
+
+export interface DispatchCirculationPlan {
+  circulationId: string
+  templateId: string
+  trainId: string
+  startTerminalId: string
+  cycleTarget: number
+  cycleCompleted: number
+  currentLegPointer: number
+  status: string
+  headwaySeconds: number
+  plannedStartAt: string
+  legs: DispatchCirculationLeg[]
 }
 
 export interface SignalDispatchPlanPublicationEntry {
@@ -241,6 +279,7 @@ export interface DispatchSnapshot {
   routeDecisions: DispatchRouteDecision[]
   routeReservations: DispatchRouteReservation[]
   operationPlans: OperationPlanView[]
+  circulationPlans: DispatchCirculationPlan[]
   lineRegulationPlan: DispatchLineRegulationPlan
 }
 

@@ -19,6 +19,9 @@ import com.railwaysim.dispatch.operation.OperationPlanRequest;
 import com.railwaysim.dispatch.operation.OperationPlanningService;
 import com.railwaysim.dispatch.operation.OperationRouteCandidate;
 import com.railwaysim.dispatch.operation.OperationRouteTemplate;
+import com.railwaysim.dispatch.operation.CirculationLeg;
+import com.railwaysim.dispatch.operation.CirculationPlanRequest;
+import com.railwaysim.dispatch.operation.TrainCirculationPlan;
 import com.railwaysim.dispatch.optimization.LineHeadwayOptimizationResult;
 import com.railwaysim.dispatch.optimization.LineHeadwayOptimizer;
 import com.railwaysim.dispatch.optimization.LineRegulationContext;
@@ -266,9 +269,9 @@ public class DispatchService {
         markCommandsSent(appliedCommands);
     }
 
-    public synchronized void acceptFeedback(List<DispatchCommandFeedback> feedbacks) {
+    public synchronized List<DispatchCommand> acceptFeedback(List<DispatchCommandFeedback> feedbacks) {
         if (feedbacks == null || feedbacks.isEmpty()) {
-            return;
+            return List.of();
         }
         Map<String, DispatchCommand> commandById = new HashMap<>();
         for (DispatchCommand command : commandRecordStore.list(simulationRunId)) {
@@ -317,6 +320,7 @@ public class DispatchService {
             activeCommands = mergeActiveCommands(updated);
             refreshSnapshot();
         }
+        return List.copyOf(updated);
     }
 
     public synchronized void syncRouteReservations(List<RouteState> routeStates, Instant simulatedAt) {
@@ -420,6 +424,7 @@ public class DispatchService {
         ));
         latestLineRegulationPlan = lineOptimization.plan();
         List<DispatchCommand> generated = suppressDuplicateDisturbanceCommands(lineOptimization.commands());
+        autoAssignCirculationPlansForNewTrains(context.simulatedTime(), trains);
         List<DispatchCommand> routeCommands = automaticRouteCommands(context.simulatedTime(), trains, authorities);
         List<DispatchCommand> routeCancellationCommands = automaticRouteCancellationCommands(context.simulatedTime());
         List<DispatchCommand> operationPlanRouteCommands = automaticOperationPlanRouteCommands(context.simulatedTime());
@@ -445,6 +450,21 @@ public class DispatchService {
         }
         activeCommands = mergeActiveCommands(tracked);
         refreshSnapshot();
+    }
+
+    private void autoAssignCirculationPlansForNewTrains(Instant simulatedAt, List<TrainState> trains) {
+        if (trains == null || trains.isEmpty() || currentPlan == null) {
+            return;
+        }
+        List<TrainCirculationPlan> created = operationPlanningService.autoAssignNewTrainCirculations(
+            simulationRunId,
+            trains,
+            simulatedAt,
+            new CirculationPlanRequest(2, currentPlan.departureIntervalSec(), 0)
+        );
+        if (!created.isEmpty()) {
+            log.info("[DispatchLoop] auto assigned {} circulation plan(s) for new terminal train(s)", created.size());
+        }
     }
 
     private List<DispatchCommand> automaticRouteCommands(
@@ -483,6 +503,9 @@ public class DispatchService {
     }
 
     private List<DispatchCommand> automaticOperationPlanRouteCommands(Instant simulatedAt) {
+        for (TrainCirculationPlan circulation : operationPlanningService.circulationPlans(simulationRunId)) {
+            operationPlanningService.createPlanForCurrentCirculationLeg(circulation, simulatedAt);
+        }
         List<OperationPlan> duePlans = operationPlanningService.duePlans(simulationRunId, simulatedAt);
         if (duePlans.isEmpty()) {
             return List.of();
@@ -498,6 +521,13 @@ public class DispatchService {
             payload.put("source", "OPERATION_PLAN");
             payload.put("operationPlanId", plan.planId());
             payload.put("operationPlanVersion", plan.version());
+            if (plan.circulationPlanId() != null) {
+                payload.put("source", "CIRCULATION_PLAN");
+                payload.put("circulationId", plan.circulationPlanId());
+                payload.put("circulationLegId", plan.circulationLegId());
+                payload.put("cycleIndex", plan.cycleIndex());
+                payload.put("legIndex", plan.legIndex());
+            }
             payload.put("routeId", plan.routeId());
             payload.put("detail", plan.routeId());
             payload.put("direction", plan.direction());
@@ -580,9 +610,19 @@ public class DispatchService {
                 || activeTrainIds.contains(service.trainId())) {
                 continue;
             }
-            Instant plannedDeparture = simulationStart.plusSeconds(origin.departureOffsetSec());
+            Instant plannedDeparture = plannedDepartureAt(service);
             // 首个发车计划允许30秒窗口：避免 reset()→start() 时间差导致首班车被跳过
             if (simulatedAt.isBefore(plannedDeparture.minusSeconds(30))) {
+                continue;
+            }
+            if (!departureHeadwayGateSatisfied(service, simulatedAt)) {
+                log.debug(
+                    "[DispatchLoop] departure gated service={} train={} direction={} plannedAt={}",
+                    service.serviceId(),
+                    service.trainId(),
+                    service.direction(),
+                    plannedDeparture
+                );
                 continue;
             }
             PlannedStop terminus = service.terminus();
@@ -593,18 +633,17 @@ public class DispatchService {
             payload.put("circulationId", service.circulationId());
             payload.put("trainNo", service.trainNo());
             payload.put("linkId", service.linkId());
-            // 下行列车从km 0出发(引擎只支持递增里程，下行轨道同向映射)
-            double departOffset = service.offsetMeters();
-            if ("DOWN".equalsIgnoreCase(service.direction()) && departOffset <= 0) {
-                departOffset = 0; // start at km 0 on down track, run increasing
-            }
-            payload.put("offsetMeters", departOffset);
+            // 环线里程：下行出发 offset 由计划显式给出（loop-km，down 域起点）；
+            // 缺省时由 SimulationRuntime 兜底取 down 股道最小 start
+            payload.put("offsetMeters", service.offsetMeters());
             payload.put("fromStation", origin.stationId());
             payload.put("toStation", terminus == null ? origin.stationId() : terminus.stationId());
             payload.put("direction", service.direction());
             payload.put("plannedDepartureAt", plannedDeparture.toString());
             payload.put("dispatchDelaySec", Math.max(0,
                 simulatedAt.getEpochSecond() - plannedDeparture.getEpochSecond()));
+            payload.put("headwayGateEnabled", properties.isDepartureHeadwayGateEnabled());
+            payload.put("requiredHeadwaySec", requiredDepartureHeadwaySec());
             String commandId = "DC-depart-" + service.serviceId();
             commands.add(new DispatchCommand(
                 commandId,
@@ -620,6 +659,66 @@ public class DispatchService {
             departureCommandIdByService.put(service.serviceId(), commandId);
         }
         return List.copyOf(commands);
+    }
+
+    private boolean departureHeadwayGateSatisfied(TrainServicePlan service, Instant simulatedAt) {
+        if (!properties.isDepartureHeadwayGateEnabled() || currentPlan == null || service == null || service.origin() == null) {
+            return true;
+        }
+        TrainServicePlan previous = previousDepartureService(service);
+        if (previous == null) {
+            return true;
+        }
+        Instant previousDeparture = actualDepartureCommandTime(previous);
+        if (previousDeparture == null) {
+            return false;
+        }
+        long elapsedSec = simulatedAt.getEpochSecond() - previousDeparture.getEpochSecond();
+        return elapsedSec >= requiredDepartureHeadwaySec();
+    }
+
+    private TrainServicePlan previousDepartureService(TrainServicePlan service) {
+        PlannedStop origin = service.origin();
+        if (origin == null) {
+            return null;
+        }
+        List<TrainServicePlan> sameGroup = planLoader.services().stream()
+            .filter(candidate -> candidate.origin() != null)
+            .filter(candidate -> sameText(candidate.direction(), service.direction()))
+            .filter(candidate -> sameText(candidate.origin().stationId(), origin.stationId()))
+            .sorted(Comparator
+                .comparing((TrainServicePlan candidate) -> plannedDepartureAt(candidate))
+                .thenComparing(TrainServicePlan::serviceId))
+            .toList();
+        int index = sameGroup.indexOf(service);
+        return index <= 0 ? null : sameGroup.get(index - 1);
+    }
+
+    private Instant actualDepartureCommandTime(TrainServicePlan service) {
+        String commandId = departureCommandIdByService.get(service.serviceId());
+        if (commandId == null) {
+            return null;
+        }
+        return commandRecordStore.list(simulationRunId).stream()
+            .filter(command -> commandId.equals(command.id()))
+            .findFirst()
+            .map(DispatchCommand::createdAt)
+            .orElse(null);
+    }
+
+    private long requiredDepartureHeadwaySec() {
+        double ratio = properties.getDepartureHeadwayGateRatio();
+        if (!Double.isFinite(ratio) || ratio <= 0) {
+            ratio = 1.0;
+        }
+        return Math.max(0L, Math.round(currentPlan.departureIntervalSec() * ratio));
+    }
+
+    private static boolean sameText(String left, String right) {
+        if (left == null || right == null) {
+            return left == right;
+        }
+        return left.equalsIgnoreCase(right);
     }
 
     private DispatchCommand commandFromRouteSelection(RouteIntentSelection selection) {
@@ -1157,8 +1256,16 @@ public class DispatchService {
                 ? CommandStatus.APPLIED
                 : currentStatus;
         }
+        if ("PARTIALLY_APPLIED".equals(feedbackStatus)) {
+            return CommandStatus.PENDING.equals(currentStatus) || CommandStatus.SENT.equals(currentStatus)
+                ? CommandStatus.APPLIED
+                : currentStatus;
+        }
         if (CommandStatus.EFFECT_CONFIRMED.equals(feedbackStatus) || CommandStatus.COMPLETED.equals(feedbackStatus)) {
             return CommandStatus.EFFECT_CONFIRMED;
+        }
+        if ("REJECTED".equals(feedbackStatus)) {
+            return CommandStatus.SKIPPED;
         }
         if (CommandStatus.SKIPPED.equals(feedbackStatus) || CommandStatus.CANCELLED.equals(feedbackStatus)) {
             return feedbackStatus;
@@ -1172,6 +1279,11 @@ public class DispatchService {
             && !CommandStatus.APPLIED.equals(currentStatus)
             || CommandStatus.EFFECT_CONFIRMED.equals(feedbackStatus)
             || CommandStatus.COMPLETED.equals(feedbackStatus)
+            || "ACCEPTED".equals(feedbackStatus)
+            || "PARTIALLY_APPLIED".equals(feedbackStatus)
+            || "BLOCKED".equals(feedbackStatus)
+            || "REJECTED".equals(feedbackStatus)
+            || "EFFECT_NOT_CONFIRMED".equals(feedbackStatus)
             || CommandStatus.SKIPPED.equals(feedbackStatus)
             || CommandStatus.CANCELLED.equals(feedbackStatus));
     }
@@ -1243,6 +1355,10 @@ public class DispatchService {
         return latestSnapshot;
     }
 
+    public synchronized boolean requiresEvaluation(Instant simulatedTime) {
+        return shouldEvaluate(simulatedTime);
+    }
+
     public synchronized CurrentRunPlan currentPlan() {
         return currentPlan;
     }
@@ -1284,6 +1400,30 @@ public class DispatchService {
         return operationPlanningService.list(simulationRunId);
     }
 
+    public synchronized List<TrainCirculationPlan> circulationPlans() {
+        return operationPlanningService.circulationPlans(simulationRunId);
+    }
+
+    public synchronized List<TrainCirculationPlan> autoAssignCirculationPlans(CirculationPlanRequest request) {
+        List<TrainCirculationPlan> created = operationPlanningService.autoAssignCirculations(
+            simulationRunId,
+            latestTrains,
+            lastEvaluatedAt.equals(Instant.EPOCH) ? Instant.now() : lastEvaluatedAt,
+            request
+        );
+        refreshSnapshot();
+        return created;
+    }
+
+    public synchronized TrainCirculationPlan cancelCirculationPlan(String circulationId) {
+        TrainCirculationPlan plan = operationPlanningService.cancelCirculation(
+            circulationId,
+            lastEvaluatedAt.equals(Instant.EPOCH) ? Instant.now() : lastEvaluatedAt
+        );
+        refreshSnapshot();
+        return plan;
+    }
+
     public synchronized SignalDispatchPlanPublication publishPlanToSignal(String operator, Instant effectiveFrom) {
         Map<String, DispatchRouteCandidate> signalRoutes = new HashMap<>();
         for (DispatchRouteCandidate route : routeCatalog.routes()) {
@@ -1318,7 +1458,7 @@ public class DispatchService {
             rejectedCount,
             entries
         );
-        return signalDispatchPlanRegistry.accept(publication);
+        return signalDispatchPlanRegistry.acceptAndValidate(publication);
     }
 
     private SignalDispatchPlanPublication.Entry publicationEntryFromService(
@@ -1329,15 +1469,14 @@ public class DispatchService {
         String resolvedRouteId = routeId == null || routeId.isBlank() ? "R_MAIN" : routeId;
         PlannedStop origin = service.origin();
         PlannedStop terminus = service.terminus();
-        List<String> stationIds = service.stops().stream()
+        List<PlannedStop> plannedStops = planLoader.plannedStops(service, currentPlan);
+        List<String> stationIds = plannedStops.stream()
             .map(PlannedStop::stationId)
             .toList();
         List<String> viaPointIds = stationIds.size() <= 2
             ? List.of()
             : List.copyOf(stationIds.subList(1, stationIds.size() - 1));
-        Instant plannedDeparture = origin == null
-            ? null
-            : simulationStart.plusSeconds(origin.departureOffsetSec());
+        Instant plannedDeparture = origin == null ? null : plannedDepartureAt(service);
         String rejectReason = null;
         if (route == null) {
             rejectReason = "routeId " + resolvedRouteId + " is not provided by signal route catalog";
@@ -1940,7 +2079,7 @@ public class DispatchService {
                     service.trainId(),
                     origin == null ? null : origin.stationId(),
                     terminus == null ? null : terminus.stationId(),
-                    origin == null ? null : simulationStart.plusSeconds(origin.departureOffsetSec()),
+                    origin == null ? null : plannedDepartureAt(service),
                     command == null ? "PLANNED" : command.status(),
                     commandId
                 );
@@ -1975,6 +2114,10 @@ public class DispatchService {
         List<DispatchSnapshot.OperationPlanView> operationPlanViews = operationPlanningService.list(simulationRunId).stream()
             .map(this::operationPlanView)
             .toList();
+        List<DispatchSnapshot.CirculationPlanView> circulationPlanViews =
+            operationPlanningService.circulationPlans(simulationRunId).stream()
+                .map(this::circulationPlanView)
+                .toList();
         return new DispatchSnapshot(
             plan.periodType(),
             plan.planId(),
@@ -1990,8 +2133,13 @@ public class DispatchService {
             routeDecisionViews,
             routeReservationViews,
             operationPlanViews,
+            circulationPlanViews,
             lineRegulationPlanView(latestLineRegulationPlan)
         );
+    }
+
+    private Instant plannedDepartureAt(TrainServicePlan service) {
+        return simulationStart.plusSeconds(planLoader.plannedDepartureOffsetSec(service, currentPlan));
     }
 
     private DispatchSnapshot.LineRegulationPlanView lineRegulationPlanView(LineRegulationPlan plan) {
@@ -2046,7 +2194,49 @@ public class DispatchService {
             plan.priority(),
             plan.version(),
             plan.routeCommandId(),
-            plan.rejectReason()
+            plan.rejectReason(),
+            plan.circulationPlanId(),
+            plan.circulationLegId(),
+            plan.cycleIndex(),
+            plan.legIndex()
+        );
+    }
+
+    private DispatchSnapshot.CirculationPlanView circulationPlanView(TrainCirculationPlan plan) {
+        return new DispatchSnapshot.CirculationPlanView(
+            plan.circulationId(),
+            plan.templateId(),
+            plan.trainId(),
+            plan.startTerminalId(),
+            plan.cycleTarget(),
+            plan.cycleCompleted(),
+            plan.currentLegPointer(),
+            plan.status(),
+            plan.headwaySeconds(),
+            plan.plannedStartAt(),
+            plan.legs().stream().map(this::circulationLegView).toList()
+        );
+    }
+
+    private DispatchSnapshot.CirculationLegView circulationLegView(CirculationLeg leg) {
+        return new DispatchSnapshot.CirculationLegView(
+            leg.legId(),
+            leg.routeId(),
+            leg.routeName(),
+            leg.direction(),
+            leg.legType(),
+            leg.fromPointId(),
+            leg.toPointId(),
+            leg.pointIds(),
+            leg.stationIds(),
+            leg.segmentIds(),
+            leg.cycleIndex(),
+            leg.legIndex(),
+            leg.plannedDepartureAt(),
+            leg.status(),
+            leg.operationPlanId(),
+            leg.routeCommandId(),
+            leg.rejectReason()
         );
     }
 

@@ -136,6 +136,16 @@ def query_constraints(payload: PowerConstraintQueryPayload) -> dict[str, Any]:
             raise HTTPException(status_code=409, detail=str(exception)) from exception
 
 
+@app.post("/power-network/constraints/query-compact")
+def query_constraints_compact(payload: PowerConstraintQueryPayload) -> dict[str, Any]:
+    """Internal 9300 path: return constraints without duplicating the full 9200 snapshot."""
+    with model_lock:
+        try:
+            return {"powerConstraints": model.constraints_for_positions(as_positions(payload))}
+        except ValueError as exception:
+            raise HTTPException(status_code=409, detail=str(exception)) from exception
+
+
 @app.post("/power-network/step")
 def step(payload: TimedPowerStepPayload) -> dict[str, Any]:
     """Apply one fleet-load snapshot and return the next control-cycle power constraints."""
@@ -153,3 +163,10 @@ def step(payload: TimedPowerStepPayload) -> dict[str, Any]:
             )
         except ValueError as exception:
             raise HTTPException(status_code=409, detail=str(exception)) from exception
+
+
+@app.post("/power-network/step-compact")
+def step_compact(payload: TimedPowerStepPayload) -> dict[str, Any]:
+    """Internal 9300 path: atomically step power but return only next-cycle constraints."""
+    response = step(payload)
+    return {"powerConstraints": response.get("powerConstraints", [])}

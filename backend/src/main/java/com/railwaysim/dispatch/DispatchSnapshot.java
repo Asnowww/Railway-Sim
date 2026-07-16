@@ -19,6 +19,7 @@ public record DispatchSnapshot(
     List<RouteDecisionView> routeDecisions,
     List<RouteReservationView> routeReservations,
     List<OperationPlanView> operationPlans,
+    List<CirculationPlanView> circulationPlans,
     LineRegulationPlanView lineRegulationPlan
 ) {
     public DispatchSnapshot {
@@ -27,6 +28,7 @@ public record DispatchSnapshot(
         routeDecisions = routeDecisions == null ? List.of() : List.copyOf(routeDecisions);
         routeReservations = routeReservations == null ? List.of() : List.copyOf(routeReservations);
         operationPlans = operationPlans == null ? List.of() : List.copyOf(operationPlans);
+        circulationPlans = circulationPlans == null ? List.of() : List.copyOf(circulationPlans);
         lineRegulationPlan = lineRegulationPlan == null ? LineRegulationPlanView.empty() : lineRegulationPlan;
     }
 
@@ -160,13 +162,61 @@ public record DispatchSnapshot(
         int priority,
         int version,
         String routeCommandId,
-        String rejectReason
+        String rejectReason,
+        String circulationPlanId,
+        String circulationLegId,
+        Integer cycleIndex,
+        Integer legIndex
     ) {
         public OperationPlanView {
             viaPointIds = viaPointIds == null ? List.of() : List.copyOf(viaPointIds);
             pointIds = pointIds == null ? List.of() : List.copyOf(pointIds);
             stationIds = stationIds == null ? List.of() : List.copyOf(stationIds);
             segmentIds = segmentIds == null ? List.of() : List.copyOf(segmentIds);
+        }
+    }
+
+    public record CirculationLegView(
+        String legId,
+        String routeId,
+        String routeName,
+        String direction,
+        String legType,
+        String fromPointId,
+        String toPointId,
+        List<String> pointIds,
+        List<String> stationIds,
+        List<String> segmentIds,
+        int cycleIndex,
+        int legIndex,
+        Instant plannedDepartureAt,
+        String status,
+        String operationPlanId,
+        String routeCommandId,
+        String rejectReason
+    ) {
+        public CirculationLegView {
+            pointIds = pointIds == null ? List.of() : List.copyOf(pointIds);
+            stationIds = stationIds == null ? List.of() : List.copyOf(stationIds);
+            segmentIds = segmentIds == null ? List.of() : List.copyOf(segmentIds);
+        }
+    }
+
+    public record CirculationPlanView(
+        String circulationId,
+        String templateId,
+        String trainId,
+        String startTerminalId,
+        int cycleTarget,
+        int cycleCompleted,
+        int currentLegPointer,
+        String status,
+        int headwaySeconds,
+        Instant plannedStartAt,
+        List<CirculationLegView> legs
+    ) {
+        public CirculationPlanView {
+            legs = legs == null ? List.of() : List.copyOf(legs);
         }
     }
 
@@ -231,6 +281,7 @@ public record DispatchSnapshot(
             List.of(),
             List.of(),
             false,
+            List.of(),
             List.of(),
             List.of(),
             List.of(),

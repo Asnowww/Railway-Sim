@@ -12,6 +12,7 @@ import com.railwaysim.vehicleruntime.model.VehicleRuntimeLaunchRequest;
 import com.railwaysim.vehicleruntime.model.VehicleRuntimeLaunchResponse;
 import com.railwaysim.vehicleruntime.model.VehicleRuntimeStepRequest;
 import com.railwaysim.vehicleruntime.model.VehicleRuntimeStepResponse;
+import com.railwaysim.vehicleruntime.model.VehicleRuntimeTickTiming;
 import com.railwaysim.vehicleruntime.model.VehicleParameterMetadata;
 import com.railwaysim.vehicleruntime.model.VehicleTelemetryModeRequest;
 import com.railwaysim.vehicleruntime.model.VehicleTelemetryModeState;
@@ -60,6 +61,11 @@ public class VehicleRuntimeController {
     @GetMapping("/health")
     public VehicleRuntimeHealth health() {
         return manager.health();
+    }
+
+    @GetMapping("/timing")
+    public VehicleRuntimeTickTiming timing() {
+        return manager.latestTickTiming();
     }
 
     @GetMapping("/parameters")

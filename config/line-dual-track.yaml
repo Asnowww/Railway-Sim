@@ -1,0 +1,174 @@
+# 双线平行折叠拓扑 Demo
+# 模拟城市地铁上下行平行线路
+#
+# 后端线性坐标（全部递增，满足车辆运行时 9300 坐标约束）：
+#   N1(0m)→N2(1000m)→N3(2000m)→N4(3000m)─(折返连接)─→N5(4000m)→N6(5000m)→N7(6000m)→N8(7000m)
+#
+# 前端 LineDiagram 按 track 字段分车道显示：
+#   down 车道（下行，最下方车道，左→右）：N1──N2──N3──N4
+#   up   车道（上行，上方车道，右→左）：N5──N6──N7──N8
+#
+# 站点配对（每个物理站 = 下行节点 + 上行节点，前端只显示一个站名）：
+#   东城站: ST_DONGCHENG  (down: N1, up: N8)
+#   南城站: ST_NANCHENG   (down: N2, up: N7)
+#   西城站: ST_XICHENG    (down: N3, up: N6)
+#   北城站: ST_BEICHENG   (down: N4, up: N5)
+#
+# 列车运行（由调度 DEPART 命令创建）：
+#   TR-001: N1出发 → down 车道 → N2 → N3 → N4（前端显示从左向右）
+#   TR-003: N5出发 → up   车道 → N6 → N7 → N8（前端显示从右向左）
+
+line:
+  id: dual-track
+  name: 双线平行示范段
+  length_meters: 7000
+
+stations:
+  - id: ST_DONGCHENG
+    name: 东城站
+    position_meters: 3500
+    down_node: N1
+    up_node: N8
+  - id: ST_NANCHENG
+    name: 南城站
+    position_meters: 3500
+    down_node: N2
+    up_node: N7
+  - id: ST_XICHENG
+    name: 西城站
+    position_meters: 3500
+    down_node: N3
+    up_node: N6
+  - id: ST_BEICHENG
+    name: 北城站
+    position_meters: 3500
+    down_node: N4
+    up_node: N5
+
+nodes:
+  - id: N1
+    name: 东城下行
+    display_x: 5
+    display_y: 70
+  - id: N2
+    name: 南城下行
+    display_x: 35
+    display_y: 70
+  - id: N3
+    name: 西城下行
+    display_x: 65
+    display_y: 70
+  - id: N4
+    name: 北城下行
+    display_x: 95
+    display_y: 70
+  - id: N5
+    name: 北城上行
+    display_x: 95
+    display_y: 30
+  - id: N6
+    name: 西城上行
+    display_x: 65
+    display_y: 30
+  - id: N7
+    name: 南城上行
+    display_x: 35
+    display_y: 30
+  - id: N8
+    name: 东城上行
+    display_x: 5
+    display_y: 30
+
+segments:
+  # ---- 下 行线（track: down，前端显示左→右） ----
+  - id: T01
+    from: N1
+    to: N2
+    start_meters: 0
+    end_meters: 1000
+    speed_limit_meters_per_second: 22.2
+    track: down
+  - id: T02
+    from: N2
+    to: N3
+    start_meters: 1000
+    end_meters: 2000
+    speed_limit_meters_per_second: 22.2
+    track: down
+  - id: T03
+    from: N3
+    to: N4
+    start_meters: 2000
+    end_meters: 3000
+    speed_limit_meters_per_second: 20.0
+    track: down
+  # ---- 北城站折返连接段（track: crossover，前端画斜线不占车道） ----
+  - id: T04
+    from: N4
+    to: N5
+    start_meters: 3000
+    end_meters: 4000
+    speed_limit_meters_per_second: 13.9
+    track: crossover
+  # ---- 上 行线（track: up，前端显示右→左，但后端坐标递增） ----
+  - id: T05
+    from: N5
+    to: N6
+    start_meters: 4000
+    end_meters: 5000
+    speed_limit_meters_per_second: 22.2
+    track: up
+  - id: T06
+    from: N6
+    to: N7
+    start_meters: 5000
+    end_meters: 6000
+    speed_limit_meters_per_second: 20.0
+    track: up
+  - id: T07
+    from: N7
+    to: N8
+    start_meters: 6000
+    end_meters: 7000
+    speed_limit_meters_per_second: 22.2
+    track: up
+
+signals:
+  - id: SIG-T01
+    segment_id: T01
+    position_meters: 10
+    direction: FORWARD
+  - id: SIG-T03
+    segment_id: T03
+    position_meters: 2990
+    direction: FORWARD
+  - id: SIG-T05
+    segment_id: T05
+    position_meters: 4010
+    direction: FORWARD
+  - id: SIG-T07
+    segment_id: T07
+    position_meters: 6990
+    direction: FORWARD
+
+routes:
+  - id: R_DOWN
+    name: 下行线（东城→北城）
+    type: MAIN
+    start_signal: SIG-T01
+    end_signal: SIG-T03
+    axle_section_ids: [T01, T02, T03]
+  - id: R_UP
+    name: 上行线（北城→东城）
+    type: MAIN
+    start_signal: SIG-T05
+    end_signal: SIG-T07
+    axle_section_ids: [T05, T06, T07]
+  - id: R_FULL
+    name: 全线（含折返）
+    type: MAIN
+    start_signal: SIG-T01
+    end_signal: SIG-T07
+    axle_section_ids: [T01, T02, T03, T04, T05, T06, T07]
+
+switches: []
