@@ -128,6 +128,7 @@ railway:
 | `/api/dispatch/signal-publications` | POST | 调度→信号发布发车计划 |
 
 详细设计见 [docs/信号轨道模块详细设计文档.md](docs/信号轨道模块详细设计文档.md)。
+补充文档见 [docs/信号轨道-补充文档-问题排查与性能.md](docs/信号轨道-补充文档-问题排查与性能.md)。
 
 ## 重要设计原则
 

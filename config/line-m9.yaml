@@ -575,25 +575,6 @@ segments:
     raw_segment_id: 47
     speed_limit_meters_per_second: 22.2
     track: down
-
-  - id: D36b
-    from: ND10s12
-    to: ND10s13
-    start_meters: 15013.91
-    end_meters: 16110.01966
-    raw_segment_id: 0
-    speed_limit_meters_per_second: 22.2
-    track: down
-
-  - id: D36c
-    from: ND10s13
-    to: ND09
-    start_meters: 16110.01966
-    end_meters: 16203.38149
-    raw_segment_id: 0
-    speed_limit_meters_per_second: 22.2
-    track: down
-
   - id: D43
     from: ND11
     to: ND10
