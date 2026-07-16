@@ -73,11 +73,11 @@ class OperationPlanLoaderTest {
         TrainServicePlan upFollower = service("SVC-002");
         TrainServicePlan downFollower = service("SVC-004");
 
-        assertEquals(195, loader.plannedDepartureOffsetSec(upFollower, peak));
+        assertEquals(190, loader.plannedDepartureOffsetSec(upFollower, peak));
         assertEquals(195, loader.plannedDepartureOffsetSec(downFollower, peak));
-        assertEquals(315, loader.plannedDepartureOffsetSec(upFollower, flat));
+        assertEquals(310, loader.plannedDepartureOffsetSec(upFollower, flat));
         assertEquals(315, loader.plannedDepartureOffsetSec(downFollower, flat));
-        assertEquals(435, loader.plannedDepartureOffsetSec(upFollower, offPeak));
+        assertEquals(430, loader.plannedDepartureOffsetSec(upFollower, offPeak));
         assertEquals(435, loader.plannedDepartureOffsetSec(downFollower, offPeak));
     }
 

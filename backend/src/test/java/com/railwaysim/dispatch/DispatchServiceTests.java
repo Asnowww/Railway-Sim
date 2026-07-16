@@ -301,7 +301,7 @@ class DispatchServiceTests {
     @Test
     void dispatchGeneratesDepartureCommandsFromFormalServicePlan() {
         DispatchService service = dispatchService();
-        Instant due = peakTomorrowPlusSeconds(1_400);
+        Instant due = peakTomorrowPlusSeconds(15);
 
         service.evaluate(tick(1, due), List.of(), List.of());
 
@@ -326,20 +326,20 @@ class DispatchServiceTests {
     @Test
     void formalFollowerDeparturesWaitForHeadwayGate() {
         DispatchService service = dispatchService();
-        Instant firstEvaluation = peakTomorrowPlusSeconds(1_400);
+        Instant firstEvaluation = peakTomorrowPlusSeconds(15);
         service.evaluate(tick(1, firstEvaluation), List.of(), List.of());
 
         assertThat(service.pendingCommands())
             .filteredOn(command -> "DEPART".equals(command.commandType()))
             .extracting(DispatchCommand::trainId)
-            .containsExactlyInAnyOrder("TR-001", "TR-002");
+            .containsExactlyInAnyOrder("TR-001", "TR-003");
 
-        service.evaluate(tick(2, firstEvaluation.plusSeconds(179)), List.of(), List.of());
+        service.evaluate(tick(2, firstEvaluation.plusSeconds(174)), List.of(), List.of());
 
         assertThat(service.pendingCommands())
             .filteredOn(command -> "DEPART".equals(command.commandType()))
             .extracting(DispatchCommand::trainId)
-            .containsExactlyInAnyOrder("TR-001", "TR-002");
+            .containsExactlyInAnyOrder("TR-001", "TR-003");
 
         service.evaluate(tick(3, firstEvaluation.plusSeconds(180)), List.of(), List.of());
 
@@ -350,10 +350,10 @@ class DispatchServiceTests {
                 DispatchCommand::createdAt
             ));
 
-        assertThat(departureByTrain.get("TR-003").getEpochSecond()
+        assertThat(departureByTrain.get("TR-002").getEpochSecond()
             - departureByTrain.get("TR-001").getEpochSecond()).isEqualTo(180);
         assertThat(departureByTrain.get("TR-004").getEpochSecond()
-            - departureByTrain.get("TR-002").getEpochSecond()).isEqualTo(180);
+            - departureByTrain.get("TR-003").getEpochSecond()).isEqualTo(180);
     }
 
     @Test
@@ -1341,6 +1341,16 @@ class DispatchServiceTests {
             InMemoryStationRecordStore stationStore = new InMemoryStationRecordStore();
             RouteDispatchRecordStore routeStore = new RouteDispatchRecordStore();
             RouteCatalog routeCatalog = new RouteCatalog(lineData);
+            com.railwaysim.signal.RouteInterlockingService interlockingService =
+                org.mockito.Mockito.mock(com.railwaysim.signal.RouteInterlockingService.class);
+            org.mockito.Mockito.when(interlockingService.state(org.mockito.ArgumentMatchers.anyString()))
+                .thenAnswer(invocation -> new RouteState(
+                    invocation.getArgument(0),
+                    RouteStatus.AVAILABLE,
+                    Set.of(),
+                    null,
+                    Set.of()
+                ));
             return new DispatchService(
                 planLoader,
                 properties,
@@ -1356,7 +1366,7 @@ class DispatchServiceTests {
                 new RouteIntentResolver(routeCatalog, properties),
                 new RouteIntentArbiter(routeCatalog),
                 new OperationPlanningService(routeCatalog),
-                new SignalDispatchPlanRegistry(),
+                new SignalDispatchPlanRegistry(interlockingService),
                 new LineHeadwayOptimizer()
             );
         } catch (IOException ex) {

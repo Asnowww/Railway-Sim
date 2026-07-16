@@ -610,9 +610,19 @@ public class DispatchService {
                 || activeTrainIds.contains(service.trainId())) {
                 continue;
             }
-            Instant plannedDeparture = simulationStart.plusSeconds(origin.departureOffsetSec());
+            Instant plannedDeparture = plannedDepartureAt(service);
             // 首个发车计划允许30秒窗口：避免 reset()→start() 时间差导致首班车被跳过
             if (simulatedAt.isBefore(plannedDeparture.minusSeconds(30))) {
+                continue;
+            }
+            if (!departureHeadwayGateSatisfied(service, simulatedAt)) {
+                log.debug(
+                    "[DispatchLoop] departure gated service={} train={} direction={} plannedAt={}",
+                    service.serviceId(),
+                    service.trainId(),
+                    service.direction(),
+                    plannedDeparture
+                );
                 continue;
             }
             PlannedStop terminus = service.terminus();

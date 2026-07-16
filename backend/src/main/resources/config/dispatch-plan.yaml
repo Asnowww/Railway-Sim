@@ -227,42 +227,6 @@ circulations:
   - id: CIRC-004
     rollingStockId: STOCK-001
     serviceIds: [SVC-004]
-  - id: CIRC-005
-    rollingStockId: STOCK-001
-    serviceIds: [SVC-005]
-  - id: CIRC-006
-    rollingStockId: STOCK-001
-    serviceIds: [SVC-006]
-  - id: CIRC-007
-    rollingStockId: STOCK-001
-    serviceIds: [SVC-007]
-  - id: CIRC-008
-    rollingStockId: STOCK-001
-    serviceIds: [SVC-008]
-  - id: CIRC-009
-    rollingStockId: STOCK-001
-    serviceIds: [SVC-009]
-  - id: CIRC-010
-    rollingStockId: STOCK-001
-    serviceIds: [SVC-010]
-  - id: CIRC-011
-    rollingStockId: STOCK-001
-    serviceIds: [SVC-011]
-  - id: CIRC-012
-    rollingStockId: STOCK-001
-    serviceIds: [SVC-012]
-  - id: CIRC-013
-    rollingStockId: STOCK-001
-    serviceIds: [SVC-013]
-  - id: CIRC-014
-    rollingStockId: STOCK-001
-    serviceIds: [SVC-014]
-  - id: CIRC-015
-    rollingStockId: STOCK-001
-    serviceIds: [SVC-015]
-  - id: CIRC-016
-    rollingStockId: STOCK-001
-    serviceIds: [SVC-016]
 
 services:
   - serviceId: SVC-001
@@ -274,6 +238,18 @@ services:
     direction: UP
     stops:
       - { stationId: S101, arrivalOffsetSec: 0, departureOffsetSec: 10 }
+      - { stationId: S102, arrivalOffsetSec: 91, departureOffsetSec: 116 }
+      - { stationId: S103, arrivalOffsetSec: 160, departureOffsetSec: 185 }
+      - { stationId: S104, arrivalOffsetSec: 240, departureOffsetSec: 265 }
+      - { stationId: S105, arrivalOffsetSec: 354, departureOffsetSec: 379 }
+      - { stationId: S106, arrivalOffsetSec: 454, departureOffsetSec: 479 }
+      - { stationId: S107, arrivalOffsetSec: 580, departureOffsetSec: 605 }
+      - { stationId: S108, arrivalOffsetSec: 679, departureOffsetSec: 704 }
+      - { stationId: S109, arrivalOffsetSec: 769, departureOffsetSec: 794 }
+      - { stationId: S110, arrivalOffsetSec: 873, departureOffsetSec: 898 }
+      - { stationId: S111, arrivalOffsetSec: 1006, departureOffsetSec: 1031 }
+      - { stationId: S112, arrivalOffsetSec: 1090, departureOffsetSec: 1115 }
+      - { stationId: S113, arrivalOffsetSec: 1177, departureOffsetSec: 1177 }
   - serviceId: SVC-002
     circulationId: CIRC-002
     trainId: TR-002

@@ -566,6 +566,20 @@ public class SignalService {
         double lineLen = infrastructureCatalog.lineData().lineLengthMeters();
         // DOWN列车: effectiveHead = L-head → 物理递增镜像为递减,匹配S113→S101站序
         double searchHead = (isDown && lineLen > 0) ? lineLen - head : head;
+        TrackSegmentState currentSegment = trackService.segmentForTrain(train);
+        String track = currentSegment == null ? null : currentSegment.track();
+
+        // 释放标记只在列车尚未驶离当前站台窗口时有效；否则会把后续站距永久屏蔽为 9999m。
+        String releasePrefix = train.id() + ":";
+        releasedStationStops.removeIf(key -> {
+            if (!key.startsWith(releasePrefix)) return false;
+            String stationId = key.substring(releasePrefix.length());
+            return stations.stream()
+                .filter(station -> station.id().equals(stationId))
+                .findFirst()
+                .map(station -> head > lineData.stopPointMeters(station, track) + STATION_STOP_WINDOW_METERS)
+                .orElse(true);
+        });
 
         // 找车头前方的下一站；允许车头在站中心后方 10m 内继续被视为站停窗口。
         // 环线里程下 up/down 站点各在自己的里程域（S1xx ≤ L < S2xx），统一按里程递增搜索。
